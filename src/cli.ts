@@ -151,7 +151,7 @@ async function runRun(flags: Flags): Promise<void> {
   if (flags.detach) {
     const code = compose(result, ['up', '--build', '-d'], flags);
     if (code === 0) {
-      console.log('остановить: arcod run ' + (flags.spec ?? '') + ' --down');
+      console.log('остановить: ' + (flags.spec ? 'arcod run ' + flags.spec + ' --down' : 'arcod run --down'));
     }
     process.exitCode = code;
     return;
