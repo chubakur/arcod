@@ -51,7 +51,9 @@ service OneTimeMessage : http {
 
   budget {
     latency: p95 <= 50ms
-    tokens: 40000
+    concurrency: 100
+    tokens: <= 40000
+    time: 2h
   }
 
   examples {

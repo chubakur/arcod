@@ -12,6 +12,8 @@ const CONFIG = __CONFIG__;
 const ROUTES = __ROUTES__;
 const ERRORS = __ERRORS__;
 
+let inFlight = 0;
+
 const LUA_READ = [
   "local v = redis.call('GET', KEYS[1])",
   "if v then",
@@ -215,6 +217,14 @@ async function handleRead(res, id) {
 }
 
 const server = http.createServer(async (req, res) => {
+  if (CONFIG.concurrency) {
+    if (inFlight >= CONFIG.concurrency) {
+      return send(res, 503, JSON.stringify({ error: 'Unavailable', message: 'too many concurrent requests' }));
+    }
+    inFlight++;
+    res.on('close', () => { inFlight--; });
+  }
+
   try {
     const url = new URL(req.url || '/', 'http://localhost');
     if (url.pathname === '/healthz') {
@@ -285,6 +295,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
     goneTtlMs: ttlMs,
     minBody: limits.min,
     maxBody: limits.max,
+    concurrency: budgetConcurrency(svc),
   };
 
   return (
@@ -295,6 +306,13 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
       .replace('__ROUTES__', JSON.stringify(routes, null, 2))
       .replace('__ERRORS__', JSON.stringify(errors, null, 2))
   );
+}
+
+export function budgetConcurrency(svc: ServiceNode): number | null {
+  const item = svc.budget?.items.find((entry) => entry.key === 'concurrency');
+  if (!item) return null;
+  if (item.expr.kind === 'literal' && typeof item.expr.value === 'number') return item.expr.value;
+  return null;
 }
 
 export function maxBodyBytes(mod: ModuleNode): number {

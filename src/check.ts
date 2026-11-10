@@ -105,7 +105,8 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     // A008 — budget metric without a comparison
     for (const item of svc.budget?.items ?? []) {
       const needsMetric = item.key === 'latency' || item.key === 'cost';
-      if (needsMetric && !(item.expr.kind === 'binary' && ['<=', '<', '>=', '>', '=='].includes(item.expr.op))) {
+      const hasComparison = item.op !== null || (item.expr.kind === 'binary' && ['<=', '<', '>=', '>', '=='].includes(item.expr.op));
+      if (needsMetric && !hasComparison) {
         diags.push(diag('A008', 'error', mod.file, item.loc, `services.${svc.name}.budget.${item.key}`, 'бюджет без метрики или единицы'));
       }
     }

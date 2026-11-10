@@ -429,12 +429,16 @@ class Parser {
   private parseBudget(): BudgetNode {
     const start = this.prev();
     this.expect('{');
-    const items: Array<{ key: string; expr: Expr; loc: Loc }> = [];
+    const items: Array<{ key: string; op: string | null; expr: Expr; loc: Loc }> = [];
     while (!this.is('}')) {
       const key = this.expectIdent('budget key').value;
       this.expect(':');
+      let op: string | null = null;
+      if (this.is('<=') || this.is('<') || this.is('>=') || this.is('>') || this.is('==')) {
+        op = this.next().value;
+      }
       const expr = this.parseExpr();
-      items.push({ key, expr, loc: locOf(this.prev()) });
+      items.push({ key, op, expr, loc: locOf(this.prev()) });
       this.accept(';');
     }
     this.expect('}');

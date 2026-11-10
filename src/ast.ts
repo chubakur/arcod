@@ -162,7 +162,7 @@ export interface Arg {
 
 export interface BudgetNode {
   kind: 'budget';
-  items: Array<{ key: string; expr: Expr; loc: Loc }>;
+  items: Array<{ key: string; op: string | null; expr: Expr; loc: Loc }>;
   loc: Loc;
 }
 

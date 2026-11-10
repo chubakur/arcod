@@ -93,6 +93,8 @@ node ../../bin/arcod.mjs run
 - `.arcod/build/web/` — статический фронтенд и nginx с проксированием `/api` (только при объявленном `ui`);
 - `.arcod/build/docker-compose.yml` — redis + сервис + фронтенд.
 
+`budget { concurrency: N }` даёт лимитер in-flight запросов: сверх лимита — `503`.
+
 Правила из спеки превращаются в поведение: `atomic read { get; del }` — в Lua-скрипт с гетом и удалением, `once(read, by: id)` — в tombstone-ключ, который даёт `Gone` при повторном чтении.
 
 ## Проверки
@@ -152,6 +154,7 @@ npm test
 - `change`, `unknown` и `external` парсятся, но не влияют на сборку.
 - `lifecycle`, `ordering` и предикаты, кроме `once`, пока декларативны.
 - `ui` поддерживает только `kind: spa` и генерирует страницу под операции `create`/`read`; произвольная вёрстка не выражается.
+- `budget.latency` и `budget.cost` — декларативные SLO, runtime-проверки для них ещё нет.
 
 ## Лицензия
 

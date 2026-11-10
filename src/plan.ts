@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ModuleNode, OpNode, ServiceNode } from './ast.ts';
+import type { Expr, ModuleNode, OpNode, ServiceNode } from './ast.ts';
 
 export interface PlanTask {
   id: string;
@@ -10,7 +10,7 @@ export interface PlanTask {
   deps: string[];
   files: { create: string[]; modify: string[]; forbid: string[] };
   acceptance: string[];
-  budget: { tokens: number; time: string } | null;
+  budget: { tokens: number | null; time: string | null } | null;
 }
 
 export interface Plan {
@@ -128,10 +128,24 @@ export function buildPlan(mod: ModuleNode): Plan {
   };
 }
 
-function taskBudget(svc: ServiceNode): { tokens: number; time: string } | null {
-  const tokens = svc.budget?.items.find((item) => item.key === 'tokens');
-  if (!tokens || tokens.expr.kind !== 'literal' || typeof tokens.expr.value !== 'number') return null;
-  return { tokens: tokens.expr.value, time: '2h' };
+function taskBudget(svc: ServiceNode): { tokens: number | null; time: string | null } | null {
+  const items = svc.budget?.items ?? [];
+  const tokens = items.find((item) => item.key === 'tokens');
+  const time = items.find((item) => item.key === 'time');
+
+  const tokenValue = tokens && tokens.expr.kind === 'literal' && typeof tokens.expr.value === 'number'
+    ? tokens.expr.value
+    : null;
+  const timeValue = time ? budgetText(time.expr) : null;
+
+  if (tokenValue === null && timeValue === null) return null;
+  return { tokens: tokenValue, time: timeValue };
+}
+
+function budgetText(expr: Expr): string | null {
+  if (expr.kind === 'duration') return expr.value + expr.unit;
+  if (expr.kind === 'literal') return String(expr.value);
+  return null;
 }
 
 export function kebab(name: string): string {

@@ -90,6 +90,15 @@ test('A018 catches a ui reference to a missing operation', () => {
   assert.ok(codes.includes('A018'));
 });
 
+test('budget reaches the plan and the runtime', () => {
+  const task = buildPlan(ast).tasks.find((item) => item.kind === 'implement');
+  assert.deepEqual(task?.budget, { tokens: 40000, time: '2h' });
+
+  const code = emitService(ast);
+  assert.ok(code.includes('"concurrency": 100'));
+  assert.ok(code.includes('inFlight >= CONFIG.concurrency'));
+});
+
 test('compose has kv, service and web', () => {
   const yaml = composeYaml(ast, 8080);
   assert.match(yaml, /^name: arcod-onetimemessage/m);
