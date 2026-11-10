@@ -1,5 +1,6 @@
 import type { Diagnostic } from './diagnostics.ts';
 import type { Expr, Loc, ModuleNode, OpNode, ServiceNode } from './ast.ts';
+import { templateFor } from './templates.ts';
 
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
 const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysql', 'mongodb', 'localhost', '127.0.0.1'];
@@ -127,6 +128,14 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           diags.push(diag('A007', 'error', mod.file, op.loc, `services.${svc.name}.contract.${op.name}.errors`, `ошибка ${errorName} объявлена, но не обработана`, `добавьте on error ${errorName} или пример с ${errorName}`));
         }
       }
+    }
+
+    // W018 — operation bodies come from built-in templates, not from the model
+    const templated = svc.contract
+      .filter((op) => op.kind === 'op' && templateFor(op.name))
+      .map((op) => op.name);
+    if (templated.length > 0) {
+      diags.push(diag('W018', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'тела операций — встроенные шаблоны, не выведены из модели: ' + templated.join(', '), 'для своей логики нужен агент или исполняемое тело операции'));
     }
 
     // W017 — jobs are parsed but not executable in v0.1

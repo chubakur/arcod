@@ -37,6 +37,7 @@ test('the example has no errors', () => {
   const diags = check(ast);
   assert.deepEqual(diags.filter((item) => item.severity === 'error'), []);
   assert.ok(diags.some((item) => item.code === 'W016'));
+  assert.ok(diags.some((item) => item.code === 'W018'));
 });
 
 test('reports an unbound capability', () => {
