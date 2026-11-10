@@ -347,7 +347,7 @@ function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boo
     ? '{ result: ' + resultWire + ' } | { error: ' + errors.map((name) => '"' + name + '"').join(' | ') + ' }'
     : '{ result: ' + resultWire + ' }';
 
-  const lines = [op.name + '(input, io)', 'in: { ' + input + ' }', 'out: ' + result];
+  const lines = ['export async function ' + op.name + '(input, io)', 'in: { ' + input + ' }', 'out: ' + result];
 
   for (const clause of op.clauses) {
     // "result != null" is a tautology of the generated model: noise for the body.
@@ -375,13 +375,25 @@ function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boo
   const io = opEffects(svc, op, guarded)
     .map(([alias, name]) => shortFor(capabilityOf.get(alias) ?? alias, name))
     .filter((item): item is string => Boolean(item));
-  if (io.length > 0) lines.push('io: ' + io.join('; '));
+  if (io.length > 0) lines.push('io (all methods are async: await them): ' + io.join('; '));
 
-  if (svc.uses.some((use) => use.capability === 'kv' || use.capability.endsWith('.kv'))) {
+  if (usesKv) {
     lines.push(
       guarded
-        ? 'value: {b: string, h: string|null}; h = password hash or null'
-        : 'value: message text',
+        ? 'record: {b: string, h: string|null}; h = password hash or null'
+        : 'record: {b: string, h: null}',
+    );
+  }
+
+  // The lifecycle is not inferable from types alone: a 7B model skips the
+  // consume step and inverts the tombstone check without this.
+  if (op.name === 'create') {
+    lines.push('steps: id = io.new(); await io.save(id, record); return { result: id }');
+  } else if (op.name === 'read') {
+    lines.push(
+      'steps: rec = await io.load(id); if (!rec) return io.seen(id) ? Gone : NotFound;' +
+        (guarded ? ' if (rec.h && !(await io.verify(password, rec.h))) return WrongPassword;' : '') +
+        ' if (!(await io.takeIf(id, rec))) return Gone; return { result: rec.b }',
     );
   }
 

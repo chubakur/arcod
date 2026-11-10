@@ -44,6 +44,7 @@ const SYSTEM =
   'You write one JavaScript function for an existing service. ' +
   'Reply with only one js code block containing the file. ' +
   'No imports, no HTTP, no statuses: the caller handles them. ' +
+  'The caller also validates input limits before calling you. ' +
   'Return { result } on success or { error: "Name" } for a declared error.';
 
 export function extractCode(text: string): string {
@@ -52,6 +53,13 @@ export function extractCode(text: string): string {
   const bare = text.trim();
   if (bare.startsWith('export ') && !bare.includes('\`\`\`')) return bare;
   throw new Error('no code block in the model reply');
+}
+
+export function normalizeBody(code: string, op: string): string {
+  const trimmed = code.trim();
+  const bare = new RegExp('^(async\\s+)?function\\s+' + op + '\\s*\\(');
+  if (bare.test(trimmed)) return 'export ' + trimmed;
+  return trimmed;
 }
 
 export function validateBody(code: string, op: string): string | null {
@@ -146,7 +154,7 @@ async function runTask(task: PromptTask, outDir: string, cacheDir: string, optio
   } else {
     try {
       const reply = await generate(task.prompt, options);
-      code = extractCode(reply);
+      code = normalizeBody(extractCode(reply), task.op);
     } catch (error) {
       return { ...base, error: error instanceof Error ? error.message : String(error) };
     }

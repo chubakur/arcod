@@ -13,19 +13,19 @@ export interface CapabilitySpec {
 export const CAPABILITIES: Record<string, CapabilitySpec> = {
   kv: {
     effects: {
-      get: 'get(id: string) -> string | null',
-      set: 'set(id: string, value: string) -> void',
+      get: 'load(id: string) -> { b: string, h: string | null } | null',
+      set: 'save(id: string, record: { b: string, h: string | null }) -> void',
       del: 'del(id: string) -> void',
       has: 'has(id: string) -> boolean',
-      takeIf: 'takeIf(id: string, expected: string) -> boolean',
+      takeIf: 'takeIf(id: string, record) -> boolean',
       seen: 'seen(id: string) -> boolean',
     },
     short: {
-      get: 'get(id) -> string|null',
-      set: 'set(id, value)',
+      get: 'load(id) -> {b,h}|null',
+      set: 'save(id, {b,h})',
       del: 'del(id)',
       has: 'has(id) -> bool',
-      takeIf: 'takeIf(id, expected) -> bool',
+      takeIf: 'takeIf(id, record) -> bool',
       seen: 'seen(id) -> bool',
     },
     notes: 'has tells whether the message still exists; seen tells whether it was already consumed. takeIf deletes only when the stored value equals expected.',
