@@ -4,6 +4,7 @@ import type { ModuleNode } from '../ast.ts';
 import { emitService, maxBodyBytes } from './emit/service.ts';
 import { emitWeb } from './emit/web.ts';
 import { composeYaml, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
+import { buildPrompts } from './prompts.ts';
 
 export interface BuildOptions {
   port?: number;
@@ -47,6 +48,30 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
   }
 
   files.push([join(dir, 'docker-compose.yml'), composeYaml(mod, port, hasUi)]);
+
+  // Deterministic prompts are part of the build output: one per operation,
+  // each carrying only its own contract and the capability signatures.
+  const prompts = buildPrompts(mod);
+  const promptDir = join(dir, 'prompts');
+  await mkdir(promptDir, { recursive: true });
+  for (const task of prompts.tasks) {
+    const path = join(promptDir, task.op + '.md');
+    files.push([path, task.prompt]);
+  }
+  files.push([
+    join(promptDir, 'manifest.json'),
+    JSON.stringify(
+      {
+        module: prompts.module,
+        version: prompts.version,
+        modelHash: prompts.modelHash,
+        budget: prompts.budget,
+        tasks: prompts.tasks.map((task) => ({ id: task.id, op: task.op, file: task.file, tokens: task.tokens, sha256: task.sha256 })),
+      },
+      null,
+      2,
+    ) + '\n',
+  ]);
 
   for (const [path, content] of files) {
     await writeFile(path, content, { encoding: 'utf8', mode: 0o644 });

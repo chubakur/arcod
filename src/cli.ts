@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse, ParseError } from './parser.ts';
@@ -8,6 +8,8 @@ import { buildExample } from './build.ts';
 import { runExamples } from './test.ts';
 import type { Diagnostic } from './diagnostics.ts';
 import type { ModuleNode } from './ast.ts';
+import { buildPrompts, formatPrompts } from './prompts.ts';
+import { DEFAULT_IMPL, formatImplReport, runImpl } from './impl.ts';
 
 const VERSION = '0.1.0';
 
@@ -51,6 +53,12 @@ export async function main(argv: string[]): Promise<void> {
         return;
       case 'run':
         await runRun(flags);
+        return;
+      case 'prompts':
+        await runPrompts(flags);
+        return;
+      case 'impl':
+        await runImplCmd(flags);
         return;
       case 'fmt':
         console.error('arcod fmt: not implemented in v0.1 (use the source formatter of your editor)');
@@ -108,6 +116,67 @@ async function runPlan(flags: Flags): Promise<void> {
     return;
   }
   console.log(formatPlan(plan));
+}
+
+async function runPrompts(flags: Flags): Promise<void> {
+  const loaded = await load(flags.spec);
+  const errors = check(loaded.mod).filter((item) => item.severity === 'error');
+  if (errors.length > 0) {
+    printDiagnostics(errors, loaded.specPath);
+    process.exitCode = 1;
+    return;
+  }
+
+  const set = buildPrompts(loaded.mod, { budget: flags.maxTokens });
+  const dir = join(loaded.dir, '.arcod', 'build', 'prompts');
+  await mkdir(dir, { recursive: true });
+  for (const task of set.tasks) {
+    await writeFile(join(dir, task.op + '.md'), task.prompt, 'utf8');
+  }
+
+  const manifest = {
+    module: set.module,
+    version: set.version,
+    modelHash: set.modelHash,
+    budget: set.budget,
+    tasks: set.tasks.map((task) => ({ id: task.id, op: task.op, file: task.file, tokens: task.tokens, sha256: task.sha256 })),
+  };
+  await writeFile(join(loaded.dir, '.arcod', 'build', 'prompts.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+
+  if (flags.json) {
+    console.log(JSON.stringify(manifest, null, 2));
+  } else {
+    console.log(formatPrompts(set));
+    console.log('  written to ' + dir);
+  }
+  if (set.overBudget.length > 0) {
+    console.error('over budget (' + set.budget + '): ' + set.overBudget.join(', '));
+    process.exitCode = 1;
+  }
+}
+
+async function runImplCmd(flags: Flags): Promise<void> {
+  const loaded = await load(flags.spec);
+  const errors = check(loaded.mod).filter((item) => item.severity === 'error');
+  if (errors.length > 0) {
+    printDiagnostics(errors, loaded.specPath);
+    process.exitCode = 1;
+    return;
+  }
+
+  const { results, options } = await runImpl(loaded.mod, loaded.dir, {
+    endpoint: flags.endpoint,
+    model: flags.model,
+    dryRun: flags.dryRun,
+    cache: !flags.noCache,
+  });
+
+  if (flags.json) {
+    console.log(JSON.stringify(results, null, 2));
+  } else {
+    console.log(formatImplReport(results, options));
+  }
+  if (results.some((item) => !item.ok)) process.exitCode = 1;
 }
 
 async function runBuild(flags: Flags): Promise<void> {
@@ -256,10 +325,28 @@ interface Flags {
   scaffold: boolean;
   env?: string;
   port: number;
+  model: string;
+  endpoint: string;
+  dryRun: boolean;
+  noCache: boolean;
+  maxTokens: number;
 }
 
 function parseFlags(args: string[]): Flags {
-  const flags: Flags = { json: false, check: false, detach: false, down: false, reference: false, scaffold: false, port: 8080 };
+  const flags: Flags = {
+    json: false,
+    check: false,
+    detach: false,
+    down: false,
+    reference: false,
+    scaffold: false,
+    port: 8080,
+    model: DEFAULT_IMPL.model,
+    endpoint: DEFAULT_IMPL.endpoint,
+    dryRun: false,
+    noCache: false,
+    maxTokens: 1600,
+  };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--json') flags.json = true;
@@ -270,6 +357,11 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--scaffold') flags.scaffold = true;
     else if (arg === '--env') flags.env = args[++i];
     else if (arg === '--port') flags.port = Number(args[++i] ?? 8080);
+    else if (arg === '--model') flags.model = args[++i] ?? DEFAULT_IMPL.model;
+    else if (arg === '--endpoint') flags.endpoint = args[++i] ?? DEFAULT_IMPL.endpoint;
+    else if (arg === '--max-tokens') flags.maxTokens = Number(args[++i] ?? 1600);
+    else if (arg === '--dry-run') flags.dryRun = true;
+    else if (arg === '--no-cache') flags.noCache = true;
     else if (!arg.startsWith('-')) flags.spec = arg;
     else throw new Error('unknown flag: ' + arg);
   }
@@ -320,12 +412,21 @@ usage:
   arcod check [dir|spec.arc] [--json] [--env name]
   arcod ast   [dir|spec.arc] [--check]
   arcod plan  [dir|spec.arc] [--json]
+  arcod prompts [dir|spec.arc] [--max-tokens 1600] [--json]
+  arcod impl  [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
+                              [--dry-run] [--no-cache]
   arcod build [dir|spec.arc] [--reference] [--port 8080]
   arcod test  [dir|spec.arc] [--json]
   arcod run   [dir|spec.arc] [--scaffold] [--port 8080] [--detach] [--down]
 
 build defaults to a scaffold: contracts, routes, adapters and infra, with TODO handlers.
 --reference additionally emits the built-in demo bodies (create/read over kv).
+
+prompts writes one deterministic prompt per operation into .arcod/build/prompts,
+plus prompts.json with sha256 of each prompt. A prompt contains only the
+operation contract, the allowed capability signatures and the storage format.
+impl sends those prompts to an Ollama-compatible endpoint and validates the
+returned body (no imports, no HTTP, syntax check).
 
 examples:
   cd examples/onetimemessage && arcod run

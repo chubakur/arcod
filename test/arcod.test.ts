@@ -9,6 +9,8 @@ import { emitWeb } from '../src/emit/web.ts';
 import { composeYaml } from '../src/emit/compose.ts';
 import { buildExample } from '../src/build.ts';
 import { runExamples } from '../src/test.ts';
+import { buildPrompts } from '../src/prompts.ts';
+import { extractCode, validateBody } from '../src/impl.ts';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -204,6 +206,42 @@ test('guarded build emits password verification, scaffold keeps TODO', async () 
   const web = await readFile(join(reference.dir, 'web', 'index.html'), 'utf8');
   assert.ok(web.includes('id="pwd-create"'));
   assert.ok(web.includes('id="pwd-read"'));
+});
+
+test('prompts are deterministic and stay under budget', () => {
+  const first = buildPrompts(guardedAst);
+  const second = buildPrompts(guardedAst);
+  assert.deepEqual(first.tasks.map((task) => task.sha256), second.tasks.map((task) => task.sha256));
+  assert.deepEqual(first.tasks.map((task) => task.prompt), second.tasks.map((task) => task.prompt));
+  assert.deepEqual(first.overBudget, []);
+  for (const task of first.tasks) {
+    assert.ok(task.tokens < 800, task.id + ' is ' + task.tokens + ' tokens');
+  }
+});
+
+test('a prompt contains only its own operation', () => {
+  const set = buildPrompts(guardedAst);
+  const read = set.tasks.find((task) => task.op === 'read')!;
+  const create = set.tasks.find((task) => task.op === 'create')!;
+  assert.match(read.prompt, /WrongPassword/);
+  assert.match(read.prompt, /on error WrongPassword: io\.has\(id\)/);
+  assert.ok(!read.prompt.includes('operation create'));
+  assert.ok(!read.prompt.includes('POST /api/messages'));
+  assert.match(create.prompt, /output|returns/i);
+  assert.ok(!create.prompt.includes('WrongPassword'));
+});
+
+test('prompt budget is enforced', () => {
+  const set = buildPrompts(guardedAst, { budget: 20 });
+  assert.deepEqual(set.overBudget, set.tasks.map((task) => task.id));
+});
+
+test('model replies are extracted and validated', () => {
+  const code = extractCode('text before\n\u0060\u0060\u0060js\nexport async function read(input, io) { return { result: "x" }; }\n\u0060\u0060\u0060\ntext after');
+  assert.equal(validateBody(code, 'read'), null);
+  assert.ok(validateBody('import x from "node:fs";\nexport async function read(input, io) {}', 'read'));
+  assert.ok(validateBody('export async function write(input, io) {}', 'read'));
+  assert.ok(validateBody('export async function read(input, io) { res.writeHead(200); }', 'read'));
 });
 
 test('guarded examples pass: wrong password does not consume', async () => {
