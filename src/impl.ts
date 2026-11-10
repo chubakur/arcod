@@ -40,7 +40,11 @@ export interface ImplResult {
   error?: string;
 }
 
-const SYSTEM = 'You write a single JavaScript file for an existing service. Reply only with the code.';
+const SYSTEM =
+  'You write one JavaScript function for an existing service. ' +
+  'Reply with only one js code block containing the file. ' +
+  'No imports, no HTTP, no statuses: the caller handles them. ' +
+  'Return { result } on success or { error: "Name" } for a declared error.';
 
 export function extractCode(text: string): string {
   const fenced = text.match(/\`\`\`(?:js|javascript|mjs)?\s*\n([\s\S]*?)\`\`\`/);

@@ -215,7 +215,7 @@ test('prompts are deterministic and stay under budget', () => {
   assert.deepEqual(first.tasks.map((task) => task.prompt), second.tasks.map((task) => task.prompt));
   assert.deepEqual(first.overBudget, []);
   for (const task of first.tasks) {
-    assert.ok(task.tokens < 800, task.id + ' is ' + task.tokens + ' tokens');
+    assert.ok(task.tokens < 200, task.id + ' is ' + task.tokens + ' tokens');
   }
 });
 
@@ -224,10 +224,10 @@ test('a prompt contains only its own operation', () => {
   const read = set.tasks.find((task) => task.op === 'read')!;
   const create = set.tasks.find((task) => task.op === 'create')!;
   assert.match(read.prompt, /WrongPassword/);
-  assert.match(read.prompt, /on error WrongPassword: io\.has\(id\)/);
+  assert.match(read.prompt, /on WrongPassword: io\.has\(id\)/);
   assert.ok(!read.prompt.includes('operation create'));
   assert.ok(!read.prompt.includes('POST /api/messages'));
-  assert.match(create.prompt, /output|returns/i);
+  assert.match(create.prompt, /^out: /m);
   assert.ok(!create.prompt.includes('WrongPassword'));
 });
 

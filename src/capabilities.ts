@@ -6,6 +6,7 @@
 // prefixes and TTL are the adapter's business, not the body's.
 export interface CapabilitySpec {
   effects: Record<string, string>;
+  short: Record<string, string>;
   notes?: string;
 }
 
@@ -19,12 +20,21 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       takeIf: 'takeIf(id: string, expected: string) -> boolean',
       seen: 'seen(id: string) -> boolean',
     },
+    short: {
+      get: 'get(id) -> string|null',
+      set: 'set(id, value)',
+      del: 'del(id)',
+      has: 'has(id) -> bool',
+      takeIf: 'takeIf(id, expected) -> bool',
+      seen: 'seen(id) -> bool',
+    },
     notes: 'has tells whether the message still exists; seen tells whether it was already consumed. takeIf deletes only when the stored value equals expected.',
   },
   ids: {
     effects: {
       new: 'new() -> string',
     },
+    short: { new: 'new() -> id' },
     notes: 'Returns a v4 uuid.',
   },
   hash: {
@@ -32,6 +42,7 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       hash: 'hash(password: string) -> string',
       verify: 'verify(password: string, hash: string) -> boolean',
     },
+    short: { hash: 'hash(password)', verify: 'verify(password, hash) -> bool' },
     notes: 'hash returns a salted scrypt record; verify compares in constant time.',
   },
 };
@@ -44,4 +55,9 @@ export function capabilityFor(name: string): CapabilitySpec | null {
 export function signatureFor(alias: string, op: string): string | null {
   const spec = capabilityFor(alias);
   return spec?.effects[op] ?? null;
+}
+
+export function shortFor(alias: string, op: string): string | null {
+  const spec = capabilityFor(alias);
+  return spec?.short[op] ?? spec?.effects[op] ?? null;
 }

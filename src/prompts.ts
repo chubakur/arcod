@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Expr, ModuleNode, OpNode, ServiceNode, TypeExpr } from './ast.ts';
 import { buildPlan } from './plan.ts';
 import { isGuarded, pickService, routeOf } from './emit/service.ts';
-import { signatureFor } from './capabilities.ts';
+import { signatureFor, shortFor } from './capabilities.ts';
 
 export interface PromptTask {
   id: string;
@@ -24,6 +24,7 @@ export interface PromptSet {
 
 export interface PromptOptions {
   budget?: number;
+  format?: 'compact' | 'full';
 }
 
 export function estimateTokens(text: string): number {
@@ -169,13 +170,18 @@ function taskFor(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean
     })
     .filter(Boolean);
 
-  const rules = svc.rules.map((rule) =>
-    rule.kind === 'invariant'
-      ? 'invariant ' + rule.name + ': ' + contractText(rule.expr, svc)
-      : rule.kind === 'atomic'
-        ? 'atomic ' + rule.name + ' { ' + rule.steps.join('; ') + ' }'
-        : '',
-  ).filter(Boolean);
+  // Only the rules that concern this operation: a create prompt must not
+  // carry read's invariants.
+  const opWord = new RegExp('\\b' + op.name + '\\b');
+  const rules = svc.rules
+    .map((rule) =>
+      rule.kind === 'invariant'
+        ? 'invariant ' + rule.name + ': ' + contractText(rule.expr, svc)
+        : rule.kind === 'atomic'
+          ? 'atomic ' + rule.name + ' { ' + rule.steps.join('; ') + ' }'
+          : '',
+    )
+    .filter((text) => text && opWord.test(text));
 
   const lines = [
     '# Task ' + id,
@@ -230,9 +236,10 @@ export function buildPrompts(mod: ModuleNode, options: PromptOptions = {}): Prom
   if (!svc) throw new Error('no service to build prompts for');
   const budget = options.budget ?? 1600;
   const guarded = isGuarded(svc);
+  const format = options.format ?? 'compact';
   const tasks = svc.contract
     .filter((op) => op.kind === 'op')
-    .map((op) => taskFor(mod, svc, op, guarded))
+    .map((op) => (format === 'full' ? taskFor(mod, svc, op, guarded) : compactTask(mod, svc, op, guarded)))
     .sort((a, b) => a.id.localeCompare(b.id));
 
   return {
@@ -242,6 +249,150 @@ export function buildPrompts(mod: ModuleNode, options: PromptOptions = {}): Prom
     budget,
     tasks,
     overBudget: tasks.filter((task) => task.tokens > budget).map((task) => task.id),
+  };
+}
+
+function numberArg(value: Expr | TypeExpr): number | null {
+  if (value.kind === 'literal' && typeof value.value === 'number') return value.value;
+  if (value.kind === 'duration') {
+    const unit = value.unit.toLowerCase();
+    const scale = unit === 'kb' ? 1024 : unit === 'mb' ? 1024 * 1024 : unit === 's' ? 1000 : 1;
+    return value.value * scale;
+  }
+  return null;
+}
+
+function limitComment(type: TypeExpr, named: Map<string, TypeExpr>): string {
+  const resolved = type.kind === 'optional' ? type.inner : type;
+  const actual = resolved.kind === 'named' ? named.get(resolved.name) ?? resolved : resolved;
+  if (actual.kind !== 'named') return '';
+  const min = actual.args.find((arg) => arg.name === 'min');
+  const max = actual.args.find((arg) => arg.name === 'max');
+  if (!min && !max) return '';
+  const lo = min ? numberArg(min.value) : null;
+  const hi = max ? numberArg(max.value) : null;
+  const unit = actual.name === 'bytes' ? 'bytes' : 'chars';
+  const left = lo === null ? '' : String(lo);
+  const right = hi === null ? '' : String(hi);
+  return ' /* ' + (lo === null ? right : right ? left + '..' + right : '>=' + left) + ' ' + unit + ' */';
+}
+
+function mentions(svc: ServiceNode, op: OpNode): string[] {
+  const texts: string[] = [];
+  for (const clause of op.clauses) {
+    if (clause.kind === 'pre' || clause.kind === 'post' || clause.kind === 'onerror') texts.push(exprText(clause.expr));
+  }
+  for (const rule of svc.rules) {
+    if (rule.kind === 'invariant') texts.push(exprText(rule.expr));
+  }
+  return texts;
+}
+
+function opEffects(svc: ServiceNode, op: OpNode, guarded: boolean): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  const add = (alias: string, name: string) => {
+    if (out.some(([a, o]) => a === alias && o === name)) return;
+    out.push([alias, name]);
+  };
+
+  const kv = svc.uses.find((use) => use.capability === 'kv' || use.capability.endsWith('.kv'))?.alias;
+  const ids = svc.uses.find((use) => use.capability === 'ids' || use.capability.endsWith('.ids'))?.alias;
+  const hash = svc.uses.find((use) => use.capability === 'hash' || use.capability.endsWith('.hash'))?.alias;
+  const atomic = svc.rules.some((rule) => rule.kind === 'atomic' && rule.name === op.name);
+
+  if (op.name === 'create') {
+    if (kv) add(kv, 'set');
+    if (ids) add(ids, 'new');
+    if (guarded && hash) add(hash, 'hash');
+  }
+  if (op.name === 'read') {
+    if (kv) {
+      add(kv, 'get');
+      if (atomic) add(kv, 'takeIf');
+      else add(kv, 'del');
+      add(kv, 'seen');
+    }
+    if (guarded && hash) add(hash, 'verify');
+  }
+
+  for (const text of mentions(svc, op)) {
+    for (const match of text.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)/g)) {
+      add(match[1], match[2]);
+    }
+  }
+
+  const order = ['new', 'get', 'hash', 'verify', 'set', 'takeIf', 'seen', 'has', 'del'];
+  const rank = (name: string) => {
+    const index = order.indexOf(name);
+    return index < 0 ? order.length : index;
+  };
+  return out.sort((a, b) => rank(a[1]) - rank(b[1]) || a[1].localeCompare(b[1]));
+}
+
+function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean): PromptTask {
+  const plan = buildPlan(mod);
+  const planTask = plan.tasks.find((task) => task.kind === 'implement' && task.service === svc.name && task.op === op.name);
+  const id = planTask?.id ?? 'impl.' + svc.name + '.' + op.name;
+  const named = new Map(mod.types.map((decl) => [decl.name, decl.type]));
+  const capabilityOf = new Map(svc.uses.map((use) => [use.alias, use.capability]));
+
+  const input = op.params
+    .map((param) => param.name + ': ' + wireType(param.type, named) + limitComment(param.type, named))
+    .join(', ');
+  const errors = op.clauses
+    .filter((clause) => clause.kind === 'errors')
+    .flatMap((clause) => (clause.kind === 'errors' ? clause.names : []));
+  const resultWire = op.returns ? wireType(op.returns, named) : 'void';
+  const result = errors.length
+    ? '{ result: ' + resultWire + ' } | { error: ' + errors.map((name) => '"' + name + '"').join(' | ') + ' }'
+    : '{ result: ' + resultWire + ' }';
+
+  const lines = [op.name + '(input, io)', 'in: { ' + input + ' }', 'out: ' + result];
+
+  for (const clause of op.clauses) {
+    // "result != null" is a tautology of the generated model: noise for the body.
+    if (clause.kind === 'post' && exprText(clause.expr) === 'result != null') continue;
+    if (clause.kind === 'post') lines.push('post: ' + contractText(clause.expr, svc));
+    else if (clause.kind === 'pre') lines.push('pre: ' + contractText(clause.expr, svc));
+    else if (clause.kind === 'onerror') lines.push('on ' + clause.error + ': ' + contractText(clause.expr, svc));
+  }
+
+  const opWord = new RegExp('\\b' + op.name + '\\b');
+  const usesKv = svc.uses.some((use) => use.capability === 'kv' || use.capability.endsWith('.kv'));
+  for (const rule of svc.rules) {
+    if (rule.kind === 'atomic') {
+      if (!opWord.test(rule.name)) continue;
+      // The body must not implement get+del itself: takeIf is the atomic step.
+      lines.push('atomic: ' + (usesKv ? 'takeIf(id, expected)' : rule.steps.join('; ')));
+      continue;
+    }
+    if (rule.kind !== 'invariant') continue;
+    const text = contractText(rule.expr, svc);
+    if (!opWord.test(text)) continue;
+    lines.push(text);
+  }
+
+  const io = opEffects(svc, op, guarded)
+    .map(([alias, name]) => shortFor(capabilityOf.get(alias) ?? alias, name))
+    .filter((item): item is string => Boolean(item));
+  if (io.length > 0) lines.push('io: ' + io.join('; '));
+
+  if (svc.uses.some((use) => use.capability === 'kv' || use.capability.endsWith('.kv'))) {
+    lines.push(
+      guarded
+        ? 'value: {b: string, h: string|null}; h = password hash or null'
+        : 'value: message text',
+    );
+  }
+
+  const prompt = lines.join('\n') + '\n';
+  return {
+    id,
+    op: op.name,
+    file: 'impl/' + op.name + '.mjs',
+    prompt,
+    tokens: estimateTokens(prompt),
+    sha256: createHash('sha256').update(prompt).digest('hex'),
   };
 }
 

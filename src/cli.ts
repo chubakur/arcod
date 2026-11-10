@@ -127,7 +127,7 @@ async function runPrompts(flags: Flags): Promise<void> {
     return;
   }
 
-  const set = buildPrompts(loaded.mod, { budget: flags.maxTokens });
+  const set = buildPrompts(loaded.mod, { budget: flags.maxTokens, format: flags.full ? 'full' : 'compact' });
   const dir = join(loaded.dir, '.arcod', 'build', 'prompts');
   await mkdir(dir, { recursive: true });
   for (const task of set.tasks) {
@@ -330,6 +330,7 @@ interface Flags {
   dryRun: boolean;
   noCache: boolean;
   maxTokens: number;
+  full: boolean;
 }
 
 function parseFlags(args: string[]): Flags {
@@ -346,6 +347,7 @@ function parseFlags(args: string[]): Flags {
     dryRun: false,
     noCache: false,
     maxTokens: 1600,
+    full: false,
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -362,6 +364,7 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--max-tokens') flags.maxTokens = Number(args[++i] ?? 1600);
     else if (arg === '--dry-run') flags.dryRun = true;
     else if (arg === '--no-cache') flags.noCache = true;
+    else if (arg === '--full') flags.full = true;
     else if (!arg.startsWith('-')) flags.spec = arg;
     else throw new Error('unknown flag: ' + arg);
   }
@@ -412,7 +415,7 @@ usage:
   arcod check [dir|spec.arc] [--json] [--env name]
   arcod ast   [dir|spec.arc] [--check]
   arcod plan  [dir|spec.arc] [--json]
-  arcod prompts [dir|spec.arc] [--max-tokens 1600] [--json]
+  arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]
   arcod impl  [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
                               [--dry-run] [--no-cache]
   arcod build [dir|spec.arc] [--reference] [--port 8080]
