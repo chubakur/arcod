@@ -1,4 +1,5 @@
 import type { ModuleNode, OpNode, ServiceNode, TypeExpr } from './ast.ts';
+import { asOnce } from '../check.ts';
 
 export interface EmitOptions {
   port?: number;
@@ -296,7 +297,7 @@ async function handleRead(res, id) {
   }
   const result = await store.take('msg:' + id, 'gone:' + id, CONFIG.goneTtlMs, ATOMIC_READ);
   if (result.state === 'ok') return send(res, 200, result.value, 'text/plain; charset=utf-8');
-  if (result.state === 'gone') return sendError(res, 'Gone');
+  if (result.state === 'gone') return sendError(res, CONFIG.consumedError);
   return sendError(res, 'NotFound');
 }
 
@@ -382,6 +383,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
     minBody: limits.min,
     maxBody: limits.max,
     concurrency: budgetConcurrency(svc),
+    consumedError: consumedErrorName(svc) ?? (errors.Gone ? 'Gone' : 'NotFound'),
   };
 
   const readOp = svc.contract.find((op) => op.name === 'read');
@@ -396,6 +398,15 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
       .replace('__ERRORS__', JSON.stringify(errors, null, 2))
       .replace('__ATOMIC__', String(atomicRead))
   );
+}
+
+export function consumedErrorName(svc: ServiceNode): string | null {
+  for (const rule of svc.rules) {
+    if (rule.kind !== 'invariant') continue;
+    const once = asOnce(rule.expr);
+    if (once?.elseName) return once.elseName;
+  }
+  return null;
 }
 
 export function budgetConcurrency(svc: ServiceNode): number | null {

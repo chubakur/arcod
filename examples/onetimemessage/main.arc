@@ -36,7 +36,7 @@ service OneTimeMessage : http {
   }
 
   rules {
-    invariant read.at_most_once: once(read, by: id)
+    invariant read.at_most_once: once(read, by: id, else: Gone)
     atomic read { get; del }
   }
 

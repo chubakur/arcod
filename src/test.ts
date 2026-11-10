@@ -85,7 +85,7 @@ async function runRules(ctx: Context): Promise<RuleResult[]> {
     if (rule.kind === 'invariant') {
       const predicate = asPredicate(rule.expr);
       if (predicate && predicate.name === 'once') {
-        results.push(await checkOnce(rule.name, predicate.target, ctx));
+        results.push(await checkOnce(rule.name, predicate.target, predicate.elseName, ctx));
       }
     }
 
@@ -97,14 +97,16 @@ async function runRules(ctx: Context): Promise<RuleResult[]> {
   return results;
 }
 
-function asPredicate(expr: Expr): { name: string; target: string } | null {
+function asPredicate(expr: Expr): { name: string; target: string; elseName: string | null } | null {
   if (expr.kind !== 'call' || expr.callee.kind !== 'ident' || expr.args.length === 0) return null;
   const target = expr.args[0].value;
   if (target.kind !== 'ident') return null;
-  return { name: expr.callee.name, target: target.name };
+  const elseArg = expr.args.find((arg) => arg.name === 'else');
+  const elseName = elseArg && elseArg.value.kind === 'ident' ? elseArg.value.name : null;
+  return { name: expr.callee.name, target: target.name, elseName };
 }
 
-async function checkOnce(rule: string, target: string, ctx: Context): Promise<RuleResult> {
+async function checkOnce(rule: string, target: string, elseName: string | null, ctx: Context): Promise<RuleResult> {
   const op = ctx.ops.find((item) => item.name === target);
   if (!op) return { rule, ok: false, detail: 'operation ' + target + ' not found' };
 
@@ -112,11 +114,12 @@ async function checkOnce(rule: string, target: string, ctx: Context): Promise<Ru
     const id = await probeId(ctx);
     const first = await invoke(op, [id], ctx);
     const second = await invoke(op, [id], ctx);
-    const ok = errorName(first) === null && errorName(second) !== null;
+    const secondError = errorName(second);
+    const ok = errorName(first) === null && (elseName ? secondError === elseName : secondError !== null);
     return {
       rule,
       ok,
-      detail: ok ? undefined : 'expected first call to succeed and second to return a declared error',
+      detail: ok ? undefined : 'expected second call to fail with ' + (elseName ?? 'a declared error') + ', got ' + (secondError ?? 'success'),
     };
   } catch (error) {
     return { rule, ok: false, detail: error instanceof Error ? error.message : String(error) };

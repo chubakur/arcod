@@ -51,6 +51,12 @@ test('reports a provider mentioned in the model', () => {
   assert.ok(codes.includes('A003'));
 });
 
+test('once else must be a declared error', () => {
+  const broken = parse(source.replace('else: Gone', 'else: Bogus'), 'main.arc');
+  const codes = check(broken).map((item) => item.code);
+  assert.ok(codes.includes('A022'));
+});
+
 test('a job is parsed but flagged as not executable', () => {
   const withJob = source.replace(
     "    }\n\n  }\n\n  rules {",
@@ -132,6 +138,7 @@ test('budget reaches the plan and the runtime', () => {
 
   const code = emitService(ast);
   assert.ok(code.includes('const ATOMIC_READ = true;'));
+  assert.ok(code.includes('"consumedError": "Gone"'));
   assert.ok(code.includes('"concurrency": 100'));
   assert.ok(code.includes('inFlight >= CONFIG.concurrency'));
 });

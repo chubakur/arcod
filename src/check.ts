@@ -49,6 +49,17 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     // Collect capability calls from every expression in the service
     const uses = collectCapabilityUses(svc, aliases);
 
+    // A022 — once(...) points at an error the operation does not declare
+    for (const rule of svc.rules) {
+      if (rule.kind !== 'invariant') continue;
+      const once = asOnce(rule.expr);
+      if (!once || !once.elseName) continue;
+      const op = svc.contract.find((item) => item.kind === 'op' && item.name === once.target);
+      if (op && !errorNames(op).includes(once.elseName)) {
+        diags.push(diag('A022', 'error', mod.file, rule.loc, `services.${svc.name}.rules.${rule.name}`, `once(..., else: ${once.elseName}) ссылается на ошибку, которой нет в контракте ${once.target}`, 'добавьте ошибку в errors или исправьте else'));
+      }
+    }
+
     // A004 — effect used but not allowed; A021 — explicitly denied
     const checkEffect = (alias: string, op: string, loc: Loc) => {
       if (!svc.effects || !isAllowed(svc.effects.allow, alias, op)) {
@@ -196,6 +207,15 @@ function diag(code: string, severity: 'error' | 'warning', file: string, loc: Lo
 function sortDiagnostics(diags: Diagnostic[]): Diagnostic[] {
   return diags.sort((a, b) =>
     a.file.localeCompare(b.file) || a.range.line - b.range.line || a.range.col - b.range.col || a.code.localeCompare(b.code));
+}
+
+export function asOnce(expr: Expr): { target: string; elseName: string | null } | null {
+  if (expr.kind !== 'call' || expr.callee.kind !== 'ident' || expr.callee.name !== 'once') return null;
+  const target = expr.args[0]?.value;
+  if (!target || target.kind !== 'ident') return null;
+  const elseArg = expr.args.find((arg) => arg.name === 'else');
+  const elseName = elseArg && elseArg.value.kind === 'ident' ? elseArg.value.name : null;
+  return { target: target.name, elseName };
 }
 
 function routeOf(op: OpNode): string | null {
