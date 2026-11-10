@@ -1,0 +1,79 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { parse } from '../src/parser.ts';
+import { check } from '../src/check.ts';
+import { buildPlan } from '../src/plan.ts';
+import { emitService } from '../src/emit/service.ts';
+import { emitWeb } from '../src/emit/web.ts';
+import { composeYaml } from '../src/emit/compose.ts';
+
+const specUrl = new URL('../examples/onetimemessage/main.arc', import.meta.url);
+const source = await readFile(specUrl, 'utf8');
+const ast = parse(source, 'main.arc');
+
+test('parses the onetimemessage example', () => {
+  assert.equal(ast.name, 'onetimemessage');
+  assert.equal(ast.version, '0.1.0');
+  assert.equal(ast.services.length, 1);
+
+  const svc = ast.services[0];
+  assert.equal(svc.name, 'OneTimeMessage');
+  assert.equal(svc.impl, 'http');
+
+  const ops = svc.contract.filter((op) => op.kind === 'op').map((op) => op.name);
+  assert.deepEqual(ops, ['create', 'read']);
+  assert.equal(svc.examples.length, 2);
+  assert.equal(svc.rules.length, 2);
+  assert.ok(svc.effects && svc.effects.allow.includes('store.set'));
+});
+
+test('the example passes all checks', () => {
+  const diags = check(ast);
+  assert.deepEqual(diags, []);
+});
+
+test('reports an unbound capability', () => {
+  const broken = parse(source.replace('bind store -> redis(host: "kv", port: 6379)', ''), 'main.arc');
+  const codes = check(broken).map((d) => d.code);
+  assert.ok(codes.includes('A002'));
+});
+
+test('reports a provider mentioned in the model', () => {
+  const broken = parse(source.replace('uses store: kv(ttl: 999s, consistency: strong)', 'uses store: kv(ttl: 999s, consistency: strong) // redis'), 'main.arc');
+  const codes = check(broken).map((d) => d.code);
+  assert.ok(codes.includes('A003'));
+});
+
+test('plan is deterministic and has stable ids', () => {
+  const first = buildPlan(ast);
+  const second = buildPlan(ast);
+  assert.deepEqual(first, second);
+  assert.equal(first.tasks[0].id, 'T-0001');
+  assert.ok(first.tasks.some((task) => task.kind === 'implement' && task.op === 'read'));
+  assert.ok(first.tasks.some((task) => task.kind === 'infra'));
+});
+
+test('service emitter wires spec values into the runtime', () => {
+  const code = emitService(ast);
+  assert.match(code, /"ttlMs": 999000/);
+  assert.ok(code.includes('"method": "POST"'));
+  assert.ok(code.includes('"path": "/api/messages"'));
+  assert.ok(code.includes('"path": "/api/messages/:id"'));
+  assert.match(code, /randomUUID/);
+  assert.match(code, /LUA_READ/);
+});
+
+test('web emitter points at the declared routes', () => {
+  const html = emitWeb(ast, { maxBytes: 64 * 1024 });
+  assert.ok(html.includes('/api/messages'));
+  assert.ok(html.includes('/api/messages/:id'));
+  assert.match(html, /65536/);
+});
+
+test('compose has kv, service and web', () => {
+  const yaml = composeYaml(ast, 8080);
+  assert.match(yaml, /^name: arcod-onetimemessage/m);
+  assert.match(yaml, /redis:7-alpine/);
+  assert.match(yaml, /"8080:80"/);
+});

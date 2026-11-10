@@ -1,0 +1,14 @@
+{
+  "name": "arcod",
+  "version": "0.1.0",
+  "description": "Arcod — a specification language for agent-built services",
+  "type": "module",
+  "bin": { "arcod": "./bin/arcod.mjs" },
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "node --test test/",
+    "arcod": "node ./bin/arcod.mjs"
+  },
+  "keywords": ["specification", "codegen", "agents", "dsl"],
+  "license": "MIT"
+}

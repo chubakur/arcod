@@ -1,0 +1,187 @@
+// Canonical AST. The syntax is only a surface; everything below is what the
+// compiler, the planner and the emitters work with.
+
+export interface Loc {
+  line: number;
+  col: number;
+  endLine: number;
+  endCol: number;
+  offset: number;
+  end: number;
+}
+
+export interface ModuleNode {
+  kind: 'module';
+  name: string;
+  version: string;
+  meta: Record<string, string>;
+  uses: UseNode[];
+  types: TypeDecl[];
+  errors: ErrorDecl[];
+  enums: EnumDecl[];
+  services: ServiceNode[];
+  environments: EnvironmentNode[];
+  file: string;
+  source: string;
+  loc: Loc;
+}
+
+export interface UseNode {
+  kind: 'use';
+  what: 'module' | 'capability';
+  name: string;
+  version?: string;
+  loc: Loc;
+}
+
+export interface TypeDecl {
+  kind: 'type';
+  name: string;
+  type: TypeExpr;
+  loc: Loc;
+}
+
+export interface ErrorDecl {
+  kind: 'error';
+  name: string;
+  fields: Param[];
+  loc: Loc;
+}
+
+export interface EnumDecl {
+  kind: 'enum';
+  name: string;
+  values: string[];
+  loc: Loc;
+}
+
+export type TypeExpr =
+  | { kind: 'named'; name: string; args: TypeArg[]; loc: Loc }
+  | { kind: 'optional'; inner: TypeExpr; loc: Loc }
+  | { kind: 'union'; variants: TypeExpr[]; loc: Loc }
+  | { kind: 'record'; fields: Param[]; loc: Loc };
+
+export interface TypeArg {
+  name?: string;
+  value: Expr | TypeExpr;
+  isType?: boolean;
+  loc: Loc;
+}
+
+export interface Param {
+  name: string;
+  type: TypeExpr;
+  default?: Expr;
+  loc: Loc;
+}
+
+export interface ServiceNode {
+  kind: 'service';
+  name: string;
+  impl: string;
+  external: boolean;
+  meta: Record<string, string>;
+  uses: CapUse[];
+  contract: OpNode[];
+  rules: RuleNode[];
+  effects: EffectsNode | null;
+  examples: ExampleNode[];
+  budget: BudgetNode | null;
+  loc: Loc;
+}
+
+export interface CapUse {
+  kind: 'uses';
+  alias: string;
+  capability: string;
+  params: Record<string, Expr>;
+  loc: Loc;
+}
+
+export interface OpNode {
+  kind: 'op' | 'job';
+  name: string;
+  isPublic: boolean;
+  params: Param[];
+  returns: TypeExpr | null;
+  clauses: Clause[];
+  loc: Loc;
+}
+
+export type Clause =
+  | { kind: 'errors'; names: string[]; loc: Loc }
+  | { kind: 'pre' | 'post'; expr: Expr; loc: Loc }
+  | { kind: 'onerror'; error: string; expr: Expr; loc: Loc }
+  | { kind: 'route'; value: string; loc: Loc }
+  | { kind: 'schedule'; value: string; loc: Loc }
+  | { kind: 'idempotent'; loc: Loc }
+  | { kind: 'since'; value: string; loc: Loc };
+
+export type RuleNode =
+  | { kind: 'invariant'; name: string; expr: Expr; loc: Loc }
+  | { kind: 'atomic'; name: string; steps: string[]; loc: Loc }
+  | { kind: 'ordering'; pairs: Array<[string, string]>; loc: Loc }
+  | { kind: 'unique'; path: string; loc: Loc };
+
+export interface EffectsNode {
+  kind: 'effects';
+  allow: string[];
+  deny: string[];
+  loc: Loc;
+}
+
+export interface ExampleNode {
+  kind: 'example';
+  name: string;
+  given: Stmt[];
+  when: Stmt[];
+  then: Stmt[];
+  loc: Loc;
+}
+
+export type Stmt =
+  | { kind: 'let'; name: string; expr: Expr; loc: Loc }
+  | { kind: 'expr'; expr: Expr; loc: Loc };
+
+export type Expr =
+  | { kind: 'literal'; value: string | number | boolean | null; raw: string; loc: Loc }
+  | { kind: 'duration'; value: number; unit: string; loc: Loc }
+  | { kind: 'ident'; name: string; loc: Loc }
+  | { kind: 'member'; object: Expr; property: string; loc: Loc }
+  | { kind: 'call'; callee: Expr; args: Arg[]; loc: Loc }
+  | { kind: 'unary'; op: string; operand: Expr; loc: Loc }
+  | { kind: 'binary'; op: string; left: Expr; right: Expr; loc: Loc }
+  | { kind: 'is'; expr: Expr; error: string; loc: Loc };
+
+export interface Arg {
+  name?: string;
+  value: Expr;
+  loc: Loc;
+}
+
+export interface BudgetNode {
+  kind: 'budget';
+  items: Array<{ key: string; expr: Expr; loc: Loc }>;
+  loc: Loc;
+}
+
+export interface EnvironmentNode {
+  kind: 'environment';
+  name: string;
+  binds: BindNode[];
+  deploy: string | null;
+  loc: Loc;
+}
+
+export interface BindNode {
+  kind: 'bind';
+  alias: string;
+  provider: string;
+  args: Record<string, Expr>;
+  guarantees: string[];
+  loc: Loc;
+}
+
+export function locFrom(start: Loc, end: Loc): Loc {
+  return { ...start, endLine: end.endLine, endCol: end.endCol, end: end.end };
+}
