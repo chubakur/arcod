@@ -16,6 +16,7 @@ export interface ImplOptions {
   cache: boolean;
   dryRun: boolean;
   timeoutMs: number;
+  allowRemote: boolean;
 }
 
 export const DEFAULT_IMPL: ImplOptions = {
@@ -28,7 +29,17 @@ export const DEFAULT_IMPL: ImplOptions = {
   cache: true,
   dryRun: false,
   timeoutMs: 120000,
+  allowRemote: false,
 };
+
+export function isLocalEndpoint(endpoint: string): boolean {
+  try {
+    const host = new URL(endpoint).hostname;
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0';
+  } catch {
+    return false;
+  }
+}
 
 export interface ImplResult {
   id: string;
@@ -119,6 +130,12 @@ async function generate(prompt: string, options: ImplOptions): Promise<string> {
 
 export async function runImpl(mod: ModuleNode, dir: string, partial: Partial<ImplOptions> = {}): Promise<{ results: ImplResult[]; options: ImplOptions }> {
   const options: ImplOptions = { ...DEFAULT_IMPL, ...partial };
+  if (!options.allowRemote && !isLocalEndpoint(options.endpoint)) {
+    throw new Error(
+      'refusing to send prompts to ' + options.endpoint + ': only a local model is used by default. ' +
+        'Pass --allow-remote if you really mean it.',
+    );
+  }
   const set = buildPrompts(mod);
   const outDir = join(dir, '.arcod', 'impl');
   const cacheDir = join(dir, '.arcod', 'cache');

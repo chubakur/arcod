@@ -10,6 +10,7 @@ import { composeYaml } from '../src/emit/compose.ts';
 import { buildExample } from '../src/build.ts';
 import { runExamples } from '../src/test.ts';
 import { buildPrompts } from '../src/prompts.ts';
+import { planBody } from '../src/plan-body.ts';
 import { extractCode, validateBody } from '../src/impl.ts';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -257,6 +258,49 @@ test('a prompt contains only its own operation', () => {
   assert.ok(!read.prompt.includes('POST /api/messages'));
   assert.match(create.prompt, /^out: /m);
   assert.ok(!create.prompt.includes('WrongPassword'));
+});
+
+test('the procedure is derived from the model, not from the operation name', () => {
+  const svc = guardedAst.services[0];
+  const read = svc.contract.find((op) => op.kind === 'op' && op.name === 'read')!;
+  const create = svc.contract.find((op) => op.kind === 'op' && op.name === 'create')!;
+
+  const readPlan = planBody(guardedAst, svc, read);
+  assert.deepEqual(readPlan.unresolved, []);
+  const readText = readPlan.steps.join(' ');
+  assert.ok(readText.includes('await io.verify'));
+  assert.ok(readText.includes('await io.takeIf'));
+  assert.ok(readText.indexOf('io.verify') < readText.indexOf('io.takeIf'));
+
+  const createPlan = planBody(guardedAst, svc, create);
+  assert.deepEqual(createPlan.unresolved, []);
+  assert.ok(createPlan.steps.join(' ').includes('await io.save'));
+  assert.ok(!createPlan.steps.join(' ').includes('io.load'));
+});
+
+test('dropping a rule drops the corresponding step', () => {
+  const source = guardedSource
+    .replace('    invariant read.at_most_once: once(read, by: id, else: Gone)\n', '')
+    .replace('    atomic read { get; del }\n', '');
+  const ast = parse(source, 'main.arc');
+  const svc = ast.services[0];
+  const read = svc.contract.find((op) => op.kind === 'op' && op.name === 'read')!;
+  const plan = planBody(ast, svc, read);
+  assert.ok(!plan.steps.join(' ').includes('io.takeIf'), plan.steps.join(' '));
+});
+
+test('dropping the password parameter drops verification', () => {
+  const source = guardedSource
+    .replace('type Password = string(min: 1, max: 128)\n', '')
+    .replace('(body: Body, password: Password?)', '(body: Body)')
+    .replace('(id: MessageId, password: Password?)', '(id: MessageId)')
+    .replace('error WrongPassword\n', '');
+  const ast = parse(source, 'main.arc');
+  const svc = ast.services[0];
+  const read = svc.contract.find((op) => op.kind === 'op' && op.name === 'read')!;
+  const plan = planBody(ast, svc, read);
+  assert.ok(!plan.steps.join(' ').includes('io.verify'), plan.steps.join(' '));
+  assert.ok(plan.steps.join(' ').includes('io.takeIf'));
 });
 
 test('prompt budget is enforced', () => {

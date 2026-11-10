@@ -139,7 +139,14 @@ async function runPrompts(flags: Flags): Promise<void> {
     version: set.version,
     modelHash: set.modelHash,
     budget: set.budget,
-    tasks: set.tasks.map((task) => ({ id: task.id, op: task.op, file: task.file, tokens: task.tokens, sha256: task.sha256 })),
+    tasks: set.tasks.map((task) => ({
+      id: task.id,
+      op: task.op,
+      file: task.file,
+      tokens: task.tokens,
+      sha256: task.sha256,
+      unresolved: task.unresolved,
+    })),
   };
   await writeFile(join(loaded.dir, '.arcod', 'build', 'prompts.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
 
@@ -151,6 +158,11 @@ async function runPrompts(flags: Flags): Promise<void> {
   }
   if (set.overBudget.length > 0) {
     console.error('over budget (' + set.budget + '): ' + set.overBudget.join(', '));
+    process.exitCode = 1;
+  }
+  if (set.unresolved.length > 0) {
+    console.error('cannot derive a procedure from the model:');
+    for (const item of set.unresolved) console.error('  ' + item);
     process.exitCode = 1;
   }
 }
@@ -169,6 +181,7 @@ async function runImplCmd(flags: Flags): Promise<void> {
     model: flags.model,
     dryRun: flags.dryRun,
     cache: !flags.noCache,
+    allowRemote: flags.allowRemote,
   });
 
   if (flags.json) {
@@ -347,6 +360,7 @@ interface Flags {
   maxTokens: number;
   full: boolean;
   impl: boolean;
+  allowRemote: boolean;
 }
 
 function parseFlags(args: string[]): Flags {
@@ -365,6 +379,7 @@ function parseFlags(args: string[]): Flags {
     maxTokens: 1600,
     full: false,
     impl: false,
+    allowRemote: false,
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -383,6 +398,7 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--no-cache') flags.noCache = true;
     else if (arg === '--full') flags.full = true;
     else if (arg === '--impl') flags.impl = true;
+    else if (arg === '--allow-remote') flags.allowRemote = true;
     else if (!arg.startsWith('-')) flags.spec = arg;
     else throw new Error('unknown flag: ' + arg);
   }
@@ -435,7 +451,7 @@ usage:
   arcod plan  [dir|spec.arc] [--json]
   arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]
   arcod impl  [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
-                              [--dry-run] [--no-cache]
+                              [--dry-run] [--no-cache] [--allow-remote]
   arcod build [dir|spec.arc] [--reference | --impl] [--port 8080]
   arcod test  [dir|spec.arc] [--impl] [--json]
   arcod run   [dir|spec.arc] [--impl] [--scaffold] [--port 8080] [--detach] [--down]
@@ -447,7 +463,8 @@ prompts writes one deterministic prompt per operation into .arcod/build/prompts,
 plus prompts.json with sha256 of each prompt. A prompt contains only the
 operation contract, the allowed capability signatures and the storage format.
 impl sends those prompts to an Ollama-compatible endpoint and validates the
-returned body (no imports, no HTTP, syntax check).
+returned body (no imports, no HTTP, syntax check). Only a local endpoint is
+allowed unless --allow-remote is passed: the tool never needs paid tokens.
 
 examples:
   cd examples/onetimemessage && arcod run

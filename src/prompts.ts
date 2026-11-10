@@ -3,6 +3,7 @@ import type { Expr, ModuleNode, OpNode, ServiceNode, TypeExpr } from './ast.ts';
 import { buildPlan } from './plan.ts';
 import { isGuarded, pickService, routeOf } from './emit/service.ts';
 import { signatureFor, shortFor } from './capabilities.ts';
+import { opEffects, planBody, planText } from './plan-body.ts';
 
 export interface PromptTask {
   id: string;
@@ -11,6 +12,7 @@ export interface PromptTask {
   prompt: string;
   tokens: number;
   sha256: string;
+  unresolved: string[];
 }
 
 export interface PromptSet {
@@ -20,6 +22,7 @@ export interface PromptSet {
   budget: number;
   tasks: PromptTask[];
   overBudget: string[];
+  unresolved: string[];
 }
 
 export interface PromptOptions {
@@ -170,6 +173,8 @@ function taskFor(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean
     })
     .filter(Boolean);
 
+  const bodyPlan = planBody(mod, svc, op);
+
   // Only the rules that concern this operation: a create prompt must not
   // carry read's invariants.
   const opWord = new RegExp('\\b' + op.name + '\\b');
@@ -228,6 +233,7 @@ function taskFor(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean
     prompt,
     tokens: estimateTokens(prompt),
     sha256: createHash('sha256').update(prompt).digest('hex'),
+    unresolved: bodyPlan.unresolved,
   };
 }
 
@@ -249,6 +255,9 @@ export function buildPrompts(mod: ModuleNode, options: PromptOptions = {}): Prom
     budget,
     tasks,
     overBudget: tasks.filter((task) => task.tokens > budget).map((task) => task.id),
+    unresolved: tasks
+      .filter((task) => task.unresolved.length > 0)
+      .map((task) => task.id + ': ' + task.unresolved.join('; ')),
   };
 }
 
@@ -277,64 +286,13 @@ function limitComment(type: TypeExpr, named: Map<string, TypeExpr>): string {
   return ' /* ' + (lo === null ? right : right ? left + '..' + right : '>=' + left) + ' ' + unit + ' */';
 }
 
-function mentions(svc: ServiceNode, op: OpNode): string[] {
-  const texts: string[] = [];
-  for (const clause of op.clauses) {
-    if (clause.kind === 'pre' || clause.kind === 'post' || clause.kind === 'onerror') texts.push(exprText(clause.expr));
-  }
-  for (const rule of svc.rules) {
-    if (rule.kind === 'invariant') texts.push(exprText(rule.expr));
-  }
-  return texts;
-}
-
-function opEffects(svc: ServiceNode, op: OpNode, guarded: boolean): Array<[string, string]> {
-  const out: Array<[string, string]> = [];
-  const add = (alias: string, name: string) => {
-    if (out.some(([a, o]) => a === alias && o === name)) return;
-    out.push([alias, name]);
-  };
-
-  const kv = svc.uses.find((use) => use.capability === 'kv' || use.capability.endsWith('.kv'))?.alias;
-  const ids = svc.uses.find((use) => use.capability === 'ids' || use.capability.endsWith('.ids'))?.alias;
-  const hash = svc.uses.find((use) => use.capability === 'hash' || use.capability.endsWith('.hash'))?.alias;
-  const atomic = svc.rules.some((rule) => rule.kind === 'atomic' && rule.name === op.name);
-
-  if (op.name === 'create') {
-    if (kv) add(kv, 'set');
-    if (ids) add(ids, 'new');
-    if (guarded && hash) add(hash, 'hash');
-  }
-  if (op.name === 'read') {
-    if (kv) {
-      add(kv, 'get');
-      if (atomic) add(kv, 'takeIf');
-      else add(kv, 'del');
-      add(kv, 'seen');
-    }
-    if (guarded && hash) add(hash, 'verify');
-  }
-
-  for (const text of mentions(svc, op)) {
-    for (const match of text.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)/g)) {
-      add(match[1], match[2]);
-    }
-  }
-
-  const order = ['new', 'get', 'hash', 'verify', 'set', 'takeIf', 'seen', 'has', 'del'];
-  const rank = (name: string) => {
-    const index = order.indexOf(name);
-    return index < 0 ? order.length : index;
-  };
-  return out.sort((a, b) => rank(a[1]) - rank(b[1]) || a[1].localeCompare(b[1]));
-}
-
 function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean): PromptTask {
   const plan = buildPlan(mod);
   const planTask = plan.tasks.find((task) => task.kind === 'implement' && task.service === svc.name && task.op === op.name);
   const id = planTask?.id ?? 'impl.' + svc.name + '.' + op.name;
   const named = new Map(mod.types.map((decl) => [decl.name, decl.type]));
   const capabilityOf = new Map(svc.uses.map((use) => [use.alias, use.capability]));
+  const bodyPlan = planBody(mod, svc, op);
 
   const input = op.params
     .map((param) => param.name + ': ' + wireType(param.type, named) + limitComment(param.type, named))
@@ -372,7 +330,7 @@ function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boo
     lines.push(text);
   }
 
-  const io = opEffects(svc, op, guarded)
+  const io = opEffects(mod, svc, op, guarded)
     .map(([alias, name]) => shortFor(capabilityOf.get(alias) ?? alias, name))
     .filter((item): item is string => Boolean(item));
   if (io.length > 0) lines.push('io (all methods are async: await them): ' + io.join('; '));
@@ -385,17 +343,9 @@ function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boo
     );
   }
 
-  // The lifecycle is not inferable from types alone: a 7B model skips the
-  // consume step and inverts the tombstone check without this.
-  if (op.name === 'create') {
-    lines.push('steps: id = io.new(); await io.save(id, record); return { result: id }');
-  } else if (op.name === 'read') {
-    lines.push(
-      'steps: rec = await io.load(id); if (!rec) return (await io.seen(id)) ? Gone : NotFound;' +
-        (guarded ? ' if (rec.h && !(await io.verify(password, rec.h))) return WrongPassword;' : '') +
-        ' if (!(await io.takeIf(id, rec))) return Gone; return { result: rec.b }',
-    );
-  }
+  // The procedure is derived from the model by the planner, not written per
+  // operation name: effects, rules (once/atomic) and error clauses decide it.
+  if (bodyPlan.steps.length > 0) lines.push('steps: ' + planText(bodyPlan));
 
   const prompt = lines.join('\n') + '\n';
   return {
@@ -405,6 +355,7 @@ function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boo
     prompt,
     tokens: estimateTokens(prompt),
     sha256: createHash('sha256').update(prompt).digest('hex'),
+    unresolved: bodyPlan.unresolved,
   };
 }
 
@@ -416,6 +367,7 @@ export function formatPrompts(set: PromptSet): string {
   for (const task of set.tasks) {
     const mark = task.tokens > set.budget ? ' over-budget' : '';
     lines.push('  ' + task.id + '  ' + task.tokens + ' tokens  ' + task.sha256.slice(0, 12) + mark);
+    for (const item of task.unresolved) lines.push('    unresolved: ' + item);
   }
   return lines.join('\n');
 }
