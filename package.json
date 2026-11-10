@@ -6,7 +6,7 @@
   "bin": { "arcod": "./bin/arcod.mjs" },
   "engines": { "node": ">=22.18" },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.ts",
     "arcod": "node ./bin/arcod.mjs"
   },
   "keywords": ["specification", "codegen", "agents", "dsl"],

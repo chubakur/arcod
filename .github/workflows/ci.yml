@@ -12,7 +12,7 @@ jobs:
         with:
           node-version: '24'
       - name: tests
-        run: node --test test/
+        run: node --test test/*.test.ts
       - name: check example
         run: node bin/arcod.mjs check examples/onetimemessage
       - name: plan example
