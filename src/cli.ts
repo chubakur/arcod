@@ -10,6 +10,7 @@ import type { Diagnostic } from './diagnostics.ts';
 import type { ModuleNode } from './ast.ts';
 import { buildPrompts, formatPrompts } from './prompts.ts';
 import { DEFAULT_IMPL, formatImplReport, runImpl } from './impl.ts';
+import { PROVIDERS, providerNames } from './providers.ts';
 
 const VERSION = '0.1.0';
 
@@ -53,6 +54,9 @@ export async function main(argv: string[]): Promise<void> {
         return;
       case 'run':
         await runRun(flags);
+        return;
+      case 'providers':
+        runProviders(flags);
         return;
       case 'prompts':
         await runPrompts(flags);
@@ -116,6 +120,35 @@ async function runPlan(flags: Flags): Promise<void> {
     return;
   }
   console.log(formatPlan(plan));
+}
+
+function runProviders(flags: Flags): void {
+  const rows = providerNames().map((name) => {
+    const spec = PROVIDERS[name];
+    return {
+      capability: spec.capability,
+      provider: spec.name,
+      image: spec.image,
+      port: spec.port ?? null,
+      env: spec.appEnv ? Object.keys(spec.appEnv('host', spec.port ?? 0)).sort() : [],
+      oneShot: spec.oneShot === true,
+    };
+  });
+
+  if (flags.json) {
+    console.log(JSON.stringify(rows, null, 2));
+    return;
+  }
+
+  const header = ['capability', 'provider', 'image', 'port', 'env'];
+  const width = [12, 10, 32, 5, 46];
+  const cell = (value: string, size: number) =>
+    (value.length > size ? value.slice(0, size - 1) + '…' : value).padEnd(size);
+  console.log(header.map((item, index) => cell(item, width[index])).join(' '));
+  for (const row of rows) {
+    const cols = [row.capability, row.provider, row.image, String(row.port ?? '-'), row.env.join(', ')];
+    console.log(cols.map((item, index) => cell(item, width[index])).join(' '));
+  }
 }
 
 async function runPrompts(flags: Flags): Promise<void> {
@@ -449,6 +482,7 @@ usage:
   arcod check [dir|spec.arc] [--json] [--env name]
   arcod ast   [dir|spec.arc] [--check]
   arcod plan  [dir|spec.arc] [--json]
+  arcod providers [--json]
   arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]
   arcod impl  [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
                               [--dry-run] [--no-cache] [--allow-remote]

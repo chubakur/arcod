@@ -827,6 +827,14 @@ export function durationMs(value: number, unit: string): number {
   return value * (table[unit] ?? 1000);
 }
 
+function sizeBytes(value: number, unit: string): number {
+  const normalized = unit.toLowerCase();
+  if (normalized === 'kb') return value * 1024;
+  if (normalized === 'mb') return value * 1024 * 1024;
+  if (normalized === 'gb') return value * 1024 * 1024 * 1024;
+  return value;
+}
+
 function bodyLimits(mod: ModuleNode, op: OpNode): { min: number; max: number } {
   const param = op.params[0];
   if (!param) return { min: 1, max: 64 * 1024 };
@@ -838,7 +846,7 @@ function bodyLimits(mod: ModuleNode, op: OpNode): { min: number; max: number } {
     if (arg.name === 'min' && arg.value.kind === 'literal' && typeof arg.value.value === 'number') min = arg.value.value;
     if (arg.name === 'max') {
       if (arg.value.kind === 'literal' && typeof arg.value.value === 'number') max = arg.value.value;
-      if (arg.value.kind === 'duration') max = durationMs(arg.value.value, arg.value.unit) / 1000;
+      if (arg.value.kind === 'duration') max = sizeBytes(arg.value.value, arg.value.unit);
     }
   }
   return { min, max };

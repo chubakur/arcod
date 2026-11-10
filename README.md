@@ -90,6 +90,33 @@ node ../../bin/arcod.mjs run
 
 Флаги: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`.
 
+## Провайдеры
+
+Модель называет возможность (`kv`, `sql`, `queue`…), окружение — провайдера
+(`redis`, `postgres`, `kafka`…). Компилятор знает, какой провайдер реализует
+какую возможность, и проверяет это (`A023` неизвестный, `A024` несовместимый,
+`A025` двойной bind).
+
+```arcod
+environment dev {
+  bind db -> postgres(host: "db", expose: true)
+  bind files -> s3(host: "s3")
+  bind events -> kafka(host: "kafka")
+}
+```
+
+```bash
+arcod providers            # таблица возможностей и провайдеров
+```
+
+Реестр: redis, postgres, mysql, mariadb, mongodb, keycloak, s3 (minio), rabbitmq,
+kafka, nginx, liquibase, clickhouse, prometheus. На каждый bind генерируется
+сервис в compose с healthcheck, томом и env; порты публикуются только при
+`expose: true`.
+
+Адаптер в рантайме пока есть только у `kv`/`redis` — остальные провайдеры
+поднимаются, но телу недоступны. Это следующая итерация.
+
 ## Режимы сборки
 
 ```bash

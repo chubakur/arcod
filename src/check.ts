@@ -1,6 +1,7 @@
 import type { Diagnostic } from './diagnostics.ts';
 import type { Expr, Loc, ModuleNode, OpNode, ServiceNode } from './ast.ts';
 import { templateFor } from './templates.ts';
+import { providerFor, providerNames, providersForCapability } from './providers.ts';
 
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
 const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysql', 'mongodb', 'localhost', '127.0.0.1'];
@@ -35,6 +36,41 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         diags.push(diag('A002', 'error', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`, `возможность ${use.capability} не привязана: environment отсутствует`, 'добавьте environment с bind ' + use.alias));
       } else if (!bound.has(use.alias)) {
         diags.push(diag('A002', 'error', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`, `возможность ${use.capability} не привязана в environment ${env.name}`, `добавьте bind ${use.alias} -> <provider>`));
+      }
+    }
+
+    // A023 — unknown provider; A024 — provider does not implement the capability;
+    // A025 — one alias bound more than once
+    const boundAliases = new Set<string>();
+    for (const bind of env?.binds ?? []) {
+      if (bind.provider !== 'local' && boundAliases.has(bind.alias)) {
+        diags.push(
+          diag('A025', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
+            `алиас ${bind.alias} привязан дважды`, 'оставьте один провайдер'),
+        );
+      }
+      boundAliases.add(bind.alias);
+
+      if (bind.provider === 'local') continue;
+      const use = svc.uses.find((item) => item.alias === bind.alias);
+      if (!use) continue;
+      const spec = providerFor(bind.provider);
+      if (!spec) {
+        diags.push(
+          diag('A023', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
+            `провайдер ${bind.provider} неизвестен`,
+            'доступны: ' + providerNames().join(', ')),
+        );
+        continue;
+      }
+      const capability = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
+      if (spec.capability !== capability) {
+        const alternatives = providersForCapability(capability);
+        diags.push(
+          diag('A024', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
+            `${bind.provider} не реализует ${use.capability}`,
+            alternatives.length > 0 ? `для ${capability} доступны: ` + alternatives.join(', ') : `у ${capability} нет провайдеров`),
+        );
       }
     }
 

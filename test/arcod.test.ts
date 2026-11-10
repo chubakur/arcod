@@ -6,7 +6,7 @@ import { check } from '../src/check.ts';
 import { buildPlan } from '../src/plan.ts';
 import { emitService } from '../src/emit/service.ts';
 import { emitWeb } from '../src/emit/web.ts';
-import { composeYaml } from '../src/emit/compose.ts';
+import { composeYaml, nginxConf } from '../src/emit/compose.ts';
 import { buildExample } from '../src/build.ts';
 import { runExamples } from '../src/test.ts';
 import { buildPrompts } from '../src/prompts.ts';
@@ -197,6 +197,110 @@ test('impl mode falls back to 501 for operations without a body', async () => {
   assert.deepEqual(built.impl, ['create']);
   const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
   assert.match(code, /notImplemented\(res, 'read'\)/);
+});
+
+const infraSource = `module infra @0.1.0 {}
+
+use capability arcod.std.kv @1
+use capability arcod.std.sql @1
+use capability arcod.std.queue @1
+use capability arcod.std.objectstore @1
+use capability arcod.std.identity @1
+use capability arcod.std.olap @1
+use capability arcod.std.metrics @1
+use capability arcod.std.proxy @1
+use capability arcod.std.migrations @1
+use capability arcod.std.document @1
+
+service All : http {
+  uses store: kv(ttl: 999s)
+  uses db: sql
+  uses db2: sql
+  uses db3: sql
+  uses docs: document
+  uses files: objectstore
+  uses events: queue
+  uses events2: queue
+  uses auth: identity
+  uses analytics: olap
+  uses metrics: metrics
+  uses edge: proxy
+  uses schema: migrations
+}
+
+environment dev {
+  bind store -> redis(host: "kv")
+  bind db -> postgres(host: "db")
+  bind db2 -> mysql(host: "mysql")
+  bind db3 -> mariadb(host: "mariadb")
+  bind docs -> mongodb(host: "mongo")
+  bind files -> s3(host: "s3", expose: true)
+  bind events -> kafka(host: "kafka")
+  bind events2 -> rabbitmq(host: "mq")
+  bind auth -> keycloak(host: "kc")
+  bind analytics -> clickhouse(host: "ch")
+  bind metrics -> prometheus(host: "prom", expose: true)
+  bind edge -> nginx(host: "edge")
+  bind schema -> liquibase(host: "migrate")
+  deploy docker
+}
+`;
+
+test('every provider in the registry renders a compose service', () => {
+  const mod = parse(infraSource, 'infra.arc');
+  const yaml = composeYaml(mod, 8080, false);
+
+  for (const image of [
+    'redis:7-alpine',
+    'postgres:16-alpine',
+    'mysql:8.4',
+    'mariadb:11',
+    'mongo:7',
+    'quay.io/keycloak/keycloak:26.0',
+    'minio/minio:latest',
+    'rabbitmq:3.13-management-alpine',
+    'apache/kafka:3.8.0',
+    'nginx:1.27-alpine',
+    'liquibase/liquibase:4.29',
+    'clickhouse/clickhouse-server:24.8-alpine',
+    'prom/prometheus:v2.54.1',
+  ]) {
+    assert.ok(yaml.includes('image: ' + image), 'missing ' + image);
+  }
+
+  assert.match(yaml, /DATABASE_URL: "postgres:\/\/arcod:arcod@db:5432\/arcod"/);
+  assert.match(yaml, /S3_ENDPOINT: "http:\/\/s3:9000"/);
+  assert.match(yaml, /KAFKA_BROKERS: "kafka:9092"/);
+  assert.match(yaml, /CLICKHOUSE_URL: "http:\/\/ch:8123"/);
+  assert.match(yaml, /^volumes:\n(  \w+:\n)*  pgdata:\n/m);
+  assert.ok(yaml.includes('"9001:9001"'), 'minio console port');
+});
+
+test('unknown provider and capability mismatch are errors', () => {
+  const unknown = parse(infraSource.replace('bind store -> redis(host: "kv")', 'bind store -> nats(host: "kv")'), 'infra.arc');
+  assert.ok(check(unknown).some((item) => item.code === 'A023'));
+
+  const mismatch = parse(infraSource.replace('bind store -> redis(host: "kv")', 'bind store -> kafka(host: "kv")'), 'infra.arc');
+  const errors = check(mismatch);
+  assert.ok(errors.some((item) => item.code === 'A024' && item.message.includes('kafka')));
+
+  const duplicate = parse(infraSource.replace('bind db2 -> mysql(host: "mysql")', 'bind db -> mysql(host: "mysql")'), 'infra.arc');
+  assert.ok(check(duplicate).some((item) => item.code === 'A025'));
+});
+
+test('byte limits are scaled: 64kb is 65536, not 64', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-limits-'));
+  const built = await buildExample(ast, dir, { reference: true });
+  const service = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.match(service, /"maxBody": 65536/);
+  const web = await readFile(join(built.dir, 'web', 'index.html'), 'utf8');
+  assert.match(web, /MAX_BYTES = 65536/);
+});
+
+test('nginx proxies healthz next to the api', () => {
+  const conf = nginxConf();
+  assert.match(conf, /location = \/healthz \{/);
+  assert.match(conf, /proxy_pass http:\/\/service:3000\/healthz;/);
 });
 
 test('compose has kv, service and web', () => {
