@@ -33,10 +33,6 @@ service OneTimeMessage : http {
       post: !store.has(id)
     }
 
-    job purge_expired() -> int {
-      schedule: "*/5 * * * *"
-      idempotent
-    }
   }
 
   rules {

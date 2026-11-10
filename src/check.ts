@@ -118,6 +118,12 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // W017 — jobs are parsed but not executable in v0.1
+    for (const op of svc.contract) {
+      if (op.kind !== 'job') continue;
+      diags.push(diag('W017', 'warning', mod.file, op.loc, `services.${svc.name}.contract.${op.name}`, `job ${op.name} не исполняется в v0.1`, 'нет модели состояния и условия выборки; TTL — гарантия провайдера'));
+    }
+
     // W012 — operation without examples
     const mentioned = collectMentionedOps(svc);
     for (const op of svc.contract) {

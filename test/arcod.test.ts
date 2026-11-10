@@ -51,6 +51,17 @@ test('reports a provider mentioned in the model', () => {
   assert.ok(codes.includes('A003'));
 });
 
+test('a job is parsed but flagged as not executable', () => {
+  const withJob = source.replace(
+    "    }\n\n  }\n\n  rules {",
+    "    }\n\n    job purge_expired() -> int {\n      schedule: \"*/5 * * * *\"\n      idempotent\n    }\n  }\n\n  rules {",
+  );
+  const jobAst = parse(withJob, 'main.arc');
+  assert.ok(jobAst.services[0].contract.some((item) => item.kind === 'job'));
+  const diags = check(jobAst);
+  assert.ok(diags.some((item) => item.code === 'W017'));
+});
+
 test('effects cover atomic steps and generated operations', () => {
   const broken = parse(source.replace('store.del, ', ''), 'main.arc');
   const codes = check(broken).map((item) => item.code);
