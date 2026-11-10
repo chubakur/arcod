@@ -1,0 +1,19 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: tests
+        run: node --test test/
+      - name: check example
+        run: node bin/arcod.mjs check examples/onetimemessage
+      - name: plan example
+        run: node bin/arcod.mjs plan examples/onetimemessage --json > /dev/null
