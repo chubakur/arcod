@@ -1,7 +1,7 @@
 import type {
   Arg, BindNode, BudgetNode, CapUse, Clause, EnumDecl, EnvironmentNode, ErrorDecl,
   ExampleNode, Expr, EffectsNode, Loc, ModuleNode, OpNode, Param, RuleNode,
-  ServiceNode, Stmt, TypeArg, TypeDecl, TypeExpr, UseNode,
+  ServiceNode, Stmt, TypeArg, TypeDecl, TypeExpr, UiNode, UseNode,
 } from './ast.ts';
 import { lex, locOf, type Token } from './lexer.ts';
 
@@ -54,7 +54,7 @@ class Parser {
 
     const mod: ModuleNode = {
       kind: 'module', name, version, meta, uses: [], types: [], errors: [], enums: [],
-      services: [], environments: [], file: this.file, source: this.source,
+      services: [], environments: [], uis: [], file: this.file, source: this.source,
       loc: this.loc(start, end),
     };
 
@@ -66,6 +66,7 @@ class Parser {
       if (this.is('service')) { mod.services.push(this.parseService(false)); continue; }
       if (this.is('external')) { this.next(); mod.services.push(this.parseService(true)); continue; }
       if (this.is('environment')) { mod.environments.push(this.parseEnvironment()); continue; }
+      if (this.is('ui')) { mod.uis.push(this.parseUi()); continue; }
       if (this.is('unknown')) { this.skipUnknown(); continue; }
       if (this.is('policy') || this.is('change')) { this.skipBlockOrLine(); continue; }
       this.error('unexpected top-level token ' + JSON.stringify(this.peek().value));
@@ -438,6 +439,38 @@ class Parser {
     }
     this.expect('}');
     return { kind: 'budget', items, loc: this.loc(start, this.prev()) };
+  }
+
+  private parseUi(): UiNode {
+    const start = this.expect('ui');
+    const name = this.expectIdent('ui name').value;
+    const ui: UiNode = { kind: 'ui', name, impl: 'spa', route: '/', title: null, uses: [], loc: locOf(start) };
+    this.expect('{');
+    while (!this.is('}')) {
+      const key = this.expectIdent('ui property').value;
+      if (key === 'uses') {
+        while (true) {
+          ui.uses.push(this.parseQName());
+          if (!this.accept(',')) break;
+        }
+        this.accept(';');
+        continue;
+      }
+      this.expect(':');
+      if (key === 'kind' || key === 'impl') {
+        ui.impl = this.expectIdent('ui kind').value;
+      } else if (key === 'route') {
+        ui.route = this.next().value;
+      } else if (key === 'title') {
+        ui.title = this.next().value;
+      } else {
+        this.next();
+      }
+      this.accept(';');
+    }
+    const end = this.expect('}');
+    ui.loc = this.loc(start, end);
+    return ui;
   }
 
   private parseEnvironment(): EnvironmentNode {

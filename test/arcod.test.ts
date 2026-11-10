@@ -71,6 +71,25 @@ test('web emitter points at the declared routes', () => {
   assert.match(html, /65536/);
 });
 
+test('ui block declares the frontend', () => {
+  assert.equal(ast.uis.length, 1);
+  assert.equal(ast.uis[0].name, 'Web');
+  assert.deepEqual(ast.uis[0].uses, ['OneTimeMessage.create', 'OneTimeMessage.read']);
+});
+
+test('without ui there is no frontend container', () => {
+  const yaml = composeYaml(ast, 8080, false);
+  assert.ok(!yaml.includes('web:'));
+  assert.ok(yaml.includes('"8080:3000"'));
+  assert.throws(() => emitWeb({ ...ast, uis: [] }, { maxBytes: 1024 }), /no ui block/);
+});
+
+test('A018 catches a ui reference to a missing operation', () => {
+  const broken = parse(source.replace('OneTimeMessage.read', 'OneTimeMessage.nope'), 'main.arc');
+  const codes = check(broken).map((d) => d.code);
+  assert.ok(codes.includes('A018'));
+});
+
 test('compose has kv, service and web', () => {
   const yaml = composeYaml(ast, 8080);
   assert.match(yaml, /^name: arcod-onetimemessage/m);

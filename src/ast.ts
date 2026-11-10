@@ -21,6 +21,7 @@ export interface ModuleNode {
   enums: EnumDecl[];
   services: ServiceNode[];
   environments: EnvironmentNode[];
+  uis: UiNode[];
   file: string;
   source: string;
   loc: Loc;
@@ -162,6 +163,16 @@ export interface Arg {
 export interface BudgetNode {
   kind: 'budget';
   items: Array<{ key: string; expr: Expr; loc: Loc }>;
+  loc: Loc;
+}
+
+export interface UiNode {
+  kind: 'ui';
+  name: string;
+  impl: string;
+  route: string;
+  title: string | null;
+  uses: string[];
   loc: Loc;
 }
 

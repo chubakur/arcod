@@ -24,20 +24,26 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
 
   await rm(dir, { recursive: true, force: true });
   await mkdir(serviceDir, { recursive: true });
-  await mkdir(webDir, { recursive: true });
+  if (mod.uis.length > 0) await mkdir(webDir, { recursive: true });
 
-  const maxBytes = maxBodyBytes(mod);
+  const hasUi = mod.uis.length > 0;
   const service = emitService(mod);
-  const web = emitWeb(mod, { maxBytes });
 
   const files: Array<[string, string]> = [
     [join(serviceDir, 'index.mjs'), service],
     [join(serviceDir, 'Dockerfile'), serviceDockerfile()],
-    [join(webDir, 'index.html'), web],
-    [join(webDir, 'nginx.conf'), nginxConf()],
-    [join(webDir, 'Dockerfile'), webDockerfile()],
-    [join(dir, 'docker-compose.yml'), composeYaml(mod, port)],
   ];
+
+  if (hasUi) {
+    const web = emitWeb(mod, { maxBytes: maxBodyBytes(mod) });
+    files.push(
+      [join(webDir, 'index.html'), web],
+      [join(webDir, 'nginx.conf'), nginxConf()],
+      [join(webDir, 'Dockerfile'), webDockerfile()],
+    );
+  }
+
+  files.push([join(dir, 'docker-compose.yml'), composeYaml(mod, port, hasUi)]);
 
   for (const [path, content] of files) {
     await writeFile(path, content, { encoding: 'utf8', mode: 0o644 });

@@ -121,6 +121,7 @@ const PAGE = `<!doctype html>
 
 <script>
 const API_CREATE = '__CREATE_PATH__';
+const LINK_PREFIX = '__LINK_PREFIX__';
 const API_READ = '__READ_PATH__';
 const MAX_BYTES = __MAX_BYTES__;
 
@@ -151,7 +152,7 @@ async function create() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.message || data.error || 'не удалось создать');
 
-    const link = location.origin + '/?id=' + encodeURIComponent(data.id);
+    const link = location.origin + LINK_PREFIX + encodeURIComponent(data.id);
     const anchor = byId('link');
     anchor.textContent = link;
     anchor.href = link;
@@ -221,6 +222,8 @@ export interface WebOptions {
 }
 
 export function emitWeb(mod: ModuleNode, options: WebOptions): string {
+  const ui = mod.uis[0];
+  if (!ui) throw new Error('no ui block declared; add ui <Name> { ... } to generate a frontend');
   const svc = pickService(mod);
   if (!svc) throw new Error('no service to emit web for');
 
@@ -231,9 +234,12 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
   const createPath = pathOf(create);
   const readPath = pathOf(read);
 
+  const linkPrefix = ui.route === '/' ? '/?id=' : ui.route.replace(/\/$/, '') + '/?id=';
+
   return PAGE
-    .replaceAll('__TITLE__', svc.name + ' — one-time message')
-    .replaceAll('__BRAND__', mod.name + ' · ' + svc.name)
+    .replaceAll('__TITLE__', ui.title ?? svc.name)
+    .replaceAll('__BRAND__', mod.name + ' · ' + ui.name)
+    .replaceAll('__LINK_PREFIX__', linkPrefix)
     .replaceAll('__MODULE__', mod.name + '@' + mod.version)
     .replaceAll('__CREATE_PATH__', createPath)
     .replaceAll('__READ_PATH__', readPath)

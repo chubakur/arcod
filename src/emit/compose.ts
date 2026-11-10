@@ -52,9 +52,9 @@ export function nginxConf(): string {
   ].join('\n');
 }
 
-export function composeYaml(mod: ModuleNode, port: number): string {
+export function composeYaml(mod: ModuleNode, port: number, hasUi = true): string {
   const name = 'arcod-' + kebab(mod.name);
-  return [
+  const lines = [
     'name: ' + name,
     'services:',
     '  kv:',
@@ -74,13 +74,25 @@ export function composeYaml(mod: ModuleNode, port: number): string {
     '    depends_on:',
     '      kv:',
     '        condition: service_healthy',
-    '  web:',
-    '    build:',
-    '      context: ./web',
-    '    ports:',
-    '      - "' + port + ':80"',
-    '    depends_on:',
-    '      - service',
-    '',
-  ].join('\n');
+  ];
+
+  if (hasUi) {
+    lines.push(
+      '  web:',
+      '    build:',
+      '      context: ./web',
+      '    ports:',
+      '      - "' + port + ':80"',
+      '    depends_on:',
+      '      - service',
+    );
+  } else {
+    lines.push(
+      '    ports:',
+      '      - "' + port + ':3000"',
+    );
+  }
+
+  lines.push('');
+  return lines.join('\n');
 }

@@ -93,6 +93,19 @@ export function buildPlan(mod: ModuleNode): Plan {
     }
   }
 
+  for (const ui of mod.uis) {
+    tasks.push({
+      id: nextId(),
+      title: 'собрать интерфейс ' + ui.name,
+      kind: 'infra',
+      service: '*',
+      deps: tasks.filter((t) => t.kind === 'implement').map((t) => t.id),
+      files: { create: ['web/index.html', 'web/nginx.conf'], modify: [], forbid: [] },
+      acceptance: ['arcod build', 'arcod run --detach'],
+      budget: null,
+    });
+  }
+
   if (mod.environments.some((env) => env.deploy === 'docker')) {
     tasks.push({
       id: nextId(),

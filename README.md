@@ -30,12 +30,20 @@ service OneTimeMessage : http {
   effects { allow store.get, store.set, store.del, store.has, uuid.new }
 }
 
+ui Web {
+  kind:  spa
+  route: "/"
+  uses  OneTimeMessage.create, OneTimeMessage.read
+}
+
 environment dev {
   bind store -> redis(host: "kv", port: 6379)
   bind uuid -> local
   deploy docker
 }
 ```
+
+Фронтенд появляется только если объявлен `ui`. Нет `ui` — генерируется только API и порт сервиса.
 
 ## Быстрый старт
 
@@ -82,7 +90,7 @@ node ../../bin/arcod.mjs run
 Для `examples/onetimemessage`:
 
 - `.arcod/build/service/index.mjs` — HTTP-сервис на Node без зависимостей, с минимальным RESP-клиентом;
-- `.arcod/build/web/` — статический фронтенд и nginx с проксированием `/api`;
+- `.arcod/build/web/` — статический фронтенд и nginx с проксированием `/api` (только при объявленном `ui`);
 - `.arcod/build/docker-compose.yml` — redis + сервис + фронтенд.
 
 Правила из спеки превращаются в поведение: `atomic read { get; del }` — в Lua-скрипт с гетом и удалением, `once(read, by: id)` — в tombstone-ключ, который даёт `Gone` при повторном чтении.
@@ -102,7 +110,9 @@ node ../../bin/arcod.mjs run
 - `W011` возможность объявлена, но не используется;
 - `W012` операция без примеров;
 - `W013` бюджет не задан;
-- `W015` ошибка объявлена, но нигде не используется.
+- `W015` ошибка объявлена, но нигде не используется;
+- `A018` `ui` ссылается на несуществующую операцию или операцию без `route`;
+- `A019` `ui` с неподдерживаемым `kind` (в v0.1 только `spa`).
 
 `arcod check` возвращает `1` при ошибках и `0`, когда модель чистая.
 
@@ -141,6 +151,7 @@ npm test
 - Генерация только в JavaScript/Node. PHP, Go и Python — отдельные эмиттеры позже.
 - `change`, `unknown` и `external` парсятся, но не влияют на сборку.
 - `lifecycle`, `ordering` и предикаты, кроме `once`, пока декларативны.
+- `ui` поддерживает только `kind: spa` и генерирует страницу под операции `create`/`read`; произвольная вёрстка не выражается.
 
 ## Лицензия
 

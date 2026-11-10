@@ -77,6 +77,13 @@ service OneTimeMessage : http {
   }
 }
 
+ui Web {
+  kind:  spa
+  route: "/"
+  title: "Одноразовое сообщение"
+  uses  OneTimeMessage.create, OneTimeMessage.read
+}
+
 environment dev {
   bind store -> redis(host: "kv", port: 6379)
   bind uuid -> local

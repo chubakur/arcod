@@ -120,6 +120,23 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     }
   }
 
+  // A018 — ui references an operation that does not exist
+  for (const ui of mod.uis) {
+    if (ui.impl !== 'spa') {
+      diags.push(diag('A019', 'error', mod.file, ui.loc, 'ui.' + ui.name, 'ui kind ' + ui.impl + ' не поддерживается в v0.1', 'используйте kind: spa'));
+    }
+    for (const ref of ui.uses) {
+      const parts = ref.split('.');
+      const svc = mod.services.find((item) => item.name === parts[0]);
+      const op = svc?.contract.find((item) => item.name === parts[1] && item.kind === 'op');
+      if (!svc || !op) {
+        diags.push(diag('A018', 'error', mod.file, ui.loc, 'ui.' + ui.name + '.uses', 'ui ссылается на несуществующую операцию ' + ref));
+      } else if (!routeOf(op)) {
+        diags.push(diag('A018', 'error', mod.file, ui.loc, 'ui.' + ui.name + '.uses', 'операция ' + ref + ' без route не может вызываться из ui'));
+      }
+    }
+  }
+
   // A007 also applies to errors declared at module level but never used anywhere.
   const allText = mod.source;
   for (const err of mod.errors) {
@@ -142,6 +159,11 @@ function diag(code: string, severity: 'error' | 'warning', file: string, loc: Lo
 function sortDiagnostics(diags: Diagnostic[]): Diagnostic[] {
   return diags.sort((a, b) =>
     a.file.localeCompare(b.file) || a.range.line - b.range.line || a.range.col - b.range.col || a.code.localeCompare(b.code));
+}
+
+function routeOf(op: OpNode): string | null {
+  const clause = op.clauses.find((item) => item.kind === 'route');
+  return clause && clause.kind === 'route' ? clause.value : null;
 }
 
 function errorNames(op: OpNode): string[] {
