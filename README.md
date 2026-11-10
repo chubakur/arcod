@@ -110,9 +110,14 @@ arcod providers            # таблица возможностей и пров
 ```
 
 Реестр: redis, postgres, mysql, mariadb, mongodb, keycloak, s3 (minio), rabbitmq,
-kafka, nginx, liquibase, clickhouse, prometheus. На каждый bind генерируется
+kafka, nginx, liquibase, clickhouse, prometheus, sentry, jaeger, grafana, mailpit,
+vault. На каждый bind генерируется
 сервис в compose с healthcheck, томом и env; порты публикуются только при
 `expose: true`.
+
+Провайдер может быть внешним: `bind errors -> sentry(dsn: "...")` не создаёт
+контейнер, но добавляет `SENTRY_DSN` в окружение сервиса; без `dsn` — ошибка
+`A026`.
 
 Адаптер в рантайме пока есть только у `kv`/`redis` — остальные провайдеры
 поднимаются, но телу недоступны. Это следующая итерация.

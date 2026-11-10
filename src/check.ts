@@ -63,6 +63,16 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         );
         continue;
       }
+      for (const required of spec.requires ?? []) {
+        if (!(required in bind.args)) {
+          diags.push(
+            diag('A026', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
+              `провайдеру ${bind.provider} нужен аргумент ${required}`,
+              `добавьте ${required}: "..." в bind`),
+          );
+        }
+      }
+
       const capability = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
       if (spec.capability !== capability) {
         const alternatives = providersForCapability(capability);

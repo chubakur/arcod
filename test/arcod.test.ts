@@ -211,6 +211,11 @@ use capability arcod.std.metrics @1
 use capability arcod.std.proxy @1
 use capability arcod.std.migrations @1
 use capability arcod.std.document @1
+use capability arcod.std.errors @1
+use capability arcod.std.tracing @1
+use capability arcod.std.dashboards @1
+use capability arcod.std.mail @1
+use capability arcod.std.secrets @1
 
 service All : http {
   uses store: kv(ttl: 999s)
@@ -226,6 +231,11 @@ service All : http {
   uses metrics: metrics
   uses edge: proxy
   uses schema: migrations
+  uses errors: errors
+  uses tracing: tracing
+  uses dashboards: dashboards
+  uses mail: mail
+  uses secrets: secrets
 }
 
 environment dev {
@@ -242,6 +252,11 @@ environment dev {
   bind metrics -> prometheus(host: "prom", expose: true)
   bind edge -> nginx(host: "edge")
   bind schema -> liquibase(host: "migrate")
+  bind errors -> sentry(dsn: "https://key@sentry.example/1")
+  bind tracing -> jaeger(host: "jaeger", expose: true)
+  bind dashboards -> grafana(host: "grafana")
+  bind mail -> mailpit(host: "mail")
+  bind secrets -> vault(host: "vault")
   deploy docker
 }
 `;
@@ -264,6 +279,10 @@ test('every provider in the registry renders a compose service', () => {
     'liquibase/liquibase:4.29',
     'clickhouse/clickhouse-server:24.8-alpine',
     'prom/prometheus:v2.54.1',
+    'jaegertracing/all-in-one:1.62',
+    'grafana/grafana:11.2.0',
+    'axllent/mailpit:v1.21',
+    'hashicorp/vault:1.18',
   ]) {
     assert.ok(yaml.includes('image: ' + image), 'missing ' + image);
   }
@@ -274,6 +293,10 @@ test('every provider in the registry renders a compose service', () => {
   assert.match(yaml, /CLICKHOUSE_URL: "http:\/\/ch:8123"/);
   assert.match(yaml, /^volumes:\n(  \w+:\n)*  pgdata:\n/m);
   assert.ok(yaml.includes('"9001:9001"'), 'minio console port');
+  assert.match(yaml, /SENTRY_DSN: "https:\/\/key@sentry\.example\/1"/);
+  assert.ok(!yaml.includes('\n  sentry:\n'), 'sentry is external, not a container');
+  assert.match(yaml, /OTEL_EXPORTER_OTLP_ENDPOINT: "http:\/\/jaeger:4318"/);
+  assert.match(yaml, /SMTP_URL: "smtp:\/\/mail:1025"/);
 });
 
 test('unknown provider and capability mismatch are errors', () => {
@@ -286,6 +309,9 @@ test('unknown provider and capability mismatch are errors', () => {
 
   const duplicate = parse(infraSource.replace('bind db2 -> mysql(host: "mysql")', 'bind db -> mysql(host: "mysql")'), 'infra.arc');
   assert.ok(check(duplicate).some((item) => item.code === 'A025'));
+
+  const missingDsn = parse(infraSource.replace('bind errors -> sentry(dsn: "https://key@sentry.example/1")', 'bind errors -> sentry()'), 'infra.arc');
+  assert.ok(check(missingDsn).some((item) => item.code === 'A026'));
 });
 
 test('byte limits are scaled: 64kb is 65536, not 64', async () => {

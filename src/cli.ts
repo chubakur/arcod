@@ -128,10 +128,12 @@ function runProviders(flags: Flags): void {
     return {
       capability: spec.capability,
       provider: spec.name,
-      image: spec.image,
+      image: spec.image ?? '(external)',
       port: spec.port ?? null,
-      env: spec.appEnv ? Object.keys(spec.appEnv('host', spec.port ?? 0)).sort() : [],
+      env: spec.appEnv ? Object.keys(spec.appEnv({ host: 'host', port: spec.port ?? 0, args: { dsn: 'x' } })).sort() : [],
       oneShot: spec.oneShot === true,
+      external: spec.external === true,
+      requires: spec.requires ?? [],
     };
   });
 

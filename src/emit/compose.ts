@@ -87,19 +87,24 @@ function renderProvider(bind: BindNode): RenderedProvider | null {
   const host = stringArg(bind, 'host') ?? spec.name;
   const port = numberArg(bind, 'port') ?? spec.port ?? 0;
   const volume = spec.volumes && spec.volumes.length > 0 ? spec.volumes[0].split(':')[0] : null;
+  const args: Record<string, string | number | boolean> = {};
+  for (const [key, expr] of Object.entries(bind.args)) {
+    if (expr.kind === 'literal') args[key] = expr.value;
+  }
   return {
     alias: bind.alias,
     host,
     spec,
     port,
     expose: boolArg(bind, 'expose'),
-    appEnv: spec.appEnv ? spec.appEnv(host, port) : {},
+    appEnv: spec.appEnv ? spec.appEnv({ host, port, args }) : {},
     volume,
   };
 }
 
 function providerLines(item: RenderedProvider): string[] {
   const { spec, host, port } = item;
+  if (spec.external || !spec.image) return [];
   const lines = ['  ' + host + ':', '    image: ' + spec.image];
 
   if (spec.command) lines.push('    command: ' + JSON.stringify(spec.command));
@@ -143,7 +148,7 @@ export function composeYaml(mod: ModuleNode, port: number, hasUi = true): string
 
   // A service with no explicit infra binding keeps a private kv so the demo
   // still runs; everything else comes from the environment.
-  if (bound.length === 0) {
+  if ((environment?.binds ?? []).length === 0) {
     bound.push({
       alias: 'store',
       host: 'kv',
