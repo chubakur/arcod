@@ -63,7 +63,7 @@ function parseReply(buf, offset) {
   throw new Error('unexpected RESP type: ' + type);
 }
 
-class Kv {
+class RedisStore {
   constructor(host, port) {
     this.host = host;
     this.port = port;
@@ -119,9 +119,67 @@ class Kv {
       this.socket.write(parts.join(''));
     });
   }
+
+  async set(key, value, ttlMs) {
+    return this.command('SET', key, value, 'PX', String(ttlMs));
+  }
+
+  async ping() {
+    return this.command('PING');
+  }
+
+  async take(messageKey, goneKey, ttlMs) {
+    const reply = await this.command('EVAL', LUA_READ, '2', messageKey, goneKey, String(ttlMs));
+    const state = Array.isArray(reply) ? reply[0] : null;
+    if (state === 'ok') return { state: 'ok', value: String(reply[1]) };
+    if (state === 'gone') return { state: 'gone' };
+    return { state: 'missing' };
+  }
 }
 
-const kv = new Kv(process.env.KV_HOST || 'kv', Number(process.env.KV_PORT || 6379));
+class MemoryStore {
+  constructor() {
+    this.map = new Map();
+  }
+
+  async set(key, value, ttlMs) {
+    this.map.set(key, { value: String(value), expires: Date.now() + ttlMs });
+    return 'OK';
+  }
+
+  async get(key) {
+    const entry = this.map.get(key);
+    if (!entry) return null;
+    if (entry.expires <= Date.now()) {
+      this.map.delete(key);
+      return null;
+    }
+    return entry.value;
+  }
+
+  async del(key) {
+    return this.map.delete(key) ? 1 : 0;
+  }
+
+  async ping() {
+    return 'PONG';
+  }
+
+  async take(messageKey, goneKey, ttlMs) {
+    const value = await this.get(messageKey);
+    if (value !== null) {
+      this.map.delete(messageKey);
+      this.map.set(goneKey, { value: '1', expires: Date.now() + ttlMs });
+      return { state: 'ok', value };
+    }
+    if ((await this.get(goneKey)) !== null) return { state: 'gone' };
+    return { state: 'missing' };
+  }
+}
+
+const store = process.env.KV_DRIVER === 'memory'
+  ? new MemoryStore()
+  : new RedisStore(process.env.KV_HOST || 'kv', Number(process.env.KV_PORT || 6379));
 
 // ---------- http ----------
 
@@ -201,7 +259,7 @@ async function handleCreate(req, res) {
   if (size < CONFIG.minBody || size > CONFIG.maxBody) return sendError(res, 'Invalid');
 
   const id = randomUUID();
-  await kv.command('SET', 'msg:' + id, body, 'PX', String(CONFIG.ttlMs));
+  await store.set('msg:' + id, body, CONFIG.ttlMs);
   send(res, 201, JSON.stringify({ id, expiresIn: Math.round(CONFIG.ttlMs / 1000) }));
 }
 
@@ -209,10 +267,9 @@ async function handleRead(res, id) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
     return sendError(res, 'NotFound');
   }
-  const reply = await kv.command('EVAL', LUA_READ, '2', 'msg:' + id, 'gone:' + id, String(CONFIG.goneTtlMs));
-  const state = Array.isArray(reply) ? reply[0] : null;
-  if (state === 'ok') return send(res, 200, String(reply[1]), 'text/plain; charset=utf-8');
-  if (state === 'gone') return sendError(res, 'Gone');
+  const result = await store.take('msg:' + id, 'gone:' + id, CONFIG.goneTtlMs);
+  if (result.state === 'ok') return send(res, 200, result.value, 'text/plain; charset=utf-8');
+  if (result.state === 'gone') return sendError(res, 'Gone');
   return sendError(res, 'NotFound');
 }
 
@@ -229,7 +286,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://localhost');
     if (url.pathname === '/healthz') {
       try {
-        await kv.command('PING');
+        await store.ping();
         return send(res, 200, JSON.stringify({ status: 'ok', service: CONFIG.service, kv: 'up' }));
       } catch {
         return send(res, 503, JSON.stringify({ status: 'degraded', kv: 'down' }));
@@ -248,8 +305,10 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(CONFIG.port, '0.0.0.0', () => {
-  console.log('arcod service ' + CONFIG.service + ' listening on :' + CONFIG.port);
+const PORT = Number(process.env.PORT || CONFIG.port);
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log('arcod service ' + CONFIG.service + ' listening on :' + PORT);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
@@ -371,6 +430,10 @@ function resolveType(mod: ModuleNode, type: TypeExpr): TypeExpr {
     current = decl.type;
   }
   return current;
+}
+
+export function statusForError(name: string): number {
+  return errorInfo(name).status;
 }
 
 function errorInfo(name: string): { status: number; message: string } {

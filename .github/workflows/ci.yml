@@ -15,5 +15,7 @@ jobs:
         run: node --test test/*.test.ts
       - name: check example
         run: node bin/arcod.mjs check examples/onetimemessage
+      - name: run example
+        run: node bin/arcod.mjs test examples/onetimemessage
       - name: plan example
         run: node bin/arcod.mjs plan examples/onetimemessage --json > /dev/null

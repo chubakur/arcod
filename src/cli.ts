@@ -5,6 +5,7 @@ import { parse, ParseError } from './parser.ts';
 import { check } from './check.ts';
 import { buildPlan, formatPlan } from './plan.ts';
 import { buildExample } from './build.ts';
+import { runExamples } from './test.ts';
 import type { Diagnostic } from './diagnostics.ts';
 import type { ModuleNode } from './ast.ts';
 
@@ -44,6 +45,9 @@ export async function main(argv: string[]): Promise<void> {
         return;
       case 'build':
         await runBuild(flags);
+        return;
+      case 'test':
+        await runTest(flags);
         return;
       case 'run':
         await runRun(flags);
@@ -118,6 +122,38 @@ async function runBuild(flags: Flags): Promise<void> {
   const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port });
   console.log('arcod build: ' + result.files.length + ' files in ' + result.dir);
   for (const file of result.files) console.log('  ' + file);
+}
+
+async function runTest(flags: Flags): Promise<void> {
+  const loaded = await load(flags.spec);
+  const diags = check(loaded.mod);
+  const errors = diags.filter((d) => d.severity === 'error');
+  if (errors.length > 0) {
+    printDiagnostics(errors, loaded.specPath);
+    process.exitCode = 1;
+    return;
+  }
+
+  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port });
+  const examples = await runExamples(loaded.mod, result.dir);
+
+  if (examples.length === 0) {
+    console.log('no examples declared');
+    return;
+  }
+
+  if (flags.json) {
+    console.log(JSON.stringify(examples, null, 2));
+  } else {
+    for (const example of examples) {
+      console.log((example.ok ? 'ok    ' : 'fail  ') + example.example + (example.error ? '  — ' + example.error : ''));
+    }
+    const failed = examples.filter((example) => !example.ok).length;
+    console.log('');
+    console.log(examples.length - failed + ' passed, ' + failed + ' failed');
+  }
+
+  process.exitCode = examples.every((example) => example.ok) ? 0 : 1;
 }
 
 async function runRun(flags: Flags): Promise<void> {
@@ -261,6 +297,7 @@ usage:
   arcod ast   [dir|spec.arc] [--check]
   arcod plan  [dir|spec.arc] [--json]
   arcod build [dir|spec.arc] [--port 8080]
+  arcod test  [dir|spec.arc] [--json]
   arcod run   [dir|spec.arc] [--port 8080] [--detach] [--down]
 
 examples:

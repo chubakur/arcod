@@ -80,6 +80,7 @@ node ../../bin/arcod.mjs run
 | `arcod ast [dir]` | печатает канонический AST |
 | `arcod plan [dir]` | детерминированный DAG задач: файлы, зависимости, критерии приёмки |
 | `arcod build [dir]` | генерирует сервис, фронтенд и docker-compose в `.arcod/build` |
+| `arcod test [dir]` | поднимает сгенерированный сервис с in-memory kv и прогоняет `examples` |
 | `arcod run [dir]` | build + `docker compose up --build` |
 | `arcod run --down` | останавливает окружение |
 
@@ -149,7 +150,8 @@ npm test
 
 - Эмиттер поддерживает только сервисы с операциями `create` и `read` поверх `kv`.
 - Провайдер `kv` — только Redis.
-- `arcod fmt`, `arcod test`, `arcod diff`, `arcod adopt` ещё не реализованы.
+- `arcod fmt`, `arcod diff`, `arcod adopt` ещё не реализованы.
+- `arcod test` не исполняет `given` и property-предикаты, только `when`/`then`.
 - Генерация только в JavaScript/Node. PHP, Go и Python — отдельные эмиттеры позже.
 - `change`, `unknown` и `external` парсятся, но не влияют на сборку.
 - `lifecycle`, `ordering` и предикаты, кроме `once`, пока декларативны.

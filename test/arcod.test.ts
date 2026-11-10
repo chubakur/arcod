@@ -7,6 +7,11 @@ import { buildPlan } from '../src/plan.ts';
 import { emitService } from '../src/emit/service.ts';
 import { emitWeb } from '../src/emit/web.ts';
 import { composeYaml } from '../src/emit/compose.ts';
+import { buildExample } from '../src/build.ts';
+import { runExamples } from '../src/test.ts';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const specUrl = new URL('../examples/onetimemessage/main.arc', import.meta.url);
 const source = await readFile(specUrl, 'utf8');
@@ -97,6 +102,14 @@ test('budget reaches the plan and the runtime', () => {
   const code = emitService(ast);
   assert.ok(code.includes('"concurrency": 100'));
   assert.ok(code.includes('inFlight >= CONFIG.concurrency'));
+});
+
+test('examples run against the generated service', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-example-'));
+  const built = await buildExample(ast, dir);
+  const examples = await runExamples(ast, built.dir);
+  assert.equal(examples.length, 2);
+  assert.ok(examples.every((item) => item.ok), JSON.stringify(examples));
 });
 
 test('compose has kv, service and web', () => {
