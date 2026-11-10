@@ -49,10 +49,40 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     // Collect capability calls from every expression in the service
     const uses = collectCapabilityUses(svc, aliases);
 
-    // A004 — effect used but not allowed
-    for (const use of uses) {
-      if (!svc.effects || !isAllowed(svc.effects.allow, use.alias, use.op)) {
-        diags.push(diag('A004', 'error', mod.file, use.loc, `services.${svc.name}.effects`, `эффект ${use.alias}.${use.op} не разрешён`, `добавьте ${use.alias}.${use.op} в allow`));
+    // A004 — effect used but not allowed; A021 — explicitly denied
+    const checkEffect = (alias: string, op: string, loc: Loc) => {
+      if (!svc.effects || !isAllowed(svc.effects.allow, alias, op)) {
+        diags.push(diag('A004', 'error', mod.file, loc, `services.${svc.name}.effects`, `эффект ${alias}.${op} не разрешён`, `добавьте ${alias}.${op} в allow`));
+      }
+      if (svc.effects && isDenied(svc.effects.deny, alias, op)) {
+        diags.push(diag('A021', 'error', mod.file, loc, `services.${svc.name}.effects`, `эффект ${alias}.${op} запрещён`, `уберите ${alias}.${op} из deny или из кода`));
+      }
+    };
+
+    for (const use of uses) checkEffect(use.alias, use.op, use.loc);
+
+    // Effects implied by generated operation semantics (v0.1 convention)
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      for (const effect of requiredEffects(svc, op)) {
+        checkEffect(effect.alias, effect.op, op.loc);
+      }
+    }
+
+    // A020 — an effect is both allowed and denied
+    if (svc.effects) {
+      for (const item of svc.effects.allow) {
+        if (svc.effects.deny.includes(item)) {
+          diags.push(diag('A020', 'error', mod.file, svc.effects.loc, `services.${svc.name}.effects`, `эффект ${item} одновременно в allow и deny`, 'deny сильнее, уберите из allow'));
+        }
+      }
+    }
+
+    // W016 — deny entries the compiler cannot enforce in v0.1
+    if (svc.effects) {
+      const unenforceable = svc.effects.deny.filter((item) => !item.includes('.'));
+      if (unenforceable.length > 0) {
+        diags.push(diag('W016', 'warning', mod.file, svc.effects.loc, `services.${svc.name}.effects.deny`, 'deny не исполняется в v0.1: ' + unenforceable.join(', '), 'ограничивайте доступ на уровне окружения'));
       }
     }
 
@@ -176,6 +206,27 @@ function isAllowed(allow: string[], alias: string, op: string): boolean {
   return allow.includes(alias + '.' + op) || allow.includes(alias + '.*');
 }
 
+function isDenied(deny: string[], alias: string, op: string): boolean {
+  return deny.includes(alias + '.' + op) || deny.includes(alias + '.*') || deny.includes(alias);
+}
+
+function requiredEffects(svc: ServiceNode, op: OpNode): Array<{ alias: string; op: string }> {
+  const kv = svc.uses.find((use) => use.capability === 'kv' || use.capability.endsWith('.kv'))?.alias;
+  const ids = svc.uses.find((use) => use.capability === 'ids' || use.capability.endsWith('.ids'))?.alias;
+  const out: Array<{ alias: string; op: string }> = [];
+
+  if (op.name === 'create') {
+    if (kv) out.push({ alias: kv, op: 'set' });
+    if (ids) out.push({ alias: ids, op: 'new' });
+  }
+
+  if (op.name === 'read' && kv && !svc.rules.some((rule) => rule.kind === 'atomic' && rule.name === op.name)) {
+    out.push({ alias: kv, op: 'get' }, { alias: kv, op: 'del' });
+  }
+
+  return out;
+}
+
 export function walkExpr(expr: Expr, fn: (expr: Expr) => void): void {
   fn(expr);
   switch (expr.kind) {
@@ -215,6 +266,18 @@ function collectCapabilityUses(svc: ServiceNode, aliases: Set<string>): CapCall[
   }
   for (const rule of svc.rules) {
     if (rule.kind === 'invariant') visit(rule.expr);
+    if (rule.kind === 'atomic') {
+      const kvAliases = [...aliases].filter((alias) =>
+        svc.uses.some((use) => use.alias === alias && (use.capability === 'kv' || use.capability.endsWith('.kv'))));
+      for (const step of rule.steps) {
+        const parts = step.split('.');
+        if (parts.length === 2 && aliases.has(parts[0])) {
+          out.push({ alias: parts[0], op: parts[1], loc: rule.loc });
+        } else if (kvAliases.length === 1) {
+          out.push({ alias: kvAliases[0], op: step, loc: rule.loc });
+        }
+      }
+    }
   }
   for (const example of svc.examples) {
     for (const section of [example.given, example.when, example.then]) {

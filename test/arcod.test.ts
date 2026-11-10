@@ -33,9 +33,10 @@ test('parses the onetimemessage example', () => {
   assert.ok(svc.effects && svc.effects.allow.includes('store.set'));
 });
 
-test('the example passes all checks', () => {
+test('the example has no errors', () => {
   const diags = check(ast);
-  assert.deepEqual(diags, []);
+  assert.deepEqual(diags.filter((item) => item.severity === 'error'), []);
+  assert.ok(diags.some((item) => item.code === 'W016'));
 });
 
 test('reports an unbound capability', () => {
@@ -48,6 +49,19 @@ test('reports a provider mentioned in the model', () => {
   const broken = parse(source.replace('uses store: kv(ttl: 999s, consistency: strong)', 'uses store: kv(ttl: 999s, consistency: strong) // redis'), 'main.arc');
   const codes = check(broken).map((d) => d.code);
   assert.ok(codes.includes('A003'));
+});
+
+test('effects cover atomic steps and generated operations', () => {
+  const broken = parse(source.replace('store.del, ', ''), 'main.arc');
+  const codes = check(broken).map((item) => item.code);
+  assert.ok(codes.includes('A004'));
+});
+
+test('deny wins over allow', () => {
+  const broken = parse(source.replace('deny net, fs, exec', 'deny net, fs, exec, store.set'), 'main.arc');
+  const codes = check(broken).map((item) => item.code);
+  assert.ok(codes.includes('A021'));
+  assert.ok(codes.includes('A020'));
 });
 
 test('plan is deterministic and has stable ids', () => {
