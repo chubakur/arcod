@@ -255,6 +255,16 @@ async function invoke(op: OpNode, args: Value[], ctx: Context): Promise<Value> {
     args = args.filter((_, i) => i !== index);
   }
 
+  if (method === 'GET' || method === 'DELETE') {
+    const query = new URLSearchParams();
+    const remaining = op.params.filter((param) => !pathParams.includes(param.name));
+    remaining.forEach((param, index) => {
+      const value = unwrap(args[index]);
+      if (value !== null && value !== undefined && value !== '') query.set(param.name, String(value));
+    });
+    if (query.size > 0) path += '?' + query.toString();
+  }
+
   let body: string | undefined;
   if (method !== 'GET' && method !== 'DELETE') {
     const payload: Record<string, unknown> = {};

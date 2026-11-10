@@ -54,7 +54,9 @@ git clone git@github.com:chubakur/arcod.git
 cd arcod
 npm link            # ставит команду arcod глобально
 
-cd examples/onetimemessage
+cd examples/onetimemessage     # без пароля
+# или
+cd examples/onetimemessage-pwd # с необязательным паролем (--port 8081)
 arcod run
 ```
 
@@ -100,7 +102,11 @@ Scaffold — это то, что компилятор действительно
 
 ## Что генерируется
 
-Для `examples/onetimemessage`:
+Для `examples/onetimemessage` и `examples/onetimemessage-pwd`: что выводится из модели, а что остаётся шаблоном — см. «Режимы сборки».
+
+Два примера отличаются только моделью: `create(body, password?)`,
+`read(id, password?)`, ошибка `WrongPassword`, `on error WrongPassword: store.has(id)`
+и возможность `hash(scrypt)`. Маршруты, TTL, лимиты и инфраструктура совпадают.
 
 - `.arcod/build/service/index.mjs` — HTTP-сервис на Node без зависимостей, с минимальным RESP-клиентом;
 - `.arcod/build/web/` — статический фронтенд и nginx с проксированием `/api` (только при объявленном `ui`);
@@ -154,7 +160,8 @@ src/
   emit/compose.ts Dockerfile и compose
   cli.ts          команды
 examples/
-  onetimemessage/ живой пример
+  onetimemessage/     одноразовые сообщения
+  onetimemessage-pwd/ то же, но с необязательным паролем
 test/             node --test
 ```
 

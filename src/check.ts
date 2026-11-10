@@ -110,10 +110,14 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       });
     }
 
-    // W011 — declared capability never used
+    // W011 — declared capability never used. An effect allow-list entry is
+    // also a declaration of use: it names the effects the model expects.
     const usedAliases = new Set(uses.map((u) => u.alias));
+    const allowedAliases = new Set(
+      (svc.effects?.allow ?? []).map((entry) => entry.split('.')[0]).filter(Boolean),
+    );
     for (const use of svc.uses) {
-      if (!usedAliases.has(use.alias) && !mentionsBareAlias(svc, use.alias)) {
+      if (!usedAliases.has(use.alias) && !allowedAliases.has(use.alias) && !mentionsBareAlias(svc, use.alias)) {
         diags.push(diag('W011', 'warning', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`, `возможность ${use.capability} объявлена, но не используется`));
       }
     }

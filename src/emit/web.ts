@@ -1,5 +1,5 @@
 import type { ModuleNode, OpNode } from './ast.ts';
-import { pickService, routeOf } from './service.ts';
+import { isGuarded, pickService, routeOf } from './service.ts';
 
 const PAGE = `<!doctype html>
 <html lang="ru">
@@ -236,7 +236,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
 
   const linkPrefix = ui.route === '/' ? '/?id=' : ui.route.replace(/\/$/, '') + '/?id=';
 
-  return PAGE
+  let html = PAGE
     .replaceAll('__TITLE__', ui.title ?? svc.name)
     .replaceAll('__BRAND__', mod.name + ' · ' + ui.name)
     .replaceAll('__LINK_PREFIX__', linkPrefix)
@@ -245,6 +245,61 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
     .replaceAll('__READ_PATH__', readPath)
     .replaceAll('__MAXKB__', String(Math.round(options.maxBytes / 1024)))
     .replaceAll('__MAX_BYTES__', String(options.maxBytes));
+
+  if (isGuarded(svc)) html = withPasswordUi(html);
+  return html;
+}
+
+// Password UI is layered on top of the base page: the page itself stays one
+// template, and only the guarded service gets the extra field and branch.
+function withPasswordUi(html: string): string {
+  return html
+    .replace('</style>', `  .pwd { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .pwd label { font-size: 13px; }
+  .pwd input { width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: #0f131b; color: var(--text); font: inherit; }
+  .pwd .row { display: flex; gap: 8px; align-items: center; }
+  .pwd .row input { flex: 1; }
+</style>`)
+    .replace(
+      '<textarea id="body" placeholder="Секрет, пароль, ссылка..."></textarea>',
+      '<textarea id="body" placeholder="Секрет, пароль, ссылка..."></textarea>\n' +
+        '    <div class="pwd">\n' +
+        '      <label class="muted" for="pwd-create">Пароль — необязательно</label>\n' +
+        '      <input id="pwd-create" type="password" autocomplete="new-password" placeholder="пусто — откроет любой, у кого есть ссылка">\n' +
+        '    </div>',
+    )
+    .replace(
+      '<p class="lead" id="read-lead">Загружаем сообщение...</p>',
+      '<p class="lead" id="read-lead">Загружаем сообщение...</p>\n' +
+        '    <div class="pwd hidden" id="pwd-read-wrap">\n' +
+        '      <label class="muted" for="pwd-read">Сообщение защищено паролем</label>\n' +
+        '      <div class="row">\n' +
+        '        <input id="pwd-read" type="password" autocomplete="off" placeholder="введите пароль">\n' +
+        '        <button id="pwd-open">Открыть</button>\n' +
+        '      </div>\n' +
+        '    </div>',
+    )
+    .replace('JSON.stringify({ body })', "JSON.stringify({ body, password: byId('pwd-create').value })")
+    .replace(
+      "fetch(API_READ.replace(':id', encodeURIComponent(id)))",
+      "fetch(API_READ.replace(':id', encodeURIComponent(id)) + (byId('pwd-read').value ? '?password=' + encodeURIComponent(byId('pwd-read').value) : ''))",
+    )
+    .replace(
+      `    } else {
+      byId('read-title').textContent = 'Ошибка';`,
+      `    } else if (response.status === 403) {
+      byId('read-title').textContent = 'Нужен пароль';
+      byId('read-lead').textContent = 'Сообщение не удалено: введите правильный пароль.';
+      byId('pwd-read-wrap').classList.remove('hidden');
+      byId('pwd-read').focus();
+      setStatus(byId('read-status'), 'Неверный пароль', 'err');
+    } else {
+      byId('read-title').textContent = 'Ошибка';`,
+    )
+    .replace(
+      "byId('submit').addEventListener('click', create);",
+      "byId('submit').addEventListener('click', create);\nbyId('pwd-open').addEventListener('click', () => read(id));",
+    );
 }
 
 function pathOf(op: OpNode): string {

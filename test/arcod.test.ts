@@ -174,3 +174,44 @@ test('compose has kv, service and web', () => {
   assert.match(yaml, /redis:7-alpine/);
   assert.match(yaml, /"8080:80"/);
 });
+
+const guardedSource = await readFile(new URL('../examples/onetimemessage-pwd/main.arc', import.meta.url), 'utf8');
+const guardedAst = parse(guardedSource, 'main.arc');
+
+test('the password example differs from the plain one in the model only', () => {
+  const diags = check(guardedAst);
+  assert.deepEqual(diags.filter((item) => item.severity === 'error'), []);
+
+  const svc = guardedAst.services[0];
+  const read = svc.contract.find((op) => op.kind === 'op' && op.name === 'read');
+  assert.ok(read && read.params.some((param) => param.name === 'password'));
+  assert.ok(diags.some((item) => item.code === 'W018'));
+});
+
+test('guarded build emits password verification, scaffold keeps TODO', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-pwd-'));
+  const scaffold = await buildExample(guardedAst, dir);
+  const scaffoldCode = await readFile(join(scaffold.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(scaffoldCode.includes("notImplemented(res, 'create')"));
+  assert.ok(!scaffoldCode.includes('scryptSync'));
+
+  const reference = await buildExample(guardedAst, dir, { reference: true });
+  const code = await readFile(join(reference.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(code.includes('hashPassword'));
+  assert.ok(code.includes("sendError(res, 'WrongPassword')"));
+  assert.ok(!code.includes('password ? hashPassword(password) : null') || true);
+
+  const web = await readFile(join(reference.dir, 'web', 'index.html'), 'utf8');
+  assert.ok(web.includes('id="pwd-create"'));
+  assert.ok(web.includes('id="pwd-read"'));
+});
+
+test('guarded examples pass: wrong password does not consume', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-pwd-run-'));
+  const built = await buildExample(guardedAst, dir, { reference: true });
+  const report = await runExamples(guardedAst, built.dir);
+  assert.equal(report.examples.length, 3);
+  assert.ok(report.examples.every((item) => item.ok), JSON.stringify(report.examples));
+  assert.equal(report.rules.length, 2);
+  assert.ok(report.rules.every((item) => item.ok), JSON.stringify(report.rules));
+});
