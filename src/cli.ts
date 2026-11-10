@@ -188,10 +188,15 @@ async function runBuild(flags: Flags): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: flags.reference });
-  console.log('arcod build (' + (result.reference ? 'reference' : 'scaffold') + '): ' + result.files.length + ' files in ' + result.dir);
-  if (!result.reference) {
-    console.log('  operation bodies are TODO; use --reference for a runnable demo');
+  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: flags.reference, implDir: flags.impl ? undefined : null });
+  const mode = result.impl.length > 0 ? 'impl' : result.reference ? 'reference' : 'scaffold';
+  console.log('arcod build (' + mode + '): ' + result.files.length + ' files in ' + result.dir);
+  if (mode === 'impl') {
+    console.log('  bodies: ' + result.impl.join(', '));
+  } else if (flags.impl) {
+    console.log('  no bodies in impl/; run arcod impl first');
+  } else if (mode === 'scaffold') {
+    console.log('  operation bodies are TODO; use --reference or --impl for a runnable demo');
   }
   for (const file of result.files) console.log('  ' + file);
 }
@@ -206,7 +211,11 @@ async function runTest(flags: Flags): Promise<void> {
     return;
   }
 
-  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: true });
+  const result = await buildExample(loaded.mod, loaded.dir, {
+    port: flags.port,
+    reference: !flags.impl,
+    implDir: flags.impl ? undefined : null,
+  });
   const report = await runExamples(loaded.mod, result.dir);
 
   if (report.examples.length === 0 && report.rules.length === 0) {
@@ -250,8 +259,14 @@ async function runRun(flags: Flags): Promise<void> {
     return;
   }
 
-  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: !flags.scaffold });
-  if (result.reference) {
+  const result = await buildExample(loaded.mod, loaded.dir, {
+    port: flags.port,
+    reference: !flags.scaffold && !flags.impl,
+    implDir: flags.impl ? undefined : null,
+  });
+  if (result.impl.length > 0) {
+    console.log('arcod run: impl bodies (' + result.impl.join(', ') + ')');
+  } else if (result.reference) {
     console.log('arcod run: reference implementation (operation bodies are templates)');
   } else {
     console.log('arcod run: scaffold (operations return 501 until implemented)');
@@ -331,6 +346,7 @@ interface Flags {
   noCache: boolean;
   maxTokens: number;
   full: boolean;
+  impl: boolean;
 }
 
 function parseFlags(args: string[]): Flags {
@@ -348,6 +364,7 @@ function parseFlags(args: string[]): Flags {
     noCache: false,
     maxTokens: 1600,
     full: false,
+    impl: false,
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -365,6 +382,7 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--dry-run') flags.dryRun = true;
     else if (arg === '--no-cache') flags.noCache = true;
     else if (arg === '--full') flags.full = true;
+    else if (arg === '--impl') flags.impl = true;
     else if (!arg.startsWith('-')) flags.spec = arg;
     else throw new Error('unknown flag: ' + arg);
   }
@@ -418,9 +436,9 @@ usage:
   arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]
   arcod impl  [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
                               [--dry-run] [--no-cache]
-  arcod build [dir|spec.arc] [--reference] [--port 8080]
-  arcod test  [dir|spec.arc] [--json]
-  arcod run   [dir|spec.arc] [--scaffold] [--port 8080] [--detach] [--down]
+  arcod build [dir|spec.arc] [--reference | --impl] [--port 8080]
+  arcod test  [dir|spec.arc] [--impl] [--json]
+  arcod run   [dir|spec.arc] [--impl] [--scaffold] [--port 8080] [--detach] [--down]
 
 build defaults to a scaffold: contracts, routes, adapters and infra, with TODO handlers.
 --reference additionally emits the built-in demo bodies (create/read over kv).

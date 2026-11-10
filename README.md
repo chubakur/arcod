@@ -82,6 +82,7 @@ node ../../bin/arcod.mjs run
 | `arcod ast [dir]` | печатает канонический AST |
 | `arcod plan [dir]` | детерминированный DAG задач: файлы, зависимости, критерии приёмки |
 | `arcod build [dir]` | scaffold: маршруты, адаптеры, тесты, инфраструктура в `.arcod/build`; тела — TODO |
+| `arcod build --impl` | тела из `impl/*.mjs`, адаптер `io`, ничего не додумывает |
 | `arcod build --reference` | то же плюс встроенные демо-тела `create`/`read` |
 | `arcod test [dir]` | поднимает сгенерированный сервис с in-memory kv и прогоняет `examples` |
 | `arcod run [dir]` | build + `docker compose up --build` |
@@ -94,7 +95,9 @@ node ../../bin/arcod.mjs run
 ```bash
 arcod build              # scaffold: обработчики возвращают 501, тела помечены TODO
 arcod build --reference  # reference: встроенные тела create/read поверх kv
+arcod build --impl       # тела из impl/*.mjs через адаптер io
 arcod run                # reference, чтобы демо работало
+arcod run --impl         # поднять сервис с телами модели
 arcod run --scaffold     # поднять скелет: healthz работает, операции — 501
 ```
 
@@ -145,9 +148,19 @@ arcod impl --dry-run          # показать, что будет отправ
 ollama pull qwen2.5-coder:7b
 ```
 
-Тела из `impl` пока не подставляются в сборку: это следующий шаг (`build --impl`).
-Сейчас `impl` — проверка того, что промпт достаточно мал и точен для локальной
-модели.
+Тела подключаются командой `arcod build --impl`: компилятор вставляет их в
+сервис, собирает адаптер `io` (записи `{b, h}`, сравнение и удаление через
+`takeIf`, scrypt) и оставляет маршруты, статусы и лимиты за собой. Тела без
+файла в `impl/` отвечают `501`.
+
+```bash
+arcod impl examples/onetimemessage-pwd --model qwen2.5-coder:7b
+arcod test --impl examples/onetimemessage-pwd   # 5 passed
+arcod run --impl examples/onetimemessage-pwd
+```
+
+В `examples/*/impl/` лежат тела, сгенерированные qwen2.5-coder:7b и проверенные
+тестами, — демо воспроизводится без Ollama.
 
 ## Что генерируется
 

@@ -11,7 +11,8 @@ import { buildExample } from '../src/build.ts';
 import { runExamples } from '../src/test.ts';
 import { buildPrompts } from '../src/prompts.ts';
 import { extractCode, validateBody } from '../src/impl.ts';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -168,6 +169,33 @@ test('examples run against the generated service', async () => {
   assert.ok(report.examples.every((item) => item.ok), JSON.stringify(report.examples));
   assert.equal(report.rules.length, 2);
   assert.ok(report.rules.every((item) => item.ok), JSON.stringify(report.rules));
+});
+
+test('model-written bodies run through the generated service', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-impl-'));
+  const implDir = fileURLToPath(new URL('../examples/onetimemessage-pwd/impl', import.meta.url));
+  const built = await buildExample(guardedAst, dir, { implDir });
+  assert.deepEqual(built.impl, ['create', 'read']);
+
+  const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.match(code, /Mode: impl/);
+  assert.match(code, /async function implRead/);
+  assert.ok(!code.includes('notImplemented(res'));
+
+  const report = await runExamples(guardedAst, built.dir);
+  assert.ok(report.examples.every((item) => item.ok), JSON.stringify(report.examples));
+  assert.ok(report.rules.every((item) => item.ok), JSON.stringify(report.rules));
+});
+
+test('impl mode falls back to 501 for operations without a body', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-impl-partial-'));
+  const implDir = join(dir, 'impl');
+  await mkdir(implDir, { recursive: true });
+  await writeFile(join(implDir, 'create.mjs'), 'export async function create(input, io) { const id = io.new(); await io.save(id, { b: input.body, h: null }); return { result: id }; }\n');
+  const built = await buildExample(guardedAst, dir, { implDir });
+  assert.deepEqual(built.impl, ['create']);
+  const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.match(code, /notImplemented\(res, 'read'\)/);
 });
 
 test('compose has kv, service and web', () => {

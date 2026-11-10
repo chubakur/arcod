@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ModuleNode } from '../ast.ts';
 import { emitService, maxBodyBytes } from './emit/service.ts';
@@ -9,6 +9,7 @@ import { buildPrompts } from './prompts.ts';
 export interface BuildOptions {
   port?: number;
   reference?: boolean;
+  implDir?: string | null;
 }
 
 export interface BuildResult {
@@ -16,7 +17,20 @@ export interface BuildResult {
   composeFile: string;
   port: number;
   reference: boolean;
+  impl: string[];
   files: string[];
+}
+
+async function readImpl(dir: string): Promise<Record<string, string> | undefined> {
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
+  if (!entries) return undefined;
+  const impl: Record<string, string> = {};
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.mjs')) continue;
+    const op = entry.name.slice(0, -'.mjs'.length);
+    impl[op] = await readFile(join(dir, entry.name), 'utf8');
+  }
+  return Object.keys(impl).length > 0 ? impl : undefined;
 }
 
 export async function buildExample(mod: ModuleNode, exampleDir: string, options: BuildOptions = {}): Promise<BuildResult> {
@@ -31,7 +45,8 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
 
   const hasUi = mod.uis.length > 0;
   const reference = options.reference === true;
-  const service = emitService(mod, { reference });
+  const impl = options.implDir === null ? undefined : await readImpl(options.implDir ?? join(exampleDir, 'impl'));
+  const service = emitService(mod, { reference, impl });
 
   const files: Array<[string, string]> = [
     [join(serviceDir, 'index.mjs'), service],
@@ -77,5 +92,12 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     await writeFile(path, content, { encoding: 'utf8', mode: 0o644 });
   }
 
-  return { dir, composeFile: join(dir, 'docker-compose.yml'), port, reference, files: files.map(([path]) => path) };
+  return {
+    dir,
+    composeFile: join(dir, 'docker-compose.yml'),
+    port,
+    reference,
+    impl: impl ? Object.keys(impl).sort() : [],
+    files: files.map(([path]) => path),
+  };
 }

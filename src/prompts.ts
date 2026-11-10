@@ -391,7 +391,7 @@ function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boo
     lines.push('steps: id = io.new(); await io.save(id, record); return { result: id }');
   } else if (op.name === 'read') {
     lines.push(
-      'steps: rec = await io.load(id); if (!rec) return io.seen(id) ? Gone : NotFound;' +
+      'steps: rec = await io.load(id); if (!rec) return (await io.seen(id)) ? Gone : NotFound;' +
         (guarded ? ' if (rec.h && !(await io.verify(password, rec.h))) return WrongPassword;' : '') +
         ' if (!(await io.takeIf(id, rec))) return Gone; return { result: rec.b }',
     );
