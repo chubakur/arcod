@@ -7,12 +7,14 @@ import { composeYaml, nginxConf, serviceDockerfile, webDockerfile } from './emit
 
 export interface BuildOptions {
   port?: number;
+  reference?: boolean;
 }
 
 export interface BuildResult {
   dir: string;
   composeFile: string;
   port: number;
+  reference: boolean;
   files: string[];
 }
 
@@ -27,7 +29,8 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
   if (mod.uis.length > 0) await mkdir(webDir, { recursive: true });
 
   const hasUi = mod.uis.length > 0;
-  const service = emitService(mod);
+  const reference = options.reference === true;
+  const service = emitService(mod, { reference });
 
   const files: Array<[string, string]> = [
     [join(serviceDir, 'index.mjs'), service],
@@ -49,5 +52,5 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     await writeFile(path, content, { encoding: 'utf8', mode: 0o644 });
   }
 
-  return { dir, composeFile: join(dir, 'docker-compose.yml'), port, files: files.map(([path]) => path) };
+  return { dir, composeFile: join(dir, 'docker-compose.yml'), port, reference, files: files.map(([path]) => path) };
 }

@@ -52,6 +52,20 @@ test('reports a provider mentioned in the model', () => {
   assert.ok(codes.includes('A003'));
 });
 
+test('build defaults to scaffold, reference is opt-in', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-scaffold-'));
+  const scaffold = await buildExample(ast, dir);
+  const scaffoldCode = await readFile(join(scaffold.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(scaffoldCode.includes('Mode: scaffold'));
+  assert.ok(scaffoldCode.includes("notImplemented(res, 'create')"));
+  assert.ok(!scaffoldCode.includes('randomUUID()'));
+
+  const reference = await buildExample(ast, dir, { reference: true });
+  const referenceCode = await readFile(join(reference.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(referenceCode.includes('Mode: reference'));
+  assert.ok(referenceCode.includes('randomUUID()'));
+});
+
 test('once else must be a declared error', () => {
   const broken = parse(source.replace('else: Gone', 'else: Bogus'), 'main.arc');
   const codes = check(broken).map((item) => item.code);
@@ -146,7 +160,7 @@ test('budget reaches the plan and the runtime', () => {
 
 test('examples run against the generated service', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'arcod-example-'));
-  const built = await buildExample(ast, dir);
+  const built = await buildExample(ast, dir, { reference: true });
   const report = await runExamples(ast, built.dir);
   assert.equal(report.examples.length, 2);
   assert.ok(report.examples.every((item) => item.ok), JSON.stringify(report.examples));

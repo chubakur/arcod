@@ -135,7 +135,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       .filter((op) => op.kind === 'op' && templateFor(op.name))
       .map((op) => op.name);
     if (templated.length > 0) {
-      diags.push(diag('W018', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'тела операций — встроенные шаблоны, не выведены из модели: ' + templated.join(', '), 'для своей логики нужен агент или исполняемое тело операции'));
+      diags.push(diag('W018', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'тела операций не выводятся из модели: ' + templated.join(', '), 'scaffold оставит TODO; reference подставит встроенный шаблон'));
     }
 
     // W017 — jobs are parsed but not executable in v0.1

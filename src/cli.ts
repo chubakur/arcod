@@ -119,8 +119,11 @@ async function runBuild(flags: Flags): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port });
-  console.log('arcod build: ' + result.files.length + ' files in ' + result.dir);
+  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: flags.reference });
+  console.log('arcod build (' + (result.reference ? 'reference' : 'scaffold') + '): ' + result.files.length + ' files in ' + result.dir);
+  if (!result.reference) {
+    console.log('  operation bodies are TODO; use --reference for a runnable demo');
+  }
   for (const file of result.files) console.log('  ' + file);
 }
 
@@ -134,7 +137,7 @@ async function runTest(flags: Flags): Promise<void> {
     return;
   }
 
-  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port });
+  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: true });
   const report = await runExamples(loaded.mod, result.dir);
 
   if (report.examples.length === 0 && report.rules.length === 0) {
@@ -178,7 +181,12 @@ async function runRun(flags: Flags): Promise<void> {
     return;
   }
 
-  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port });
+  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: !flags.scaffold });
+  if (result.reference) {
+    console.log('arcod run: reference implementation (operation bodies are templates)');
+  } else {
+    console.log('arcod run: scaffold (operations return 501 until implemented)');
+  }
   const docker = spawnSync('docker', ['info'], { stdio: 'ignore' });
   if (docker.status !== 0) {
     console.error('docker не запущен или недоступен');
@@ -244,18 +252,22 @@ interface Flags {
   check: boolean;
   detach: boolean;
   down: boolean;
+  reference: boolean;
+  scaffold: boolean;
   env?: string;
   port: number;
 }
 
 function parseFlags(args: string[]): Flags {
-  const flags: Flags = { json: false, check: false, detach: false, down: false, port: 8080 };
+  const flags: Flags = { json: false, check: false, detach: false, down: false, reference: false, scaffold: false, port: 8080 };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--json') flags.json = true;
     else if (arg === '--check') flags.check = true;
     else if (arg === '--detach' || arg === '-d') flags.detach = true;
     else if (arg === '--down') flags.down = true;
+    else if (arg === '--reference') flags.reference = true;
+    else if (arg === '--scaffold') flags.scaffold = true;
     else if (arg === '--env') flags.env = args[++i];
     else if (arg === '--port') flags.port = Number(args[++i] ?? 8080);
     else if (!arg.startsWith('-')) flags.spec = arg;
@@ -308,9 +320,12 @@ usage:
   arcod check [dir|spec.arc] [--json] [--env name]
   arcod ast   [dir|spec.arc] [--check]
   arcod plan  [dir|spec.arc] [--json]
-  arcod build [dir|spec.arc] [--port 8080]
+  arcod build [dir|spec.arc] [--reference] [--port 8080]
   arcod test  [dir|spec.arc] [--json]
-  arcod run   [dir|spec.arc] [--port 8080] [--detach] [--down]
+  arcod run   [dir|spec.arc] [--scaffold] [--port 8080] [--detach] [--down]
+
+build defaults to a scaffold: contracts, routes, adapters and infra, with TODO handlers.
+--reference additionally emits the built-in demo bodies (create/read over kv).
 
 examples:
   cd examples/onetimemessage && arcod run
