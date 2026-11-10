@@ -135,25 +135,37 @@ async function runTest(flags: Flags): Promise<void> {
   }
 
   const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port });
-  const examples = await runExamples(loaded.mod, result.dir);
+  const report = await runExamples(loaded.mod, result.dir);
 
-  if (examples.length === 0) {
-    console.log('no examples declared');
+  if (report.examples.length === 0 && report.rules.length === 0) {
+    console.log('no examples or rules declared');
     return;
   }
 
   if (flags.json) {
-    console.log(JSON.stringify(examples, null, 2));
+    console.log(JSON.stringify(report, null, 2));
   } else {
-    for (const example of examples) {
-      console.log((example.ok ? 'ok    ' : 'fail  ') + example.example + (example.error ? '  — ' + example.error : ''));
+    if (report.examples.length > 0) {
+      console.log('examples:');
+      for (const example of report.examples) {
+        console.log('  ' + (example.ok ? 'ok    ' : 'fail  ') + example.example + (example.error ? '  — ' + example.error : ''));
+      }
     }
-    const failed = examples.filter((example) => !example.ok).length;
+    if (report.rules.length > 0) {
+      console.log('rules:');
+      for (const rule of report.rules) {
+        console.log('  ' + (rule.ok ? 'ok    ' : 'fail  ') + rule.rule + (rule.detail ? '  — ' + rule.detail : ''));
+      }
+    }
+
+    const items = [...report.examples, ...report.rules];
+    const failed = items.filter((item) => !item.ok).length;
     console.log('');
-    console.log(examples.length - failed + ' passed, ' + failed + ' failed');
+    console.log(items.length - failed + ' passed, ' + failed + ' failed');
   }
 
-  process.exitCode = examples.every((example) => example.ok) ? 0 : 1;
+  const all = [...report.examples, ...report.rules];
+  process.exitCode = all.every((item) => item.ok) ? 0 : 1;
 }
 
 async function runRun(flags: Flags): Promise<void> {

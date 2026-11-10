@@ -96,6 +96,12 @@ test('ui block declares the frontend', () => {
   assert.deepEqual(ast.uis[0].uses, ['OneTimeMessage.create', 'OneTimeMessage.read']);
 });
 
+test('atomic rule controls generated read semantics', () => {
+  const withoutAtomic = source.replace('    atomic read { get; del }\n', '');
+  const code = emitService(parse(withoutAtomic, 'main.arc'));
+  assert.ok(code.includes('const ATOMIC_READ = false;'));
+});
+
 test('without ui there is no frontend container', () => {
   const yaml = composeYaml(ast, 8080, false);
   assert.ok(!yaml.includes('web:'));
@@ -114,6 +120,7 @@ test('budget reaches the plan and the runtime', () => {
   assert.deepEqual(task?.budget, { tokens: 40000, time: '2h' });
 
   const code = emitService(ast);
+  assert.ok(code.includes('const ATOMIC_READ = true;'));
   assert.ok(code.includes('"concurrency": 100'));
   assert.ok(code.includes('inFlight >= CONFIG.concurrency'));
 });
@@ -121,9 +128,11 @@ test('budget reaches the plan and the runtime', () => {
 test('examples run against the generated service', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'arcod-example-'));
   const built = await buildExample(ast, dir);
-  const examples = await runExamples(ast, built.dir);
-  assert.equal(examples.length, 2);
-  assert.ok(examples.every((item) => item.ok), JSON.stringify(examples));
+  const report = await runExamples(ast, built.dir);
+  assert.equal(report.examples.length, 2);
+  assert.ok(report.examples.every((item) => item.ok), JSON.stringify(report.examples));
+  assert.equal(report.rules.length, 2);
+  assert.ok(report.rules.every((item) => item.ok), JSON.stringify(report.rules));
 });
 
 test('compose has kv, service and web', () => {

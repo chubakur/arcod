@@ -96,6 +96,8 @@ node ../../bin/arcod.mjs run
 
 `budget { concurrency: N }` даёт лимитер in-flight запросов: сверх лимита — `503`.
 
+`atomic read { get; del }` переключает чтение на атомарный Lua-скрипт; без правила генерируются раздельные `GET` и `DEL`.
+
 Правила из спеки превращаются в поведение: `atomic read { get; del }` — в Lua-скрипт с гетом и удалением, `once(read, by: id)` — в tombstone-ключ, который даёт `Gone` при повторном чтении.
 
 ## Проверки
@@ -154,7 +156,8 @@ npm test
 - Эмиттер поддерживает только сервисы с операциями `create` и `read` поверх `kv`.
 - Провайдер `kv` — только Redis.
 - `arcod fmt`, `arcod diff`, `arcod adopt` ещё не реализованы.
-- `arcod test` не исполняет `given` и property-предикаты, только `when`/`then`.
+- `arcod test` не исполняет `given`; из предикатов поддерживает только `once`.
+- `unique` и `ordering` пока не проверяются глубже синтаксиса и циклов.
 - Генерация только в JavaScript/Node. PHP, Go и Python — отдельные эмиттеры позже.
 - `change`, `unknown` и `external` парсятся, но не влияют на сборку.
 - `lifecycle`, `ordering` и предикаты, кроме `once`, пока декларативны.

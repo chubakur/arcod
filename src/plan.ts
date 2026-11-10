@@ -87,7 +87,7 @@ export function buildPlan(mod: ModuleNode): Plan {
         service: svc.name,
         deps: tasks.filter((t) => t.kind === 'implement' && t.service === svc.name).map((t) => t.id),
         files: { create: ['test/' + slug + '/rules.test.ts'], modify: [], forbid: [] },
-        acceptance: ['arcod test --rule ' + rule.name],
+        acceptance: ['arcod test'],
         budget,
       });
     }

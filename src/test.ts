@@ -11,6 +11,17 @@ export interface ExampleResult {
   error?: string;
 }
 
+export interface RuleResult {
+  rule: string;
+  ok: boolean;
+  detail?: string;
+}
+
+export interface TestReport {
+  examples: ExampleResult[];
+  rules: RuleResult[];
+}
+
 type Value = unknown;
 
 interface Context {
@@ -20,9 +31,11 @@ interface Context {
   statusToError: Map<number, string>;
 }
 
-export async function runExamples(mod: ModuleNode, buildDir: string): Promise<ExampleResult[]> {
+export async function runExamples(mod: ModuleNode, buildDir: string): Promise<TestReport> {
   const service = pickService(mod);
-  if (!service || service.examples.length === 0) return [];
+  if (!service || (service.examples.length === 0 && service.rules.length === 0)) {
+    return { examples: [], rules: [] };
+  }
 
   const port = await freePort();
   const child = spawn(process.execPath, [join(buildDir, 'service', 'index.mjs')], {
@@ -43,13 +56,13 @@ export async function runExamples(mod: ModuleNode, buildDir: string): Promise<Ex
 
   try {
     await waitForHealth(baseUrl, child, stderr);
-    const results: ExampleResult[] = [];
+    const examples: ExampleResult[] = [];
     for (const example of service.examples) {
       try {
         const steps = await runExample(example.when, example.then, ctx);
-        results.push({ example: example.name, ok: true, steps });
+        examples.push({ example: example.name, ok: true, steps });
       } catch (error) {
-        results.push({
+        examples.push({
           example: example.name,
           ok: false,
           steps: 0,
@@ -57,10 +70,84 @@ export async function runExamples(mod: ModuleNode, buildDir: string): Promise<Ex
         });
       }
     }
-    return results;
+
+    const rules = await runRules(ctx);
+    return { examples, rules };
   } finally {
     child.kill('SIGTERM');
   }
+}
+
+async function runRules(ctx: Context): Promise<RuleResult[]> {
+  const results: RuleResult[] = [];
+
+  for (const rule of ctx.service.rules) {
+    if (rule.kind === 'invariant') {
+      const predicate = asPredicate(rule.expr);
+      if (predicate && predicate.name === 'once') {
+        results.push(await checkOnce(rule.name, predicate.target, ctx));
+      }
+    }
+
+    if (rule.kind === 'atomic') {
+      results.push(await checkAtomic(rule.name, ctx));
+    }
+  }
+
+  return results;
+}
+
+function asPredicate(expr: Expr): { name: string; target: string } | null {
+  if (expr.kind !== 'call' || expr.callee.kind !== 'ident' || expr.args.length === 0) return null;
+  const target = expr.args[0].value;
+  if (target.kind !== 'ident') return null;
+  return { name: expr.callee.name, target: target.name };
+}
+
+async function checkOnce(rule: string, target: string, ctx: Context): Promise<RuleResult> {
+  const op = ctx.ops.find((item) => item.name === target);
+  if (!op) return { rule, ok: false, detail: 'operation ' + target + ' not found' };
+
+  try {
+    const id = await probeId(ctx);
+    const first = await invoke(op, [id], ctx);
+    const second = await invoke(op, [id], ctx);
+    const ok = errorName(first) === null && errorName(second) !== null;
+    return {
+      rule,
+      ok,
+      detail: ok ? undefined : 'expected first call to succeed and second to return a declared error',
+    };
+  } catch (error) {
+    return { rule, ok: false, detail: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function checkAtomic(rule: string, ctx: Context): Promise<RuleResult> {
+  const op = ctx.ops.find((item) => item.name === rule);
+  if (!op) return { rule, ok: false, detail: 'operation ' + rule + ' not found' };
+
+  try {
+    const id = await probeId(ctx);
+    const runs = await Promise.all(Array.from({ length: 10 }, () => invoke(op, [id], ctx)));
+    const successes = runs.filter((value) => errorName(value) === null).length;
+    return {
+      rule: 'atomic ' + rule,
+      ok: successes === 1,
+      detail: successes === 1 ? undefined : successes + ' successful calls out of ' + runs.length + ', expected exactly 1',
+    };
+  } catch (error) {
+    return { rule, ok: false, detail: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function probeId(ctx: Context): Promise<string> {
+  const create = ctx.ops.find((item) => item.name === 'create');
+  if (!create) throw new Error('rule check needs a create operation to prepare state');
+  const value = await invoke(create, ['arcod rule probe'], ctx);
+  const id = unwrap(value);
+  if (typeof id !== 'string') throw new Error('create did not return an id');
+  return id;
 }
 
 async function runExample(when: any[], then: any[], ctx: Context): Promise<number> {
