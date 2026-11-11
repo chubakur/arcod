@@ -31,6 +31,30 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
     },
     notes: 'has tells whether the message still exists; seen tells whether it was already consumed. takeIf deletes only when the stored value equals expected.',
   },
+  identity: {
+    effects: {
+      actor: 'actor() -> { id: string, name: string, admin: boolean } | null',
+      users: 'users() -> list<{ id: string, name: string }>',
+    },
+    short: {
+      actor: 'actor() -> {id,name,admin}|null',
+      users: 'users() -> list<{id,name}>',
+    },
+    notes: 'Tokens are verified against the provider JWKS; roles come from the token.',
+  },
+  blob: {
+    effects: {
+      put: 'blobPut(key: string, value: string, type: string?) -> void',
+      get: 'blobGet(key: string) -> string | null',
+      del: 'blobDelete(key: string) -> void',
+    },
+    short: {
+      put: 'blobPut(key, value)',
+      get: 'blobGet(key) -> string|null',
+      del: 'blobDelete(key)',
+    },
+    notes: 'Objects, not rows. The adapter owns bucket and naming.',
+  },
   // Same record contract as kv, different provider: the body cannot tell
   // whether the row lives in Redis or MySQL.
   sql: {

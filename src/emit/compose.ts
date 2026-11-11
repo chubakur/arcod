@@ -46,6 +46,12 @@ export function nginxConf(mod: ModuleNode): string {
     .filter((root) => root !== '/')
     .sort();
 
+  // The browser must reach the identity provider on the same origin as the
+  // page, otherwise the login redirect and CORS get in the way.
+  const idp = (mod.environments[0]?.binds ?? []).find((bind) => bind.provider === 'keycloak');
+  const idpHost = idp ? String(idp.args.host?.kind === 'literal' ? idp.args.host.value : 'keycloak') : null;
+  const idpPort = idp ? Number(idp.args.port?.kind === 'literal' ? idp.args.port.value : 8080) : 8080;
+
   return [
     'server {',
     '  listen 80;',
@@ -57,6 +63,21 @@ export function nginxConf(mod: ModuleNode): string {
     '    proxy_pass http://service:3000/healthz;',
     '  }',
     '',
+    ...(idpHost ? [
+      '  location /realms/ {',
+      '    proxy_pass http://' + idpHost + ':' + idpPort + ';',
+      '    proxy_set_header Host $host;',
+      '  }',
+      '  location /resources/ {',
+      '    proxy_pass http://' + idpHost + ':' + idpPort + ';',
+      '    proxy_set_header Host $host;',
+      '  }',
+      '  location /admin/ {',
+      '    proxy_pass http://' + idpHost + ':' + idpPort + ';',
+      '    proxy_set_header Host $host;',
+      '  }',
+      '',
+    ] : []),
     ...roots.flatMap((root) => [
       '  location ' + root + ' {',
       '    proxy_pass http://service:3000;',
@@ -101,6 +122,8 @@ interface RenderedProvider {
   expose: boolean;
   appEnv: Record<string, string>;
   volume: string | null;
+  importFile: string | null;
+  args: Record<string, string | number | boolean>;
 }
 
 function renderProvider(bind: BindNode): RenderedProvider | null {
@@ -118,6 +141,8 @@ function renderProvider(bind: BindNode): RenderedProvider | null {
     host,
     spec,
     port,
+    importFile: typeof args.import === 'string' ? args.import : null,
+    args,
     expose: boolArg(bind, 'expose'),
     appEnv: spec.appEnv ? spec.appEnv({ host, port, args }) : {},
     volume,
@@ -127,9 +152,15 @@ function renderProvider(bind: BindNode): RenderedProvider | null {
 function providerLines(item: RenderedProvider): string[] {
   const { spec, host, port } = item;
   if (spec.external || !spec.image) return [];
-  const lines = ['  ' + host + ':', '    image: ' + spec.image];
+  const image = typeof item.args.image === 'string' ? item.args.image : spec.image;
+  const lines = ['  ' + host + ':', '    image: ' + image];
 
-  if (spec.command) lines.push('    command: ' + JSON.stringify(spec.command));
+  if (spec.command) {
+    const command = item.importFile && spec.name === 'keycloak'
+      ? [...spec.command, '--import-realm']
+      : spec.command;
+    lines.push('    command: ' + JSON.stringify(command));
+  }
 
   if (spec.env && Object.keys(spec.env).length > 0) {
     lines.push('    environment:');
@@ -142,9 +173,14 @@ function providerLines(item: RenderedProvider): string[] {
     for (const extra of spec.extraPorts ?? []) lines.push('      - ' + quote(extra + ':' + extra));
   }
 
-  if (spec.volumes) {
+  const mounts = [...(spec.volumes ?? [])];
+  if (item.importFile && spec.name === 'keycloak') {
+    const name = item.importFile.split('/').pop()!;
+    mounts.push('./' + name + ':/opt/keycloak/data/import/' + name + ':ro');
+  }
+  if (mounts.length > 0) {
     lines.push('    volumes:');
-    for (const volume of spec.volumes) lines.push('      - ' + volume);
+    for (const mount of mounts) lines.push('      - ' + mount);
   }
 
   if (spec.healthcheck) {

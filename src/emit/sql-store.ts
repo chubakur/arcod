@@ -339,6 +339,17 @@ class SqlStore {
     return this.exists(key);
   }
 
+  async scan(prefix) {
+    const found = await this.query("SELECT k, v FROM arcod_kv WHERE expires_at > " + Date.now());
+    const out = [];
+    for (const row of found.rows) {
+      const key = utf8Of(row[0]);
+      if (prefix && !key.startsWith(prefix)) continue;
+      out.push({ key, value: utf8Of(row[1]) });
+    }
+    return out;
+  }
+
   async takeIf(messageKey, goneKey, ttlMs, expected) {
     const key = literal(hexOf(messageKey));
     await this.query('START TRANSACTION');

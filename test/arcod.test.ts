@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { buildPlan } from '../src/plan.ts';
@@ -24,6 +25,9 @@ const ast = parse(source, 'main.arc');
 
 const mysqlUrl = new URL('../examples/project1-mysql/main.arc', import.meta.url);
 const mysqlAst = parse(await readFile(mysqlUrl, 'utf8'), 'main.arc');
+
+const filesUrl = new URL('../examples/files/main.arc', import.meta.url);
+const filesAst = parse(await readFile(filesUrl, 'utf8'), 'main.arc');
 
 test('parses the onetimemessage example', () => {
   assert.equal(ast.name, 'onetimemessage');
@@ -477,6 +481,81 @@ test('sql binds to mysql without touching the model', () => {
   assert.ok(compose.includes('image: mysql:8.4'));
   assert.ok(!compose.includes('redis:7-alpine'));
   assert.ok(compose.includes('DATABASE_URL: "mysql://arcod:arcod@store:3306/arcod"'));
+});
+
+test('the file service wires identity, blobs and sql', () => {
+  const diags = check(filesAst);
+  assert.deepEqual(diags.filter((item) => item.severity === 'error'), []);
+
+  const compose = composeYaml(filesAst, 8080, false);
+  assert.ok(compose.includes('image: keycloak') || compose.includes('keycloak/keycloak'));
+  assert.ok(compose.includes('/opt/keycloak/data/import/realm.json:ro'));
+  assert.ok(compose.includes('--import-realm'));
+  assert.ok(compose.includes('mysql:8.4'));
+  assert.ok(compose.includes('KEYCLOAK_URL: "http://idp:8080"'));
+  assert.ok(compose.includes('S3_ENDPOINT: "http://s3:9000"'));
+});
+
+test('file visibility: restricted list, authenticated, public and admin bypass', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-files-'));
+  await cp(
+    (await import('node:url')).fileURLToPath(new URL('../examples/files/realm.json', import.meta.url)),
+    join(dir, 'realm.json'),
+  );
+  const built = await buildExample(filesAst, dir, {
+    implDir: (await import('node:url')).fileURLToPath(new URL('../examples/files/impl', import.meta.url)),
+  });
+  const port = 18000 + Math.floor(Math.random() * 2000);
+  const child = spawn(process.execPath, [join(built.dir, 'service', 'index.mjs')], {
+    env: { ...process.env, PORT: String(port), SQL_DRIVER: 'memory', AUTH_DRIVER: 'memory', BLOB_DRIVER: 'memory' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const base = 'http://127.0.0.1:' + port;
+  const as = (id: string, admin = false) => ({ 'x-actor': id, 'x-actor-name': id, 'x-admin': String(admin) });
+  try {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try {
+        await fetch(base + '/v1/files');
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    const upload = await fetch(base + '/v1/files', {
+      method: 'POST',
+      headers: { ...as('u-andrey', true), 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'plan.txt', body: 'secret', visibility: 'restricted', allowed: ['u-vika'] }),
+    });
+    assert.equal(upload.status, 201);
+    const id = (await upload.json() as { id: string }).id;
+
+    const read = (actor: string, admin = false) => fetch(base + '/v1/files/' + id, { headers: as(actor, admin) });
+    assert.equal((await read('u-vika')).status, 200, 'listed user reads');
+    assert.equal((await read('u-guest')).status, 403, 'unlisted user is refused');
+    assert.equal((await read('u-guest', true)).status, 200, 'administrator bypasses the list');
+    assert.equal((await fetch(base + '/v1/files/' + id)).status, 401, 'anonymous is unauthorized');
+
+    const list = await fetch(base + '/v1/files', { headers: as('u-guest') });
+    assert.deepEqual(await list.json(), [], 'nothing visible to a stranger');
+
+    const flip = await fetch(base + '/v1/files/' + id + '/visibility', {
+      method: 'PUT',
+      headers: { ...as('u-guest'), 'content-type': 'application/json' },
+      body: JSON.stringify({ visibility: 'public', allowed: [] }),
+    });
+    assert.equal(flip.status, 403, 'only the owner or an administrator may share');
+
+    const share = await fetch(base + '/v1/files/' + id + '/visibility', {
+      method: 'PUT',
+      headers: { ...as('u-andrey', true), 'content-type': 'application/json' },
+      body: JSON.stringify({ visibility: 'public', allowed: [] }),
+    });
+    assert.equal(share.status, 201);
+    assert.equal((await read('u-guest')).status, 200, 'public file is readable');
+    assert.equal((await fetch(base + '/v1/files/' + id)).status, 200, 'and even anonymous');
+  } finally {
+    child.kill();
+  }
 });
 
 test('kv keeps the redis adapter', () => {

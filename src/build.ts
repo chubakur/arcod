@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ModuleNode } from '../ast.ts';
 import { emitService, maxBodyBytes } from './emit/service.ts';
@@ -104,6 +104,15 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
 
   for (const [path, content] of files) {
     await writeFile(path, content, { encoding: 'utf8', mode: 0o644 });
+  }
+
+  // Files a provider imports (a Keycloak realm, for instance) travel with the
+  // build, so the compose file only refers to its own directory.
+  for (const bind of mod.environments[0]?.binds ?? []) {
+    const file = bind.args.import;
+    if (!file || file.kind !== 'literal' || typeof file.value !== 'string') continue;
+    const name = file.value.split('/').pop()!;
+    await cp(join(exampleDir, file.value), join(dir, name));
   }
 
   return {

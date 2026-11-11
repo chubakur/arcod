@@ -2,6 +2,8 @@ import type { ModuleNode, OpNode, ServiceNode, TypeExpr } from './ast.ts';
 import { asOnce } from '../check.ts';
 import { HANDLER_TEMPLATES, templateFor } from '../templates.ts';
 import { SQL_STORE_SOURCE } from './sql-store.ts';
+import { IDENTITY_SOURCE } from './identity.ts';
+import { BLOB_SOURCE } from './blob.ts';
 import { storageKind, storageUse } from '../capabilities.ts';
 
 export interface EmitOptions {
@@ -158,6 +160,16 @@ class RedisStore {
     return value == null ? null : String(value);
   }
 
+  async scan(prefix) {
+    const keys = (await this.command('KEYS', (prefix || '') + '*')) || [];
+    const out = [];
+    for (const key of keys) {
+      const value = await this.get(String(key));
+      if (value != null) out.push({ key: String(key), value });
+    }
+    return out;
+  }
+
   async exists(key) {
     const n = await this.command('EXISTS', key);
     return Number(n) === 1;
@@ -215,6 +227,16 @@ class MemoryStore {
 
   async del(key) {
     return this.map.delete(key) ? 1 : 0;
+  }
+
+  async scan(prefix) {
+    const out = [];
+    for (const [key, entry] of this.map) {
+      if (entry.expires <= Date.now()) continue;
+      if (prefix && !key.startsWith(prefix)) continue;
+      out.push({ key, value: entry.value });
+    }
+    return out;
   }
 
   async exists(key) {
@@ -434,7 +456,13 @@ function cryptoImportFor(svc: ServiceNode, withBodies: boolean): string {
   const names = ['randomUUID'];
   if (withBodies && isGuarded(svc)) names.push('randomBytes', 'scryptSync', 'timingSafeEqual');
   if (storageKind(svc) === 'sql') names.push('constants', 'createHash', 'createPublicKey', 'publicEncrypt');
-  return "import { " + names.join(', ') + " } from 'node:crypto';";
+  if (svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'))) {
+    names.push('createPublicKey', 'verify');
+  }
+  if (svc.uses.some((use) => use.capability === 'blob' || use.capability.endsWith('.blob'))) {
+    names.push('createHash', 'createHmac');
+  }
+  return "import { " + [...new Set(names)].join(', ') + " } from 'node:crypto';";
 }
 
 export function emitService(mod: ModuleNode, options: EmitOptions = {}): string {
@@ -442,13 +470,18 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
   if (!svc) throw new Error('no service to emit');
   const opNames = svc.contract.filter((op) => op.kind === 'op').map((op) => op.name);
   const missing = opNames.filter((name) => !templateFor(name, isGuarded(svc)));
-  if (!opNames.includes('create') || !opNames.includes('read') || missing.length > 0) {
+  // Bodies supplied by the caller do not need a built-in template.
+  if (!options.impl && (!opNames.includes('create') || !opNames.includes('read') || missing.length > 0)) {
     throw new Error('emitter v0 has templates only for ' + Object.keys(HANDLER_TEMPLATES).join(', ') + '; got: ' + opNames.join(', '));
   }
 
   const ttlMs = storageTtlMs(svc);
-  const createOp = svc.contract.find((op) => op.name === 'create')!;
-  const limits = bodyLimits(mod, createOp);
+  // The request-size ceiling comes from the operation that accepts a body:
+  // create in the message examples, upload in the file service.
+  const bodyOp = svc.contract.find((op) => op.name === 'create')
+    ?? svc.contract.find((op) => op.kind === 'op' && op.params.some((param) => param.name === 'body'))
+    ?? svc.contract.find((op) => op.kind === 'op');
+  const limits = bodyLimits(mod, bodyOp!);
   const routes = svc.contract
     .filter((op) => op.kind === 'op')
     .map((op) => {
@@ -667,8 +700,15 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     parts.push('');
   }
 
+  const hasIdentity = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'));
+  const hasBlob = svc.uses.some((use) => use.capability === 'blob' || use.capability.endsWith('.blob'));
+
+  if (hasIdentity) parts.push(IDENTITY_SOURCE);
+  if (hasBlob) parts.push(BLOB_SOURCE);
+
   parts.push(
-    'function makeIo() {',
+    'function makeIo(req) {',
+    '  let actorPromise = null;',
     '  return {',
     '    async load(id) {',
     "      const raw = await store.get('msg:' + id);",
@@ -691,7 +731,34 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     "      return await store.takeIf('msg:' + id, 'gone:' + id, CONFIG.goneTtlMs, expected);",
     '    },',
     '    new() { return randomUUID(); },',
+    '    async scan() {',
+    "      const items = await store.scan('msg:');",
+    '      return items.map((item) => {',
+    "        const id = item.key.slice('msg:'.length);",
+    '        let body = item.value;',
+    "        try { const rec = JSON.parse(item.value); if (rec && typeof rec === 'object' && 'b' in rec) body = rec.b; } catch (error) {}",
+    '        return { id, b: body };',
+    '      });',
+    '    },',
   );
+
+  if (hasIdentity) {
+    parts.push(
+      '    async actor() {',
+      '      if (!actorPromise) actorPromise = actorFrom(req);',
+      '      return actorPromise;',
+      '    },',
+      '    async users() { return listUsers(); },',
+    );
+  }
+
+  if (hasBlob) {
+    parts.push(
+      '    async blobPut(key, value, type) { return blobPut(key, value, type); },',
+      '    async blobGet(key) { return blobGet(key); },',
+      '    async blobDelete(key) { return blobDelete(key); },',
+    );
+  }
 
   if (guarded) {
     parts.push(
@@ -763,7 +830,7 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     'async function callImpl(req, res, params, implFn, names, status) {',
     '  const input = await readInput(req, params, names);',
     '  if (input && input.error) return sendError(res, input.error);',
-    '  const out = await implFn(input, makeIo());',
+    '  const out = await implFn(input, makeIo(req));',
     '  if (out && out.error) return sendError(res, out.error);',
     "  if (!out) return sendError(res, 'Internal');",
     '  const result = out.result;',

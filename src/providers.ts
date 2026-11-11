@@ -97,7 +97,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   s3: {
     name: 's3',
-    capability: 'objectstore',
+    capability: 'blob',
     image: 'minio/minio:latest',
     port: 9000,
     extraPorts: [9001],

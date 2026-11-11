@@ -69,6 +69,25 @@ export async function runPipeline(
   });
   if (!failedCheck.ok) return { steps, ok: false, dir, buildDir };
 
+  const ops = mod.services.flatMap((svc) => svc.contract.filter((op) => op.kind === 'op').map((op) => op.name));
+  const existing = new Set(
+    (await readdir(join(dir, 'impl')).catch(() => [] as string[]))
+      .filter((name: string) => name.endsWith('.mjs'))
+      .map((name: string) => name.slice(0, -4)),
+  );
+  const bodiesReady = ops.length > 0 && ops.every((name) => existing.has(name));
+
+  // Prompts exist to produce bodies. When every operation already has one and
+  // the caller did not ask for regeneration, there is nothing to ask the model.
+  if (bodiesReady && !options.force) {
+    steps.push({
+      name: 'prompts',
+      ok: true,
+      detail: 'skipped · ' + existing.size + '/' + ops.length + ' bodies already in impl/',
+      skipped: true,
+      ms: 0,
+    });
+  } else {
   const set = buildPrompts(mod, { budget: options.budget });
   const promptStep = await step('prompts', async () => {
     const promptDir = join(buildDir!, 'prompts');
@@ -91,13 +110,8 @@ export async function runPipeline(
     return { detail: set.tasks.length + ' prompt(s) · ' + tokens + ' tokens' };
   });
   if (!promptStep.ok) return { steps, ok: false, dir, buildDir };
+  }
 
-  const ops = mod.services.flatMap((svc) => svc.contract.filter((op) => op.kind === 'op').map((op) => op.name));
-  const existing = new Set(
-    (await readdir(join(dir, 'impl')).catch(() => [] as string[]))
-      .filter((name: string) => name.endsWith('.mjs'))
-      .map((name: string) => name.slice(0, -4)),
-  );
   const missing = ops.filter((name) => !existing.has(name));
   const implStep = await step('impl', async () => {
     if (options.skipImpl) return { detail: 'skipped (--skip-impl)', skipped: true };
