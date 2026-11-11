@@ -28,7 +28,7 @@ service OneTimeMessage : http {
       post: result != null
     }
 
-    public op read(id: MessageId) -> (Author, Body) {
+    public op read(id: MessageId) -> { author: Author, body: Body } {
       route: "GET /v1/api/messages/:id"
       errors: NotFound, Gone
       post: !store.has(id)
@@ -59,7 +59,7 @@ service OneTimeMessage : http {
         let id = create("hi")
       }
       then {
-        read(id) == "hi"
+        read(id).body == "hi"
         read(id) is Gone
         read(uuid("00000000-0000-0000-0000-000000000000")) is NotFound
       }

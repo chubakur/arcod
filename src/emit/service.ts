@@ -729,7 +729,7 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     "  if (!out) return sendError(res, 'Internal');",
     '  const result = out.result;',
     "  if (typeof result === 'string') {",
-    "    if (status === 201) return send(res, status, JSON.stringify({ id: result }), 'application/json');",
+    "    if (status === 201) return send(res, status, JSON.stringify({ id: result, expiresIn: Math.round(CONFIG.ttlMs / 1000) }), 'application/json');",
     "    return send(res, status, result, 'text/plain; charset=utf-8');",
     '  }',
     "  return send(res, status, JSON.stringify(result === undefined ? null : result), 'application/json');",
@@ -866,6 +866,25 @@ function resolveType(mod: ModuleNode, type: TypeExpr): TypeExpr {
     current = decl.type;
   }
   return current;
+}
+
+// Bounds of a single parameter, used by the generated UI. Text types default
+// to a 64 KB ceiling; refinements (min/max, 64kb) win.
+export function paramLimits(mod: ModuleNode, type: TypeExpr): { min: number; max: number; multiline: boolean } {
+  const resolved = resolveType(mod, type);
+  if (resolved.kind !== 'named') return { min: 1, max: 4096, multiline: true };
+  const text = resolved.name === 'string' || resolved.name === 'bytes';
+  let min = text ? 1 : 0;
+  let max = text ? 64 * 1024 : 1024;
+  for (const arg of resolved.args) {
+    if (arg.value.kind === 'literal' && typeof arg.value.value === 'number') {
+      if (arg.name === 'min') min = arg.value.value;
+      if (arg.name === 'max') max = arg.value.value;
+    } else if (arg.name === 'max' && arg.value.kind === 'duration') {
+      max = sizeBytes(arg.value.value, arg.value.unit);
+    }
+  }
+  return { min, max, multiline: text && max > 512 };
 }
 
 export function statusForError(name: string): number {

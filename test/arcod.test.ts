@@ -370,6 +370,61 @@ test('a multi-field payload is stored as a record and returned as JSON', async (
   assert.ok(code.includes('function callImpl('), 'handlers are generic, not name-keyed');
 });
 
+test('the form is generated from the create parameters', async () => {
+  const spec = `module formpkg @0.1.0 {}
+
+use capability arcod.std.kv @1
+use capability arcod.std.ids @1
+
+type MessageId = uuid
+type Author = bytes(min: 1, max: 255)
+type Body = bytes(min: 1, max: 64kb)
+
+error NotFound
+error Gone
+error Invalid
+
+service Messages : http {
+  uses store: kv(ttl: 999s, consistency: strong)
+  uses uuid: ids
+
+  contract {
+    public op create(author: Author, body: Body) -> MessageId {
+      route: "POST /v1/api/messages"
+      errors: Invalid
+      post: result != null
+    }
+
+    public op read(id: MessageId) -> Body {
+      route: "GET /v1/api/messages/:id"
+      errors: NotFound, Gone
+      post: !store.has(id)
+    }
+  }
+}
+
+ui Web {
+  kind: spa
+  route: "/"
+  title: "Форма"
+  uses Messages.create, Messages.read
+}
+
+environment dev {
+  bind store -> redis(host: "kv", port: 6379)
+  bind uuid -> local
+  deploy docker
+}`;
+  const formAst = parse(spec, 'formpkg.arc');
+  const html = emitWeb(formAst, { maxBytes: 65536 });
+  assert.match(html, /<input id="f-author"/, 'a short field renders as input');
+  assert.match(html, /<textarea id="f-body"/, 'a large bytes field renders as textarea');
+  assert.match(html, /const FIELDS = \[\{"name":"author","label":"Имя","min":1,"max":255\}/);
+  assert.ok(!html.includes("byId('body')"), 'no hardcoded body field');
+  assert.ok(html.includes('JSON.stringify(payload)'), 'the form posts its own fields');
+  assert.ok(!html.includes('__FIELDS__'));
+});
+
 test('compose has kv, service and web', () => {
   const yaml = composeYaml(ast, 8080);
   assert.match(yaml, /^name: arcod-onetimemessage/m);
