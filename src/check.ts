@@ -180,12 +180,12 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
-    // W018 — operation bodies come from built-in templates, not from the model
+    // W018 — the spec has no body, so one has to come from outside
     const templated = svc.contract
       .filter((op) => op.kind === 'op' && templateFor(op.name))
       .map((op) => op.name);
     if (templated.length > 0) {
-      diags.push(diag('W018', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'тела операций не выводятся из модели: ' + templated.join(', '), 'scaffold оставит TODO; reference подставит встроенный шаблон'));
+      diags.push(diag('W018', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'тела операций не заданы в спеке: ' + templated.join(', '), 'arcod impl сгенерирует их, build --reference подставит демо-тело, scaffold оставит TODO'));
     }
 
     // W017 — jobs are parsed but not executable in v0.1

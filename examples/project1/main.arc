@@ -1,8 +1,8 @@
-module onetimemessage @0.1.0 {
+module project1 @0.1.0 {
   meta {
     owner: "@andrey"
     status: draft
-    since: "2026-11-10"
+    since: "2026-11-11"
   }
 }
 
@@ -22,13 +22,13 @@ service OneTimeMessage : http {
 
   contract {
     public op create(body: Body) -> MessageId {
-      route: "POST /api/messages"
+      route: "POST /v1/api/messages"
       errors: Invalid
       post: result != null
     }
 
     public op read(id: MessageId) -> Body {
-      route: "GET /api/messages/:id"
+      route: "GET /v1/api/messages/:id"
       errors: NotFound, Gone
       post: !store.has(id)
     }
@@ -78,7 +78,7 @@ service OneTimeMessage : http {
 ui Web {
   kind:  spa
   route: "/"
-  title: "Одноразовое сообщение"
+  title: "Project1. OneTimeMessage"
   uses  OneTimeMessage.create, OneTimeMessage.read
 }
 
