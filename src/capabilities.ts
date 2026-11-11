@@ -57,6 +57,20 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
     },
     notes: 'Objects, not rows. The adapter owns bucket and naming.',
   },
+  // One call, no conversation state: history belongs to the service, the
+  // provider only turns messages into a reply. Local and cloud models expose
+  // the same contract, so a body never names a vendor.
+  llm: {
+    effects: {
+      chat: 'chat(messages: list<{ role: string, content: string }>, system: string | null) -> { content: string, model: string }',
+      model: 'model() -> string',
+    },
+    short: {
+      chat: 'chat(messages, system) -> {content,model}',
+      model: 'model() -> string',
+    },
+    notes: 'messages are {role: user|assistant|system, content}. The adapter owns the wire format; the body never sees a vendor.',
+  },
   // Same record contract as kv, different provider: the body cannot tell
   // whether the row lives in Redis or MySQL.
   sql: {

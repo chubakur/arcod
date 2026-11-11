@@ -10,6 +10,7 @@ import { emitWeb } from '../src/emit/web.ts';
 import { composeYaml, nginxConf } from '../src/emit/compose.ts';
 import { buildExample } from '../src/build.ts';
 import { deployManifest } from '../src/deploy.ts';
+import { providersForCapability } from '../src/providers.ts';
 import { runExamples } from '../src/test.ts';
 import { runPipeline } from '../src/pipeline.ts';
 import { buildPrompts } from '../src/prompts.ts';
@@ -531,6 +532,58 @@ environment dev {
   deploy docker
 }
 `;
+
+const chatUrl = new URL('../examples/chat/main.arc', import.meta.url);
+const chatImplDir = (await import('node:url')).fileURLToPath(new URL('../examples/chat/impl', import.meta.url));
+const chatAst = parse(await readFile(chatUrl, 'utf8'), 'main.arc');
+
+test('the model is a capability with local and cloud providers', () => {
+  assert.deepEqual(providersForCapability('llm'), ['ollama', 'openai']);
+  const llm = chatAst.services[0].uses.find((use) => use.capability === 'llm');
+  assert.ok(llm, 'the service declares the capability, not a vendor');
+  assert.equal(llm!.alias, 'llm');
+});
+
+test('the chat contract is the same for every model', () => {
+  const diags = check(chatAst);
+  assert.equal(diags.filter((item) => item.severity === 'error').length, 0);
+  const dev = chatAst.environments.find((env) => env.name === 'dev')!;
+  const prod = chatAst.environments.find((env) => env.name === 'prod')!;
+  assert.equal(dev.binds.find((bind) => bind.alias === 'llm')!.provider, 'ollama');
+  assert.equal(prod.binds.find((bind) => bind.alias === 'llm')!.provider, 'openai');
+
+  const manifest = deployManifest(chatAst, prod) as { providers: Array<{ alias: string; provider: string }> };
+  assert.equal(manifest.providers.find((item) => item.alias === 'llm')!.provider, 'openai');
+});
+
+test('the emitted service reaches the model through one adapter', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-chat-'));
+  const built = await buildExample(chatAst, dir, { implDir: chatImplDir });
+  const service = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(service.includes('async function llmChat(messages, system)'), 'one adapter');
+  assert.ok(service.includes('async chat(messages, system) { return llmChat(messages, system); }'), 'io.chat');
+  assert.ok(!service.includes('openai.com'), 'the vendor URL is not baked into the body');
+
+  const compose = await readFile(join(built.dir, 'docker-compose.yml'), 'utf8');
+  assert.ok(compose.includes('LLM_BASE_URL: "http://host.docker.internal:11434/v1"'));
+  assert.ok(compose.includes('LLM_MODEL: "qwen2.5-coder:7b"'));
+  assert.ok(!compose.includes('ollama:'), 'a local model is external, not a container');
+});
+
+test('layout: chat renders a transcript instead of forms', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-chat-page-'));
+  const built = await buildExample(chatAst, dir, { implDir: chatImplDir });
+  const page = await readFile(join(built.dir, 'web', 'index.html'), 'utf8');
+  assert.ok(page.includes('Новый диалог'));
+  assert.ok(page.includes('"textParam":"text"'), 'the send operation names its message field');
+  assert.ok(!page.includes('id="ops"'), 'no generic form grid');
+
+  const broken = check(parse(
+    (await readFile(chatUrl, 'utf8')).replace('  history: Chat.history', ''),
+    'main.arc',
+  ));
+  assert.ok(broken.some((item) => item.code === 'A036'), 'A036 asks for a history operation');
+});
 
 test('a workflow is a declared graph of steps', () => {
   const ast = parse(workflowSpec, 'main.arc');

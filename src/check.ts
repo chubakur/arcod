@@ -6,7 +6,7 @@ import { storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
 
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
-const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysql', 'mongodb', 'localhost', '127.0.0.1'];
+const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysql', 'mongodb', 'localhost', '127.0.0.1', 'ollama', 'openai', 'anthropic'];
 
 export interface CheckOptions {
   environment?: string;
@@ -271,6 +271,36 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     if (ui.impl !== 'spa') {
       diags.push(diag('A019', 'error', mod.file, ui.loc, 'ui.' + ui.name, 'ui kind ' + ui.impl + ' не поддерживается в v0.1', 'используйте kind: spa'));
     }
+    // A036 — a chat layout must say which operation is the transcript and
+    // which one sends a message; the page is not allowed to guess by name.
+    if (ui.layout === 'chat') {
+      for (const key of ['history', 'send'] as const) {
+        const ref = ui[key];
+        if (!ref) {
+          diags.push(diag('A036', 'error', mod.file, ui.loc, 'ui.' + ui.name,
+            'layout: chat требует ' + key + ': Service.op',
+            'укажите операцию, у которой ' + (key === 'history' ? 'читается история' : 'отправляется сообщение')));
+          continue;
+        }
+        const [svcName, opName] = ref.split('.');
+        const target = mod.services.find((item) => item.name === svcName);
+        const op = target?.contract.find((item) => item.name === opName && item.kind === 'op' && item.isPublic);
+        if (!target || !op) {
+          diags.push(diag('A036', 'error', mod.file, ui.loc, 'ui.' + ui.name,
+            ref + ' не является публичной операцией модуля', 'history/send ссылаются на public op'));
+        }
+      }
+      if (ui.start) {
+        const [svcName, opName] = ui.start.split('.');
+        const target = mod.services.find((item) => item.name === svcName);
+        const op = target?.contract.find((item) => item.name === opName && item.kind === 'op' && item.isPublic);
+        if (!target || !op) {
+          diags.push(diag('A036', 'error', mod.file, ui.loc, 'ui.' + ui.name,
+            ui.start + ' не является публичной операцией модуля', 'start создаёт диалог и возвращает его id'));
+        }
+      }
+    }
+
     for (const ref of ui.uses) {
       const parts = ref.split('.');
       const svc = mod.services.find((item) => item.name === parts[0]);

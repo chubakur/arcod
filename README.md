@@ -128,6 +128,45 @@ vault. На каждый bind генерируется
 сервис в compose с healthcheck, томом и env; порты публикуются только при
 `expose: true`.
 
+### Модель как возможность
+
+Сервис не знает, локальная модель или облачная: он просит `llm.chat`, а
+провайдера выбирает окружение.
+
+```arcod
+service Chat : http {
+  uses store: sql(ttl: 31536000s)
+  uses uuid: ids
+  uses llm: llm
+  effects { allow store.get, store.set, uuid.new, llm.chat }
+}
+```
+
+```arcod
+environment dev {
+  bind llm -> ollama(host: "host.docker.internal", port: 11434, model: "qwen2.5-coder:7b")
+}
+
+environment prod {
+  bind llm -> openai(model: "gpt-4o-mini")   // ключ из LLM_API_KEY
+}
+```
+
+Оба провайдера говорят на OpenAI-совместимом `/chat/completions`, поэтому тело
+операции одно: `io.chat(messages, system)`. Имя вендора в модели запрещено
+(`A003`). Полный пример — `examples/chat`: история диалога, ответы модели и
+страница с `layout: chat`.
+
+```bash
+arcod build examples/chat --impl && arcod run examples/chat
+```
+
+Локальная модель должна быть доступна контейнерам. На macOS Docker Desktop
+`host.docker.internal` достаёт до Ollama, слушающей `127.0.0.1:11434`, без
+настройки. На Linux контейнер до loopback хоста не дотянется: поднимите Ollama
+на `0.0.0.0` (`OLLAMA_HOST=0.0.0.0 ollama serve`) или укажите в привязке
+другой хост.
+
 ### Где живёт сервис
 
 Возможность и развёртывание — разные оси. Возможность говорит, чем сервис
@@ -408,7 +447,8 @@ arcod run --impl examples/onetimemessage-pwd
 - `W020` `onFail: skip` у шага, от которого зависят другие шаги;
 - `W022` workflow описывается, но не исполняется в v0.1;
 - `W023` `call` шага не объявлен в модуле;
-- `W024` шаг без `call`: его тело придётся сгенерировать.
+- `W024` шаг без `call`: его тело придётся сгенерировать;
+- `A036` `layout: chat` без `history`/`send` или со ссылкой на непубличную операцию.
 
 `arcod check` возвращает `1` при ошибках и `0`, когда модель чистая.
 
@@ -423,6 +463,8 @@ src/
   plan.ts         DAG задач
   build.ts        сборка примера в .arcod/build
   emit/service.ts генерация сервиса
+  emit/llm.ts     адаптер модели (OpenAI-совместимый чат)
+  emit/chat-page.ts страница для layout: chat
   emit/web.ts     генерация фронтенда
   emit/compose.ts Dockerfile и compose
   cli.ts          команды

@@ -213,6 +213,11 @@ export interface UiNode {
   route: string;
   title: string | null;
   uses: string[];
+  // Optional layout hint: forms are the default, chat is an explicit choice.
+  layout: 'forms' | 'chat' | null;
+  history: string | null;
+  send: string | null;
+  start: string | null;
   loc: Loc;
 }
 

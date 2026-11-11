@@ -463,7 +463,10 @@ class Parser {
   private parseUi(): UiNode {
     const start = this.expect('ui');
     const name = this.expectIdent('ui name').value;
-    const ui: UiNode = { kind: 'ui', name, impl: 'spa', route: '/', title: null, uses: [], loc: locOf(start) };
+    const ui: UiNode = {
+      kind: 'ui', name, impl: 'spa', route: '/', title: null, uses: [],
+      layout: null, history: null, send: null, start: null, loc: locOf(start),
+    };
     this.expect('{');
     while (!this.is('}')) {
       const key = this.expectIdent('ui property').value;
@@ -482,6 +485,12 @@ class Parser {
         ui.route = this.next().value;
       } else if (key === 'title') {
         ui.title = this.next().value;
+      } else if (key === 'layout') {
+        const value = this.expectIdent('ui layout').value;
+        if (value !== 'forms' && value !== 'chat') this.error('layout должен быть forms или chat');
+        ui.layout = value;
+      } else if (key === 'history' || key === 'send' || key === 'start') {
+        ui[key] = this.parseQName();
       } else {
         this.next();
       }

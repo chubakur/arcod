@@ -4,6 +4,7 @@ import { HANDLER_TEMPLATES, templateFor } from '../templates.ts';
 import { SQL_STORE_SOURCE } from './sql-store.ts';
 import { IDENTITY_SOURCE } from './identity.ts';
 import { BLOB_SOURCE } from './blob.ts';
+import { LLM_SOURCE } from './llm.ts';
 import { storageKind, storageUse } from '../capabilities.ts';
 
 export interface EmitOptions {
@@ -702,9 +703,11 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
 
   const hasIdentity = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'));
   const hasBlob = svc.uses.some((use) => use.capability === 'blob' || use.capability.endsWith('.blob'));
+  const hasLlm = svc.uses.some((use) => use.capability === 'llm' || use.capability.endsWith('.llm'));
 
   if (hasIdentity) parts.push(IDENTITY_SOURCE);
   if (hasBlob) parts.push(BLOB_SOURCE);
+  if (hasLlm) parts.push(LLM_SOURCE);
 
   parts.push(
     'function makeIo(req) {',
@@ -749,6 +752,13 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
       '      return actorPromise;',
       '    },',
       '    async users() { return listUsers(); },',
+    );
+  }
+
+  if (hasLlm) {
+    parts.push(
+      '    async chat(messages, system) { return llmChat(messages, system); },',
+      '    model() { return llmModel(); },',
     );
   }
 

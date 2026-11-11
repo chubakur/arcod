@@ -1,5 +1,6 @@
-import type { ModuleNode, OpNode, Param, ServiceNode, TypeExpr } from './ast.ts';
+import type { ModuleNode, OpNode, Param, ServiceNode, TypeExpr, UiNode } from './ast.ts';
 import { isGuarded, pickService } from './service.ts';
+import { CHAT_PAGE } from './chat-page.ts';
 
 export interface WebOptions {
   maxBytes: number;
@@ -39,6 +40,7 @@ const PAGE = String.raw`<!doctype html>
   h1 { font-size: 22px; margin: 0 0 4px; }
   .lead { color: var(--muted); margin: 0 0 24px; }
   .auth { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 24px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+  .auth[hidden] { display: none; }
   .auth input { flex: 1; }
   .op { border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
   .op h2 { font-size: 16px; margin: 0 0 2px; display: flex; gap: 10px; align-items: baseline; }
@@ -378,6 +380,37 @@ function routeOfOp(op: OpNode): { method: string; path: string } {
   return { method: (method || 'GET').toUpperCase(), path: path || '/' };
 }
 
+// The chat page needs concrete operations, not a guess: the spec names which
+// one returns the transcript and which one sends. The only inferred bit is
+// which send parameter carries the text (the single non-path parameter).
+function chatOps(mod: ModuleNode, svc: ServiceNode, ui: UiNode): Record<string, unknown> {
+  const find = (ref: string | null): UiOp | null => {
+    if (!ref) return null;
+    const [svcName, opName] = ref.split('.');
+    if (svcName !== svc.name) return null;
+    const op = svc.contract.find((item) => item.name === opName && item.kind === 'op' && item.isPublic);
+    return op ? describeOp(mod, op) : null;
+  };
+  const history = find(ui.history);
+  const send = find(ui.send);
+  if (!history || !send) throw new Error('layout: chat needs history and send operations');
+  const textParam = send.params.find((param) => param.where !== 'path');
+  if (!textParam) throw new Error('send operation has no message parameter');
+
+  const start = find(ui.start);
+  const compact = (op: UiOp) => ({
+    method: op.method,
+    path: op.path,
+    params: op.params.map((param) => ({ name: param.name, where: param.where })),
+  });
+  return {
+    module: mod.name,
+    history: compact(history),
+    send: Object.assign(compact(send), { textParam: textParam.name }),
+    start: start ? compact(start) : null,
+  };
+}
+
 function describeOp(mod: ModuleNode, op: OpNode): UiOp {
   const route = routeOfOp(op);
   const segments = route.path.split('/');
@@ -407,6 +440,15 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
 
   const hasAuth = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'));
   const guarded = isGuarded(svc);
+
+  if (ui.layout === 'chat') {
+    const chat = chatOps(mod, svc, ui);
+    return CHAT_PAGE
+      .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
+      .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · диалог с моделью'))
+      .replaceAll('__CHAT_OPS__', JSON.stringify(chat))
+      .replaceAll('__HAS_AUTH__', hasAuth || guarded ? 'true' : 'false');
+  }
 
   return PAGE
     .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))

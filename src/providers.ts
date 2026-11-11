@@ -95,6 +95,32 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
     healthcheck: { test: '["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000; echo -e \'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n\' >&3; head -1 <&3 | grep -q 200"]', interval: '5s', timeout: '5s', retries: 40, startPeriod: '20s' },
     appEnv: ({ host, port }) => ({ KEYCLOAK_URL: 'http://' + host + ':' + port }),
   },
+  // Both speak the OpenAI-compatible /chat/completions shape. Ollama is local
+  // and keyless; openai is any compatible endpoint, including a proxy.
+  ollama: {
+    name: 'ollama',
+    capability: 'llm',
+    external: true,
+    port: 11434,
+    appEnv: ({ host, port, args }) => ({
+      LLM_BASE_URL: 'http://' + host + ':' + port + '/v1',
+      LLM_MODEL: String(args.model ?? 'qwen2.5-coder:7b'),
+      LLM_API_KEY: '',
+    }),
+  },
+  openai: {
+    name: 'openai',
+    capability: 'llm',
+    external: true,
+    port: 443,
+    appEnv: ({ args }) => ({
+      LLM_BASE_URL: String(args.baseUrl ?? 'https://api.openai.com/v1'),
+      LLM_MODEL: String(args.model ?? 'gpt-4o-mini'),
+      // Filled from the host environment at compose time; the spec never
+      // carries the key.
+      LLM_API_KEY: '${LLM_API_KEY:-}',
+    }),
+  },
   s3: {
     name: 's3',
     capability: 'blob',
