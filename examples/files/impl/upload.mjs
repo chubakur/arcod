@@ -19,7 +19,7 @@ export async function upload(input, io) {
     size: body.length,
   };
   await io.save(id, { b: meta, h: null });
-  await io.blobPut('files/' + id, body, 'text/plain; charset=utf-8');
+  await io.blobPut(id, body, 'text/plain; charset=utf-8');
   return { result: id };
 }
 
@@ -27,9 +27,6 @@ function isVisibility(value) {
   return value === 'public' || value === 'authenticated' || value === 'restricted';
 }
 
-// One place where the rule from the model lives:
-// public — everyone, authenticated — any signed-in user, restricted — owner's
-// list, and an administrator bypasses every restriction.
 function canRead(actor, meta) {
   if (!actor) return meta.visibility === 'public';
   if (actor.admin) return true;

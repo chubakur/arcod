@@ -1,250 +1,394 @@
-import type { ModuleNode, OpNode } from './ast.ts';
-import { isGuarded, paramLimits, pickService, routeOf } from './service.ts';
-import { payloadOf } from '../plan-body.ts';
+import type { ModuleNode, OpNode, Param, ServiceNode, TypeExpr } from './ast.ts';
+import { isGuarded, pickService } from './service.ts';
 
-const PAGE = `<!doctype html>
+export interface WebOptions {
+  maxBytes: number;
+  title?: string;
+}
+
+// The page is built from the contract, not from a particular service: every
+// public operation becomes a form, every parameter becomes a field, and every
+// response is rendered by shape (object, list, error, scalar).
+interface UiParam {
+  name: string;
+  kind: 'text' | 'textarea' | 'number' | 'bool' | 'json';
+  where: 'path' | 'query' | 'body';
+  optional: boolean;
+  max: number | null;
+}
+
+interface UiOp {
+  name: string;
+  method: string;
+  path: string;
+  params: UiParam[];
+  returns: string;
+}
+
+const PAGE = String.raw`<!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
 <style>
-  :root {
-    color-scheme: dark;
-    --bg: #0b0d12;
-    --panel: #141821;
-    --line: #232a38;
-    --text: #e7ebf3;
-    --muted: #8b95a7;
-    --accent: #6ea8fe;
-    --accent-2: #8b5cf6;
-    --ok: #34d399;
-    --err: #f87171;
-  }
+  :root { color-scheme: light dark; --line: #d8dbe0; --muted: #6b7280; --accent: #2563eb; }
   * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-    background: radial-gradient(1200px 600px at 20% -10%, #1b2233 0%, var(--bg) 55%);
-    color: var(--text);
-    font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
-  .card {
-    width: min(680px, 100%);
-    background: color-mix(in oklab, var(--panel) 92%, transparent);
-    border: 1px solid var(--line);
-    border-radius: 18px;
-    padding: 28px;
-    box-shadow: 0 30px 80px rgba(0,0,0,.45);
-  }
-  .brand {
-    display: flex; align-items: center; gap: 10px;
-    font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
-    margin-bottom: 18px;
-  }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
-  h1 { font-size: 26px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -.02em; }
-  p.lead { margin: 0 0 22px; color: var(--muted); }
-  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
-  .field span { font-size: 13px; color: var(--muted); }
-  .field input {
-    width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 12px;
-    border: 1px solid var(--line); background: #0f131b; color: var(--text); font: inherit;
-  }
-  .field input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(110,168,254,.15); }
-  textarea {
-    width: 100%; min-height: 150px; resize: vertical;
-    padding: 14px 16px; border-radius: 12px;
-    border: 1px solid var(--line); background: #0e121a; color: var(--text);
-    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-    outline: none;
-  }
-  textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(110,168,254,.15); }
-  .row { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
-  button {
-    appearance: none; border: 0; cursor: pointer;
-    padding: 11px 18px; border-radius: 10px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    color: #06101f; font-weight: 650; font-size: 14px;
-  }
-  button.secondary { background: #1b2230; color: var(--text); border: 1px solid var(--line); }
-  button:disabled { opacity: .5; cursor: progress; }
-  .muted { color: var(--muted); font-size: 13px; }
-  .result {
-    margin-top: 18px; padding: 14px 16px; border-radius: 12px;
-    border: 1px solid var(--line); background: #0e121a;
-    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-    word-break: break-all;
-  }
-  .result a { color: var(--accent); }
-  .message {
-    white-space: pre-wrap; word-break: break-word;
-    margin: 0; padding: 16px; border-radius: 12px;
-    background: #0e121a; border: 1px solid var(--line);
-    font: 15px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-  .status { margin-top: 14px; font-size: 14px; }
-  .status.ok { color: var(--ok); }
-  .status.err { color: var(--err); }
-  .hidden { display: none !important; }
-  .meta { margin-top: 18px; font-size: 12px; color: var(--muted); }
+  body { margin: 0; font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 24px; }
+  .auth { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 24px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+  .auth input { flex: 1; }
+  .op { border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .op h2 { font-size: 16px; margin: 0 0 2px; display: flex; gap: 10px; align-items: baseline; }
+  .route { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  form { display: grid; gap: 10px; margin-top: 12px; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  input, textarea, select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
+  textarea { min-height: 76px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; width: fit-content; }
+  button[disabled] { opacity: .6; cursor: progress; }
+  .result { margin-top: 12px; }
+  .result pre { margin: 0; padding: 12px; border-radius: 8px; background: rgba(127,127,127,.09); overflow: auto; }
+  .status { font-size: 12px; font-family: ui-monospace, monospace; color: var(--muted); margin-bottom: 6px; }
+  .bad { color: #b91c1c; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+  dt { color: var(--muted); font-size: 13px; }
+  dd { margin: 0; word-break: break-word; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 6px 8px; vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  .empty { color: var(--muted); font-style: italic; }
 </style>
 </head>
 <body>
-<main class="card">
-  <div class="brand"><span class="dot"></span><span>__BRAND__</span></div>
-
-  <section id="create-view">
-    <h1>__TITLE__</h1>
-    <p class="lead">__LEAD__</p>
-    <div id="fields">
-    __FIELDS__
-    </div>
-    <div id="pwd-create-slot"></div>
-    <div class="row">
-      <button id="submit">Создать ссылку</button>
-      <span class="muted" id="hint">__HINT__</span>
-    </div>
-    <div class="result hidden" id="result">
-      <div class="muted">Ссылка (открой её у получателя):</div>
-      <div><a id="link" href="#"></a></div>
-      <div class="row">
-        <button class="secondary" id="copy">Скопировать</button>
-        <button class="secondary" id="again">Создать ещё</button>
-      </div>
-    </div>
-    <div class="status" id="create-status"></div>
+<main>
+  <h1>__TITLE__</h1>
+  <p class="lead">__LEAD__</p>
+  <section class="auth" id="auth" hidden>
+    <label style="flex:1">Токен доступа
+      <input id="token" type="password" autocomplete="off" placeholder="Bearer-токен">
+    </label>
+    <button type="button" id="save-token" style="align-self:end">Сохранить</button>
   </section>
-
-  <section id="read-view" class="hidden">
-    <h1 id="read-title">Чтение</h1>
-    <p class="lead" id="read-lead">Загружаем сообщение...</p>
-    <pre class="message hidden" id="message"></pre>
-    <div class="status" id="read-status"></div>
-    <div class="meta"><a href="/">Создать своё сообщение</a></div>
-  </section>
-
-  <div class="meta">сгенерировано arcod из __MODULE__</div>
+  <div id="ops"></div>
 </main>
-
 <script>
-const API_CREATE = '__CREATE_PATH__';
-const LINK_PREFIX = '__LINK_PREFIX__';
-const API_READ = '__READ_PATH__';
-const MAX_BYTES = __MAX_BYTES__;
-const FIELDS = __FIELDS_JSON__;
-const LABELS = __LABELS__;
-function labelOf(key) { return LABELS[key] || key; }
+var OPS = __OPS__;
+var HAS_AUTH = __HAS_AUTH__;
+var TOKEN_KEY = 'arcod.token';
 
-const byId = (id) => document.getElementById(id);
-const createView = byId('create-view');
-const readView = byId('read-view');
+function byId(id) { return document.getElementById(id); }
 
-function setStatus(el, text, kind) {
-  el.textContent = text;
-  el.className = 'status' + (kind ? ' ' + kind : '');
+function saveToken() {
+  var value = byId('token').value.trim();
+  if (value) localStorage.setItem(TOKEN_KEY, value);
+  else localStorage.removeItem(TOKEN_KEY);
+  byId('token').value = '';
+  byId('token').placeholder = value ? 'токен сохранён' : 'Bearer-токен';
 }
 
-async function create() {
-  const payload = {};
-  for (const field of FIELDS) payload[field.name] = byId('f-' + field.name).value;
-  for (const field of FIELDS) {
-    const bytes = new TextEncoder().encode(payload[field.name]).length;
-    if (bytes < field.min) return setStatus(byId('create-status'), 'Заполните поле: ' + field.label, 'err');
-    if (bytes > field.max) return setStatus(byId('create-status'), 'Поле ' + field.label + ' больше ' + field.max + ' байт', 'err');
+function showError(out, text) {
+  out.hidden = false;
+  out.innerHTML = '';
+  var pre = document.createElement('pre');
+  pre.className = 'bad';
+  pre.textContent = text;
+  out.appendChild(pre);
+}
+
+function renderValue(value) {
+  if (value === null) return document.createTextNode('null');
+  if (typeof value === 'object') {
+    var pre = document.createElement('pre');
+    pre.textContent = JSON.stringify(value, null, 2);
+    return pre;
+  }
+  return document.createTextNode(String(value));
+}
+
+function renderResult(out, status, data, raw) {
+  out.hidden = false;
+  out.innerHTML = '';
+  var badge = document.createElement('div');
+  badge.className = 'status' + (status >= 400 ? ' bad' : '');
+  badge.textContent = 'HTTP ' + status;
+  out.appendChild(badge);
+
+  if (data === null) {
+    var pre = document.createElement('pre');
+    pre.textContent = raw || '(пустой ответ)';
+    out.appendChild(pre);
+    return;
   }
 
-  const button = byId('submit');
-  button.disabled = true;
-  setStatus(byId('create-status'), 'Создаём...', '');
-  try {
-    const response = await fetch(API_CREATE, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || data.error || 'не удалось создать');
+  if (data && typeof data === 'object' && !Array.isArray(data) && data.error) {
+    var err = document.createElement('pre');
+    err.className = 'bad';
+    err.textContent = String(data.error) + (data.message ? ': ' + data.message : '');
+    out.appendChild(err);
+    return;
+  }
 
-    const link = location.origin + LINK_PREFIX + encodeURIComponent(data.id);
-    const anchor = byId('link');
-    anchor.textContent = link;
-    anchor.href = link;
-    byId('result').classList.remove('hidden');
-    for (const field of FIELDS) byId('f-' + field.name).value = '';
-    setStatus(byId('create-status'), 'Готово. Ссылка живёт ' + data.expiresIn + ' сек.', 'ok');
+  if (Array.isArray(data)) {
+    if (data.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'пусто';
+      out.appendChild(empty);
+      return;
+    }
+    if (typeof data[0] === 'object' && data[0] !== null) {
+      var keys = [];
+      data.forEach(function (item) {
+        Object.keys(item || {}).forEach(function (key) { if (keys.indexOf(key) < 0) keys.push(key); });
+      });
+      var table = document.createElement('table');
+      var head = document.createElement('tr');
+      keys.forEach(function (key) {
+        var th = document.createElement('th');
+        th.textContent = key;
+        head.appendChild(th);
+      });
+      table.appendChild(head);
+      data.forEach(function (item) {
+        var row = document.createElement('tr');
+        keys.forEach(function (key) {
+          var td = document.createElement('td');
+          var value = item ? item[key] : null;
+          td.textContent = value === null || value === undefined ? '' : (typeof value === 'object' ? JSON.stringify(value) : String(value));
+          row.appendChild(td);
+        });
+        table.appendChild(row);
+      });
+      out.appendChild(table);
+      return;
+    }
+    var list = document.createElement('pre');
+    list.textContent = data.map(function (item) { return typeof item === 'object' ? JSON.stringify(item) : String(item); }).join('\n');
+    out.appendChild(list);
+    return;
+  }
+
+  if (data && typeof data === 'object') {
+    var dl = document.createElement('dl');
+    Object.keys(data).forEach(function (key) {
+      var dt = document.createElement('dt');
+      dt.textContent = key;
+      var dd = document.createElement('dd');
+      dd.appendChild(renderValue(data[key]));
+      dl.appendChild(dt);
+      dl.appendChild(dd);
+    });
+    out.appendChild(dl);
+    return;
+  }
+
+  var single = document.createElement('pre');
+  single.textContent = typeof data === 'string' ? data : JSON.stringify(data);
+  out.appendChild(single);
+}
+
+async function run(op, form, out, button) {
+  var url = op.path;
+  var query = new URLSearchParams();
+  var body = {};
+  var problem = null;
+
+  op.params.forEach(function (p) {
+    var input = form.elements[p.name];
+    var raw = p.kind === 'bool' ? input.checked : input.value;
+    if (p.kind !== 'bool' && String(raw).trim() === '') {
+      if (!p.optional) problem = p.name;
+      return;
+    }
+    var value = raw;
+    if (p.kind === 'number') value = Number(raw);
+    if (p.kind === 'json') {
+      try {
+        value = JSON.parse(raw);
+      } catch (error) {
+        problem = p.name + ': не JSON';
+        return;
+      }
+    }
+    if (p.where === 'path') {
+      url = url.split(':' + p.name).join(encodeURIComponent(String(raw)));
+    } else if (p.where === 'query') {
+      query.append(p.name, typeof value === 'object' ? JSON.stringify(value) : String(value));
+    } else {
+      body[p.name] = value;
+    }
+  });
+
+  if (problem) {
+    showError(out, 'Заполните поле: ' + problem);
+    return;
+  }
+  if (query.toString()) url += '?' + query.toString();
+
+  var headers = { accept: 'application/json' };
+  var token = localStorage.getItem(TOKEN_KEY);
+  if (token) headers.authorization = 'Bearer ' + token;
+
+  var init = { method: op.method, headers: headers };
+  if (op.method !== 'GET' && op.method !== 'DELETE') {
+    headers['content-type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
+
+  button.disabled = true;
+  out.hidden = false;
+  out.innerHTML = '<div class="status">запрос…</div>';
+  try {
+    var response = await fetch(url, init);
+    var raw = await response.text();
+    var data = null;
+    try { data = JSON.parse(raw); } catch (error) { data = null; }
+    renderResult(out, response.status, data, raw);
   } catch (error) {
-    setStatus(byId('create-status'), String(error.message || error), 'err');
+    showError(out, String(error && error.message ? error.message : error));
   } finally {
     button.disabled = false;
   }
 }
 
-async function read(id) {
-  createView.classList.add('hidden');
-  readView.classList.remove('hidden');
-  setStatus(byId('read-status'), 'Загружаем...', '');
-  try {
-    const response = await fetch(API_READ.replace(':id', encodeURIComponent(id)));
-    if (response.status === 200) {
-      const raw = await response.text();
-      let text = raw;
-      let record = null;
-      try { record = JSON.parse(raw); } catch {}
-      if (record && typeof record === 'object' && !Array.isArray(record)) {
-        text = Object.entries(record)
-          .map(([key, value]) => labelOf(key) + ': ' + (value == null ? '' : String(value)))
-          .join('\\n');
-      }
-      byId('read-lead').textContent = 'Сообщение будет удалено после этого просмотра.';
-      const message = byId('message');
-      message.textContent = text;
-      message.classList.remove('hidden');
-      setStatus(byId('read-status'), 'Прочитано. Повторно открыть не получится.', 'ok');
-      return;
-    }
-    const data = await response.json().catch(() => ({}));
-    if (response.status === 404) {
-      byId('read-title').textContent = 'Сообщения нет';
-      byId('read-lead').textContent = 'Возможно, ссылка неверна или срок хранения истёк.';
-    } else if (response.status === 410) {
-      byId('read-title').textContent = 'Уже прочитано';
-      byId('read-lead').textContent = 'Это одноразовое сообщение. Кто-то открыл его раньше.';
-    } else {
-      byId('read-title').textContent = 'Ошибка';
-      byId('read-lead').textContent = data.message || 'Не удалось загрузить сообщение.';
-    }
-  } catch (error) {
-    byId('read-lead').textContent = 'Сервис недоступен.';
-    setStatus(byId('read-status'), String(error.message || error), 'err');
+function fieldControl(p) {
+  var input;
+  if (p.kind === 'textarea' || p.kind === 'json') {
+    input = document.createElement('textarea');
+    input.rows = 3;
+  } else if (p.kind === 'bool') {
+    input = document.createElement('input');
+    input.type = 'checkbox';
+  } else {
+    input = document.createElement('input');
+    input.type = p.kind === 'number' ? 'number' : 'text';
+    if (p.max && p.kind !== 'number') input.maxLength = p.max;
   }
+  input.name = p.name;
+  return input;
 }
 
-byId('submit').addEventListener('click', create);
-byId('copy').addEventListener('click', async () => {
-  await navigator.clipboard.writeText(byId('link').textContent);
-  setStatus(byId('create-status'), 'Ссылка скопирована', 'ok');
-});
-byId('again').addEventListener('click', () => {
-  byId('result').classList.add('hidden');
-  setStatus(byId('create-status'), '', '');
-  const firstField = FIELDS[0] && byId('f-' + FIELDS[0].name);
-  if (firstField) firstField.focus();
-});
+function build() {
+  var root = byId('ops');
+  OPS.forEach(function (op) {
+    var card = document.createElement('section');
+    card.className = 'op';
 
-const id = new URLSearchParams(location.search).get('id');
-if (id) read(id);
+    var title = document.createElement('h2');
+    title.textContent = op.name;
+    var route = document.createElement('span');
+    route.className = 'route';
+    route.textContent = op.method + ' ' + op.path;
+    title.appendChild(route);
+    card.appendChild(title);
+
+    var form = document.createElement('form');
+    op.params.forEach(function (p) {
+      var label = document.createElement('label');
+      label.textContent = p.name + (p.kind === 'json' ? ' (JSON)' : '') + (p.optional ? ' — необязательно' : '');
+      label.appendChild(fieldControl(p));
+      form.appendChild(label);
+    });
+
+    var button = document.createElement('button');
+    button.type = 'submit';
+    button.textContent = 'Выполнить';
+    form.appendChild(button);
+
+    var out = document.createElement('div');
+    out.className = 'result';
+    out.hidden = true;
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      run(op, form, out, button);
+    });
+
+    card.appendChild(form);
+    card.appendChild(out);
+    root.appendChild(card);
+  });
+}
+
+if (HAS_AUTH) {
+  byId('auth').hidden = false;
+  byId('save-token').addEventListener('click', saveToken);
+}
+build();
 </script>
 </body>
 </html>
 `;
 
-export interface WebOptions {
-  maxBytes: number;
-  title?: string;
+function expand(mod: ModuleNode, type: TypeExpr, depth = 0): TypeExpr {
+  if (type.kind !== 'named') return type;
+  const decl = mod.types.find((item) => item.name === type.name);
+  if (!decl || depth > 8) return type;
+  return expand(mod, decl.type, depth + 1);
+}
+
+function numberValue(value: unknown): number | null {
+  if (!value || typeof value !== 'object') return null;
+  const expr = value as { kind?: string; value?: unknown; unit?: string };
+  if (expr.kind === 'literal' && typeof expr.value === 'number') return expr.value;
+  if (expr.kind === 'duration' && typeof expr.value === 'number') {
+    const unit = (expr.unit ?? '').toLowerCase();
+    if (unit === 'kb') return expr.value * 1024;
+    if (unit === 'mb') return expr.value * 1024 * 1024;
+    if (unit === 'gb') return expr.value * 1024 * 1024 * 1024;
+    return expr.value;
+  }
+  return null;
+}
+
+function maxOf(type: TypeExpr): number | null {
+  if (type.kind !== 'named') return null;
+  const arg = type.args.find((item) => item.name === 'max');
+  return arg ? numberValue(arg.value) : null;
+}
+
+function uiParam(mod: ModuleNode, param: Param, where: 'path' | 'query' | 'body'): UiParam {
+  const resolved = expand(mod, param.type);
+  const optional = param.type.kind === 'optional' || resolved.kind === 'optional';
+  let kind: UiParam['kind'] = 'text';
+  let max: number | null = null;
+
+  if (resolved.kind === 'record') {
+    kind = 'json';
+  } else if (resolved.kind === 'named') {
+    if (resolved.name === 'list' || resolved.name === 'map' || resolved.name === 'json') kind = 'json';
+    else if (resolved.name === 'bool') kind = 'bool';
+    else if (resolved.name === 'int' || resolved.name === 'float' || resolved.name === 'number') kind = 'number';
+    else if (resolved.name === 'bytes') {
+      max = maxOf(resolved);
+      kind = max !== null && max > 512 ? 'textarea' : 'text';
+    }
+  }
+
+  return { name: param.name, kind, where, optional, max };
+}
+
+function routeOfOp(op: OpNode): { method: string; path: string } {
+  const clause = op.clauses.find((item) => item.kind === 'route');
+  const value = clause && clause.kind === 'route' ? clause.value : op.name;
+  const [method, path] = value.split(/\s+/);
+  return { method: (method || 'GET').toUpperCase(), path: path || '/' };
+}
+
+function describeOp(mod: ModuleNode, op: OpNode): UiOp {
+  const route = routeOfOp(op);
+  const segments = route.path.split('/');
+  const pathNames = segments.filter((item) => item.startsWith(':')).map((item) => item.slice(1));
+  const readsQuery = route.method === 'GET' || route.method === 'DELETE';
+  const params = op.params.map((param) => {
+    const where = pathNames.includes(param.name) ? 'path' : readsQuery ? 'query' : 'body';
+    return uiParam(mod, param, where);
+  });
+  const returns = op.returns ? op.returns.kind : 'void';
+  return { name: op.name, method: route.method, path: route.path, params, returns };
 }
 
 export function emitWeb(mod: ModuleNode, options: WebOptions): string {
@@ -253,120 +397,28 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
   const svc = pickService(mod);
   if (!svc) throw new Error('no service to emit web for');
 
-  const create = svc.contract.find((op) => op.name === 'create');
-  const read = svc.contract.find((op) => op.name === 'read');
-  if (!create || !read) throw new Error('web emitter needs create and read');
+  const wanted = new Set(ui.uses.map((entry) => entry.split('.').pop() ?? entry));
+  const ops = svc.contract
+    .filter((op) => op.kind === 'op' && op.isPublic)
+    .filter((op) => wanted.size === 0 || wanted.has(op.name))
+    .map((op) => describeOp(mod, op));
 
-  const createPath = pathOf(create);
-  const readPath = pathOf(read);
+  if (ops.length === 0) throw new Error('ui block names no public operation');
 
-  const linkPrefix = ui.route === '/' ? '/?id=' : ui.route.replace(/\/$/, '') + '/?id=';
+  const hasAuth = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'));
+  const guarded = isGuarded(svc);
 
-  const payload = payloadOf(mod, create);
-  const fields = payload.map((param) => {
-    const limits = paramLimits(mod, param.type);
-    const label = fieldLabel(param.name);
-    const tag = limits.multiline ? 'textarea' : 'input';
-    const open = limits.multiline
-      ? '<textarea id="f-' + param.name + '" placeholder="' + label + '"></textarea>'
-      : '<input id="f-' + param.name + '" type="text" autocomplete="off" placeholder="' + label + '">';
-    return '      <label class="field"><span>' + label + '</span>' + open + '</label>';
-  });
-  const fieldMeta = payload.map((param) => {
-    const limits = paramLimits(mod, param.type);
-    return { name: param.name, label: fieldLabel(param.name), min: limits.min, max: limits.max };
-  });
-  const hint = payload.length === 1
-    ? 'максимум ' + Math.round(paramLimits(mod, payload[0].type).max / 1024) + ' КБ'
-    : payload.map((param) => param.name).join(', ');
-
-  let html = PAGE
-    .replaceAll('__FIELDS__', fields.join('\n'))
-    .replaceAll('__FIELDS_JSON__', JSON.stringify(fieldMeta))
-    .replaceAll('__LABELS__', JSON.stringify(FIELD_LABELS))
-    .replaceAll('__HINT__', hint)
-    .replaceAll('__LEAD__', 'Заполните поля — сервис вернёт ссылку на сохранённое значение.')
-    .replaceAll('__TITLE__', ui.title ?? svc.name)
-    .replaceAll('__BRAND__', mod.name + ' · ' + ui.name)
-    .replaceAll('__LINK_PREFIX__', linkPrefix)
-    .replaceAll('__MODULE__', mod.name + '@' + mod.version)
-    .replaceAll('__CREATE_PATH__', createPath)
-    .replaceAll('__READ_PATH__', readPath)
-    .replaceAll('__MAX_BYTES__', String(options.maxBytes));
-
-  if (isGuarded(svc)) html = withPasswordUi(html);
-  return html;
+  return PAGE
+    .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
+    .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · операций: ' + ops.length))
+    .replaceAll('__OPS__', JSON.stringify(ops))
+    .replaceAll('__HAS_AUTH__', hasAuth || guarded ? 'true' : 'false');
 }
 
-// Password UI is layered on top of the base page: the page itself stays one
-// template, and only the guarded service gets the extra field and branch.
-function withPasswordUi(html: string): string {
-  return html
-    .replace('</style>', `  .pwd { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
-  .pwd label { font-size: 13px; }
-  .pwd input { width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: #0f131b; color: var(--text); font: inherit; }
-  .pwd .row { display: flex; gap: 8px; align-items: center; }
-  .pwd .row input { flex: 1; }
-</style>`)
-    .replace(
-      '<div id="pwd-create-slot"></div>',
-      '<div class="pwd">\n' +
-        '    <div class="pwd">\n' +
-        '      <label class="muted" for="pwd-create">Пароль — необязательно</label>\n' +
-        '      <input id="pwd-create" type="password" autocomplete="new-password" placeholder="пусто — откроет любой, у кого есть ссылка">\n' +
-        '    </div>',
-    )
-    .replace(
-      '<p class="lead" id="read-lead">Загружаем сообщение...</p>',
-      '<p class="lead" id="read-lead">Загружаем сообщение...</p>\n' +
-        '    <div class="pwd hidden" id="pwd-read-wrap">\n' +
-        '      <label class="muted" for="pwd-read">Сообщение защищено паролем</label>\n' +
-        '      <div class="row">\n' +
-        '        <input id="pwd-read" type="password" autocomplete="off" placeholder="введите пароль">\n' +
-        '        <button id="pwd-open">Открыть</button>\n' +
-        '      </div>\n' +
-        '    </div>',
-    )
-    .replace('JSON.stringify(payload)', "JSON.stringify(Object.assign(payload, { password: byId('pwd-create').value }))")
-    .replace(
-      "fetch(API_READ.replace(':id', encodeURIComponent(id)))",
-      "fetch(API_READ.replace(':id', encodeURIComponent(id)) + (byId('pwd-read').value ? '?password=' + encodeURIComponent(byId('pwd-read').value) : ''))",
-    )
-    .replace(
-      `    } else {
-      byId('read-title').textContent = 'Ошибка';`,
-      `    } else if (response.status === 403) {
-      byId('read-title').textContent = 'Нужен пароль';
-      byId('read-lead').textContent = 'Сообщение не удалено: введите правильный пароль.';
-      byId('pwd-read-wrap').classList.remove('hidden');
-      byId('pwd-read').focus();
-      setStatus(byId('read-status'), 'Неверный пароль', 'err');
-    } else {
-      byId('read-title').textContent = 'Ошибка';`,
-    )
-    .replace(
-      "byId('submit').addEventListener('click', create);",
-      "byId('submit').addEventListener('click', create);\nbyId('pwd-open').addEventListener('click', () => read(id));",
-    );
-}
-
-const FIELD_LABELS: Record<string, string> = {
-  body: 'Текст',
-  message: 'Текст',
-  text: 'Текст',
-  content: 'Содержимое',
-  author: 'Имя',
-  name: 'Имя',
-  title: 'Заголовок',
-  email: 'Email',
-};
-
-function fieldLabel(name: string): string {
-  return FIELD_LABELS[name] ?? name;
-}
-
-function pathOf(op: OpNode): string {
-  const route = routeOf(op);
-  if (!route) throw new Error('op ' + op.name + ' has no route');
-  return route.split(' ')[1];
+function escapeHtml(value: string): string {
+  return value
+    .split('&').join('&amp;')
+    .split('<').join('&lt;')
+    .split('>').join('&gt;')
+    .split('"').join('&quot;');
 }

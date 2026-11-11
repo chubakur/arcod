@@ -111,6 +111,9 @@ export interface OpNode {
 
 export type Clause =
   | { kind: 'errors'; names: string[]; loc: Loc }
+  // Effects this operation uses, e.g. store.get, files.put. Optional: when
+  // absent the planner infers them from parameter and return shapes.
+  | { kind: 'effects'; names: string[]; loc: Loc }
   | { kind: 'pre' | 'post'; expr: Expr; loc: Loc }
   | { kind: 'onerror'; error: string; expr: Expr; loc: Loc }
   | { kind: 'route'; value: string; loc: Loc }

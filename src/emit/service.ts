@@ -754,9 +754,9 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
 
   if (hasBlob) {
     parts.push(
-      '    async blobPut(key, value, type) { return blobPut(key, value, type); },',
-      '    async blobGet(key) { return blobGet(key); },',
-      '    async blobDelete(key) { return blobDelete(key); },',
+      "    async blobPut(id, value, type) { return blobPut('objects/' + id, value, type); },",
+      "    async blobGet(id) { return blobGet('objects/' + id); },",
+      "    async blobDelete(id) { return blobDelete('objects/' + id); },",
     );
   }
 

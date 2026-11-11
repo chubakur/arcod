@@ -55,6 +55,17 @@ function resolveType(mod: ModuleNode, type: { kind: string; name?: string; inner
 }
 
 export function opEffects(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean): Array<[string, string]> {
+  // Declared effects win: the model says exactly what the body touches.
+  const declared = op.clauses
+    .filter((clause) => clause.kind === 'effects')
+    .flatMap((clause) => (clause.kind === 'effects' ? clause.names : []));
+  if (declared.length > 0) {
+    return declared.map((entry) => {
+      const [alias, name] = entry.split('.');
+      return [alias, name] as [string, string];
+    });
+  }
+
   const out: Array<[string, string]> = [];
   const add = (alias: string, name: string) => {
     if (out.some(([a, o]) => a === alias && o === name)) return;
@@ -126,85 +137,144 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
     .filter((clause) => clause.kind === 'errors')
     .flatMap((clause) => (clause.kind === 'errors' ? clause.names : []));
 
-  const atomic = svc.rules.some((rule) => rule.kind === 'atomic' && rule.name === op.name);
   const once = svc.rules
     .map((rule) => (rule.kind === 'invariant' ? asOnce(rule.expr) : null))
     .find((item) => item && item.op === op.name) ?? null;
+  const onceError = once && once.elseName ? once.elseName : null;
 
-  const nonConsuming = new Set(
-    op.clauses
-      .filter((clause) => clause.kind === 'onerror' && assertsNonConsuming(clause.expr))
-      .map((clause) => (clause.kind === 'onerror' ? clause.error : '')),
-  );
+  const kindOf = (alias: string): string => {
+    const use = svc.uses.find((item) => item.alias === alias);
+    if (!use) return '';
+    return use.capability.startsWith('arcod.std.') ? use.capability.slice('arcod.std.'.length) : use.capability;
+  };
+  const has = (kind: string, name: string) => effects.some(([alias, op]) => op === name && kindOf(alias) === kind);
+  const storageGet = has('kv', 'get') || has('sql', 'get');
+  const storageSet = has('kv', 'set') || has('sql', 'set');
+  const storageScan = has('kv', 'scan') || has('sql', 'scan');
+  const blobGet = has('blob', 'get');
+  const blobPut = has('blob', 'put');
 
   const password = op.params.find((param) => param.name === 'password' || rawName(param.type) === 'Password');
+  const idParam = op.params.find((param) => resolveType(mod, param.type) === 'uuid');
   const payloadParams = payloadOf(mod, op);
+  // Several parameters can be bytes (a name and its content). Prefer the ones
+  // conventionally holding the object itself, then the last bytes parameter.
+  const BYTES_NAMES = ['body', 'content', 'contents', 'data', 'file', 'payload', 'value', 'bytes'];
+  const bytesParams = op.params.filter((param) => resolveType(mod, param.type) === 'bytes');
+  const bytesParam = bytesParams.find((param) => BYTES_NAMES.includes(param.name))
+    ?? bytesParams[bytesParams.length - 1];
+  const returns = op.returns ? resolveType(mod, op.returns) : null;
+  const listReturn = Boolean(op.returns && op.returns.kind === 'named' && op.returns.name === 'list');
+
   const intents: string[] = [];
   const steps: string[] = [];
   const unresolved: string[] = [];
 
+  const quote = (value: string) => "'" + value + "'";
+  const errorFor = (skip: string[]) => errors.find((name) => !skip.includes(name)) ?? null;
+
+  if (names.has('actor')) {
+    intents.push('actor');
+    steps.push('actor = await io.actor()');
+    if (errors.includes('Unauthorized')) steps.push("if (!actor) return { error: 'Unauthorized' }");
+  }
+
+  if (names.has('users')) {
+    intents.push('directory');
+    steps.push('users = await io.users()');
+  }
+
   if (names.has('new')) {
     intents.push('generate-id');
-    steps.push('id = io.new()');
+    steps.push('id = await io.new()');
   }
 
-  if (names.has('set')) {
-    intents.push('persist');
-    if (payloadParams.length === 0) {
-      unresolved.push('no payload parameter to store');
-    } else {
-      // One payload stays bare; several become an object so a record return
-      // type round-trips without the emitter knowing field names.
-      const payload = payloadParams.length === 1
-        ? payloadParams[0].name
-        : '{' + payloadParams.map((param) => param.name + ': ' + param.name).join(', ') + '}';
-      const record = guarded && password
-        ? '{b: ' + payload + ', h: ' + password.name + ' ? await io.hash(' + password.name + ') : null}'
-        : '{b: ' + payload + ', h: null}';
-      steps.push('await io.save(id, ' + record + ')');
-      steps.push('return { result: id }');
-    }
-  }
-
-  if (names.has('get') && !names.has('set')) {
+  if (storageGet && idParam) {
     intents.push('load');
-    steps.push('rec = await io.load(id)');
-
-    const missing = errors.includes('NotFound') ? 'NotFound' : errors.includes('Gone') ? 'Gone' : null;
-    const gone = errors.includes('Gone') ? 'Gone' : null;
-    if (missing) {
-      intents.push('missing-branch');
-      steps.push(gone && missing !== gone
-        ? 'if (!rec) return (await io.seen(id)) ? ' + gone + ' : ' + missing
-        : 'if (!rec) return ' + missing);
+    steps.push('rec = await io.load(' + idParam.name + ')');
+    if (storageSet) {
+      const missing = errorFor(['Unauthorized', 'Forbidden', 'Gone']) ?? 'NotFound';
+      steps.push("if (!rec) return { error: " + quote(missing) + " }");
+    } else {
+      const missing = errorFor(['Unauthorized', 'Forbidden']) ?? 'NotFound';
+      steps.push(onceError && onceError !== missing
+        ? "if (!rec) return (await io.seen(" + idParam.name + ")) ? { error: " + quote(onceError) + " } : { error: " + quote(missing) + " }"
+        : "if (!rec) return { error: " + quote(missing) + " }");
     }
-
-    if (guarded && password && names.has('verify')) {
-      const verifyError = errors.find((name) => nonConsuming.has(name))
-        ?? errors.find((name) => name !== 'NotFound' && name !== 'Gone');
-      if (verifyError) {
-        intents.push('verify');
-        steps.push('if (rec.h && !(await io.verify(' + password.name + ', rec.h))) return ' + verifyError);
-      } else {
-        unresolved.push('password is checked but no error is declared for a wrong password');
-      }
-    }
-
-    if (atomic || once) {
-      intents.push('consume');
-      const failure = once?.elseName ?? (errors.includes('Gone') ? 'Gone' : null);
-      if (!failure) {
-        unresolved.push('consume is required but the operation declares no error for an already consumed value');
-      } else {
-        steps.push('if (!(await io.takeIf(id, rec))) return ' + failure);
-      }
-    }
-
-    steps.push('return { result: rec.b }');
   }
 
-  if (names.has('set') && names.has('get')) {
-    unresolved.push('operation both reads and writes the same record; v0.1 cannot derive one procedure');
+  if (names.has('verify') && password) {
+    const verifyError = errorFor(['Unauthorized', 'Forbidden', 'NotFound', 'Gone', onceError ?? '']);
+    if (verifyError) {
+      intents.push('verify');
+      steps.push('if (!rec.h || !(await io.verify(' + password.name + ', rec.h))) return { error: ' + quote(verifyError) + ' }');
+    }
+  }
+
+  if (names.has('takeIf') && idParam) {
+    const failure = onceError ?? (errors.includes('Gone') ? 'Gone' : null);
+    if (!failure) {
+      unresolved.push('consume is required but the operation declares no error for an already consumed value');
+    } else {
+      intents.push('consume');
+      steps.push('if (!(await io.takeIf(' + idParam.name + ', rec))) return { error: ' + quote(failure) + ' }');
+    }
+  }
+
+  if (blobGet) {
+    intents.push('read-object');
+    steps.push('body = await io.blobGet(' + (idParam ? idParam.name : 'id') + ')');
+  }
+
+  if (storageSet) {
+    intents.push('persist');
+    const fields = payloadParams.map((param) => param.name + ': ' + param.name).join(', ');
+    const hash = guarded && password
+      ? password.name + ' ? await io.hash(' + password.name + ') : null'
+      : 'null';
+    if (names.has('new') || !idParam) {
+      steps.push('await io.save(id, { b: { ' + fields + ' }, h: ' + hash + ' })');
+    } else {
+      steps.push('rec.b = { ...rec.b, ' + fields + ' }');
+      steps.push('await io.save(' + idParam.name + ', { b: rec.b, h: rec.h })');
+    }
+  }
+
+  if (blobPut) {
+    intents.push('write-object');
+    steps.push('await io.blobPut(' + (names.has('new') || !idParam ? 'id' : idParam.name) + ', '
+      + (bytesParam ? bytesParam.name : 'value') + ')');
+  }
+
+  if (storageScan) {
+    intents.push('scan');
+    steps.push('items = await io.scan()');
+  }
+
+  if (names.has('del') && idParam) {
+    intents.push('remove');
+    steps.push('await io.del(' + idParam.name + ')');
+  }
+
+  // The return shape decides the result: no operation name is involved.
+  if (returns === 'uuid') steps.push('return { result: id }');
+  else if (returns === 'bool') steps.push('return { result: true }');
+  else if (returns === 'bytes') steps.push('return { result: body }');
+  else if (returns === 'string') steps.push('return { result: body || rec }');
+  else if (listReturn) steps.push('return { result: ' + (names.has('users') ? 'users' : 'items') + ' }');
+  else if (op.returns && op.returns.kind === 'record') {
+    const fields = op.returns.fields.map((field) => {
+      const fromParam = op.params.some((param) => param.name === field.name);
+      const value = field.name === 'body' && blobGet
+        ? 'body'
+        : fromParam
+          ? field.name
+          : 'rec.b.' + field.name;
+      return field.name + ': ' + value;
+    });
+    steps.push('return { result: { ' + fields.join(', ') + ' } }');
+  } else if (returns) {
+    steps.push('return { result: ... }');
   }
 
   return { intents, steps, unresolved };

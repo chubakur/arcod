@@ -120,6 +120,23 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
 
     for (const use of uses) checkEffect(use.alias, use.op, use.loc);
 
+    // A027 — an operation names an effect whose alias it never declared.
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      for (const clause of op.clauses) {
+        if (clause.kind !== 'effects') continue;
+        for (const entry of clause.names) {
+          const [alias, name] = entry.split('.');
+          if (!seen.has(alias)) {
+            diags.push(diag('A027', 'error', mod.file, clause.loc, `services.${svc.name}.ops.${op.name}.effects`,
+              'алиас ' + alias + ' не объявлен в uses', 'добавьте uses ' + alias + ': …'));
+            continue;
+          }
+          checkEffect(alias, name, clause.loc);
+        }
+      }
+    }
+
     // Effects implied by generated operation semantics (v0.1 convention)
     for (const op of svc.contract) {
       if (op.kind !== 'op') continue;

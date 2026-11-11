@@ -31,6 +31,7 @@ service FileShare : http {
   contract {
     public op upload(name: FileName, body: Contents, visibility: Visibility, allowed: list<UserId>) -> FileId {
       route: "POST /v1/files"
+      effects: store.set, uuid.new, auth.actor, files.put
       errors: Unauthorized, Invalid
       post: result != null
       on error Unauthorized: name != null
@@ -39,12 +40,14 @@ service FileShare : http {
 
     public op list() -> list<FileId> {
       route: "GET /v1/files"
+      effects: store.scan, auth.actor
       errors: Unauthorized
       on error Unauthorized: result != null
     }
 
     public op download(id: FileId) -> { name: FileName, body: Contents } {
       route: "GET /v1/files/:id"
+      effects: store.get, auth.actor, files.get
       errors: Unauthorized, NotFound, Forbidden
       on error Unauthorized: id != null
       on error NotFound: id != null
@@ -53,6 +56,7 @@ service FileShare : http {
 
     public op setVisibility(id: FileId, visibility: Visibility, allowed: list<UserId>) -> bool {
       route: "PUT /v1/files/:id/visibility"
+      effects: store.get, store.set, auth.actor
       errors: Unauthorized, NotFound, Forbidden, Invalid
       on error Unauthorized: id != null
       on error NotFound: id != null
@@ -62,13 +66,14 @@ service FileShare : http {
 
     public op users() -> list<UserId> {
       route: "GET /v1/users"
+      effects: auth.actor, auth.users
       errors: Unauthorized
       on error Unauthorized: result != null
     }
   }
 
   effects {
-    allow store.get, store.set, store.del, uuid.new, auth.actor, auth.users, files.put, files.get
+    allow store.get, store.set, store.del, store.scan, uuid.new, auth.actor, auth.users, files.put, files.get
     deny net, fs, exec
   }
 
@@ -78,6 +83,13 @@ service FileShare : http {
     tokens: <= 60000
     time: 3h
   }
+}
+
+ui Web {
+  kind: spa
+  route: "/"
+  title: "Файлы"
+  uses FileShare.upload, FileShare.list, FileShare.download, FileShare.setVisibility, FileShare.users
 }
 
 environment dev {

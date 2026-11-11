@@ -89,7 +89,16 @@ const WIRE: Record<string, string> = {
 
 export function wireType(type: TypeExpr, named: Map<string, TypeExpr>): string {
   if (type.kind === 'optional') return wireType(type.inner, named) + ' | null';
+  if (type.kind === 'union') return type.variants.map((item) => wireType(item, named)).join(' | ');
+  if (type.kind === 'record') {
+    return '{ ' + type.fields.map((field) => field.name + ': ' + wireType(field.type, named)).join(', ') + ' }';
+  }
   if (type.kind === 'named') {
+    if (type.name === 'list') {
+      const element = type.args[0];
+      return 'list<' + (element && element.isType ? wireType(element.value as TypeExpr, named) : 'string') + '>';
+    }
+    if (type.name === 'map') return 'map<string, string>';
     const base = named.get(type.name);
     if (base) return wireType(base, named);
     return WIRE[type.name] ?? 'string';

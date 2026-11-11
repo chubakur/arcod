@@ -330,7 +330,7 @@ test('byte limits are scaled: 64kb is 65536, not 64', async () => {
   const service = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
   assert.match(service, /"maxBody": 65536/);
   const web = await readFile(join(built.dir, 'web', 'index.html'), 'utf8');
-  assert.match(web, /MAX_BYTES = 65536/);
+  assert.match(web, /"max":65536/, 'the size limit travels to the page');
 });
 
 test('nginx proxies healthz next to the api', () => {
@@ -360,7 +360,7 @@ test('a multi-field payload is stored as a record and returned as JSON', async (
   const svc = recAst.services[0];
   const create = svc.contract.find((op) => op.kind === 'op' && op.name === 'create')!;
   const plan = planBody(recAst, svc, create);
-  assert.ok(plan.steps.some((step) => step.includes('{b: {author: author, body: body}, h: null}')), plan.steps.join(' | '));
+  assert.ok(plan.steps.some((step) => step.includes('{ b: { author: author, body: body }, h: null }')), plan.steps.join(' | '));
 
   const set = buildPrompts(recAst);
   const prompt = set.tasks.find((task) => task.op === 'create')!.prompt;
@@ -425,11 +425,10 @@ environment dev {
 }`;
   const formAst = parse(spec, 'formpkg.arc');
   const html = emitWeb(formAst, { maxBytes: 65536 });
-  assert.match(html, /<input id="f-author"/, 'a short field renders as input');
-  assert.match(html, /<textarea id="f-body"/, 'a large bytes field renders as textarea');
-  assert.match(html, /const FIELDS = \[\{"name":"author","label":"Имя","min":1,"max":255\}/);
-  assert.ok(!html.includes("byId('body')"), 'no hardcoded body field');
-  assert.ok(html.includes('JSON.stringify(payload)'), 'the form posts its own fields');
+  assert.ok(html.includes('{"name":"author","kind":"text"'), 'a short bytes field becomes a text input');
+  assert.ok(html.includes('{"name":"body","kind":"textarea"'), 'a large bytes field becomes a textarea');
+  assert.ok(!html.includes('id="f-author"'), 'fields are built from the contract, not hardcoded');
+  assert.ok(html.includes('JSON.stringify(body)'), 'the form posts its own fields');
   assert.ok(!html.includes('__FIELDS__'));
 });
 
@@ -463,7 +462,7 @@ test('the generated page script is syntactically valid', () => {
   const end = html.indexOf('</script>');
   assert.ok(start > 0 && end > start, 'script tag present');
   const script = html.slice(start + '<script>'.length, end);
-  assert.ok(script.includes('labelOf'), 'read results are labelled');
+  assert.ok(script.includes('renderResult'), 'results are rendered by shape');
   assert.doesNotThrow(() => new Function(script), 'the page script must parse before it ships');
 });
 
@@ -481,6 +480,35 @@ test('sql binds to mysql without touching the model', () => {
   assert.ok(compose.includes('image: mysql:8.4'));
   assert.ok(!compose.includes('redis:7-alpine'));
   assert.ok(compose.includes('DATABASE_URL: "mysql://arcod:arcod@store:3306/arcod"'));
+});
+
+test('the planner derives procedures for arbitrary operations', () => {
+  const svc = filesAst.services[0];
+  const plan = (name: string) => planBody(filesAst, svc, svc.contract.find((op) => op.kind === 'op' && op.name === name)!);
+
+  for (const name of ['upload', 'list', 'download', 'setVisibility', 'users']) {
+    assert.deepEqual(plan(name).unresolved, [], name + ' has a complete procedure');
+  }
+
+  const upload = plan('upload').steps.join(' ');
+  assert.ok(upload.includes('io.new()') && upload.includes('io.save'), upload);
+  assert.ok(upload.includes('io.blobPut(id, body)'), 'the content parameter, not the file name: ' + upload);
+
+  const download = plan('download').steps.join(' ');
+  assert.ok(download.includes('io.load(id)') && download.includes('io.blobGet(id)'), download);
+
+  assert.ok(plan('list').steps.join(' ').includes('io.scan'));
+  assert.ok(plan('users').steps.join(' ').includes('io.users'));
+  assert.ok(plan('setVisibility').steps.join(' ').includes('io.save(id'), 'update keeps the loaded record');
+});
+
+test('the page is built from the contract, one form per operation', () => {
+  const html = emitWeb(filesAst, { maxBytes: 65536 });
+  for (const name of ['upload', 'list', 'download', 'setVisibility', 'users']) {
+    assert.ok(html.includes('"name":"' + name + '"'), name + ' becomes a form');
+  }
+  assert.ok(html.includes('"kind":"json"'), 'a list parameter becomes a JSON field');
+  assert.ok(html.includes('Bearer'), 'an authenticated service gets a token field');
 });
 
 test('the file service wires identity, blobs and sql', () => {
@@ -606,8 +634,8 @@ test('guarded build emits password verification, scaffold keeps TODO', async () 
   assert.ok(!code.includes('password ? hashPassword(password) : null') || true);
 
   const web = await readFile(join(reference.dir, 'web', 'index.html'), 'utf8');
-  assert.ok(web.includes('id="pwd-create"'));
-  assert.ok(web.includes('id="pwd-read"'));
+  assert.ok(web.includes('"password"'), 'the password parameter becomes a field');
+  assert.ok(web.includes('"name":"read"'), 'the read operation gets its own form');
 });
 
 test('prompts are deterministic and stay under budget', () => {

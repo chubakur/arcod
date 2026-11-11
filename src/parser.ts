@@ -291,6 +291,19 @@ class Parser {
         clauses.push({ kind: key, expr: this.parseExpr(), loc: locOf(this.prev()) });
         continue;
       }
+      if (key === 'effects') {
+        this.expect(':');
+        const effects: string[] = [];
+        while (true) {
+          const alias = this.expectIdent('effect alias').value;
+          this.expect('.');
+          const effect = this.expectIdent('effect name').value;
+          effects.push(alias + '.' + effect);
+          if (!this.accept(',')) break;
+        }
+        clauses.push({ kind: 'effects', names: effects, loc: locOf(this.prev()) });
+        continue;
+      }
       if (key === 'errors') {
         this.expect(':');
         const names: string[] = [];

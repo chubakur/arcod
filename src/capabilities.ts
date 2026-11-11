@@ -20,6 +20,7 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       has: 'has(id: string) -> boolean',
       takeIf: 'takeIf(id: string, record) -> boolean',
       seen: 'seen(id: string) -> boolean',
+      scan: 'scan() -> list<{ id: string, b: any }>',
     },
     short: {
       get: 'load(id) -> {b,h}|null',
@@ -28,6 +29,7 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       has: 'has(id) -> bool',
       takeIf: 'takeIf(id, record) -> bool',
       seen: 'seen(id) -> bool',
+      scan: 'scan() -> list<{id,b}>',
     },
     notes: 'has tells whether the message still exists; seen tells whether it was already consumed. takeIf deletes only when the stored value equals expected.',
   },
@@ -44,14 +46,14 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
   },
   blob: {
     effects: {
-      put: 'blobPut(key: string, value: string, type: string?) -> void',
-      get: 'blobGet(key: string) -> string | null',
-      del: 'blobDelete(key: string) -> void',
+      put: 'blobPut(id: string, value: string, type: string?) -> void',
+      get: 'blobGet(id: string) -> string | null',
+      del: 'blobDelete(id: string) -> void',
     },
     short: {
-      put: 'blobPut(key, value)',
-      get: 'blobGet(key) -> string|null',
-      del: 'blobDelete(key)',
+      put: 'blobPut(id, value)',
+      get: 'blobGet(id) -> string|null',
+      del: 'blobDelete(id)',
     },
     notes: 'Objects, not rows. The adapter owns bucket and naming.',
   },
@@ -65,6 +67,7 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       has: 'has(id: string) -> boolean',
       takeIf: 'takeIf(id: string, record) -> boolean',
       seen: 'seen(id: string) -> boolean',
+      scan: 'scan() -> list<{ id: string, b: any }>',
     },
     short: {
       get: 'load(id) -> {b,h}|null',
@@ -73,6 +76,7 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       has: 'has(id) -> bool',
       takeIf: 'takeIf(id, record) -> bool',
       seen: 'seen(id) -> bool',
+      scan: 'scan() -> list<{id,b}>',
     },
     notes: 'Rows, not keys. The adapter owns the table and TTL.',
   },
