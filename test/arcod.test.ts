@@ -450,6 +450,16 @@ test('make stops at the first failing step', async () => {
   assert.match(result.steps[0].detail, /error/);
 });
 
+test('the generated page script is syntactically valid', () => {
+  const html = emitWeb(ast, { maxBytes: 65536 });
+  const start = html.indexOf('<script>');
+  const end = html.indexOf('</script>');
+  assert.ok(start > 0 && end > start, 'script tag present');
+  const script = html.slice(start + '<script>'.length, end);
+  assert.ok(script.includes('labelOf'), 'read results are labelled');
+  assert.doesNotThrow(() => new Function(script), 'the page script must parse before it ships');
+});
+
 test('compose has kv, service and web', () => {
   const yaml = composeYaml(ast, 8080);
   assert.match(yaml, /^name: arcod-onetimemessage/m);

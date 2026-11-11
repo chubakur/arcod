@@ -136,6 +136,8 @@ const LINK_PREFIX = '__LINK_PREFIX__';
 const API_READ = '__READ_PATH__';
 const MAX_BYTES = __MAX_BYTES__;
 const FIELDS = __FIELDS_JSON__;
+const LABELS = __LABELS__;
+function labelOf(key) { return LABELS[key] || key; }
 
 const byId = (id) => document.getElementById(id);
 const createView = byId('create-view');
@@ -190,7 +192,13 @@ async function read(id) {
     if (response.status === 200) {
       const raw = await response.text();
       let text = raw;
-      try { text = JSON.stringify(JSON.parse(raw), null, 2); } catch {}
+      let record = null;
+      try { record = JSON.parse(raw); } catch {}
+      if (record && typeof record === 'object' && !Array.isArray(record)) {
+        text = Object.entries(record)
+          .map(([key, value]) => labelOf(key) + ': ' + (value == null ? '' : String(value)))
+          .join('\\n');
+      }
       byId('read-lead').textContent = 'Сообщение будет удалено после этого просмотра.';
       const message = byId('message');
       message.textContent = text;
@@ -275,6 +283,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
   let html = PAGE
     .replaceAll('__FIELDS__', fields.join('\n'))
     .replaceAll('__FIELDS_JSON__', JSON.stringify(fieldMeta))
+    .replaceAll('__LABELS__', JSON.stringify(FIELD_LABELS))
     .replaceAll('__HINT__', hint)
     .replaceAll('__LEAD__', 'Заполните поля — сервис вернёт ссылку на сохранённое значение.')
     .replaceAll('__TITLE__', ui.title ?? svc.name)
