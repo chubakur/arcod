@@ -2,6 +2,7 @@ import type { Diagnostic } from './diagnostics.ts';
 import type { Expr, Loc, ModuleNode, OpNode, ServiceNode } from './ast.ts';
 import { templateFor } from './templates.ts';
 import { providerFor, providerNames, providersForCapability } from './providers.ts';
+import { storageUse } from './capabilities.ts';
 
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
 const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysql', 'mongodb', 'localhost', '127.0.0.1'];
@@ -296,7 +297,7 @@ function isDenied(deny: string[], alias: string, op: string): boolean {
 }
 
 function requiredEffects(svc: ServiceNode, op: OpNode): Array<{ alias: string; op: string }> {
-  const kv = svc.uses.find((use) => use.capability === 'kv' || use.capability.endsWith('.kv'))?.alias;
+  const kv = storageUse(svc)?.alias;
   const ids = svc.uses.find((use) => use.capability === 'ids' || use.capability.endsWith('.ids'))?.alias;
   const out: Array<{ alias: string; op: string }> = [];
 

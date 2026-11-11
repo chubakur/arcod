@@ -1,5 +1,6 @@
 import type { Expr, ModuleNode, OpNode, Param, ServiceNode } from './ast.ts';
 import { asOnce } from './check.ts';
+import { storageUse } from './capabilities.ts';
 
 // Derives the procedure for an operation body from the model: capabilities in
 // use, effects the operation needs, rules (once/atomic) and error clauses.
@@ -60,7 +61,7 @@ export function opEffects(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded
     out.push([alias, name]);
   };
 
-  const kv = svc.uses.find((use) => use.capability === 'kv' || use.capability.endsWith('.kv'))?.alias;
+  const kv = storageUse(svc)?.alias;
   const ids = svc.uses.find((use) => use.capability === 'ids' || use.capability.endsWith('.ids'))?.alias;
   const hash = svc.uses.find((use) => use.capability === 'hash' || use.capability.endsWith('.hash'))?.alias;
   const atomic = svc.rules.some((rule) => rule.kind === 'atomic' && rule.name === op.name);

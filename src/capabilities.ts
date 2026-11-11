@@ -4,6 +4,7 @@
 //
 // Signatures are written in terms of ids, not storage keys: key layout,
 // prefixes and TTL are the adapter's business, not the body's.
+import type { ServiceNode } from './ast.ts';
 export interface CapabilitySpec {
   effects: Record<string, string>;
   short: Record<string, string>;
@@ -30,6 +31,27 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
     },
     notes: 'has tells whether the message still exists; seen tells whether it was already consumed. takeIf deletes only when the stored value equals expected.',
   },
+  // Same record contract as kv, different provider: the body cannot tell
+  // whether the row lives in Redis or MySQL.
+  sql: {
+    effects: {
+      get: 'load(id: string) -> { b: string, h: string | null } | null',
+      set: 'save(id: string, record: { b: string, h: string | null }) -> void',
+      del: 'del(id: string) -> void',
+      has: 'has(id: string) -> boolean',
+      takeIf: 'takeIf(id: string, record) -> boolean',
+      seen: 'seen(id: string) -> boolean',
+    },
+    short: {
+      get: 'load(id) -> {b,h}|null',
+      set: 'save(id, {b,h})',
+      del: 'del(id)',
+      has: 'has(id) -> bool',
+      takeIf: 'takeIf(id, record) -> bool',
+      seen: 'seen(id) -> bool',
+    },
+    notes: 'Rows, not keys. The adapter owns the table and TTL.',
+  },
   ids: {
     effects: {
       new: 'new() -> string',
@@ -50,6 +72,22 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
 export function capabilityFor(name: string): CapabilitySpec | null {
   const key = name.includes('.') ? name.split('.').pop()! : name;
   return CAPABILITIES[key] ?? null;
+}
+
+// The model names a capability, never a provider. kv and sql expose the same
+// record contract, so bodies do not change when the environment swaps Redis
+// for MySQL.
+export function storageKind(svc: ServiceNode): 'kv' | 'sql' | null {
+  for (const use of svc.uses) {
+    if (use.capability === 'kv' || use.capability.endsWith('.kv')) return 'kv';
+    if (use.capability === 'sql' || use.capability.endsWith('.sql')) return 'sql';
+  }
+  return null;
+}
+
+export function storageUse(svc: ServiceNode) {
+  return svc.uses.find((use) => use.capability === 'kv' || use.capability.endsWith('.kv')
+    || use.capability === 'sql' || use.capability.endsWith('.sql')) ?? null;
 }
 
 export function signatureFor(alias: string, op: string): string | null {

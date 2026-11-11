@@ -39,7 +39,7 @@ export async function runExamples(mod: ModuleNode, buildDir: string): Promise<Te
 
   const port = await freePort();
   const child = spawn(process.execPath, [join(buildDir, 'service', 'index.mjs')], {
-    env: { ...process.env, PORT: String(port), KV_DRIVER: 'memory' },
+    env: { ...process.env, PORT: String(port), KV_DRIVER: 'memory', SQL_DRIVER: 'memory' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

@@ -22,6 +22,9 @@ const specUrl = new URL('../examples/onetimemessage/main.arc', import.meta.url);
 const source = await readFile(specUrl, 'utf8');
 const ast = parse(source, 'main.arc');
 
+const mysqlUrl = new URL('../examples/project1-mysql/main.arc', import.meta.url);
+const mysqlAst = parse(await readFile(mysqlUrl, 'utf8'), 'main.arc');
+
 test('parses the onetimemessage example', () => {
   assert.equal(ast.name, 'onetimemessage');
   assert.equal(ast.version, '0.1.0');
@@ -458,6 +461,36 @@ test('the generated page script is syntactically valid', () => {
   const script = html.slice(start + '<script>'.length, end);
   assert.ok(script.includes('labelOf'), 'read results are labelled');
   assert.doesNotThrow(() => new Function(script), 'the page script must parse before it ships');
+});
+
+test('sql binds to mysql without touching the model', () => {
+  const diags = check(mysqlAst);
+  assert.deepEqual(diags.filter((item) => item.severity === 'error'), []);
+
+  const service = emitService(mysqlAst, { impl: { create: 'export async function create() {}' } });
+  assert.ok(service.includes('class SqlStore'), 'a MySQL adapter is emitted');
+  assert.ok(service.includes("process.env.DATABASE_URL"), 'the adapter reads the provider env');
+  assert.ok(!service.includes('class RedisStore'), 'no Redis client in a sql service');
+  assert.match(service, /import \{ [^}]*createHash[^}]* \} from 'node:crypto'/);
+
+  const compose = composeYaml(mysqlAst, { port: 8080 });
+  assert.ok(compose.includes('image: mysql:8.4'));
+  assert.ok(!compose.includes('redis:7-alpine'));
+  assert.ok(compose.includes('DATABASE_URL: "mysql://arcod:arcod@store:3306/arcod"'));
+});
+
+test('kv keeps the redis adapter', () => {
+  const service = emitService(ast);
+  assert.ok(service.includes('class RedisStore'));
+  assert.ok(!service.includes('class SqlStore'));
+});
+
+test('make builds and tests the mysql example with the memory driver', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-mysql-'));
+  await cp(new URL('../examples/project1-mysql', import.meta.url), dir, { recursive: true });
+  const result = await runPipeline(mysqlAst, dir, {});
+  assert.ok(result.ok, JSON.stringify(result.steps));
+  assert.match(result.steps.find((step) => step.name === 'test')!.detail, /^4 passed/);
 });
 
 test('compose has kv, service and web', () => {

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Expr, ModuleNode, OpNode, ServiceNode, TypeExpr } from './ast.ts';
 import { buildPlan } from './plan.ts';
 import { isGuarded, pickService, routeOf } from './emit/service.ts';
-import { signatureFor, shortFor } from './capabilities.ts';
+import { signatureFor, shortFor, storageUse } from './capabilities.ts';
 import { opEffects, payloadOf, planBody, planText } from './plan-body.ts';
 
 export interface PromptTask {
@@ -136,9 +136,10 @@ function ioLines(svc: ServiceNode): string[] {
 }
 
 function storageLines(svc: ServiceNode, guarded: boolean): string[] {
-  const usesKv = svc.uses.some((use) => use.capability === 'kv' || use.capability.endsWith('.kv'));
-  if (!usesKv) return [];
-  const lines = ['io owns key layout, prefixes and TTL: pass ids, never keys.'];
+  const storage = storageUse(svc);
+  if (!storage) return [];
+  const lines = ['io owns key layout, prefixes and TTL: pass ids, never keys.',
+    'the provider behind io is the environment\'s choice: do not name one.'];
   if (guarded) {
     lines.push('stored value = JSON { b: string, h: string | null }', 'h is a salted password hash, null when the message is open.');
   } else {
