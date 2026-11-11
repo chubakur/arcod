@@ -13,6 +13,7 @@ import { formatPipeline, runPipeline } from './pipeline.ts';
 import { DEFAULT_IMPL, formatImplReport, runImpl } from './impl.ts';
 import { PROVIDERS, providerNames } from './providers.ts';
 import { deployManifest, deployNames, deployProvider, formatDeploy } from './deploy.ts';
+import { emitOpenapi } from './emit/openapi.ts';
 
 const VERSION = '0.1.0';
 
@@ -47,6 +48,9 @@ export async function main(argv: string[]): Promise<void> {
         return;
       case 'plan':
         await runPlan(flags);
+        return;
+      case 'openapi':
+        await runOpenapi(flags);
         return;
       case 'build':
         await runBuild(flags);
@@ -158,6 +162,18 @@ async function runPlan(flags: Flags): Promise<void> {
     return;
   }
   console.log(formatPlan(plan));
+}
+
+async function runOpenapi(flags: Flags): Promise<void> {
+  const loaded = await load(flags.spec);
+  const errors = check(loaded.mod).filter((d) => d.severity === 'error');
+  if (errors.length > 0) {
+    printDiagnostics(errors, loaded.specPath);
+    process.exitCode = 1;
+    return;
+  }
+  const doc = emitOpenapi(loaded.mod, { service: flags.service });
+  console.log(JSON.stringify(doc, null, 2));
 }
 
 function runProviders(flags: Flags): void {
@@ -440,6 +456,7 @@ function printDiagnostics(diags: Diagnostic[], specPath: string): void {
 
 interface Flags {
   spec?: string;
+  service?: string;
   json: boolean;
   check: boolean;
   detach: boolean;
@@ -493,6 +510,7 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--reference') flags.reference = true;
     else if (arg === '--scaffold') flags.scaffold = true;
     else if (arg === '--env') flags.env = args[++i];
+    else if (arg === '--service') flags.service = args[++i];
     else if (arg === '--port') flags.port = Number(args[++i] ?? 8080);
     else if (arg === '--model') flags.model = args[++i] ?? DEFAULT_IMPL.model;
     else if (arg === '--endpoint') flags.endpoint = args[++i] ?? DEFAULT_IMPL.endpoint;
@@ -556,6 +574,7 @@ usage:
   arcod check [dir|spec.arc] [--json] [--env name] [--strict]
   arcod ast   [dir|spec.arc] [--check]
   arcod plan  [dir|spec.arc] [--json]
+  arcod openapi [dir|spec.arc] [--service name]
   arcod providers [--json]
   arcod deploy [dir|spec.arc] [--env name] [--json]
   arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]

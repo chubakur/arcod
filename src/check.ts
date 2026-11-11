@@ -232,6 +232,17 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       diags.push(diag('W018', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'operation bodies are not specified: ' + templated.join(', '), 'arcod impl generates them, build --reference substitutes a demo body, scaffold leaves a TODO'));
     }
 
+    // A041 — a public operation is the external contract; without a route it
+    // has no place in HTTP or OpenAPI, which usually means `public` is a typo.
+    if (!svc.external) {
+      for (const op of svc.contract) {
+        if (op.kind !== 'op' || !op.isPublic) continue;
+        if (!routeOf(op)) {
+          diags.push(diag('A041', 'error', mod.file, op.loc, `services.${svc.name}.contract.${op.name}`, `public operation ${op.name} has no route`, 'add route: "VERB /path" or drop public'));
+        }
+      }
+    }
+
     // W017 — jobs are parsed but not executable in v0.1
     for (const op of svc.contract) {
       if (op.kind !== 'job') continue;
