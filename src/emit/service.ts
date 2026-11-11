@@ -374,10 +374,10 @@ const server = http.createServer(async (req, res) => {
 
     const route = matchRoute(req.method || 'GET', url.pathname);
     if (!route) return sendError(res, 'NotFound');
-    if (route.op === 'create') return await handleCreate(req, res);
-    if (route.op === 'read') return await handleRead(req, res, route.params.id);
+    const handler = HANDLERS[route.op];
+    if (!handler) return send(res, 501, JSON.stringify({ error: 'NotImplemented', op: route.op }));
 
-    send(res, 501, JSON.stringify({ error: 'NotImplemented', op: route.op }));
+    return await handler(req, res, route.params);
   } catch (err) {
     console.error('request failed:', err && err.message ? err.message : err);
     send(res, 500, JSON.stringify({ error: 'Internal', message: 'internal error' }));
@@ -483,7 +483,18 @@ function withHandlers(template: string, reference: boolean, svc: ServiceNode, im
 
   if (reference) {
     const handlers = hashing ? guardedHandlers(svc) : body;
-    return (before + handlers + after).replace(cryptoImport, hashing ? cryptoImport : minimalImport);
+    const names = svc.contract.filter((op) => op.kind === 'op').map((op) => op.name);
+    const table = [
+      'const HANDLERS = {',
+      ...names.map((name) => {
+        const fn = 'handle' + name.charAt(0).toUpperCase() + name.slice(1);
+        const id = name === 'read' ? ', params.id' : '';
+        return '  ' + name + ': (req, res, params) => ' + fn + '(req, res' + id + '),';
+      }),
+      '};',
+      '',
+    ].join('\n');
+    return (before + handlers + table + after).replace(cryptoImport, hashing ? cryptoImport : minimalImport);
   }
   return (before + scaffoldHandlers(svc) + after).replace(cryptoImport, minimalImport);
 }
@@ -599,7 +610,8 @@ function guardedHandlers(svc: ServiceNode): string {
 }
 
 function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: boolean): string {
-  const names = svc.contract.filter((op) => op.kind === 'op').map((op) => op.name);
+  const ops = svc.contract.filter((op) => op.kind === 'op' && impl[op.name]);
+  const names = ops.map((op) => op.name);
   const parts: string[] = [];
 
   for (const name of names) {
@@ -622,11 +634,11 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     '    async load(id) {',
     "      const raw = await store.get('msg:' + id);",
     '      if (raw == null) return null;',
-    "      try { const rec = JSON.parse(raw); if (rec && typeof rec.b === 'string') return rec; } catch {}",
-    '      return { b: String(raw), h: null };',
+    "      try { const rec = JSON.parse(raw); if (rec && typeof rec === 'object' && 'b' in rec) return rec; } catch {}",
+    '      return { b: raw, h: null };',
     '    },',
     '    async save(id, record) {',
-    "      const rec = { b: String(record && record.b != null ? record.b : ''), h: record && record.h ? String(record.h) : null };",
+    "      const rec = { b: record ? record.b : null, h: record && record.h ? String(record.h) : null };",
     "      await store.set('msg:' + id, JSON.stringify(rec), CONFIG.ttlMs);",
     '    },',
     '    async has(id) {',
@@ -681,73 +693,69 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     );
   }
 
-  if (names.includes('create') && impl.create) {
+  parts.push(
+    'async function readInput(req, params, names) {',
+    "  const url = new URL(req.url || '/', 'http://localhost');",
+    '  const input = {};',
+    '  for (const name of names) {',
+    '    if (params && Object.prototype.hasOwnProperty.call(params, name)) { input[name] = params[name]; continue; }',
+    '    const fromQuery = url.searchParams.get(name);',
+    '    if (fromQuery !== null) input[name] = fromQuery;',
+    '  }',
+    '  const missing = names.filter((name) => !(name in input));',
+    "  if (missing.length > 0 && (req.method || 'GET') !== 'GET') {",
+    '    let raw;',
+    "    try { raw = await readBody(req, CONFIG.maxBody + 4096); } catch { return { error: 'Invalid' }; }",
+    "    const type = String(req.headers['content-type'] || '');",
+    "    if (type.includes('application/json')) {",
+    '      let parsed;',
+    "      try { parsed = JSON.parse(raw || '{}'); } catch { return { error: 'Invalid' }; }",
+    '      for (const name of missing) input[name] = parsed && name in parsed ? parsed[name] : null;',
+    '    } else if (missing.length === 1) {',
+    '      input[missing[0]] = raw;',
+    '    } else {',
+    "      return { error: 'Invalid' };",
+    '    }',
+    '  }',
+    '  for (const name of names) if (!(name in input)) input[name] = null;',
+    '  return input;',
+    '}',
+    '',
+    'async function callImpl(req, res, params, implFn, names, status) {',
+    '  const input = await readInput(req, params, names);',
+    '  if (input && input.error) return sendError(res, input.error);',
+    '  const out = await implFn(input, makeIo());',
+    '  if (out && out.error) return sendError(res, out.error);',
+    "  if (!out) return sendError(res, 'Internal');",
+    '  const result = out.result;',
+    "  if (typeof result === 'string') {",
+    "    if (status === 201) return send(res, status, JSON.stringify({ id: result }), 'application/json');",
+    "    return send(res, status, result, 'text/plain; charset=utf-8');",
+    '  }',
+    "  return send(res, status, JSON.stringify(result === undefined ? null : result), 'application/json');",
+    '}',
+    '',
+  );
+
+  for (const op of ops) {
+    const cap = op.name.charAt(0).toUpperCase() + op.name.slice(1);
+    const names = op.params.map((param) => param.name);
+    const route = op.clauses.find((clause) => clause.kind === 'route');
+    const method = route && route.kind === 'route' ? route.value.split(' ')[0].toUpperCase() : 'GET';
+    const status = method === 'GET' ? 200 : 201;
     parts.push(
-      'async function handleCreate(req, res) {',
-      '  let raw;',
-      '  try {',
-      '    raw = await readBody(req, CONFIG.maxBody + 4096);',
-      '  } catch {',
-      "    return sendError(res, 'Invalid');",
-      '  }',
-      '',
-      '  let body = raw;',
-      '  let password = null;',
-      "  const type = String(req.headers['content-type'] || '');",
-      "  if (type.includes('application/json')) {",
-      '    try {',
-      "      const parsed = JSON.parse(raw || '{}');",
-      "      body = typeof parsed.body === 'string' ? parsed.body : '';",
-      "      password = typeof parsed.password === 'string' && parsed.password.length > 0 ? parsed.password : null;",
-      '    } catch {',
-      "      return sendError(res, 'Invalid');",
-      '    }',
-      '  }',
-      '',
-      "  const size = Buffer.byteLength(body, 'utf8');",
-      '  if (size < CONFIG.minBody || size > CONFIG.maxBody) {',
-      "    return sendError(res, 'Invalid');",
-      '  }',
-      '',
-      '  const out = await implCreate({ body, password }, makeIo());',
-      "  if (out && out.error) return sendError(res, out.error);",
-      "  if (!out || typeof out.result !== 'string') return sendError(res, 'Internal');",
-      "  send(res, 201, JSON.stringify({ id: out.result }), 'application/json');",
+      'async function handle' + cap + '(req, res, params) {',
+      '  return callImpl(req, res, params, impl' + cap + ', [' + names.map((name) => "'" + name + "'").join(', ') + '], ' + status + ');',
       '}',
       '',
     );
   }
 
-  if (names.includes('create') && !impl.create) {
-    parts.push(
-      'async function handleCreate(req, res) { return notImplemented(res, \'create\'); }',
-      '',
-    );
+  parts.push('const HANDLERS = {');
+  for (const op of ops) {
+    parts.push('  ' + op.name + ': handle' + op.name.charAt(0).toUpperCase() + op.name.slice(1) + ',');
   }
-
-  if (names.includes('read') && impl.read) {
-    parts.push(
-      'async function handleRead(req, res, id) {',
-      '  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {',
-      "    return sendError(res, 'NotFound');",
-      '  }',
-      "  const url = new URL(req.url || '/', 'http://localhost');",
-      "  const password = url.searchParams.get('password') || String(req.headers['x-password'] || '') || null;",
-      '  const out = await implRead({ id, password }, makeIo());',
-      "  if (out && out.error) return sendError(res, out.error);",
-      "  if (!out || typeof out.result !== 'string') return sendError(res, 'Internal');",
-      "  send(res, 200, out.result, 'text/plain; charset=utf-8');",
-      '}',
-      '',
-    );
-  }
-
-  if (names.includes('read') && !impl.read) {
-    parts.push(
-      'async function handleRead(req, res, id) { return notImplemented(res, \'read\'); }',
-      '',
-    );
-  }
+  parts.push('};', '');
 
   return parts.join('\n');
 }
@@ -770,13 +778,10 @@ function scaffoldHandlers(svc: ServiceNode): string {
 
     lines.push('// TODO: implement ' + op.name);
     lines.push('// Contract: ' + route + '; errors: ' + errors);
-    if (op.name === 'create') {
-      lines.push("async function handleCreate(req, res) { return notImplemented(res, 'create'); }");
-    } else if (op.name === 'read') {
-      lines.push("async function handleRead(req, res, id) { return notImplemented(res, 'read'); }");
-    }
     lines.push('');
   }
+
+  lines.push('const HANDLERS = {};', '');
 
   return lines.join('\n');
 }

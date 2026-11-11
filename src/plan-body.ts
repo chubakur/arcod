@@ -1,4 +1,4 @@
-import type { Expr, ModuleNode, OpNode, ServiceNode } from './ast.ts';
+import type { Expr, ModuleNode, OpNode, Param, ServiceNode } from './ast.ts';
 import { asOnce } from './check.ts';
 
 // Derives the procedure for an operation body from the model: capabilities in
@@ -108,6 +108,15 @@ export function opEffects(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded
   return out;
 }
 
+// Parameters that make up the stored payload: everything except the id and the
+// password. Order follows the signature, so the same model gives the same body.
+export function payloadOf(mod: ModuleNode, op: OpNode): Param[] {
+  const password = op.params.find((param) => param.name === 'password' || rawName(param.type) === 'Password');
+  return op.params.filter(
+    (param) => param !== password && resolveType(mod, param.type) !== 'uuid',
+  );
+}
+
 export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPlan {
   const guarded = svc.uses.some((use) => use.capability === 'hash' || use.capability.endsWith('.hash'));
   const effects = opEffects(mod, svc, op, guarded);
@@ -127,10 +136,8 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
       .map((clause) => (clause.kind === 'onerror' ? clause.error : '')),
   );
 
-  const payload = op.params.find((param) => resolveType(mod, param.type) === 'bytes')
-    ?? op.params.find((param) => !['id', 'password'].includes(param.name));
-
   const password = op.params.find((param) => param.name === 'password' || rawName(param.type) === 'Password');
+  const payloadParams = payloadOf(mod, op);
   const intents: string[] = [];
   const steps: string[] = [];
   const unresolved: string[] = [];
@@ -142,12 +149,17 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
 
   if (names.has('set')) {
     intents.push('persist');
-    if (!payload) {
+    if (payloadParams.length === 0) {
       unresolved.push('no payload parameter to store');
     } else {
+      // One payload stays bare; several become an object so a record return
+      // type round-trips without the emitter knowing field names.
+      const payload = payloadParams.length === 1
+        ? payloadParams[0].name
+        : '{' + payloadParams.map((param) => param.name + ': ' + param.name).join(', ') + '}';
       const record = guarded && password
-        ? '{b: ' + payload.name + ', h: ' + password.name + ' ? await io.hash(' + password.name + ') : null}'
-        : '{b: ' + payload.name + ', h: null}';
+        ? '{b: ' + payload + ', h: ' + password.name + ' ? await io.hash(' + password.name + ') : null}'
+        : '{b: ' + payload + ', h: null}';
       steps.push('await io.save(id, ' + record + ')');
       steps.push('return { result: id }');
     }

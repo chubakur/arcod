@@ -61,7 +61,7 @@ test('build defaults to scaffold, reference is opt-in', async () => {
   const scaffold = await buildExample(ast, dir);
   const scaffoldCode = await readFile(join(scaffold.dir, 'service', 'index.mjs'), 'utf8');
   assert.ok(scaffoldCode.includes('Mode: scaffold'));
-  assert.ok(scaffoldCode.includes("notImplemented(res, 'create')"));
+  assert.ok(scaffoldCode.includes('const HANDLERS = {};'));
   assert.ok(!scaffoldCode.includes('randomUUID()'));
 
   const reference = await buildExample(ast, dir, { reference: true });
@@ -196,7 +196,9 @@ test('impl mode falls back to 501 for operations without a body', async () => {
   const built = await buildExample(guardedAst, dir, { implDir });
   assert.deepEqual(built.impl, ['create']);
   const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
-  assert.match(code, /notImplemented\(res, 'read'\)/);
+  assert.match(code, /const HANDLERS = \{/);
+  assert.match(code, /create: handleCreate/);
+  assert.ok(!code.includes('read: handleRead'), 'read has no body, so it is absent from the table');
 });
 
 const infraSource = `module infra @0.1.0 {}
@@ -345,6 +347,29 @@ test('generated bodies are read from impl/ and from .arcod/impl as a fallback', 
   assert.deepEqual(legacy.impl, ['read']);
 });
 
+test('a multi-field payload is stored as a record and returned as JSON', async () => {
+  const recAst = parse("module recpkg @0.1.0 {}\n\nuse capability arcod.std.kv @1\nuse capability arcod.std.ids @1\n\ntype MessageId = uuid\ntype Author = bytes(min: 1, max: 255)\ntype Body = bytes(min: 1, max: 64kb)\n\nerror NotFound\nerror Gone\nerror Invalid\n\nservice Messages : http {\n  uses store: kv(ttl: 999s, consistency: strong)\n  uses uuid: ids\n\n  contract {\n    public op create(author: Author, body: Body) -> MessageId {\n      route: \"POST /v1/api/messages\"\n      errors: Invalid\n      post: result != null\n    }\n\n    public op read(id: MessageId) -> { author: Author, body: Body } {\n      route: \"GET /v1/api/messages/:id\"\n      errors: NotFound, Gone\n      post: !store.has(id)\n    }\n  }\n\n  effects {\n    allow store.get, store.set, store.del, store.has, uuid.new\n    deny net, fs, exec\n  }\n\n  rules {\n    invariant read.at_most_once: once(read, by: id, else: Gone)\n    atomic read { get; del }\n  }\n}\n\nenvironment dev {\n  bind store -> redis(host: \"kv\", port: 6379)\n  bind uuid -> local\n  deploy docker\n}", 'recpkg.arc');
+  const svc = recAst.services[0];
+  const create = svc.contract.find((op) => op.kind === 'op' && op.name === 'create')!;
+  const plan = planBody(recAst, svc, create);
+  assert.ok(plan.steps.some((step) => step.includes('{b: {author: author, body: body}, h: null}')), plan.steps.join(' | '));
+
+  const set = buildPrompts(recAst);
+  const prompt = set.tasks.find((task) => task.op === 'create')!.prompt;
+  assert.match(prompt, /record: \{b: \{author: Author, body: Body\}, h: null\}/);
+
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-record-'));
+  const body = 'export async function create(input, io) { const id = await io.new(); await io.save(id, { b: { author: input.author, body: input.body }, h: null }); return { result: id }; }\n';
+  const built = await buildExample(recAst, dir, { implDir: null });
+  await mkdir(join(dir, 'impl'), { recursive: true });
+  await writeFile(join(dir, 'impl', 'create.mjs'), body);
+  const withImpl = await buildExample(recAst, dir, {});
+  const code = await readFile(join(withImpl.dir, 'service', 'index.mjs'), 'utf8');
+  assert.match(code, /create: handleCreate/);
+  assert.ok(!code.includes('read: handleRead'), 'no body, no handler');
+  assert.ok(code.includes('function callImpl('), 'handlers are generic, not name-keyed');
+});
+
 test('compose has kv, service and web', () => {
   const yaml = composeYaml(ast, 8080);
   assert.match(yaml, /^name: arcod-onetimemessage/m);
@@ -369,7 +394,7 @@ test('guarded build emits password verification, scaffold keeps TODO', async () 
   const dir = await mkdtemp(join(tmpdir(), 'arcod-pwd-'));
   const scaffold = await buildExample(guardedAst, dir);
   const scaffoldCode = await readFile(join(scaffold.dir, 'service', 'index.mjs'), 'utf8');
-  assert.ok(scaffoldCode.includes("notImplemented(res, 'create')"));
+  assert.ok(scaffoldCode.includes('const HANDLERS = {};'));
   assert.ok(!scaffoldCode.includes('scryptSync'));
 
   const reference = await buildExample(guardedAst, dir, { reference: true });

@@ -3,7 +3,7 @@ import type { Expr, ModuleNode, OpNode, ServiceNode, TypeExpr } from './ast.ts';
 import { buildPlan } from './plan.ts';
 import { isGuarded, pickService, routeOf } from './emit/service.ts';
 import { signatureFor, shortFor } from './capabilities.ts';
-import { opEffects, planBody, planText } from './plan-body.ts';
+import { opEffects, payloadOf, planBody, planText } from './plan-body.ts';
 
 export interface PromptTask {
   id: string;
@@ -336,10 +336,16 @@ function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boo
   if (io.length > 0) lines.push('io (all methods are async: await them): ' + io.join('; '));
 
   if (usesKv) {
+    const stored = payloadOf(mod, op);
+    const shape = stored.length === 0
+      ? 'string'
+      : stored.length === 1
+        ? typeText(stored[0].type)
+        : '{' + stored.map((param) => param.name + ': ' + typeText(param.type)).join(', ') + '}';
     lines.push(
       guarded
-        ? 'record: {b: string, h: string|null}; h = password hash or null'
-        : 'record: {b: string, h: null}',
+        ? 'record: {b: ' + shape + ', h: string|null}; h = password hash or null'
+        : 'record: {b: ' + shape + ', h: null}',
     );
   }
 

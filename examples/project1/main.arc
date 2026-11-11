@@ -10,6 +10,7 @@ use capability arcod.std.kv @1
 use capability arcod.std.ids @1
 
 type MessageId = uuid
+type Author = bytes(min: 1, max: 255)
 type Body = bytes(min: 1, max: 64kb)
 
 error NotFound
@@ -21,13 +22,13 @@ service OneTimeMessage : http {
   uses uuid: ids
 
   contract {
-    public op create(body: Body) -> MessageId {
+    public op create(author: Author, body: Body) -> MessageId {
       route: "POST /v1/api/messages"
       errors: Invalid
       post: result != null
     }
 
-    public op read(id: MessageId) -> Body {
+    public op read(id: MessageId) -> (Author, Body) {
       route: "GET /v1/api/messages/:id"
       errors: NotFound, Gone
       post: !store.has(id)
