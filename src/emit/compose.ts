@@ -144,7 +144,7 @@ function renderProvider(bind: BindNode): RenderedProvider | null {
     importFile: typeof args.import === 'string' ? args.import : null,
     args,
     expose: boolArg(bind, 'expose'),
-    appEnv: spec.appEnv ? spec.appEnv({ host, port, args }) : {},
+    appEnv: spec.appEnv ? spec.appEnv({ host, port, alias: bind.alias, args }) : {},
     volume,
   };
 }
@@ -262,10 +262,38 @@ export function composeYaml(mod: ModuleNode, port: number, hasUi = true): string
     lines.push('    ports:', '      - "' + port + ':3000"');
   }
 
+  // Docker Desktop already resolves host.docker.internal to the host. On Linux
+  // it has to be declared, so the bind asks for it explicitly: gateway: true.
+  const endpoints = bound.filter((item) => item.spec.capability === 'endpoint');
+  const gateway = endpoints.some((item) => item.args.gateway === true)
+    && endpoints.some((item) => {
+      const url = String(item.args.url ?? '');
+      return url.includes('host.docker.internal') || url.includes('localhost') || url.includes('127.0.0.1');
+    });
+  if (gateway) {
+    lines.push('    extra_hosts:');
+    lines.push('      - "host.docker.internal:host-gateway"');
+  }
+
+  // An external docker network is how a separately deployed service is joined.
+  const networks = Array.from(new Set(
+    endpoints.map((item) => item.args.network).filter((value): value is string => typeof value === 'string' && value.length > 0),
+  )).sort();
+  if (networks.length > 0) {
+    lines.push('    networks:');
+    for (const network of networks) lines.push('      - ' + quote(network));
+  }
+
   const volumes = Array.from(new Set(bound.map((item) => item.volume).filter((item): item is string => Boolean(item)))).sort();
   if (volumes.length > 0) {
     lines.push('', 'volumes:');
     for (const volume of volumes) lines.push('  ' + volume + ':');
+  }
+  if (networks.length > 0) {
+    lines.push('', 'networks:');
+    for (const network of networks) {
+      lines.push('  ' + quote(network) + ':', '    external: true');
+    }
   }
 
   lines.push('');

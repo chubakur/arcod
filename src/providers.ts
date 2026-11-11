@@ -4,7 +4,13 @@
 export interface ProviderContext {
   host: string;
   port: number;
+  alias?: string;
   args: Record<string, string | number | boolean>;
+}
+
+// The env variable a caller reads for an external service: Payments -> PAYMENTS_URL.
+export function endpointEnv(alias: string): string {
+  return alias.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[^A-Za-z0-9]+/g, '_').toUpperCase() + '_URL';
 }
 
 export interface ProviderSpec {
@@ -94,6 +100,23 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
     },
     healthcheck: { test: '["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000; echo -e \'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n\' >&3; head -1 <&3 | grep -q 200"]', interval: '5s', timeout: '5s', retries: 40, startPeriod: '20s' },
     appEnv: ({ host, port }) => ({ KEYCLOAK_URL: 'http://' + host + ':' + port }),
+  },
+  // An address somewhere else: nothing is provisioned, the service is only
+  // put on the compose network and described by its URL. Bodies reach it
+  // through io.remote, never by building a URL themselves.
+  endpoint: {
+    name: 'endpoint',
+    capability: 'endpoint',
+    external: true,
+    appEnv: ({ alias, args }) => {
+      const name = typeof alias === 'string' && alias.length > 0 ? alias : 'external';
+      let url = String(args.url ?? '');
+      // A service on the host is reachable from a container only through the
+      // host gateway; the alias keeps the URL stable inside the network.
+      url = url.split('localhost').join('host.docker.internal');
+      url = url.split('127.0.0.1').join('host.docker.internal');
+      return { [endpointEnv(name)]: url };
+    },
   },
   // Both speak the OpenAI-compatible /chat/completions shape. Ollama is local
   // and keyless; openai is any compatible endpoint, including a proxy.

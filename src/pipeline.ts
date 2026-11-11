@@ -69,7 +69,10 @@ export async function runPipeline(
   });
   if (!failedCheck.ok) return { steps, ok: false, dir, buildDir };
 
-  const ops = mod.services.flatMap((svc) => svc.contract.filter((op) => op.kind === 'op').map((op) => op.name));
+  // A foreign service has no bodies to write: only our own services count.
+  const ops = mod.services
+    .filter((svc) => !svc.external)
+    .flatMap((svc) => svc.contract.filter((op) => op.kind === 'op').map((op) => op.name));
   const existing = new Set(
     (await readdir(join(dir, 'impl')).catch(() => [] as string[]))
       .filter((name: string) => name.endsWith('.mjs'))

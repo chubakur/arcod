@@ -3,6 +3,7 @@ import type { Expr, ModuleNode, OpNode, ServiceNode, TypeExpr } from './ast.ts';
 import { buildPlan } from './plan.ts';
 import { isGuarded, pickService, routeOf } from './emit/service.ts';
 import { signatureFor, shortFor, storageUse } from './capabilities.ts';
+import type { ModuleNode } from './ast.ts';
 import { opEffects, payloadOf, planBody, planText } from './plan-body.ts';
 
 export interface PromptTask {
@@ -116,7 +117,7 @@ function contractText(expr: Expr, svc: ServiceNode): string {
   return text;
 }
 
-function ioLines(svc: ServiceNode): string[] {
+function ioLines(svc: ServiceNode, mod?: ModuleNode): string[] {
   const allowed = svc.effects?.allow ?? [];
   const capabilityOf = new Map(svc.uses.map((use) => [use.alias, use.capability]));
   const lines: string[] = [];
@@ -130,6 +131,12 @@ function ioLines(svc: ServiceNode): string[] {
   for (const entry of allowed) {
     const [alias, op] = entry.split('.');
     if (!alias || !op) continue;
+    const external = mod?.services.find((item) => item.external && item.name === alias);
+    if (external) {
+      // The address lives in the environment, the route in the contract.
+      push('remote(' + JSON.stringify(alias) + ', ' + JSON.stringify(op) + ', input) -> { status, body }', alias + '.' + op);
+      continue;
+    }
     const capability = capabilityOf.get(alias) ?? alias;
     const signature = signatureFor(capability, op);
     push(signature ?? op + '(...) — no signature registered', op);
@@ -218,7 +225,7 @@ function taskFor(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean
   if (contract.length > 0) lines.push('## Contract', ...contract.map((item) => '- ' + item), '');
   if (rules.length > 0) lines.push('## Rules of the service', ...rules.map((item) => '- ' + item), '');
 
-  const io = ioLines(svc);
+  const io = ioLines(svc, mod);
   lines.push('## io (use only these)', ...(io.length > 0 ? io.map((item) => '- ' + item) : ['- (none)']), '');
 
   const storage = storageLines(svc, guarded);

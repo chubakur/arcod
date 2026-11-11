@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { buildPlan } from '../src/plan.ts';
-import { emitService } from '../src/emit/service.ts';
+import { emitService, routeOf } from '../src/emit/service.ts';
 import { emitWeb } from '../src/emit/web.ts';
 import { composeYaml, nginxConf } from '../src/emit/compose.ts';
 import { buildExample } from '../src/build.ts';
@@ -536,6 +536,88 @@ environment dev {
 const chatUrl = new URL('../examples/chat/main.arc', import.meta.url);
 const chatImplDir = (await import('node:url')).fileURLToPath(new URL('../examples/chat/impl', import.meta.url));
 const chatAst = parse(await readFile(chatUrl, 'utf8'), 'main.arc');
+
+const paymentsUrl = new URL('../examples/payments/main.arc', import.meta.url);
+const paymentsImplDir = (await import('node:url')).fileURLToPath(new URL('../examples/payments/impl', import.meta.url));
+const paymentsAst = parse(await readFile(paymentsUrl, 'utf8'), 'main.arc');
+
+test('an external service is described, not generated', () => {
+  const ledger = paymentsAst.services.find((svc) => svc.external)!;
+  assert.equal(ledger.name, 'Ledger');
+  assert.equal(ledger.contract[0].kind, 'op');
+  assert.equal(routeOf(ledger.contract[0]), 'POST /v1/entries');
+
+  const diags = check(paymentsAst);
+  assert.equal(diags.filter((item) => item.severity === 'error').length, 0);
+
+  const plan = buildPlan(paymentsAst);
+  assert.ok(!plan.tasks.some((task) => task.title.includes('Ledger')), 'no planning task for a foreign service');
+
+  // Regression: counting the foreign op made the pipeline regenerate a
+  // hand-written body, silently dropping io.remote.
+  const prompts = buildPrompts(paymentsAst);
+  assert.deepEqual(prompts.tasks.map((task) => task.op), ['charge']);
+});
+
+test('an external call is typed by the contract and addressed by the environment', async () => {
+  const compose = composeYaml(paymentsAst, 8080, false);
+  assert.ok(compose.includes('LEDGER_URL: "http://host.docker.internal:9009"'), 'localhost is rewritten');
+  assert.ok(!compose.includes('extra_hosts'), 'Docker Desktop needs no gateway override');
+
+  const withWiring = composeYaml(parse(
+    (await readFile(paymentsUrl, 'utf8'))
+      .replace('bind Ledger -> endpoint(url: "http://localhost:9009")',
+        'bind Ledger -> endpoint(url: "http://localhost:9009", gateway: true, network: "shared")'),
+    'main.arc',
+  ), 8080, false);
+  assert.ok(withWiring.includes('host.docker.internal:host-gateway'), 'gateway: true asks for it');
+  assert.ok(withWiring.includes('networks:'), 'a shared network is joined');
+  assert.ok(withWiring.includes('external: true'), 'the network is not created by this compose');
+
+  const manifest = deployManifest(paymentsAst, paymentsAst.environments[0]) as {
+    services: Array<{ name: string }>;
+    providers: Array<{ alias: string; provider: string }>;
+  };
+  assert.ok(!manifest.services.some((svc) => svc.name === 'Ledger'), 'not deployed');
+  assert.equal(manifest.providers.find((item) => item.alias === 'Ledger')!.provider, 'endpoint');
+});
+
+test('the remote client is emitted only for declared external services', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-payments-'));
+  const built = await buildExample(paymentsAst, dir, { implDir: paymentsImplDir });
+  const service = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(service.includes('"Ledger.record"'));
+  assert.ok(service.includes('"method": "POST"'));
+  assert.ok(service.includes('"path": "/v1/entries"'));
+  assert.ok(service.includes('"env": "LEDGER_URL"'));
+  assert.ok(service.includes('async remote(service, op, input)'));
+});
+
+test('external services report broken or unbound declarations', async () => {
+  const missingRoute = check(parse(
+    (await readFile(paymentsUrl, 'utf8')).replace('      route: "POST /v1/entries"\n', ''),
+    'main.arc',
+  ));
+  assert.ok(missingRoute.some((item) => item.code === 'A037'), 'A037 requires a route');
+
+  const unbound = check(parse(
+    (await readFile(paymentsUrl, 'utf8')).replace('  bind Ledger -> endpoint(url: "http://localhost:9009")\n', ''),
+    'main.arc',
+  ));
+  assert.ok(unbound.some((item) => item.code === 'W026'), 'W026 warns about an unbound address');
+
+  const wrong = check(parse(
+    (await readFile(paymentsUrl, 'utf8')).replace('bind Ledger -> endpoint(', 'bind Ledger -> redis('),
+    'main.arc',
+  ));
+  assert.ok(wrong.some((item) => item.code === 'A039'), 'A039 rejects a provisioned provider');
+
+  const local = check(parse(
+    (await readFile(paymentsUrl, 'utf8')).replace('external service Ledger : http {', 'external service Ledger : http {\n  uses store: kv()'),
+    'main.arc',
+  ));
+  assert.ok(local.some((item) => item.code === 'A038'), 'A038 forbids local capabilities on a foreign service');
+});
 
 test('the model is a capability with local and cloud providers', () => {
   assert.deepEqual(providersForCapability('llm'), ['ollama', 'openai']);

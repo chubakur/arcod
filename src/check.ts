@@ -108,6 +108,8 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
 
     // A009 — duplicate alias
     const seen = new Set<string>();
+    // An external service is a callable alias without a local capability.
+    for (const item of mod.services) if (item.external) seen.add(item.name);
     for (const use of svc.uses) {
       if (seen.has(use.alias)) {
         diags.push(diag('A009', 'error', mod.file, use.loc, `services.${svc.name}.uses`, `алиас ${use.alias} объявлен дважды`));
@@ -322,6 +324,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     }
   }
 
+  checkExternalServices(mod, diags);
   checkWorkflows(mod, diags);
 
   return sortDiagnostics(diags);
@@ -425,6 +428,60 @@ function checkWorkflows(mod: ModuleNode, diags: Diagnostic[]): void {
           'onFail: skip, но от шага зависят ' + consumers.map((item) => item.name).join(', '),
           'зависимые шаги будут пропущены; используйте onFail: stop, если это не задумано'));
       }
+    }
+  }
+}
+
+// External services are described, not generated: only routes matter, and a
+// missing address turns a call into a runtime failure, so it is reported here.
+function checkExternalServices(mod: ModuleNode, diags: Diagnostic[]): void {
+  const env = mod.environments[0];
+  const bound = new Map<string, string>();
+  for (const bind of env?.binds ?? []) bound.set(bind.alias, bind.provider);
+
+  for (const svc of mod.services) {
+    if (!svc.external) continue;
+    const path = 'services.' + svc.name;
+
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      // A037 — an operation without a route cannot be called remotely.
+      if (!routeOf(op)) {
+        diags.push(diag('A037', 'error', mod.file, op.loc, path + '.contract.' + op.name,
+          'у операции внешнего сервиса нет route', 'route: "POST /v1/..." описывает вызов'));
+      }
+    }
+
+    // A038 — nothing is generated for an external service, so local-only
+    // declarations would be silently ignored.
+    for (const use of svc.uses) {
+      diags.push(diag('A038', 'error', mod.file, use.loc, path + '.uses',
+        'внешний сервис не использует возможности', 'uses описывает то, что мы строим, а не то, что вызываем'));
+    }
+    if (svc.effects) {
+      diags.push(diag('A038', 'error', mod.file, svc.effects.loc, path + '.effects',
+        'внешний сервис не объявляет эффекты', 'эффекты нужны тому сервису, который его вызывает'));
+    }
+
+    // A039 — the address binding must be an endpoint, not a provisioned provider.
+    for (const [alias, provider] of bound) {
+      if (alias === svc.name && provider !== 'endpoint') {
+        diags.push(diag('A039', 'error', mod.file, svc.loc, path,
+          svc.name + ' привязан к ' + provider + ', а не к endpoint',
+          'внешний сервис описывается адресом: bind ' + svc.name + ' -> endpoint(url: "...")'));
+      }
+    }
+
+    // W026 — used by a local service but not bound: the call will fail at runtime.
+    const used = mod.services.some((item) => !item.external && (
+      (item.effects?.allow ?? []).some((entry) => entry.startsWith(svc.name + '.')) ||
+      item.contract.some((op) => op.clauses.some((clause) =>
+        clause.kind === 'effects' && clause.names.some((entry) => entry.startsWith(svc.name + '.'))))
+    ));
+    if (used && !bound.has(svc.name)) {
+      diags.push(diag('W026', 'warning', mod.file, svc.loc, path,
+        'внешний сервис ' + svc.name + ' не привязан в окружении',
+        'добавьте bind ' + svc.name + ' -> endpoint(url: "...")'));
     }
   }
 }
