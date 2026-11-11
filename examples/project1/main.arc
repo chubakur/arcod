@@ -56,10 +56,12 @@ service OneTimeMessage : http {
   examples {
     example create_and_read {
       when {
-        let id = create("hi")
+        let id = create("baby", "hi")
       }
       then {
-        read(id).body == "hi"
+        let msg = read(id)
+        msg.author == "baby"
+        msg.body == "hi"
         read(id) is Gone
         read(uuid("00000000-0000-0000-0000-000000000000")) is NotFound
       }

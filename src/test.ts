@@ -147,7 +147,9 @@ async function checkAtomic(rule: string, ctx: Context): Promise<RuleResult> {
 async function probeId(ctx: Context): Promise<string> {
   const create = ctx.ops.find((item) => item.name === 'create');
   if (!create) throw new Error('rule check needs a create operation to prepare state');
-  const value = await invoke(create, ['arcod rule probe'], ctx);
+  // Each payload parameter gets the probe; a password stays empty.
+  const args = create.params.map((param) => (param.name === 'password' ? null : 'arcod rule probe'));
+  const value = await invoke(create, args, ctx);
   const id = unwrap(value);
   if (typeof id !== 'string') throw new Error('create did not return an id');
   return id;
@@ -166,8 +168,12 @@ async function runExample(when: any[], then: any[], ctx: Context): Promise<numbe
   for (const stmt of then) {
     const value = await evalExpr(stmt.expr, env, ctx);
     steps++;
+    if (stmt.kind === 'let') {
+      env.set(stmt.name, value);
+      continue;
+    }
     if (!value) {
-      throw new Error('assertion failed: ' + describe(stmt.expr));
+      throw new Error('assertion failed: ' + describe(stmt.expr) + ' (got ' + JSON.stringify(value) + ')');
     }
   }
 
@@ -232,8 +238,14 @@ async function evalExpr(expr: Expr, env: Map<string, Value>, ctx: Context): Prom
       throw new Error('unknown function ' + name + ' in example');
     }
 
-    case 'member':
-      throw new Error('member access is not supported in examples');
+    case 'member': {
+      const base = await evalExpr(expr.object, env, ctx);
+      const failed = errorName(base);
+      if (failed) throw new Error('.' + expr.property + ' read from an error value: ' + failed);
+      if (!base || typeof base !== 'object') return null;
+      const record = base as Record<string, unknown>;
+      return expr.property in record ? (record[expr.property] as Value) : null;
+    }
 
     default:
       throw new Error('unsupported expression');
@@ -317,6 +329,7 @@ function unwrap(value: Value): unknown {
 
 function describe(expr: Expr): string {
   if (expr.kind === 'call' && expr.callee.kind === 'ident') return expr.callee.name + '(...)';
+  if (expr.kind === 'member') return describe(expr.object) + '.' + expr.property;
   if (expr.kind === 'is') return describe(expr.expr) + ' is ' + expr.error;
   if (expr.kind === 'binary') return describe(expr.left) + ' ' + expr.op + ' ' + describe(expr.right);
   if (expr.kind === 'ident') return expr.name;

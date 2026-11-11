@@ -9,10 +9,11 @@ import { emitWeb } from '../src/emit/web.ts';
 import { composeYaml, nginxConf } from '../src/emit/compose.ts';
 import { buildExample } from '../src/build.ts';
 import { runExamples } from '../src/test.ts';
+import { runPipeline } from '../src/pipeline.ts';
 import { buildPrompts } from '../src/prompts.ts';
 import { planBody } from '../src/plan-body.ts';
 import { extractCode, validateBody } from '../src/impl.ts';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -423,6 +424,30 @@ environment dev {
   assert.ok(!html.includes("byId('body')"), 'no hardcoded body field');
   assert.ok(html.includes('JSON.stringify(payload)'), 'the form posts its own fields');
   assert.ok(!html.includes('__FIELDS__'));
+});
+
+test('make runs check, prompts, bodies, build and test in order', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-make-'));
+  await cp(new URL('../examples/onetimemessage', import.meta.url), dir, { recursive: true });
+  const started = Date.now();
+  const result = await runPipeline(ast, dir, { skipImpl: true });
+  assert.ok(result.ok, JSON.stringify(result.steps));
+  assert.deepEqual(result.steps.map((step) => step.name), ['check', 'prompts', 'impl', 'build', 'test']);
+  assert.ok(result.steps.find((step) => step.name === 'impl')!.skipped);
+  assert.match(result.steps.find((step) => step.name === 'test')!.detail, /^4 passed/);
+  assert.ok(Date.now() - started < 60_000);
+});
+
+test('make stops at the first failing step', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-make-fail-'));
+  const broken = (await readFile(specUrl, 'utf8')).replace('allow store.get, store.set', 'allow store.get');
+  await writeFile(join(dir, 'main.arc'), broken, 'utf8');
+  const brokenAst = parse(broken, 'main.arc');
+  const result = await runPipeline(brokenAst, dir, { skipImpl: true });
+  assert.equal(result.ok, false);
+  assert.equal(result.steps.length, 1, 'nothing runs after a failed check');
+  assert.equal(result.steps[0].name, 'check');
+  assert.match(result.steps[0].detail, /error/);
 });
 
 test('compose has kv, service and web', () => {

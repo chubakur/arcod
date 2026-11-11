@@ -9,6 +9,7 @@ import { runExamples } from './test.ts';
 import type { Diagnostic } from './diagnostics.ts';
 import type { ModuleNode } from './ast.ts';
 import { buildPrompts, formatPrompts } from './prompts.ts';
+import { formatPipeline, runPipeline } from './pipeline.ts';
 import { DEFAULT_IMPL, formatImplReport, runImpl } from './impl.ts';
 import { PROVIDERS, providerNames } from './providers.ts';
 
@@ -63,6 +64,9 @@ export async function main(argv: string[]): Promise<void> {
         return;
       case 'impl':
         await runImplCmd(flags);
+        return;
+      case 'make':
+        await runMake(flags);
         return;
       case 'fmt':
         console.error('arcod fmt: not implemented in v0.1 (use the source formatter of your editor)');
@@ -200,6 +204,28 @@ async function runPrompts(flags: Flags): Promise<void> {
     for (const item of set.unresolved) console.error('  ' + item);
     process.exitCode = 1;
   }
+}
+
+async function runMake(flags: Flags): Promise<void> {
+  const loaded = await load(flags.spec);
+  const result = await runPipeline(loaded.mod, loaded.dir, {
+    model: flags.model,
+    endpoint: flags.endpoint,
+    force: flags.force,
+    skipImpl: flags.skipImpl,
+    noTest: flags.noTest,
+    reference: flags.reference,
+    port: flags.port,
+    allowRemote: flags.allowRemote,
+    budget: flags.maxTokens,
+  });
+
+  if (flags.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(formatPipeline(result, loaded.mod.name + '@' + loaded.mod.version));
+  }
+  if (!result.ok) process.exitCode = 1;
 }
 
 async function runImplCmd(flags: Flags): Promise<void> {
@@ -396,6 +422,9 @@ interface Flags {
   full: boolean;
   impl: boolean;
   allowRemote: boolean;
+  force: boolean;
+  skipImpl: boolean;
+  noTest: boolean;
 }
 
 function parseFlags(args: string[]): Flags {
@@ -415,6 +444,9 @@ function parseFlags(args: string[]): Flags {
     full: false,
     impl: false,
     allowRemote: false,
+    force: false,
+    skipImpl: false,
+    noTest: false,
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -434,6 +466,9 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--full') flags.full = true;
     else if (arg === '--impl') flags.impl = true;
     else if (arg === '--allow-remote') flags.allowRemote = true;
+    else if (arg === '--force') flags.force = true;
+    else if (arg === '--skip-impl') flags.skipImpl = true;
+    else if (arg === '--no-test') flags.noTest = true;
     else if (!arg.startsWith('-')) flags.spec = arg;
     else throw new Error('unknown flag: ' + arg);
   }
@@ -488,9 +523,15 @@ usage:
   arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]
   arcod impl  [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
                               [--dry-run] [--no-cache] [--allow-remote]
+  arcod make  [dir|spec.arc] [--model m] [--force] [--skip-impl] [--no-test]
+                              [--reference] [--port 8080] [--json]
   arcod build [dir|spec.arc] [--reference | --impl] [--port 8080]
   arcod test  [dir|spec.arc] [--impl] [--json]
   arcod run   [dir|spec.arc] [--impl] [--scaffold] [--port 8080] [--detach] [--down]
+
+make runs the whole loop: check, prompts, bodies, build, test. It stops at the
+first failing step; --skip-impl and --no-test cut it short, --force regenerates
+bodies even when impl/ is populated.
 
 build defaults to a scaffold: contracts, routes, adapters and infra, with TODO handlers.
 --reference additionally emits the built-in demo bodies (create/read over kv).

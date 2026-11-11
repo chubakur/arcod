@@ -85,10 +85,22 @@ node ../../bin/arcod.mjs run
 | `arcod build --impl` | тела из `impl/*.mjs`, адаптер `io`, ничего не додумывает |
 | `arcod build --reference` | то же плюс встроенные демо-тела `create`/`read` |
 | `arcod test [dir]` | поднимает сгенерированный сервис с in-memory kv и прогоняет `examples` |
+| `arcod make [dir]` | весь цикл одной командой: check → prompts → тела → build → test |
 | `arcod run [dir]` | build + `docker compose up --build` |
 | `arcod run --down` | останавливает окружение |
 
 Флаги: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`.
+У `make`: `--force` (перегенерировать тела), `--skip-impl`, `--no-test`,
+`--model`, `--endpoint`, `--reference`.
+
+```bash
+arcod make .            # первая сборка с нуля
+arcod make . --force    # заново сгенерировать тела
+arcod make . --skip-impl --no-test   # только check + prompts + build
+```
+
+Каждый шаг — та же функция, что и у отдельной команды, поэтому конвейер не
+расходится с ними. Останавливается на первой ошибке и печатает, где именно.
 
 ## Провайдеры
 
