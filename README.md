@@ -204,6 +204,10 @@ arcod run --impl examples/onetimemessage-pwd
 В `examples/*/impl/` лежат тела, сгенерированные qwen2.5-coder:7b и проверенные
 тестами, — демо воспроизводится без Ollama.
 
+`arcod impl` пишет тела в `impl/` рядом со спекой (это то, что читает
+`arcod build --impl` и что стоит коммитить); старое место `.arcod/impl/`
+тоже подхватывается.
+
 ## Что генерируется
 
 Для `examples/onetimemessage` и `examples/onetimemessage-pwd`: что выводится из модели, а что остаётся шаблоном — см. «Режимы сборки».

@@ -21,6 +21,12 @@ export interface BuildResult {
   files: string[];
 }
 
+async function implDirFor(exampleDir: string): Promise<string> {
+  const primary = join(exampleDir, 'impl');
+  const entries = await readdir(primary, { withFileTypes: true }).catch(() => null);
+  return entries ? primary : join(exampleDir, '.arcod', 'impl');
+}
+
 async function readImpl(dir: string): Promise<Record<string, string> | undefined> {
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
   if (!entries) return undefined;
@@ -45,7 +51,8 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
 
   const hasUi = mod.uis.length > 0;
   const reference = options.reference === true;
-  const impl = options.implDir === null ? undefined : await readImpl(options.implDir ?? join(exampleDir, 'impl'));
+  const impl =
+    options.implDir === null ? undefined : await readImpl(options.implDir ?? (await implDirFor(exampleDir)));
   const service = emitService(mod, { reference, impl });
 
   const files: Array<[string, string]> = [

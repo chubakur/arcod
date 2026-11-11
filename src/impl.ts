@@ -137,7 +137,9 @@ export async function runImpl(mod: ModuleNode, dir: string, partial: Partial<Imp
     );
   }
   const set = buildPrompts(mod);
-  const outDir = join(dir, '.arcod', 'impl');
+  // Bodies live next to the spec so they can be committed and reviewed; the
+  // cache keeps the model responses separately.
+  const outDir = join(dir, 'impl');
   const cacheDir = join(dir, '.arcod', 'cache');
   await mkdir(outDir, { recursive: true });
   await mkdir(cacheDir, { recursive: true });

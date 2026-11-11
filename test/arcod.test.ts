@@ -329,6 +329,20 @@ test('nginx proxies healthz next to the api', () => {
   assert.match(conf, /proxy_pass http:\/\/service:3000\/healthz;/);
 });
 
+test('generated bodies are read from impl/ and from .arcod/impl as a fallback', async () => {
+  const primary = await mkdtemp(join(tmpdir(), 'arcod-bodies-'));
+  await mkdir(join(primary, 'impl'), { recursive: true });
+  await writeFile(join(primary, 'impl', 'create.mjs'), 'export async function create() { return {}; }\n');
+  const picked = await buildExample(ast, primary);
+  assert.deepEqual(picked.impl, ['create']);
+
+  const fallback = await mkdtemp(join(tmpdir(), 'arcod-bodies-old-'));
+  await mkdir(join(fallback, '.arcod', 'impl'), { recursive: true });
+  await writeFile(join(fallback, '.arcod', 'impl', 'read.mjs'), 'export async function read() { return {}; }\n');
+  const legacy = await buildExample(ast, fallback);
+  assert.deepEqual(legacy.impl, ['read']);
+});
+
 test('compose has kv, service and web', () => {
   const yaml = composeYaml(ast, 8080);
   assert.match(yaml, /^name: arcod-onetimemessage/m);
