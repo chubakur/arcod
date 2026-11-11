@@ -28,14 +28,14 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     const spec = deployProvider(deploy.provider);
     if (!spec) {
       diags.push(diag('A028', 'error', mod.file, deploy.loc, 'environments.' + environment.name + '.deploy',
-        'неизвестный провайдер развёртывания ' + deploy.provider, 'доступны: ' + deployNames().join(', ')));
+        'unknown deploy provider ' + deploy.provider, 'available: ' + deployNames().join(', ')));
       continue;
     }
     for (const key of Object.keys(deploy.args)) {
       if (!(key in spec.args)) {
         diags.push(diag('W019', 'warning', mod.file, deploy.loc, 'environments.' + environment.name + '.deploy',
-          'провайдер ' + deploy.provider + ' не знает аргумент ' + key,
-          'известные: ' + Object.keys(spec.args).join(', ')));
+          'provider ' + deploy.provider + ' does not know argument ' + key,
+          'known: ' + Object.keys(spec.args).join(', ')));
       }
     }
   }
@@ -51,16 +51,16 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     // A003 — provider, host or secret mentioned in the model
     for (const word of FORBIDDEN_IN_MODEL) {
       if (sourceSlice.toLowerCase().includes(word)) {
-        diags.push(diag('A003', 'error', mod.file, svc.loc, 'services', `провайдер или хост ${word} упомянут в модели`, 'перенесите привязку в environment'));
+        diags.push(diag('A003', 'error', mod.file, svc.loc, 'services', `provider or host ${word} mentioned in the model`, 'move the binding into environment'));
       }
     }
 
     // A002 — capability is not bound
     for (const use of svc.uses) {
       if (!env) {
-        diags.push(diag('A002', 'error', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`, `возможность ${use.capability} не привязана: environment отсутствует`, 'добавьте environment с bind ' + use.alias));
+        diags.push(diag('A002', 'error', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`, `capability ${use.capability} is not bound: no environment`, 'add an environment with bind ' + use.alias));
       } else if (!bound.has(use.alias)) {
-        diags.push(diag('A002', 'error', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`, `возможность ${use.capability} не привязана в environment ${env.name}`, `добавьте bind ${use.alias} -> <provider>`));
+        diags.push(diag('A002', 'error', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`, `capability ${use.capability} is not bound in environment ${env.name}`, `add bind ${use.alias} -> <provider>`));
       }
     }
 
@@ -71,7 +71,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       if (bind.provider !== 'local' && boundAliases.has(bind.alias)) {
         diags.push(
           diag('A025', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
-            `алиас ${bind.alias} привязан дважды`, 'оставьте один провайдер'),
+            `alias ${bind.alias} is bound twice`, 'keep a single provider'),
         );
       }
       boundAliases.add(bind.alias);
@@ -83,8 +83,8 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       if (!spec) {
         diags.push(
           diag('A023', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
-            `провайдер ${bind.provider} неизвестен`,
-            'доступны: ' + providerNames().join(', ')),
+            `unknown provider ${bind.provider}`,
+            'available: ' + providerNames().join(', ')),
         );
         continue;
       }
@@ -92,8 +92,8 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         if (!(required in bind.args)) {
           diags.push(
             diag('A026', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
-              `провайдеру ${bind.provider} нужен аргумент ${required}`,
-              `добавьте ${required}: "..." в bind`),
+              `provider ${bind.provider} requires argument ${required}`,
+              `add ${required}: "..." to bind`),
           );
         }
       }
@@ -103,8 +103,8 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         const alternatives = providersForCapability(capability);
         diags.push(
           diag('A024', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
-            `${bind.provider} не реализует ${use.capability}`,
-            alternatives.length > 0 ? `для ${capability} доступны: ` + alternatives.join(', ') : `у ${capability} нет провайдеров`),
+            `${bind.provider} does not implement ${use.capability}`,
+            alternatives.length > 0 ? `available for ${capability}: ` + alternatives.join(', ') : `${capability} has no providers`),
         );
       }
     }
@@ -115,7 +115,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     for (const item of mod.services) if (item.external) seen.add(item.name);
     for (const use of svc.uses) {
       if (seen.has(use.alias)) {
-        diags.push(diag('A009', 'error', mod.file, use.loc, `services.${svc.name}.uses`, `алиас ${use.alias} объявлен дважды`));
+        diags.push(diag('A009', 'error', mod.file, use.loc, `services.${svc.name}.uses`, `alias ${use.alias} is declared twice`));
       }
       seen.add(use.alias);
     }
@@ -130,17 +130,17 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       if (!once || !once.elseName) continue;
       const op = svc.contract.find((item) => item.kind === 'op' && item.name === once.target);
       if (op && !errorNames(op).includes(once.elseName)) {
-        diags.push(diag('A022', 'error', mod.file, rule.loc, `services.${svc.name}.rules.${rule.name}`, `once(..., else: ${once.elseName}) ссылается на ошибку, которой нет в контракте ${once.target}`, 'добавьте ошибку в errors или исправьте else'));
+        diags.push(diag('A022', 'error', mod.file, rule.loc, `services.${svc.name}.rules.${rule.name}`, `once(..., else: ${once.elseName}) refers to an error that is not in the ${once.target} contract`, 'add the error to errors or fix else'));
       }
     }
 
     // A004 — effect used but not allowed; A021 — explicitly denied
     const checkEffect = (alias: string, op: string, loc: Loc) => {
       if (!svc.effects || !isAllowed(svc.effects.allow, alias, op)) {
-        diags.push(diag('A004', 'error', mod.file, loc, `services.${svc.name}.effects`, `эффект ${alias}.${op} не разрешён`, `добавьте ${alias}.${op} в allow`));
+        diags.push(diag('A004', 'error', mod.file, loc, `services.${svc.name}.effects`, `effect ${alias}.${op} is not allowed`, `add ${alias}.${op} to allow`));
       }
       if (svc.effects && isDenied(svc.effects.deny, alias, op)) {
-        diags.push(diag('A021', 'error', mod.file, loc, `services.${svc.name}.effects`, `эффект ${alias}.${op} запрещён`, `уберите ${alias}.${op} из deny или из кода`));
+        diags.push(diag('A021', 'error', mod.file, loc, `services.${svc.name}.effects`, `effect ${alias}.${op} is denied`, `remove ${alias}.${op} from deny or from the code`));
       }
     };
 
@@ -155,7 +155,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           const [alias, name] = entry.split('.');
           if (!seen.has(alias)) {
             diags.push(diag('A027', 'error', mod.file, clause.loc, `services.${svc.name}.ops.${op.name}.effects`,
-              'алиас ' + alias + ' не объявлен в uses', 'добавьте uses ' + alias + ': …'));
+              'alias ' + alias + ' is not declared in uses', 'add uses ' + alias + ': …'));
             continue;
           }
           checkEffect(alias, name, clause.loc);
@@ -175,7 +175,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     if (svc.effects) {
       for (const item of svc.effects.allow) {
         if (svc.effects.deny.includes(item)) {
-          diags.push(diag('A020', 'error', mod.file, svc.effects.loc, `services.${svc.name}.effects`, `эффект ${item} одновременно в allow и deny`, 'deny сильнее, уберите из allow'));
+          diags.push(diag('A020', 'error', mod.file, svc.effects.loc, `services.${svc.name}.effects`, `effect ${item} is both in allow and deny`, 'deny wins, remove it from allow'));
         }
       }
     }
@@ -184,7 +184,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     if (svc.effects) {
       const unenforceable = svc.effects.deny.filter((item) => !item.includes('.'));
       if (unenforceable.length > 0) {
-        diags.push(diag('W016', 'warning', mod.file, svc.effects.loc, `services.${svc.name}.effects.deny`, 'deny не исполняется в v0.1: ' + unenforceable.join(', '), 'ограничивайте доступ на уровне окружения'));
+        diags.push(diag('W016', 'warning', mod.file, svc.effects.loc, `services.${svc.name}.effects.deny`, 'deny is not enforced in v0.1: ' + unenforceable.join(', '), 'restrict access at the environment level'));
       }
     }
 
@@ -195,7 +195,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         if (expr.kind !== 'call') return;
         const call = asCapabilityCall(expr, aliases);
         if (call && WRITE_OPS.has(call.op)) {
-          diags.push(diag('A005', 'error', mod.file, expr.loc, `services.${svc.name}.rules.${rule.name}`, `write-вызов ${call.alias}.${call.op} в инварианте`, 'инварианты описывают наблюдения, а не изменения'));
+          diags.push(diag('A005', 'error', mod.file, expr.loc, `services.${svc.name}.rules.${rule.name}`, `write call ${call.alias}.${call.op} in an invariant`, 'invariants describe observations, not changes'));
         }
       });
     }
@@ -208,7 +208,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     );
     for (const use of svc.uses) {
       if (!usedAliases.has(use.alias) && !allowedAliases.has(use.alias) && !mentionsBareAlias(svc, use.alias)) {
-        diags.push(diag('W011', 'warning', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`, `возможность ${use.capability} объявлена, но не используется`));
+        diags.push(diag('W011', 'warning', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`, `capability ${use.capability} is declared but not used`));
       }
     }
 
@@ -219,7 +219,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       if (op.kind === 'job') continue;
       for (const errorName of errorNames(op)) {
         if (!asserted.has(errorName) && !handled.has(errorName)) {
-          diags.push(diag('A007', 'error', mod.file, op.loc, `services.${svc.name}.contract.${op.name}.errors`, `ошибка ${errorName} объявлена, но не обработана`, `добавьте on error ${errorName} или пример с ${errorName}`));
+          diags.push(diag('A007', 'error', mod.file, op.loc, `services.${svc.name}.contract.${op.name}.errors`, `error ${errorName} is declared but not handled`, `add on error ${errorName} or an example with ${errorName}`));
         }
       }
     }
@@ -229,13 +229,13 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       .filter((op) => op.kind === 'op' && templateFor(op.name))
       .map((op) => op.name);
     if (templated.length > 0) {
-      diags.push(diag('W018', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'тела операций не заданы в спеке: ' + templated.join(', '), 'arcod impl сгенерирует их, build --reference подставит демо-тело, scaffold оставит TODO'));
+      diags.push(diag('W018', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'operation bodies are not specified: ' + templated.join(', '), 'arcod impl generates them, build --reference substitutes a demo body, scaffold leaves a TODO'));
     }
 
     // W017 — jobs are parsed but not executable in v0.1
     for (const op of svc.contract) {
       if (op.kind !== 'job') continue;
-      diags.push(diag('W017', 'warning', mod.file, op.loc, `services.${svc.name}.contract.${op.name}`, `job ${op.name} не исполняется в v0.1`, 'нет модели состояния и условия выборки; TTL — гарантия провайдера'));
+      diags.push(diag('W017', 'warning', mod.file, op.loc, `services.${svc.name}.contract.${op.name}`, `job ${op.name} is not executed in v0.1`, 'no state model or selection condition; TTL is a provider guarantee'));
     }
 
     // W012 — operation without examples
@@ -243,14 +243,14 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     for (const op of svc.contract) {
       if (op.kind === 'job') continue;
       if (!mentioned.has(op.name)) {
-        diags.push(diag('W012', 'warning', mod.file, op.loc, `services.${svc.name}.contract.${op.name}`, `операция ${op.name} не покрыта примерами`));
+        diags.push(diag('W012', 'warning', mod.file, op.loc, `services.${svc.name}.contract.${op.name}`, `operation ${op.name} has no examples`));
       }
     }
 
     // W013 — no budget (strict mode only). Omitting budget is legitimate:
     // the language has `unknown` precisely for undecided numbers.
     if (!svc.budget && options.strict) {
-      diags.push(diag('W013', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'бюджет не задан (необязательно)', 'добавьте budget с latency или cost, когда требования известны'));
+      diags.push(diag('W013', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'budget is not set (optional)', 'add budget with latency or cost once requirements are known'));
     }
 
     // A008 — budget metric without a comparison
@@ -258,7 +258,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       const needsMetric = item.key === 'latency' || item.key === 'cost';
       const hasComparison = item.op !== null || (item.expr.kind === 'binary' && ['<=', '<', '>=', '>', '=='].includes(item.expr.op));
       if (needsMetric && !hasComparison) {
-        diags.push(diag('A008', 'error', mod.file, item.loc, `services.${svc.name}.budget.${item.key}`, 'бюджет без метрики или единицы'));
+        diags.push(diag('A008', 'error', mod.file, item.loc, `services.${svc.name}.budget.${item.key}`, 'budget without a metric or unit'));
       }
     }
 
@@ -267,7 +267,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       if (rule.kind !== 'ordering') continue;
       const cycle = findCycle(rule.pairs);
       if (cycle) {
-        diags.push(diag('A010', 'error', mod.file, rule.loc, `services.${svc.name}.rules.ordering`, 'цикл в ordering: ' + cycle.join(' -> ')));
+        diags.push(diag('A010', 'error', mod.file, rule.loc, `services.${svc.name}.rules.ordering`, 'cycle in ordering: ' + cycle.join(' -> ')));
       }
     }
   }
@@ -275,7 +275,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   // A018 — ui references an operation that does not exist
   for (const ui of mod.uis) {
     if (ui.impl !== 'spa') {
-      diags.push(diag('A019', 'error', mod.file, ui.loc, 'ui.' + ui.name, 'ui kind ' + ui.impl + ' не поддерживается в v0.1', 'используйте kind: spa'));
+      diags.push(diag('A019', 'error', mod.file, ui.loc, 'ui.' + ui.name, 'ui kind ' + ui.impl + ' is not supported in v0.1', 'use kind: spa'));
     }
     // A036 — a chat layout must say which operation is the transcript and
     // which one sends a message; the page is not allowed to guess by name.
@@ -284,8 +284,8 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         const ref = ui[key];
         if (!ref) {
           diags.push(diag('A036', 'error', mod.file, ui.loc, 'ui.' + ui.name,
-            'layout: chat требует ' + key + ': Service.op',
-            'укажите операцию, у которой ' + (key === 'history' ? 'читается история' : 'отправляется сообщение')));
+            'layout: chat requires ' + key + ': Service.op',
+            'specify the operation that ' + (key === 'history' ? 'reads history' : 'sends a message')));
           continue;
         }
         const [svcName, opName] = ref.split('.');
@@ -293,7 +293,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         const op = target?.contract.find((item) => item.name === opName && item.kind === 'op' && item.isPublic);
         if (!target || !op) {
           diags.push(diag('A036', 'error', mod.file, ui.loc, 'ui.' + ui.name,
-            ref + ' не является публичной операцией модуля', 'history/send ссылаются на public op'));
+            ref + ' is not a public operation of the module', 'history/send must reference a public op'));
         }
       }
       if (ui.start) {
@@ -302,7 +302,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         const op = target?.contract.find((item) => item.name === opName && item.kind === 'op' && item.isPublic);
         if (!target || !op) {
           diags.push(diag('A036', 'error', mod.file, ui.loc, 'ui.' + ui.name,
-            ui.start + ' не является публичной операцией модуля', 'start создаёт диалог и возвращает его id'));
+            ui.start + ' is not a public operation of the module', 'start creates a dialogue and returns its id'));
         }
       }
     }
@@ -316,9 +316,9 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       const svc = mod.services.find((item) => item.name === parts[0]);
       const op = svc?.contract.find((item) => item.name === parts[1] && item.kind === 'op');
       if (!svc || !op) {
-        diags.push(diag('A018', 'error', mod.file, ui.loc, 'ui.' + ui.name + '.uses', 'ui ссылается на несуществующую операцию ' + ref));
+        diags.push(diag('A018', 'error', mod.file, ui.loc, 'ui.' + ui.name + '.uses', 'ui references a nonexistent operation ' + ref));
       } else if (!routeOf(op)) {
-        diags.push(diag('A018', 'error', mod.file, ui.loc, 'ui.' + ui.name + '.uses', 'операция ' + ref + ' без route не может вызываться из ui'));
+        diags.push(diag('A018', 'error', mod.file, ui.loc, 'ui.' + ui.name + '.uses', 'operation ' + ref + ' without a route cannot be called from ui'));
       }
     }
   }
@@ -328,7 +328,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   for (const err of mod.errors) {
     const mentions = allText.split(err.name).length - 1;
     if (mentions <= 1) {
-      diags.push(diag('W015', 'warning', mod.file, err.loc, `errors.${err.name}`, `ошибка ${err.name} объявлена, но нигде не используется`));
+      diags.push(diag('W015', 'warning', mod.file, err.loc, `errors.${err.name}`, `error ${err.name} is declared but never used`));
     }
   }
 
@@ -351,19 +351,19 @@ function checkWorkflows(mod: ModuleNode, diags: Diagnostic[]): void {
 
     // W022 — declarative only in v0.1, like job (W017).
     diags.push(diag('W022', 'warning', mod.file, wf.loc, path,
-      'workflow описывается, но не исполняется в v0.1',
-      'граф попадает в манифест deploy.<env>.json; запуск появится вместе с runner'));
+      'workflow is described but not executed in v0.1',
+      'the graph lands in the deploy.<env>.json manifest; execution arrives with the runner'));
 
     // A033 — a graph without a start is dead weight.
     if (!wf.trigger) {
-      diags.push(diag('A033', 'error', mod.file, wf.loc, path, 'workflow без trigger',
-        'добавьте trigger cron("...") | event(...) | manual | after Job'));
+      diags.push(diag('A033', 'error', mod.file, wf.loc, path, 'workflow without a trigger',
+        'add trigger cron("...") | event(...) | manual | after Job'));
     } else if (!['cron', 'event', 'manual', 'after'].includes(wf.trigger.kind)) {
       diags.push(diag('A033', 'error', mod.file, wf.trigger.loc, path + '.trigger',
-        'неизвестный триггер ' + wf.trigger.kind, 'cron, event, manual, after'));
+        'unknown trigger ' + wf.trigger.kind, 'cron, event, manual, after'));
     } else if (wf.trigger.kind === 'cron' && wf.trigger.args.length === 0) {
       diags.push(diag('A033', 'error', mod.file, wf.trigger.loc, path + '.trigger',
-        'cron без выражения', 'cron("0 3 * * *", tz: "Europe/Moscow")'));
+        'cron without an expression', 'cron("0 3 * * *", tz: "Europe/Moscow")'));
     }
 
     const byName = new Map<string, (typeof wf.steps)[number]>();
@@ -371,32 +371,32 @@ function checkWorkflows(mod: ModuleNode, diags: Diagnostic[]): void {
       // A032 — two steps with the same name make edges ambiguous.
       if (byName.has(step.name)) {
         diags.push(diag('A032', 'error', mod.file, step.loc, path + '.steps.' + step.name,
-          'шаг ' + step.name + ' объявлен дважды'));
+          'step ' + step.name + ' is declared twice'));
       }
       byName.set(step.name, step);
 
       // W023 — call points at an operation the module does not declare.
       if (step.call && !knownOps.has(step.call) && mod.uses.every((use) => use.what !== 'module')) {
         diags.push(diag('W023', 'warning', mod.file, step.loc, path + '.steps.' + step.name,
-          'call ' + step.call + ' не объявлен в модуле',
-          'тело шага должно быть операцией этого модуля или импортированного модуля'));
+          'call ' + step.call + ' is not declared in the module',
+          'the step body must be an operation of this module or of an imported module'));
       }
       if (!step.call) {
         diags.push(diag('W024', 'warning', mod.file, step.loc, path + '.steps.' + step.name,
-          'шаг без call: тело придётся сгенерировать по контракту',
-          'укажите call: Service.op, чтобы переиспользовать существующее тело'));
+          'step without call: the body has to be generated from the contract',
+          'specify call: Service.op to reuse an existing body'));
       }
 
       for (const need of step.needs) {
         if (need === step.name) {
           diags.push(diag('A030', 'error', mod.file, step.loc, path + '.steps.' + step.name,
-            'шаг ' + step.name + ' зависит от себя'));
+            'step ' + step.name + ' depends on itself'));
           continue;
         }
         // A029 — edge to a step that does not exist.
         if (!byName.has(need) && !wf.steps.some((item) => item.name === need)) {
           diags.push(diag('A029', 'error', mod.file, step.loc, path + '.steps.' + step.name,
-            'needs ссылается на неизвестный шаг ' + need));
+            'needs references an unknown step ' + need));
         }
       }
     }
@@ -405,7 +405,7 @@ function checkWorkflows(mod: ModuleNode, diags: Diagnostic[]): void {
     const cycle = findStepCycle(wf.steps.map((step) => [step.name, step.needs] as const));
     if (cycle) {
       diags.push(diag('A030', 'error', mod.file, wf.loc, path,
-        'цикл в графе: ' + cycle.join(' → '), 'зависимости должны образовывать DAG'));
+        'cycle in the graph: ' + cycle.join(' → '), 'dependencies must form a DAG'));
     }
 
     for (const step of wf.steps) {
@@ -417,12 +417,12 @@ function checkWorkflows(mod: ModuleNode, diags: Diagnostic[]): void {
         // A031 — every input port needs exactly one producer among the steps it waits for.
         if (producers.length === 0) {
           diags.push(diag('A031', 'error', mod.file, param.loc, path + '.steps.' + step.name + '.' + param.name,
-            'порт ' + param.name + ': ' + type + ' не производится ни одним из needs',
-            step.needs.length ? 'добавьте в needs шаг, возвращающий ' + type : 'добавьте needs с шагом, возвращающим ' + type));
+            'port ' + param.name + ': ' + type + ' is not produced by any of the needs',
+            step.needs.length ? 'add a step to needs that returns ' + type : 'add needs with a step that returns ' + type));
         } else if (producers.length > 1) {
           diags.push(diag('A031', 'error', mod.file, param.loc, path + '.steps.' + step.name + '.' + param.name,
-            'порт ' + param.name + ': ' + type + ' производят несколько шагов (' + producers.map((item) => item.name).join(', ') + ')',
-            'оставьте одного производителя в needs'));
+            'port ' + param.name + ': ' + type + ' is produced by several steps (' + producers.map((item) => item.name).join(', ') + ')',
+            'keep a single producer in needs'));
         }
       }
     }
@@ -433,8 +433,8 @@ function checkWorkflows(mod: ModuleNode, diags: Diagnostic[]): void {
       const consumers = wf.steps.filter((item) => item.needs.includes(step.name));
       if (consumers.length > 0) {
         diags.push(diag('W020', 'warning', mod.file, step.loc, path + '.steps.' + step.name,
-          'onFail: skip, но от шага зависят ' + consumers.map((item) => item.name).join(', '),
-          'зависимые шаги будут пропущены; используйте onFail: stop, если это не задумано'));
+          'onFail: skip, but these steps depend on it: ' + consumers.map((item) => item.name).join(', '),
+          'dependent steps will be skipped; use onFail: stop if that is not intended'));
       }
     }
   }
@@ -456,7 +456,7 @@ function checkExternalServices(mod: ModuleNode, diags: Diagnostic[]): void {
       // A037 — an operation without a route cannot be called remotely.
       if (!routeOf(op)) {
         diags.push(diag('A037', 'error', mod.file, op.loc, path + '.contract.' + op.name,
-          'у операции внешнего сервиса нет route', 'route: "POST /v1/..." описывает вызов'));
+          'an external service operation has no route', 'route: "POST /v1/..." describes the call'));
       }
     }
 
@@ -464,19 +464,19 @@ function checkExternalServices(mod: ModuleNode, diags: Diagnostic[]): void {
     // declarations would be silently ignored.
     for (const use of svc.uses) {
       diags.push(diag('A038', 'error', mod.file, use.loc, path + '.uses',
-        'внешний сервис не использует возможности', 'uses описывает то, что мы строим, а не то, что вызываем'));
+        'external service does not use capabilities', 'uses describes what we build, not what we call'));
     }
     if (svc.effects) {
       diags.push(diag('A038', 'error', mod.file, svc.effects.loc, path + '.effects',
-        'внешний сервис не объявляет эффекты', 'эффекты нужны тому сервису, который его вызывает'));
+        'external service does not declare effects', 'effects belong to the service that calls it'));
     }
 
     // A039 — the address binding must be an endpoint, not a provisioned provider.
     for (const [alias, provider] of bound) {
       if (alias === svc.name && provider !== 'endpoint') {
         diags.push(diag('A039', 'error', mod.file, svc.loc, path,
-          svc.name + ' привязан к ' + provider + ', а не к endpoint',
-          'внешний сервис описывается адресом: bind ' + svc.name + ' -> endpoint(url: "...")'));
+          svc.name + ' is bound to ' + provider + ', not to endpoint',
+          'an external service is described by its address: bind ' + svc.name + ' -> endpoint(url: "...")'));
       }
     }
 
@@ -488,8 +488,8 @@ function checkExternalServices(mod: ModuleNode, diags: Diagnostic[]): void {
     ));
     if (used && !bound.has(svc.name)) {
       diags.push(diag('W026', 'warning', mod.file, svc.loc, path,
-        'внешний сервис ' + svc.name + ' не привязан в окружении',
-        'добавьте bind ' + svc.name + ' -> endpoint(url: "...")'));
+        'external service ' + svc.name + ' is not bound in the environment',
+        'add bind ' + svc.name + ' -> endpoint(url: "...")'));
     }
   }
 }
@@ -564,23 +564,23 @@ function checkPresentation(
     const svc = mod.services.find((item) => item.name === svcName);
     const op = svc?.contract.find((item) => item.name === opName && item.kind === 'op' && item.isPublic);
     if (!op || !routeOf(op)) {
-      diags.push(diag('A018', 'error', mod.file, ui.loc, where, 'ui ссылается на несуществующую операцию ' + ref));
+      diags.push(diag('A018', 'error', mod.file, ui.loc, where, 'ui references a nonexistent operation ' + ref));
       return false;
     }
     return true;
   };
 
   const requirement: Record<string, string> = {
-    start: 'создаёт сеанс и возвращает его код',
-    join: 'подключает участника по коду',
-    state: 'отдаёт текущий слайд, счётчики и комментарии',
-    advance: 'переключает слайд (только ведущий)',
+    start: 'creates the session and returns its code',
+    join: 'joins a participant by code',
+    state: 'returns the current slide, counters and comments',
+    advance: 'switches the slide (host only)',
   };
   for (const key of ['start', 'join', 'state', 'advance'] as const) {
     if (!ui[key]) {
       diags.push(diag('A040', 'error', mod.file, ui.loc, where,
-        'layout: presentation требует ' + key + ': Service.op',
-        'укажите операцию, которая ' + requirement[key]));
+        'layout: presentation requires ' + key + ': Service.op',
+        'specify the operation that ' + requirement[key]));
     } else {
       has(ui[key]);
     }
@@ -591,8 +591,8 @@ function checkPresentation(
   }
 
   if (ui.slides.length === 0) {
-    diags.push(diag('A041', 'error', mod.file, ui.loc, where, 'в презентации нет ни одного слайда',
-      'добавьте slide "Заголовок" { ... }'));
+    diags.push(diag('A041', 'error', mod.file, ui.loc, where, 'the presentation has no slides',
+      'add slide "Title" { ... }'));
   }
 
   // A045 — a widget without its operation would render controls that cannot do
@@ -604,7 +604,7 @@ function checkPresentation(
   for (const slide of ui.slides) {
     if (!slide.widget) {
       diags.push(diag('A042', 'error', mod.file, slide.loc, where + '.slide',
-        'слайд "' + slide.title + '" без виджета', 'добавьте poll(...), rating, comments или qr'));
+        'slide "' + slide.title + '" has no widget', 'add poll(...), rating, comments or qr'));
       continue;
     }
     const widget = slide.widget;
@@ -612,16 +612,16 @@ function checkPresentation(
     const key = binding[widget.kind];
     if (key && !ui[key]) {
       diags.push(diag('A045', 'error', mod.file, widget.loc, where + '.slide',
-        'виджет ' + widget.kind + ' требует ' + key + ': Service.op',
-        'без этой привязки виджет не сможет отправить ответ'));
+        'widget ' + widget.kind + ' requires ' + key + ': Service.op',
+        'without this binding the widget cannot send an answer'));
     }
     if (widget.kind === 'poll' && widget.options.length < 2) {
       diags.push(diag('A043', 'error', mod.file, widget.loc, where + '.slide',
-        'poll требует минимум два варианта', 'poll("Да", "Нет")'));
+        'poll requires at least two options', 'poll("Yes", "No")'));
     }
     if (widget.kind === 'rating' && (!widget.max || widget.max < 2 || widget.max > 10)) {
       diags.push(diag('A044', 'error', mod.file, widget.loc, where + '.slide',
-        'rating(max: n) требует 2 <= n <= 10', 'rating(max: 5)'));
+        'rating(max: n) requires 2 <= n <= 10', 'rating(max: 5)'));
     }
   }
 
@@ -632,14 +632,14 @@ function checkPresentation(
   const streams = Boolean(hostSvc && hostSvc.uses.some((use) => use.capability === 'stream' || use.capability.endsWith('.stream')));
   if (!streams && hostSvc) {
     diags.push(diag('W028', 'warning', mod.file, ui.loc, where,
-      'презентация без stream: страница опрашивает состояние раз в 1.5 с',
-      'добавьте uses stream: stream в ' + hostSvc.name + ' и bind stream -> websocket() в environment'));
+      'presentation without stream: the page polls state every 1.5 s',
+      'add uses stream: stream in ' + hostSvc.name + ' and bind stream -> websocket() in environment'));
   }
 
   if (!hasQr && ui.slides.length > 0) {
     diags.push(diag('W027', 'warning', mod.file, ui.loc, where,
-      'ни на одном слайде нет qr: участники не увидят ссылку на сеанс',
-      'добавьте slide "Подключение" { qr }'));
+      'no slide has qr: participants will not see the session link',
+      'add slide "Join" { qr }'));
   }
 }
 

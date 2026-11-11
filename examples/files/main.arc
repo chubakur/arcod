@@ -88,7 +88,7 @@ service FileShare : http {
 ui Web {
   kind: spa
   route: "/"
-  title: "Файлы"
+  title: "Files"
   uses FileShare.upload, FileShare.list, FileShare.download, FileShare.setVisibility, FileShare.users
 }
 

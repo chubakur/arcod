@@ -416,7 +416,7 @@ service Messages : http {
 ui Web {
   kind: spa
   route: "/"
-  title: "Форма"
+  title: "Form"
   uses Messages.create, Messages.read
 }
 
@@ -546,7 +546,10 @@ test('a presentation is a deck with checked widgets', () => {
   const ui = quizAst.uis[0];
   assert.equal(ui.layout, 'presentation');
   assert.deepEqual(ui.slides.map((slide) => slide.widget!.kind), ['poll', 'qr', 'rating', 'comments']);
-  assert.deepEqual(ui.slides[0].widget!.options, ['Бэкенд', 'Фронтенд', 'QA', 'Продукт']);
+  const pollLine = quizSource.split('\n').find((line) => /^\s*poll\(/.test(line))!;
+  const pollOptions = pollLine.slice(pollLine.indexOf('(') + 1, pollLine.lastIndexOf(')'))
+    .split(',').map((item) => item.trim().replace(/^"|"$/g, ''));
+  assert.deepEqual(ui.slides[0].widget!.options, pollOptions);
   assert.equal(ui.slides[2].widget!.max, 5);
 
   const diags = check(quizAst);
@@ -562,13 +565,13 @@ test('a presentation without its bindings does not compile', () => {
 
   assert.ok(codes(quizSource.replace('  join:    Live.join\n', '')).includes('A040'), 'A040: no join');
   assert.ok(codes(quizSource.replace('  vote:    Live.vote\n', '')).includes('A045'), 'A045: poll without vote');
-  assert.ok(codes(quizSource.replace('poll("Бэкенд", "Фронтенд", "QA", "Продукт")', 'poll("Бэкенд")')).includes('A043'), 'A043: one option');
+  assert.ok(codes(quizSource.replace(/poll\([^)\n]*\)/, 'poll("Only")')).includes('A043'), 'A043: one option');
   assert.ok(codes(quizSource.replace('rating(max: 5)', 'rating(max: 1)')).includes('A044'), 'A044: bad scale');
-  assert.ok(codes(quizSource.replace('    poll("Бэкенд", "Фронтенд", "QA", "Продукт")\n', '')).includes('A042'), 'A042: slide without a widget');
+  assert.ok(codes(quizSource.replace(/^\s*poll\([^)\n]*\)\n/m, '')).includes('A042'), 'A042: slide without a widget');
 
   const noSlides = quizSource.replace(/  slide[\s\S]*?\n  }\n/g, '');
   assert.ok(codes(noSlides).includes('A041'), 'A041: empty deck');
-  const noQr = quizSource.replace(/  slide "Подключение" \{[\s\S]*?\n  }\n/, '');
+  const noQr = quizSource.replace(/ {2}slide "[^"\n]*" \{\n {4}body: "[^"\n]*"\n {4}qr\n {2}\}\n/, '');
   assert.ok(codes(noQr).includes('W027'), 'W027: nobody sees the join link');
 });
 
@@ -576,7 +579,9 @@ test('the presentation page carries the deck, the bindings and a real QR encoder
   const html = emitWeb(quizAst, { maxBytes: 2_000_000 });
   assert.ok(!/__[A-Z]+__/.test(html), 'no unexpanded placeholders');
   assert.ok(html.includes('"kind":"poll"') && html.includes('"kind":"comments"'), 'the deck is embedded');
-  assert.ok(html.includes('"Join"' ) === false);
+  const titles = quizAst.uis[0].slides.map((slide) => slide.title);
+  assert.ok(titles.every((title) => html.includes(title)), 'every slide title is in the page');
+  assert.ok(html.includes('"stream":true'), 'the deck knows it has a socket');
   assert.ok(html.includes('POST') && html.includes('/v1/sessions/:code/join'), 'operations are described');
   assert.ok(html.includes('var qrcode=function'), 'the QR encoder is inline, not a CDN');
 });
@@ -585,8 +590,8 @@ test('the quiz example builds a working page and keeps its bodies', async () => 
   const dir = await mkdtemp(join(tmpdir(), 'arcod-quiz-'));
   const built = await buildExample(quizAst, dir, { implDir: quizImplDir });
   const html = await readFile(join(built.dir, 'web', 'index.html'), 'utf8');
-  assert.ok(html.includes('Квиз: arcod'));
-  assert.ok(html.includes('"options":["Бэкенд","Фронтенд","QA","Продукт"]'));
+  assert.ok(html.includes(quizAst.uis[0].title));
+  assert.ok(html.includes(JSON.stringify(quizAst.uis[0].slides[0].widget!.options)));
   assert.equal(built.impl.length, 7);
 });
 
@@ -774,7 +779,7 @@ test('layout: chat renders a transcript instead of forms', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'arcod-chat-page-'));
   const built = await buildExample(chatAst, dir, { implDir: chatImplDir });
   const page = await readFile(join(built.dir, 'web', 'index.html'), 'utf8');
-  assert.ok(page.includes('Новый диалог'));
+  assert.ok(page.includes('New conversation'));
   assert.ok(page.includes('"textParam":"text"'), 'the send operation names its message field');
   assert.ok(!page.includes('id="ops"'), 'no generic form grid');
 
@@ -825,7 +830,7 @@ test('the plan and the manifest both carry the graph', () => {
   const plan = buildPlan(ast);
   const task = plan.tasks.find((item) => item.title.includes('workflow Nightly'));
   assert.ok(task, 'workflow is a planning task');
-  assert.ok(task!.acceptance.some((line) => line.includes('граф')));
+  assert.ok(task!.acceptance.some((line) => line.includes('graph')));
 
   const env = ast.environments[0];
   const manifest = deployManifest(ast, env) as { workflows: Array<Record<string, unknown>> };

@@ -78,7 +78,7 @@ service OneTimeMessage : http {
 ui Web {
   kind:  spa
   route: "/"
-  title: "Одноразовое сообщение"
+  title: "One-time message"
   uses  OneTimeMessage.create, OneTimeMessage.read
 }
 

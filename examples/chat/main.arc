@@ -58,7 +58,7 @@ service Chat : http {
 ui Web {
   kind:    spa
   route:   "/"
-  title:   "Чат с агентом"
+  title:   "Chat with an agent"
   layout:  chat
   history: Chat.history
   send:    Chat.send
@@ -69,8 +69,8 @@ ui Web {
 environment dev {
   bind store -> mysql(host: "db", port: 3306)
   bind uuid -> local
-  // Локальная модель. host.docker.internal — это машина с Ollama; порт и
-  // модель — аргументы привязки, а не часть модели.
+  // A local model. host.docker.internal is the machine running Ollama; the
+  // port and the model are binding arguments, not part of the model.
   bind llm -> ollama(host: "host.docker.internal", port: 11434, model: "qwen2.5-coder:7b")
   deploy docker
 }
@@ -78,7 +78,7 @@ environment dev {
 environment prod {
   bind store -> postgres(host: "pg", port: 5432)
   bind uuid -> local
-  // Тот же контракт, другой провайдер: любой OpenAI-совместимый эндпоинт.
+  // Same contract, another provider: any OpenAI-compatible endpoint.
   bind llm -> openai(model: "gpt-4o-mini")
   deploy yandex(region: "ru-central1", folder: "arcod-prod", service: "chat", image: "cr.yandex/arcod/chat:0.1.0")
 }

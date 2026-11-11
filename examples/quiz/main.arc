@@ -113,7 +113,7 @@ service Live : http {
 ui Stage {
   kind:    spa
   route:   "/"
-  title:   "Квиз: arcod"
+  title:   "Quiz: arcod"
   layout:  presentation
   start:   Live.start
   join:    Live.join
@@ -124,23 +124,23 @@ ui Stage {
   comment: Live.comment
   uses     Live.start, Live.join, Live.state, Live.advance, Live.vote, Live.rate, Live.comment
 
-  slide "Кто вы?" {
-    body: "Отметьте свою роль — результат появится на экране."
-    poll("Бэкенд", "Фронтенд", "QA", "Продукт")
+  slide "Who are you?" {
+    body: "Pick a role — the result appears on the screen."
+    poll("Backend", "Frontend", "QA", "Product")
   }
 
-  slide "Подключение" {
-    body: "Откройте ссылку или отсканируйте код, чтобы отвечать со своего телефона."
+  slide "Join" {
+    body: "Open the link or scan the code to answer from your phone."
     qr
   }
 
-  slide "Насколько полезно?" {
-    body: "Оцените доклад от 1 до 5."
+  slide "How useful was it?" {
+    body: "Rate the talk from 1 to 5."
     rating(max: 5)
   }
 
-  slide "Что осталось непонятным?" {
-    body: "Напишите вопрос — ведущий увидит его на экране."
+  slide "What is still unclear?" {
+    body: "Write a question — the host sees it on the screen."
     comments
   }
 }

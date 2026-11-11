@@ -2,7 +2,7 @@
 // spec (layout: chat) and told which operation reads history and which sends,
 // so nothing here depends on operation names.
 export const CHAT_PAGE = String.raw`<!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -43,18 +43,18 @@ export const CHAT_PAGE = String.raw`<!doctype html>
   </header>
   <p class="lead">__LEAD__</p>
   <section class="auth" id="auth" hidden>
-    <input id="token" type="password" autocomplete="off" placeholder="Bearer-токен">
-    <button type="button" id="save-token">Сохранить</button>
+    <input id="token" type="password" autocomplete="off" placeholder="Bearer token">
+    <button type="button" id="save-token">Save</button>
   </section>
   <div class="chat">
-    <div class="msgs" id="msgs"><div class="empty">Пока пусто — напишите первое сообщение.</div></div>
+    <div class="msgs" id="msgs"><div class="empty">Nothing here yet — send the first message.</div></div>
     <form class="composer" id="composer">
-      <textarea id="text" rows="2" placeholder="Сообщение… (Enter — отправить, Shift+Enter — новая строка)"></textarea>
-      <button class="primary" id="send" type="submit">Отправить</button>
+      <textarea id="text" rows="2" placeholder="Message… (Enter — send, Shift+Enter — new line)"></textarea>
+      <button class="primary" id="send" type="submit">Send</button>
     </form>
   </div>
   <div class="row" style="margin-top:10px">
-    <button type="button" id="reset">Новый диалог</button>
+    <button type="button" id="reset">New conversation</button>
     <span class="status" id="conv"></span>
   </div>
 </main>
@@ -138,7 +138,7 @@ function render(items) {
   if (!items || items.length === 0) {
     var empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'Пока пусто — напишите первое сообщение.';
+    empty.textContent = 'Nothing here yet — send the first message.';
     msgs.appendChild(empty);
     return;
   }
@@ -156,10 +156,10 @@ function append(item) {
 async function ensureConversation() {
   var id = localStorage.getItem(CONV_KEY);
   if (id) return id;
-  if (!OPS.start) throw new Error('в спеке нет start: нечем создать диалог');
+  if (!OPS.start) throw new Error('spec has no start operation: cannot create a conversation');
   var data = await request(OPS.start, {});
   id = typeof data === 'string' ? data : (data && (data.id || data.result));
-  if (!id) throw new Error('start не вернул id диалога');
+  if (!id) throw new Error('start did not return a conversation id');
   localStorage.setItem(CONV_KEY, id);
   return id;
 }
@@ -171,10 +171,10 @@ function conversationValues(op, id) {
 }
 
 async function loadHistory() {
-  setStatus('загрузка…');
+  setStatus('loading…');
   try {
     var id = await ensureConversation();
-    convEl.textContent = 'диалог ' + String(id).slice(0, 8);
+    convEl.textContent = 'conversation ' + String(id).slice(0, 8);
     var items = await request(OPS.history, conversationValues(OPS.history, id));
     render(Array.isArray(items) ? items : (items && items.result) || []);
     setStatus('');
@@ -205,7 +205,7 @@ form.addEventListener('submit', async function (event) {
   if (!text) return;
   input.value = '';
   sendButton.disabled = true;
-  setStatus('модель думает…');
+  setStatus('model is thinking…');
   try {
     await send(text);
     setStatus('');

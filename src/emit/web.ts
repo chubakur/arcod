@@ -30,7 +30,7 @@ interface UiOp {
 }
 
 const PAGE = String.raw`<!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -72,10 +72,10 @@ const PAGE = String.raw`<!doctype html>
   <h1>__TITLE__</h1>
   <p class="lead">__LEAD__</p>
   <section class="auth" id="auth" hidden>
-    <label style="flex:1">Токен доступа
-      <input id="token" type="password" autocomplete="off" placeholder="Bearer-токен">
+    <label style="flex:1">Access token
+      <input id="token" type="password" autocomplete="off" placeholder="Bearer token">
     </label>
-    <button type="button" id="save-token" style="align-self:end">Сохранить</button>
+    <button type="button" id="save-token" style="align-self:end">Save</button>
   </section>
   <div id="ops"></div>
 </main>
@@ -91,7 +91,7 @@ function saveToken() {
   if (value) localStorage.setItem(TOKEN_KEY, value);
   else localStorage.removeItem(TOKEN_KEY);
   byId('token').value = '';
-  byId('token').placeholder = value ? 'токен сохранён' : 'Bearer-токен';
+  byId('token').placeholder = value ? 'token saved' : 'Bearer token';
 }
 
 function showError(out, text) {
@@ -123,7 +123,7 @@ function renderResult(out, status, data, raw) {
 
   if (data === null) {
     var pre = document.createElement('pre');
-    pre.textContent = raw || '(пустой ответ)';
+    pre.textContent = raw || '(empty response)';
     out.appendChild(pre);
     return;
   }
@@ -140,7 +140,7 @@ function renderResult(out, status, data, raw) {
     if (data.length === 0) {
       var empty = document.createElement('div');
       empty.className = 'empty';
-      empty.textContent = 'пусто';
+      empty.textContent = 'empty';
       out.appendChild(empty);
       return;
     }
@@ -214,7 +214,7 @@ async function run(op, form, out, button) {
       try {
         value = JSON.parse(raw);
       } catch (error) {
-        problem = p.name + ': не JSON';
+        problem = p.name + ': not JSON';
         return;
       }
     }
@@ -228,7 +228,7 @@ async function run(op, form, out, button) {
   });
 
   if (problem) {
-    showError(out, 'Заполните поле: ' + problem);
+    showError(out, 'Fill in the field: ' + problem);
     return;
   }
   if (query.toString()) url += '?' + query.toString();
@@ -245,7 +245,7 @@ async function run(op, form, out, button) {
 
   button.disabled = true;
   out.hidden = false;
-  out.innerHTML = '<div class="status">запрос…</div>';
+  out.innerHTML = '<div class="status">request…</div>';
   try {
     var response = await fetch(url, init);
     var raw = await response.text();
@@ -293,14 +293,14 @@ function build() {
     var form = document.createElement('form');
     op.params.forEach(function (p) {
       var label = document.createElement('label');
-      label.textContent = p.name + (p.kind === 'json' ? ' (JSON)' : '') + (p.optional ? ' — необязательно' : '');
+      label.textContent = p.name + (p.kind === 'json' ? ' (JSON)' : '') + (p.optional ? ' — optional' : '');
       label.appendChild(fieldControl(p));
       form.appendChild(label);
     });
 
     var button = document.createElement('button');
     button.type = 'submit';
-    button.textContent = 'Выполнить';
+    button.textContent = 'Run';
     form.appendChild(button);
 
     var out = document.createElement('div');
@@ -471,14 +471,14 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
     const chat = chatOps(mod, svc, ui);
     return CHAT_PAGE
       .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
-      .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · диалог с моделью'))
+      .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · chat with the model'))
       .replaceAll('__CHAT_OPS__', JSON.stringify(chat))
       .replaceAll('__HAS_AUTH__', hasAuth || guarded ? 'true' : 'false');
   }
 
   return PAGE
     .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
-    .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · операций: ' + ops.length))
+    .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · operations: ' + ops.length))
     .replaceAll('__OPS__', JSON.stringify(ops))
     .replaceAll('__HAS_AUTH__', hasAuth || guarded ? 'true' : 'false');
 }

@@ -90,7 +90,7 @@ service GuardedMessage : http {
 ui Web {
   kind:  spa
   route: "/"
-  title: "Сообщение с паролем"
+  title: "Password-protected message"
   uses  GuardedMessage.create, GuardedMessage.read
 }
 

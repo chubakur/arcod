@@ -127,8 +127,8 @@ async function runDeploy(flags: Flags): Promise<void> {
     : loaded.mod.environments[0];
   if (!env) throw new Error('no environment to deploy' + (flags.env ? ': ' + flags.env : ''));
   if (!env.deploy) {
-    console.log(env.name + ': deploy не объявлен (по умолчанию считается docker)');
-    console.log('доступные провайдеры: ' + deployNames().join(', '));
+    console.log(env.name + ': deploy is not declared (docker is assumed by default)');
+    console.log('available providers: ' + deployNames().join(', '));
     return;
   }
   const spec = deployProvider(env.deploy.provider);
@@ -142,12 +142,12 @@ async function runDeploy(flags: Flags): Promise<void> {
   console.log(formatDeploy(loaded.mod, env));
   console.log('');
   if (spec.artifacts === 'compose') {
-    console.log('артефакт: docker-compose.yml — локальная сборка');
-    console.log('запуск: arcod run ' + (flags.spec ?? '.'));
+    console.log('artifact: docker-compose.yml — local build');
+    console.log('run: arcod run ' + (flags.spec ?? '.'));
     return;
   }
-  console.log('артефакт: deploy.' + env.name + '.json — манифест, пишется при arcod build');
-  console.log('провайдер пока декларативный: ни кредов, ни вызовов API');
+  console.log('artifact: deploy.' + env.name + '.json — manifest, written by arcod build');
+  console.log('provider is declarative for now: no credentials, no API calls');
 }
 
 async function runPlan(flags: Flags): Promise<void> {
@@ -381,7 +381,7 @@ async function runRun(flags: Flags): Promise<void> {
   }
   const docker = spawnSync('docker', ['info'], { stdio: 'ignore' });
   if (docker.status !== 0) {
-    console.error('docker не запущен или недоступен');
+    console.error('docker is not running or unavailable');
     process.exitCode = 1;
     return;
   }
@@ -399,7 +399,7 @@ async function runRun(flags: Flags): Promise<void> {
   if (flags.detach) {
     const code = compose(result, ['up', '--build', '-d'], flags);
     if (code === 0) {
-      console.log('остановить: ' + (flags.spec ? 'arcod run ' + flags.spec + ' --down' : 'arcod run --down'));
+      console.log('stop: ' + (flags.spec ? 'arcod run ' + flags.spec + ' --down' : 'arcod run --down'));
     }
     process.exitCode = code;
     return;

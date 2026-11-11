@@ -9,8 +9,8 @@ module payments @0.1.0 {
 use capability arcod.std.kv @1
 use capability arcod.std.ids @1
 
-// Чужой сервис. Описываем только то, что вызываем: маршруты и типы.
-// Ни контейнера, ни тела, ни тестов для него не генерируется.
+// Somebody else's service. We describe only what we call: routes and types.
+// No container, no bodies, no tests are generated for it.
 external service Ledger : http {
   contract {
     op record(entry: Entry) -> Receipt {
@@ -50,8 +50,8 @@ service Orders : http {
 environment dev {
   bind store  -> redis(host: "kv", port: 6379)
   bind uuid   -> local
-  // Адрес чужого сервиса. localhost перепишется в host.docker.internal,
-  // чтобы контейнер дотянулся до процесса на машине разработчика.
+  // The address of the foreign service. localhost is rewritten to
+  // host.docker.internal, so the container reaches the developer machine.
   bind Ledger -> endpoint(url: "http://localhost:9009")
   deploy docker
 }

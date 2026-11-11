@@ -496,7 +496,7 @@ class Parser {
       } else if (key === 'layout') {
         const value = this.expectIdent('ui layout').value;
         if (value !== 'forms' && value !== 'chat' && value !== 'presentation') {
-          this.error('layout должен быть forms, chat или presentation');
+          this.error('layout must be forms, chat or presentation');
         }
         ui.layout = value;
       } else if (key === 'history' || key === 'send' || key === 'start'
@@ -513,14 +513,14 @@ class Parser {
     return ui;
   }
 
-  // slide "Заголовок" {
-  //   body: "Текст слайда"
-  //   poll("Да", "Нет")
+  // slide "Title" {
+  //   body: "Slide text"
+  //   poll("Yes", "No")
   // }
   private parseSlide(): UiSlide {
     const start = this.expect('slide');
     const title = this.next();
-    if (title.kind !== 'string') this.error('slide требует заголовок в кавычках');
+    if (title.kind !== 'string') this.error('slide requires a quoted title');
     let body: string | null = null;
     let widget: UiWidget | null = null;
     this.expect('{');
@@ -584,7 +584,7 @@ class Parser {
       if (key === 'overlap') {
         const value = this.expectIdent('overlap policy').value;
         if (value !== 'skip' && value !== 'queue' && value !== 'parallel') {
-          this.error('overlap должен быть skip, queue или parallel');
+          this.error('overlap must be skip, queue or parallel');
         }
         wf.overlap = value;
         continue;
@@ -592,7 +592,7 @@ class Parser {
       if (key === 'catchup') {
         const value = this.expectIdent('catchup policy').value;
         if (value !== 'none' && value !== 'last' && value !== 'all') {
-          this.error('catchup должен быть none, last или all');
+          this.error('catchup must be none, last or all');
         }
         wf.catchup = value;
         continue;
@@ -643,7 +643,7 @@ class Parser {
       if (key === 'onFail' || key === 'onfail' || key === 'on_fail') {
         const value = this.expectIdent('failure policy').value;
         if (value !== 'stop' && value !== 'skip' && value !== 'retry' && value !== 'continue') {
-          this.error('onFail должен быть stop, skip, retry или continue');
+          this.error('onFail must be stop, skip, retry or continue');
         }
         step.onFail = value;
         continue;
@@ -664,12 +664,12 @@ class Parser {
       return { kind: expr.callee.name, args: expr.args, loc: expr.loc };
     }
     if (expr.kind === 'ident') return { kind: expr.name, args: [], loc: expr.loc };
-    this.error('trigger должен быть cron(...), event(...), manual или after Job');
+    this.error('trigger must be cron(...), event(...), manual or after Job');
   }
 
   private parseIntLiteral(what: string): number {
     const tok = this.peek();
-    if (tok.kind !== 'number') this.error(what + ' должен быть числом');
+    if (tok.kind !== 'number') this.error(what + ' must be a number');
     this.next();
     return Number(tok.value);
   }

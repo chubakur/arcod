@@ -3,7 +3,7 @@
 // declared in the spec, so the page never guesses what is on a slide; the
 // service only stores the position and the answers.
 export const PRESENTATION_PAGE = String.raw`<!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -107,7 +107,7 @@ function build(op, values) {
   return { url: url, init: init };
 }
 async function call(op, values) {
-  if (!op) throw new Error('операция не объявлена в ui');
+  if (!op) throw new Error('operation is not declared in ui');
   var req = build(op, values);
   var res = await fetch(req.url, req.init);
   var raw = await res.text();
@@ -167,7 +167,7 @@ function landing(note) {
   app.replaceChildren();
   var head = el('div', 'card');
   head.appendChild(el('h1', null, TITLE));
-  head.appendChild(el('p', 'muted', 'Ведущий открывает сеанс на большом экране, участники подключаются по коду или QR.'));
+  head.appendChild(el('p', 'muted', 'The host opens a session on the big screen; participants join with a code or QR.'));
   if (note) head.appendChild(el('p', 'muted', note));
   app.appendChild(head);
 
@@ -175,9 +175,9 @@ function landing(note) {
   grid.style.marginTop = '16px';
 
   var host = el('div', 'card');
-  host.appendChild(el('h2', null, 'Я ведущий'));
-  host.appendChild(el('p', 'muted', 'Создайте сеанс: получите код, QR и слайды.'));
-  var create = el('button', 'primary', 'Создать сеанс');
+  host.appendChild(el('h2', null, 'I am the host'));
+  host.appendChild(el('p', 'muted', 'Create a session to get a code, a QR and the slides.'));
+  var create = el('button', 'primary', 'Create session');
   create.onclick = async function () {
     create.disabled = true;
     try {
@@ -187,22 +187,22 @@ function landing(note) {
       route();
     } catch (error) {
       create.disabled = false;
-      toast('Не удалось создать сеанс: ' + (error.code || error.message));
+      toast('Could not create the session: ' + (error.code || error.message));
     }
   };
   host.appendChild(create);
   grid.appendChild(host);
 
   var guest = el('div', 'card');
-  guest.appendChild(el('h2', null, 'Я участник'));
+  guest.appendChild(el('h2', null, 'I am a participant'));
   var codeInput = el('input');
-  codeInput.placeholder = 'Код сеанса';
+  codeInput.placeholder = 'Session code';
   codeInput.autocapitalize = 'characters';
   codeInput.style.marginBottom = '10px';
   var nameInput = el('input');
-  nameInput.placeholder = 'Ваше имя';
+  nameInput.placeholder = 'Your name';
   nameInput.style.marginBottom = '10px';
-  var join = el('button', 'primary', 'Войти');
+  var join = el('button', 'primary', 'Join');
   join.onclick = function () { enterAsGuest(codeInput.value.trim().toUpperCase(), nameInput.value.trim()); };
   guest.appendChild(codeInput);
   guest.appendChild(nameInput);
@@ -212,7 +212,7 @@ function landing(note) {
 }
 
 async function enterAsGuest(code, name) {
-  if (!code || !name) { toast('Нужны код сеанса и имя'); return; }
+  if (!code || !name) { toast('Session code and name are required'); return; }
   try {
     var member = await call(OPS.join, { code: code, name: name });
     keep(GUEST_PREFIX + code, { id: member.id, token: member.token, name: name, code: code });
@@ -220,7 +220,7 @@ async function enterAsGuest(code, name) {
     location.hash = '#/join?code=' + encodeURIComponent(code);
     route();
   } catch (error) {
-    toast(error.code === 'NotFound' ? 'Сеанс не найден' : 'Не удалось войти: ' + (error.code || error.message));
+    toast(error.code === 'NotFound' ? 'Session not found' : 'Could not join: ' + (error.code || error.message));
   }
 }
 
@@ -294,9 +294,9 @@ async function hostView(session) {
   app.replaceChildren();
   var head = el('div', 'card stage-head');
   var left = el('div');
-  left.appendChild(el('div', 'pill', 'сеанс ' + session.code));
+  left.appendChild(el('div', 'pill', 'session ' + session.code));
   left.appendChild(el('h1', null, TITLE));
-  left.appendChild(el('p', 'muted', 'Участники: ' + (current.joined || 0)));
+  left.appendChild(el('p', 'muted', 'Participants: ' + (current.joined || 0)));
   head.appendChild(left);
   var right = el('div');
   right.style.textAlign = 'center';
@@ -309,8 +309,8 @@ async function hostView(session) {
   app.appendChild(stage);
 
   var foot = el('div', 'foot');
-  var prev = el('button', null, '← Назад');
-  var next = el('button', 'primary', 'Далее →');
+  var prev = el('button', null, '← Back');
+  var next = el('button', 'primary', 'Next →');
   var progress = el('span', 'muted', '');
   foot.appendChild(prev);
   foot.appendChild(progress);
@@ -323,7 +323,7 @@ async function hostView(session) {
     busy = true;
     call(OPS.advance, { id: session.id, token: session.token, delta: delta, total: DECK.slides.length })
       .then(function (state) { current = state; renderHost(stage, state, session); })
-      .catch(function (error) { toast('Не удалось переключить слайд: ' + (error.code || error.message)); })
+      .catch(function (error) { toast('Could not change the slide: ' + (error.code || error.message)); })
       .finally(function () { busy = false; });
   }
   prev.onclick = function () { move(-1); };
@@ -334,10 +334,10 @@ async function hostView(session) {
       var state = await call(OPS.state, { id: session.id, token: session.token });
       current = state;
       renderHost(stage, state, session);
-      if (left.lastChild && left.lastChild.className === 'muted') left.lastChild.textContent = 'Участники: ' + (state.joined || 0);
+      if (left.lastChild && left.lastChild.className === 'muted') left.lastChild.textContent = 'Participants: ' + (state.joined || 0);
       progress.textContent = (state.index + 1) + ' / ' + DECK.slides.length;
     } catch (error) {
-      if (error.code === 'NotFound') { drop(HOST_KEY); stopPolling(); landing('Сеанс больше не существует.'); }
+      if (error.code === 'NotFound') { drop(HOST_KEY); stopPolling(); landing('The session no longer exists.'); }
     }
   }
   await tick();
@@ -348,11 +348,11 @@ function renderHost(stage, state, session) {
   stage.replaceChildren();
   var slide = slideAt(state.index);
   if (!slide) {
-    stage.appendChild(el('h2', null, 'Слайдов больше нет'));
-    stage.appendChild(el('p', 'muted', 'Вернитесь назад или создайте новый сеанс.'));
+    stage.appendChild(el('h2', null, 'No more slides'));
+    stage.appendChild(el('p', 'muted', 'Go back or create a new session.'));
     return;
   }
-  stage.appendChild(el('div', 'pill', 'слайд ' + (state.index + 1) + ' из ' + DECK.slides.length));
+  stage.appendChild(el('div', 'pill', 'slide ' + (state.index + 1) + ' of ' + DECK.slides.length));
   stage.appendChild(el('h2', null, slide.title));
   if (slide.body) stage.appendChild(el('p', 'slide-body', slide.body));
   var widget = slide.widget;
@@ -361,7 +361,7 @@ function renderHost(stage, state, session) {
     var box = el('div', 'row');
     box.appendChild(qrBox(joinLink()));
     var info = el('div');
-    info.appendChild(el('div', 'muted', 'Откройте ссылку или отсканируйте код'));
+    info.appendChild(el('div', 'muted', 'Open the link or scan the code'));
     var link = el('div', 'code', joinLink());
     link.style.fontSize = '16px';
     link.style.wordBreak = 'break-all';
@@ -388,7 +388,7 @@ function renderHost(stage, state, session) {
       list.appendChild(bar);
     });
     stage.appendChild(list);
-    stage.appendChild(el('p', 'muted', 'Голосов: ' + total));
+    stage.appendChild(el('p', 'muted', 'Votes: ' + total));
     return;
   }
   if (widget.kind === 'rating') {
@@ -397,19 +397,19 @@ function renderHost(stage, state, session) {
     var row = el('div', 'row');
     row.appendChild(el('div', 'big', average == null ? '—' : Number(average).toFixed(1)));
     var meta = el('div');
-    meta.appendChild(el('div', 'muted', 'из ' + widget.max));
-    meta.appendChild(el('div', 'muted', 'оценок: ' + rated));
+    meta.appendChild(el('div', 'muted', 'out of ' + widget.max));
+    meta.appendChild(el('div', 'muted', 'ratings: ' + rated));
     row.appendChild(meta);
     stage.appendChild(row);
     return;
   }
   if (widget.kind === 'comments') {
     var comments = state.comments || [];
-    if (comments.length === 0) { stage.appendChild(el('p', 'muted', 'Комментариев пока нет.')); return; }
+    if (comments.length === 0) { stage.appendChild(el('p', 'muted', 'No comments yet.')); return; }
     var feed = el('div', 'comments');
     comments.slice(-12).reverse().forEach(function (item) {
       var row = el('div', 'comment');
-      row.appendChild(el('b', null, item.name || 'аноним'));
+      row.appendChild(el('b', null, item.name || 'anonymous'));
       row.appendChild(el('span', null, item.text || ''));
       feed.appendChild(row);
     });
@@ -423,12 +423,12 @@ async function guestView(member) {
   app.replaceChildren();
   if (member.pending) {
     app.appendChild(el('h1', null, TITLE));
-    app.appendChild(el('p', 'muted', 'Сеанс ' + member.code + '. Представьтесь, чтобы войти.'));
+    app.appendChild(el('p', 'muted', 'Session ' + member.code + '. Introduce yourself to join.'));
     var nameInput = el('input');
-    nameInput.placeholder = 'Ваше имя';
+    nameInput.placeholder = 'Your name';
     nameInput.style.maxWidth = '320px';
     nameInput.style.marginBottom = '10px';
-    var button = el('button', 'primary', 'Войти');
+    var button = el('button', 'primary', 'Join');
     button.onclick = function () { enterAsGuest(member.code, nameInput.value.trim()); };
     app.appendChild(nameInput);
     app.appendChild(button);
@@ -438,7 +438,7 @@ async function guestView(member) {
 
   var head = el('div', 'row');
   head.appendChild(el('span', 'pill', member.name));
-  head.appendChild(el('span', 'pill', 'в сеансе'));
+  head.appendChild(el('span', 'pill', 'in session'));
   app.appendChild(head);
 
   var stage = el('div', 'card slide');
@@ -449,14 +449,14 @@ async function guestView(member) {
   function renderGuest(state, slider) {
     stage.replaceChildren();
     var slide = slideAt(state.index);
-    if (!slide) { stage.appendChild(el('p', 'muted', 'Ведущий ещё не начал.')); return; }
-    stage.appendChild(el('div', 'pill', 'слайд ' + (state.index + 1) + ' из ' + DECK.slides.length));
+    if (!slide) { stage.appendChild(el('p', 'muted', 'The host has not started yet.')); return; }
+    stage.appendChild(el('div', 'pill', 'slide ' + (state.index + 1) + ' of ' + DECK.slides.length));
     stage.appendChild(el('h2', null, slide.title));
     if (slide.body) stage.appendChild(el('p', 'slide-body', slide.body));
     var widget = slide.widget;
     if (!widget) return;
     if (widget.kind === 'qr') {
-      stage.appendChild(el('p', 'muted', 'Этот слайд показывает QR для подключения.'));
+      stage.appendChild(el('p', 'muted', 'This slide shows a QR code for joining.'));
       return;
     }
     if (widget.kind === 'poll') {
@@ -468,9 +468,9 @@ async function guestView(member) {
         button.onclick = function () {
           call(OPS.vote, { id: member.id, token: member.token, choice: index }).then(function () {
             voted[state.index] = index;
-            toast('Голос учтён');
+            toast('Vote counted');
             renderGuest(state, slider);
-          }).catch(function (error) { toast('Не удалось проголосовать: ' + (error.code || error.message)); });
+          }).catch(function (error) { toast('Could not submit the vote: ' + (error.code || error.message)); });
         };
         list.appendChild(button);
       });
@@ -487,9 +487,9 @@ async function guestView(member) {
           button.onclick = function () {
             call(OPS.rate, { id: member.id, token: member.token, value: value }).then(function () {
               voted['r' + state.index] = value;
-              toast('Оценка принята');
+              toast('Rating received');
               renderGuest(state, slider);
-            }).catch(function (error) { toast('Не удалось оценить: ' + (error.code || error.message)); });
+            }).catch(function (error) { toast('Could not submit the rating: ' + (error.code || error.message)); });
           };
           stars.appendChild(button);
         })(value);
@@ -501,9 +501,9 @@ async function guestView(member) {
       var form = el('div');
       var input = el('textarea');
       input.rows = 3;
-      input.placeholder = 'Ваш комментарий';
+      input.placeholder = 'Your comment';
       input.style.marginBottom = '10px';
-      var send = el('button', 'primary', 'Отправить');
+      var send = el('button', 'primary', 'Send');
       send.onclick = function () {
         var text = input.value.trim();
         if (!text) return;
@@ -511,8 +511,8 @@ async function guestView(member) {
         call(OPS.comment, { id: member.id, token: member.token, text: text }).then(function () {
           input.value = '';
           send.disabled = false;
-          toast('Комментарий отправлен');
-        }).catch(function (error) { send.disabled = false; toast('Не удалось отправить: ' + (error.code || error.message)); });
+          toast('Comment sent');
+        }).catch(function (error) { send.disabled = false; toast('Could not send: ' + (error.code || error.message)); });
       };
       form.appendChild(input);
       form.appendChild(send);
@@ -533,12 +533,12 @@ async function guestView(member) {
       if (error.code === 'NotFound') {
         drop(GUEST_PREFIX + member.code);
         stopPolling();
-        landing('Сеанс завершён или не найден.');
+        landing('The session has ended or was not found.');
       }
     }
   }
   var first = await call(OPS.state, { id: member.id, token: member.token }).catch(function (error) {
-    if (error.code === 'NotFound') { drop(GUEST_PREFIX + member.code); stopPolling(); landing('Сеанс завершён или не найден.'); }
+    if (error.code === 'NotFound') { drop(GUEST_PREFIX + member.code); stopPolling(); landing('The session has ended or was not found.'); }
     return null;
   });
   if (first) { current = first; renderGuest(first, member); }

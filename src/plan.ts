@@ -34,7 +34,7 @@ export function buildPlan(mod: ModuleNode): Plan {
     const contractId = nextId();
     tasks.push({
       id: contractId,
-      title: 'описать контракт ' + svc.name,
+      title: 'describe the contract ' + svc.name,
       kind: 'contract',
       service: svc.name,
       deps: [],
@@ -51,7 +51,7 @@ export function buildPlan(mod: ModuleNode): Plan {
         .map((item) => 'src/' + slug + '/' + kebab(item.name) + '.ts');
       tasks.push({
         id: implId,
-        title: 'реализовать ' + svc.name + '.' + op.name,
+        title: 'implement ' + svc.name + '.' + op.name,
         kind: 'implement',
         service: svc.name,
         op: op.name,
@@ -67,7 +67,7 @@ export function buildPlan(mod: ModuleNode): Plan {
 
       tasks.push({
         id: nextId(),
-        title: 'покрыть ' + svc.name + '.' + op.name + ' примерами',
+        title: 'cover ' + svc.name + '.' + op.name + ' with examples',
         kind: 'test',
         service: svc.name,
         op: op.name,
@@ -82,7 +82,7 @@ export function buildPlan(mod: ModuleNode): Plan {
       if (rule.kind !== 'invariant') continue;
       tasks.push({
         id: nextId(),
-        title: 'проверка инварианта ' + rule.name,
+        title: 'verify invariant ' + rule.name,
         kind: 'test',
         service: svc.name,
         deps: tasks.filter((t) => t.kind === 'implement' && t.service === svc.name).map((t) => t.id),
@@ -96,7 +96,7 @@ export function buildPlan(mod: ModuleNode): Plan {
   for (const ui of mod.uis) {
     tasks.push({
       id: nextId(),
-      title: 'собрать интерфейс ' + ui.name,
+      title: 'build the interface ' + ui.name,
       kind: 'infra',
       service: '*',
       deps: tasks.filter((t) => t.kind === 'implement').map((t) => t.id),
@@ -111,15 +111,15 @@ export function buildPlan(mod: ModuleNode): Plan {
   for (const wf of mod.workflows) {
     tasks.push({
       id: nextId(),
-      title: 'собрать workflow ' + wf.name + ' (' + wf.steps.length + ' шаг(ов))',
+      title: 'build workflow ' + wf.name + ' (' + wf.steps.length + ' step(s))',
       kind: 'infra',
       service: '*',
       deps: tasks.filter((t) => t.kind === 'implement').map((t) => t.id),
       files: { create: ['workflows/' + wf.name + '.json'], modify: [], forbid: [] },
       acceptance: [
         'arcod check',
-        'граф без циклов, у каждого порта ровно один производитель',
-        'deploy.<env>.json содержит шаги и зависимости',
+        'acyclic graph, every port has exactly one producer',
+        'deploy.<env>.json contains steps and dependencies',
       ],
       budget: null,
     });
@@ -132,7 +132,7 @@ export function buildPlan(mod: ModuleNode): Plan {
     if (provider === 'docker') {
       tasks.push({
         id: nextId(),
-        title: 'собрать docker-окружение (' + env.name + ')',
+        title: 'build the docker environment (' + env.name + ')',
         kind: 'infra',
         service: '*',
         deps: tasks.filter((t) => t.kind === 'implement').map((t) => t.id),
@@ -143,12 +143,12 @@ export function buildPlan(mod: ModuleNode): Plan {
     } else {
       tasks.push({
         id: nextId(),
-        title: 'упаковать для ' + provider + ' (' + env.name + ')',
+        title: 'package for ' + provider + ' (' + env.name + ')',
         kind: 'infra',
         service: '*',
         deps: tasks.filter((t) => t.kind === 'implement').map((t) => t.id),
         files: { create: ['deploy.' + env.name + '.json'], modify: [], forbid: [] },
-        acceptance: ['arcod deploy --env ' + env.name + ' --dry-run', 'манифест описывает сервисы и провайдеров'],
+        acceptance: ['arcod deploy --env ' + env.name + ' --dry-run', 'the manifest describes services and providers'],
         budget: null,
       });
     }

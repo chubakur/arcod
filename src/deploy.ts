@@ -18,46 +18,46 @@ export const DEPLOY_PROVIDERS: Record<string, DeploySpec> = {
   docker: {
     name: 'docker',
     kind: 'local',
-    summary: 'локальный docker compose на этой машине',
+    summary: 'local docker compose on this machine',
     artifacts: 'compose',
     args: {
-      context: 'каталог сборки (по умолчанию .arcod/build)',
+      context: 'build directory (default: .arcod/build)',
     },
   },
   aws: {
     name: 'aws',
     kind: 'cloud',
-    summary: 'Amazon Web Services (абстракция: манифест, без вызовов API)',
+    summary: 'Amazon Web Services (abstraction: manifest only, no API calls)',
     artifacts: 'manifest',
     args: {
-      region: 'регион, например eu-west-1',
-      cluster: 'кластер или сервис',
-      service: 'имя сервиса в облаке',
-      image: 'образ, который будет залит',
+      region: 'region, e.g. eu-west-1',
+      cluster: 'cluster or service',
+      service: 'cloud service name',
+      image: 'image to be pushed',
     },
   },
   yandex: {
     name: 'yandex',
     kind: 'cloud',
-    summary: 'Yandex Cloud (абстракция: манифест, без вызовов API)',
+    summary: 'Yandex Cloud (abstraction: manifest only, no API calls)',
     artifacts: 'manifest',
     args: {
-      folder: 'каталог в облаке',
-      region: 'регион, например ru-central1',
-      cluster: 'кластер или сервис',
-      service: 'имя сервиса в облаке',
-      image: 'образ, который будет залит',
+      folder: 'cloud folder',
+      region: 'region, e.g. ru-central1',
+      cluster: 'cluster or service',
+      service: 'cloud service name',
+      image: 'image to be pushed',
     },
   },
   kubernetes: {
     name: 'kubernetes',
     kind: 'cloud',
-    summary: 'кластер Kubernetes (абстракция: манифест, без вызовов API)',
+    summary: 'Kubernetes cluster (abstraction: manifest only, no API calls)',
     artifacts: 'manifest',
     args: {
-      context: 'контекст kubeconfig',
+      context: 'kubeconfig context',
       namespace: 'namespace',
-      image: 'образ, который будет залит',
+      image: 'image to be pushed',
     },
   },
 };
@@ -146,9 +146,9 @@ export function deployManifest(mod: ModuleNode, env: EnvironmentNode): Record<st
 
 export function formatDeploy(mod: ModuleNode, env: EnvironmentNode): string {
   const deploy = env.deploy;
-  if (!deploy) return env.name + ': deploy не объявлен';
+  if (!deploy) return env.name + ': deploy is not declared';
   const spec = deployProvider(deploy.provider);
-  const where = spec ? spec.summary : 'неизвестный провайдер';
+  const where = spec ? spec.summary : 'unknown provider';
   const args = literalMap(deploy.args);
   const tail = Object.entries(args).map(([key, value]) => key + '=' + value).join(' ');
   return env.name + ': ' + deploy.provider + ' — ' + where + (tail ? ' · ' + tail : '');

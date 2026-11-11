@@ -55,7 +55,7 @@ environment dev {
 A frontend appears only when a `ui` block is declared. Without it you get the
 API and the service port, nothing else.
 
-Russian version: [README_rus.md](README_rus.md).
+Website: <https://chubakur.github.io/arcod/> · Russian version: [README_rus.md](README_rus.md).
 
 ## Quick start
 

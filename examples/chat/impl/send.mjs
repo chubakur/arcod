@@ -1,6 +1,6 @@
 // The service owns the conversation; the model only turns messages into a
 // reply. History is capped so a long thread still fits the model's context.
-const CHAT_SYSTEM = 'Ты полезный ассистент. Отвечай кратко и по делу.';
+const CHAT_SYSTEM = 'You are a helpful assistant. Answer briefly and to the point.';
 const CHAT_LIMIT = 40;
 
 export async function send(input, io) {
