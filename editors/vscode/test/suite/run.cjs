@@ -1,0 +1,74 @@
+const assert = require('node:assert');
+const path = require('node:path');
+const fs = require('node:fs');
+const vscode = require('vscode');
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function diagnosticsFor(uri, predicate, timeout = 25000) {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    const list = vscode.languages.getDiagnostics(uri);
+    if (predicate(list)) return list;
+    await sleep(300);
+  }
+  return vscode.languages.getDiagnostics(uri);
+}
+
+exports.run = async function run() {
+  const extension = vscode.extensions.getExtension('chubakur.arcod');
+  assert.ok(extension, 'extension is installed');
+  await extension.activate();
+  assert.ok(extension.isActive, 'extension activates');
+  console.log('suite: activated ' + extension.id + '@' + extension.packageJSON.version);
+
+  const languages = await vscode.languages.getLanguages();
+  assert.ok(languages.includes('arcod'), 'the arcod language is registered');
+
+  const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+  assert.ok(folder, 'a workspace folder is open');
+  const repo = folder.uri.fsPath;
+  const chat = path.join(repo, 'examples', 'chat', 'main.arc');
+  const document = await vscode.workspace.openTextDocument(chat);
+  assert.equal(document.languageId, 'arcod', 'the .arc file is recognised');
+  await vscode.window.showTextDocument(document);
+
+  const warnings = await diagnosticsFor(document.uri, (list) => list.length > 0);
+  assert.ok(warnings.length > 0, 'check ran on open');
+  assert.ok(warnings.every((item) => item.source === 'arcod'), 'diagnostics come from arcod');
+
+  const temporary = path.join(repo, '.tmp-extension-test.arc');
+  fs.writeFileSync(temporary, [
+    'module broken @0.1.0 {',
+    '  meta {',
+    '    owner: "@andrey"',
+    '    status: draft',
+    '  }',
+    '}',
+    '',
+    'use capability arcod.std.kv @1',
+    '',
+    'service Broken : http {',
+    '  uses store: kv(ttl: 999s)',
+    '',
+    '  contract {',
+    '    public op ping() -> string {',
+    '      route: "GET /v1/ping"',
+    '      effects: store.scan',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n'), 'utf8');
+
+  try {
+    const broken = await vscode.workspace.openTextDocument(temporary);
+    await vscode.window.showTextDocument(broken);
+    const errors = await diagnosticsFor(broken.uri, (list) => list.some((item) => item.code === 'A002'));
+    assert.ok(errors.some((item) => item.code === 'A002' && item.severity === vscode.DiagnosticSeverity.Error), 'A002 is reported');
+    assert.ok(errors.some((item) => item.code === 'A002' && item.range.start.line === 10), 'the error points at the capability use');
+    console.log('suite: diagnostics ok, A002 at line 10');
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+};

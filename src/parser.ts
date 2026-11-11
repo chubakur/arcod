@@ -1,7 +1,8 @@
 import type {
   Arg, BindNode, BudgetNode, CapUse, Clause, EnumDecl, EnvironmentNode, ErrorDecl,
   ExampleNode, Expr, EffectsNode, Loc, ModuleNode, OpNode, Param, RuleNode,
-  ServiceNode, Stmt, TriggerNode, TypeArg, TypeDecl, TypeExpr, UiNode, UseNode,
+  ServiceNode, Stmt, TriggerNode, TypeArg, TypeDecl, TypeExpr, UiNode, UiSlide,
+  UiWidget, UseNode,
   WorkflowNode, WorkflowStepNode,
 } from './ast.ts';
 import { lex, locOf, type Token } from './lexer.ts';
@@ -465,10 +466,17 @@ class Parser {
     const name = this.expectIdent('ui name').value;
     const ui: UiNode = {
       kind: 'ui', name, impl: 'spa', route: '/', title: null, uses: [],
-      layout: null, history: null, send: null, start: null, loc: locOf(start),
+      layout: null, history: null, send: null, start: null,
+      join: null, state: null, advance: null, vote: null, rate: null, comment: null,
+      slides: [], loc: locOf(start),
     };
     this.expect('{');
     while (!this.is('}')) {
+      if (this.is('slide')) {
+        ui.slides.push(this.parseSlide());
+        this.accept(';');
+        continue;
+      }
       const key = this.expectIdent('ui property').value;
       if (key === 'uses') {
         while (true) {
@@ -487,9 +495,13 @@ class Parser {
         ui.title = this.next().value;
       } else if (key === 'layout') {
         const value = this.expectIdent('ui layout').value;
-        if (value !== 'forms' && value !== 'chat') this.error('layout должен быть forms или chat');
+        if (value !== 'forms' && value !== 'chat' && value !== 'presentation') {
+          this.error('layout должен быть forms, chat или presentation');
+        }
         ui.layout = value;
-      } else if (key === 'history' || key === 'send' || key === 'start') {
+      } else if (key === 'history' || key === 'send' || key === 'start'
+        || key === 'join' || key === 'state' || key === 'advance'
+        || key === 'vote' || key === 'rate' || key === 'comment') {
         ui[key] = this.parseQName();
       } else {
         this.next();
@@ -499,6 +511,51 @@ class Parser {
     const end = this.expect('}');
     ui.loc = this.loc(start, end);
     return ui;
+  }
+
+  // slide "Заголовок" {
+  //   body: "Текст слайда"
+  //   poll("Да", "Нет")
+  // }
+  private parseSlide(): UiSlide {
+    const start = this.expect('slide');
+    const title = this.next();
+    if (title.kind !== 'string') this.error('slide требует заголовок в кавычках');
+    let body: string | null = null;
+    let widget: UiWidget | null = null;
+    this.expect('{');
+    while (!this.is('}')) {
+      const token = this.peek();
+      if (token.kind === 'ident' && ['poll', 'rating', 'comments', 'qr'].includes(token.value)) {
+        widget = this.parseWidget();
+      } else {
+        const key = this.expectIdent('slide property').value;
+        this.expect(':');
+        const value = this.next();
+        if (key === 'body' && value.kind === 'string') body = value.value;
+      }
+      this.accept(';');
+    }
+    const end = this.expect('}');
+    return { title: title.value, body, widget, loc: this.loc(start, end) };
+  }
+
+  private parseWidget(): UiWidget {
+    const start = this.next();
+    const loc = locOf(start);
+    if (start.value === 'comments' || start.value === 'qr') {
+      return { kind: start.value, options: [], max: null, loc };
+    }
+    const args = this.parseArgs();
+    if (start.value === 'poll') {
+      const options = args
+        .filter((arg) => !arg.name)
+        .map((arg) => (arg.value.kind === 'literal' ? String(arg.value.value) : ''));
+      return { kind: 'poll', options, max: null, loc };
+    }
+    const max = args.find((arg) => arg.name === 'max');
+    const value = max && max.value.kind === 'literal' ? Number(max.value.value) : 5;
+    return { kind: 'rating', options: [], max: Number.isFinite(value) ? value : 5, loc };
   }
 
   // workflow Name {

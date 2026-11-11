@@ -1,0 +1,149 @@
+{
+  "Module": {
+    "prefix": "module",
+    "body": [
+      "module ${1:name} @${2:0.1.0} {",
+      "  meta {",
+      "    owner: \"${3:@user}\"",
+      "    status: ${4:draft}",
+      "    since: \"${5:2026-11-11}\"",
+      "  }",
+      "}"
+    ],
+    "description": "Модуль Arcod"
+  },
+  "Service HTTP": {
+    "prefix": "service",
+    "body": [
+      "service ${1:Name} : http {",
+      "  uses ${2:store}: ${3:kv}(ttl: ${4:999s}, consistency: strong)",
+      "",
+      "  effects {",
+      "    allow ${2:store}.get, ${2:store}.set",
+      "  }",
+      "",
+      "  contract {",
+      "    public op ${5:read}(id: ${6:Id}) -> ${7:Body} {",
+      "      route: \"GET /v1/${8:items}/:id\"",
+      "      effects: ${2:store}.get",
+      "      errors: NotFound",
+      "      on error NotFound: id != null",
+      "    }",
+      "  }",
+      "}"
+    ],
+    "description": "HTTP-сервис с одной операцией"
+  },
+  "Operation": {
+    "prefix": "op",
+    "body": [
+      "public op ${1:read}(${2:id: Id}) -> ${3:Body} {",
+      "  route: \"${4:GET} /v1/${5:items}${2::id}\"",
+      "  effects: ${6:store.get}",
+      "  errors: ${7:NotFound}",
+      "  on error ${7:NotFound}: ${2:id} != null",
+      "}"
+    ],
+    "description": "Публичная операция"
+  },
+  "Workflow": {
+    "prefix": "workflow",
+    "body": [
+      "workflow ${1:Nightly} {",
+      "  trigger cron(\"${2:0 3 * * *}\", tz: \"${3:Europe/Moscow}\")",
+      "  overlap: skip",
+      "  catchup: last",
+      "",
+      "  step ${4:prepare}() -> ${5:Snapshot} {",
+      "    call: ${6:Service.prepare}",
+      "    effects: ${7:store.set}",
+      "  }",
+      "",
+      "  step ${8:send}(${9:snapshot: Snapshot}) -> ${10:Receipt} {",
+      "    call: ${6:Service.send}",
+      "    needs: ${4:prepare}",
+      "    onFail: stop",
+      "  }",
+      "}"
+    ],
+    "description": "Граф фоновых задач"
+  },
+  "Environment": {
+    "prefix": "environment",
+    "body": [
+      "environment ${1:dev} {",
+      "  bind ${2:store} -> ${3:postgres}(host: \"${4:db}\", port: ${5:5432})",
+      "  bind ${6:uuid} -> local",
+      "  deploy ${7:docker}",
+      "}"
+    ],
+    "description": "Окружение: привязки и развёртывание"
+  },
+  "Bind provider": {
+    "prefix": "bind",
+    "body": [
+      "bind ${1:alias} -> ${2:provider}(host: \"${3:host}\", port: ${4:8080})"
+    ],
+    "description": "Привязка возможности к провайдеру"
+  },
+  "Type": {
+    "prefix": "type",
+    "body": [
+      "type ${1:Name} = ${2:bytes}(min: ${3:1}, max: ${4:64kb})"
+    ],
+    "description": "Объявление типа"
+  },
+  "Error": {
+    "prefix": "error",
+    "body": [
+      "error ${1:NotFound}"
+    ],
+    "description": "Объявление ошибки"
+  },
+  "UI": {
+    "prefix": "ui",
+    "body": [
+      "ui ${1:Web} {",
+      "  kind:  spa",
+      "  route: \"/\"",
+      "  title: \"${2:Интерфейс}\"",
+      "  uses  ${3:Service.read}",
+      "}"
+    ],
+    "description": "Интерфейс"
+  },
+  "Chat UI": {
+    "prefix": "uichat",
+    "body": [
+      "ui ${1:Web} {",
+      "  kind:    spa",
+      "  route:   \"/\"",
+      "  title:   \"${2:Чат}\"",
+      "  layout:  chat",
+      "  history: ${3:Service.history}",
+      "  send:    ${3:Service.send}",
+      "  start:   ${3:Service.start}",
+      "}"
+    ],
+    "description": "Интерфейс-чат"
+  },
+  "Effects": {
+    "prefix": "effects",
+    "body": [
+      "effects {",
+      "  allow ${1:store.get, store.set}",
+      "}"
+    ],
+    "description": "Разрешённые эффекты"
+  },
+  "Job (cron)": {
+    "prefix": "job",
+    "body": [
+      "job ${1:purge}() -> ${2:int} {",
+      "  schedule: \"${3:*/5 * * * *}\"",
+      "  idempotent",
+      "}"
+    ],
+    "description": "Одиночная задача по расписанию"
+  }
+}

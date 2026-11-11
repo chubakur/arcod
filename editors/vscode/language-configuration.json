@@ -1,0 +1,74 @@
+{
+  "comments": {
+    "lineComment": "//",
+    "blockComment": [
+      "/*",
+      "*/"
+    ]
+  },
+  "brackets": [
+    [
+      "{",
+      "}"
+    ],
+    [
+      "[",
+      "]"
+    ],
+    [
+      "(",
+      ")"
+    ]
+  ],
+  "autoClosingPairs": [
+    {
+      "open": "{",
+      "close": "}"
+    },
+    {
+      "open": "[",
+      "close": "]"
+    },
+    {
+      "open": "(",
+      "close": ")"
+    },
+    {
+      "open": "\"",
+      "close": "\"",
+      "notIn": [
+        "string",
+        "comment"
+      ]
+    }
+  ],
+  "surroundingPairs": [
+    {
+      "open": "{",
+      "close": "}"
+    },
+    {
+      "open": "[",
+      "close": "]"
+    },
+    {
+      "open": "(",
+      "close": ")"
+    },
+    {
+      "open": "\"",
+      "close": "\""
+    }
+  ],
+  "folding": {
+    "markers": {
+      "start": "^\\s*(module|service|contract|environment|workflow|ui|type|budget|examples|effects|rules|meta|lifecycle)\\b.*\\{\\s*$",
+      "end": "^\\s*\\}\\s*$"
+    }
+  },
+  "indentationRules": {
+    "increaseIndentPattern": "\\{\\s*(?://.*)?$",
+    "decreaseIndentPattern": "^\\s*\\}"
+  },
+  "wordPattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\+\\=\\{\\}\\[\\]\\\\\\|;:\\'\"\\,\\.\\<\\>\\/\\?\\s]+)"
+}

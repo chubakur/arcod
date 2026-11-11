@@ -1,0 +1,22 @@
+const path = require('node:path');
+const { runTests } = require('@vscode/test-electron');
+
+async function main() {
+  const extensionDevelopmentPath = path.resolve(__dirname, '..');
+  const extensionTestsPath = path.resolve(__dirname, 'suite', 'run.cjs');
+  const workspace = path.resolve(extensionDevelopmentPath, '..', '..');
+  const vscodeExecutablePath = process.env.VSCODE_BIN
+    || '/Applications/Visual Studio Code.app/Contents/MacOS/Code';
+
+  await runTests({
+    vscodeExecutablePath,
+    extensionDevelopmentPath,
+    extensionTestsPath,
+    launchArgs: [workspace, '--disable-extensions', '--disable-gpu', '--skip-welcome', '--skip-release-notes'],
+  });
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

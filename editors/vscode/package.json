@@ -1,0 +1,118 @@
+{
+  "name": "arcod",
+  "displayName": "Arcod",
+  "description": "Синтаксис, дополнение, проверки и команды для .arc — спецификаций Arcod",
+  "version": "0.1.0",
+  "publisher": "chubakur",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "arcod",
+    "specification",
+    "architecture",
+    "dsl"
+  ],
+  "activationEvents": [
+    "onLanguage:arcod"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "arcod",
+        "aliases": [
+          "Arcod",
+          "arcod"
+        ],
+        "extensions": [
+          ".arc"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "arcod",
+        "scopeName": "source.arcod",
+        "path": "./syntaxes/arcod.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "arcod",
+        "path": "./snippets/arcod.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "arcod.check",
+        "title": "Arcod: проверить спецификацию"
+      },
+      {
+        "command": "arcod.plan",
+        "title": "Arcod: показать план"
+      },
+      {
+        "command": "arcod.build",
+        "title": "Arcod: собрать"
+      },
+      {
+        "command": "arcod.make",
+        "title": "Arcod: собрать всё (make)"
+      },
+      {
+        "command": "arcod.deploy",
+        "title": "Arcod: показать развёртывание"
+      },
+      {
+        "command": "arcod.providers",
+        "title": "Arcod: провайдеры возможностей"
+      },
+      {
+        "command": "arcod.restart",
+        "title": "Arcod: перезапустить языковой сервер"
+      }
+    ],
+    "configuration": {
+      "title": "Arcod",
+      "properties": {
+        "arcod.path": {
+          "type": "string",
+          "default": "arcod",
+          "description": "Путь к CLI arcod. Если пусто — берётся bin/arcod.mjs из рабочей папки."
+        },
+        "arcod.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Проверять спецификацию при сохранении."
+        },
+        "arcod.checkOnType": {
+          "type": "boolean",
+          "default": false,
+          "description": "Проверять спецификацию по мере ввода (с задержкой)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "node --test test/grammar.test.mjs",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^3.1.0",
+    "typescript": "^5.7.0",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.2.0"
+  }
+}

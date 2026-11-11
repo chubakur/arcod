@@ -4,6 +4,23 @@ on:
   pull_request:
 
 jobs:
+  extension:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: install
+        run: npm install --no-audit --no-fund
+      - name: compile
+        run: npm run compile
+      - name: grammar and model tests
+        run: node --test test/grammar.test.mjs test/model.test.mjs test/diagnostics.test.mjs
+
   test:
     runs-on: ubuntu-latest
     steps:

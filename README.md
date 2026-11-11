@@ -494,6 +494,31 @@ arcod run --impl examples/onetimemessage-pwd
 
 `arcod check` возвращает `1` при ошибках и `0`, когда модель чистая.
 
+## Редактор — VS Code
+
+Расширение `*.arc` живёт в `editors/vscode`:
+
+- подсветка TextMate: объявления, операции, клаузы, эффекты, типы и длительности;
+- провайдеры и возможности различаются цветом — это разные оси;
+- дополнение по контексту: после `uses store:` — возможности, после
+  `bind x ->` — провайдеры, после `deploy` — провайдеры развёртывания,
+  значения `layout`, `overlap`, `catchup`, `onFail`, `trigger`;
+- `arcod check --json` на открытии и сохранении: Problems, счётчик в
+  статус-баре, ошибки разбора с позицией;
+- outline модуля и команды `arcod.check|plan|build|make|deploy|providers`.
+
+```bash
+cd editors/vscode
+npm install && npm run compile
+npx @vscode/vsce package --no-dependencies
+code --install-extension arcod-0.1.0.vsix
+```
+
+Проверки расширения: `node --test test/*.test.mjs` (грамматика через
+vscode-textmate, дополнения, отображение диагностик) и
+`node test/runTest.cjs` — запускает настоящий extension host VS Code и
+проверяет активацию, распознавание `.arc` и `A002` в Problems.
+
 ## Структура
 
 ```
@@ -510,6 +535,7 @@ src/
   emit/web.ts     генерация фронтенда
   emit/compose.ts Dockerfile и compose
   cli.ts          команды
+editors/vscode/ расширение VS Code: грамматика, дополнения, проверки
 examples/
   onetimemessage/     одноразовые сообщения
   onetimemessage-pwd/ то же, но с необязательным паролем

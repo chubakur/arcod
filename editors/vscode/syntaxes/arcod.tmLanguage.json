@@ -1,0 +1,318 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Arcod",
+  "scopeName": "source.arcod",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#module"
+    },
+    {
+      "include": "#use"
+    },
+    {
+      "include": "#declarations"
+    },
+    {
+      "include": "#members"
+    },
+    {
+      "include": "#clauses"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#builtins"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#qualified"
+    },
+    {
+      "include": "#typeusage"
+    },
+    {
+      "include": "#operators"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.arcod",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.arcod",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.arcod",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.arcod",
+              "match": "\\\\."
+            },
+            {
+              "name": "invalid.illegal.unterminated.arcod",
+              "match": "\\n"
+            }
+          ]
+        }
+      ]
+    },
+    "module": {
+      "patterns": [
+        {
+          "name": "meta.module.arcod",
+          "match": "^\\s*(module)\\s+([A-Za-z_][\\w-]*)(?:\\s+(@[0-9]+(?:\\.[0-9]+)*))?",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.module.arcod"
+            },
+            "2": {
+              "name": "entity.name.type.module.arcod"
+            },
+            "3": {
+              "name": "constant.other.version.arcod"
+            }
+          }
+        }
+      ]
+    },
+    "use": {
+      "patterns": [
+        {
+          "match": "\\b(use)\\s+(capability|module)\\s+([A-Za-z_][\\w.]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.use.arcod"
+            },
+            "2": {
+              "name": "keyword.other.kind.arcod"
+            },
+            "3": {
+              "name": "entity.name.namespace.arcod"
+            }
+          }
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(service|external|workflow|environment|ui|type|error|enum|policy|change)\\s+([A-Za-z_][\\w-]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.arcod"
+            },
+            "2": {
+              "name": "entity.name.type.arcod"
+            }
+          }
+        },
+        {
+          "match": "\\b(contract|meta|budget|examples|rules|effects|lifecycle|unknown)\\b",
+          "name": "keyword.control.block.arcod"
+        },
+        {
+          "match": "\\b(op|job|step)\\s+([A-Za-z_][\\w-]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.arcod"
+            },
+            "2": {
+              "name": "entity.name.function.arcod"
+            }
+          }
+        }
+      ]
+    },
+    "members": {
+      "patterns": [
+        {
+          "match": "\\b(uses)\\s+([a-zA-Z_][\\w]*)\\s*:",
+          "captures": {
+            "1": {
+              "name": "keyword.other.uses.arcod"
+            },
+            "2": {
+              "name": "variable.other.alias.arcod"
+            }
+          }
+        },
+        {
+          "match": "\\b(bind)\\s+([a-zA-Z_][\\w]*)\\s*(->)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.bind.arcod"
+            },
+            "2": {
+              "name": "variable.other.alias.arcod"
+            },
+            "3": {
+              "name": "keyword.operator.arrow.arcod"
+            }
+          }
+        },
+        {
+          "match": "\\b(deploy)\\s+([a-z][\\w]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.deploy.arcod"
+            },
+            "2": {
+              "name": "support.class.provider.arcod"
+            }
+          }
+        },
+        {
+          "match": "\\b(bind\\s+[a-zA-Z_][\\w]*\\s*->\\s*)(redis|postgres|postgresql|mysql|mariadb|mongo|rabbitmq|kafka|keycloak|s3|minio|ollama|openai|local|docker|aws|yandex|kubernetes)\\b",
+          "captures": {
+            "1": {
+              "name": "meta.bind.arcod"
+            },
+            "2": {
+              "name": "support.class.provider.arcod"
+            }
+          }
+        },
+        {
+          "match": "\\b(trigger)\\s+([a-z][\\w]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.trigger.arcod"
+            },
+            "2": {
+              "name": "support.function.trigger.arcod"
+            }
+          }
+        },
+        {
+          "match": "\\b(call)\\s*:\\s*([A-Za-z_][\\w]*)\\.([A-Za-z_][\\w]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.call.arcod"
+            },
+            "2": {
+              "name": "entity.name.type.arcod"
+            },
+            "3": {
+              "name": "entity.name.function.arcod"
+            }
+          }
+        }
+      ]
+    },
+    "clauses": {
+      "patterns": [
+        {
+          "match": "\\b(route|schedule|errors|post|pre|effects|hint|once|else|kind|impl|title|layout|history|send|start|needs|onFail|retry|timeout|overlap|catchup|allow|deny|extends|since|owner|status|option)\\s*:",
+          "captures": {
+            "1": {
+              "name": "keyword.other.clause.arcod"
+            }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "match": "\\b(public|idempotent|atomic|ordering|invariant|never)\\b",
+          "name": "storage.modifier.arcod"
+        },
+        {
+          "match": "\\b(true|false|null)\\b",
+          "name": "constant.language.arcod"
+        },
+        {
+          "match": "\\b(kv|sql|queue|ids|http|clock|lock|search|blob|mail|identity|llm)\\b(?=\\s*\\()",
+          "name": "support.class.capability.arcod"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "match": "\\b(uuid|string|bytes|int|bool|float|list|map|record|json|void)\\b",
+          "name": "support.type.primitive.arcod"
+        },
+        {
+          "match": "\\b(docker|aws|yandex|kubernetes|redis|postgres|postgresql|mysql|mariadb|mongo|rabbitmq|kafka|keycloak|s3|minio|ollama|openai|local)\\b",
+          "name": "support.class.provider.arcod"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "match": "\\b[0-9]+(?:\\.[0-9]+)?(?:ns|us|ms|s|m|h|d|kb|mb|gb)\\b",
+          "name": "constant.numeric.duration.arcod"
+        },
+        {
+          "match": "\\b[0-9]+(?:\\.[0-9]+)?\\b",
+          "name": "constant.numeric.arcod"
+        }
+      ]
+    },
+    "qualified": {
+      "patterns": [
+        {
+          "match": "\\b([a-z][\\w]*)\\.([a-z][\\w]*)\\b",
+          "captures": {
+            "1": {
+              "name": "variable.other.object.arcod"
+            },
+            "2": {
+              "name": "variable.other.property.arcod"
+            }
+          }
+        }
+      ]
+    },
+    "typeusage": {
+      "patterns": [
+        {
+          "match": "\\b[A-Z][A-Za-z0-9_]*(?:\\.[A-Za-z0-9_]+)*\\b",
+          "name": "entity.name.type.arcod"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "match": "->|=>|==|!=|<=|>=|&&|\\|\\||\\.\\.",
+          "name": "keyword.operator.arcod"
+        },
+        {
+          "match": "[=+\\-*/%<>!|]",
+          "name": "keyword.operator.arcod"
+        },
+        {
+          "match": "[{}()\\[\\]]",
+          "name": "punctuation.section.arcod"
+        },
+        {
+          "match": "[,;:.]",
+          "name": "punctuation.separator.arcod"
+        }
+      ]
+    }
+  }
+}

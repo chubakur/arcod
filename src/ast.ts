@@ -206,6 +206,22 @@ export interface BudgetNode {
   loc: Loc;
 }
 
+// A widget is content on a slide, not part of the service: the page owns it
+// and the service only counts what it receives.
+export interface UiWidget {
+  kind: 'poll' | 'rating' | 'comments' | 'qr';
+  options: string[];
+  max: number | null;
+  loc: Loc;
+}
+
+export interface UiSlide {
+  title: string;
+  body: string | null;
+  widget: UiWidget | null;
+  loc: Loc;
+}
+
 export interface UiNode {
   kind: 'ui';
   name: string;
@@ -214,10 +230,19 @@ export interface UiNode {
   title: string | null;
   uses: string[];
   // Optional layout hint: forms are the default, chat is an explicit choice.
-  layout: 'forms' | 'chat' | null;
+  layout: 'forms' | 'chat' | 'presentation' | null;
   history: string | null;
   send: string | null;
   start: string | null;
+  // A presentation page has two audiences (host and guests) and widgets that
+  // each need their own operation; every binding is named, never guessed.
+  join: string | null;
+  state: string | null;
+  advance: string | null;
+  vote: string | null;
+  rate: string | null;
+  comment: string | null;
+  slides: UiSlide[];
   loc: Loc;
 }
 
