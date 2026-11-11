@@ -6,6 +6,7 @@ import { IDENTITY_SOURCE } from './identity.ts';
 import { BLOB_SOURCE } from './blob.ts';
 import { LLM_SOURCE } from './llm.ts';
 import { STREAM_SOURCE } from './stream.ts';
+import { QUEUE_SOURCE, QUEUE_SHUTDOWN, consumerSource } from './queue.ts';
 import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
 
@@ -382,6 +383,10 @@ async function handleRead(req, res, id) {
 }
 // __HANDLERS_END__
 
+__QUEUE_SOURCE__
+
+// ---------- http ----------
+
 const server = http.createServer(async (req, res) => {
   if (CONFIG.concurrency) {
     if (inFlight >= CONFIG.concurrency) {
@@ -418,15 +423,13 @@ __STREAM_WIRE__
 
 const PORT = Number(process.env.PORT || CONFIG.port);
 
+__QUEUE_WIRE__
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log('arcod service ' + CONFIG.service + ' listening on :' + PORT);
 });
 
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => {
-    server.close(() => process.exit(0));
-  });
-}
+__SHUTDOWN__
 `;
 
 const CRYPTO_IMPORT = "import { randomUUID, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';";
@@ -436,16 +439,16 @@ const CRYPTO_IMPORT = "import { randomUUID, randomBytes, scryptSync, timingSafeE
 function serviceTemplate(svc: ServiceNode): string {
   if (storageKind(svc) === 'sql') {
     return streamSource(dropRedis(SERVICE_TEMPLATE), svc)
-      .replace('__SQL_STORE__', SQL_STORE_SOURCE)
-      .replace('__STORE_SELECT__', [
+      .replace('__SQL_STORE__', () => SQL_STORE_SOURCE)
+      .replace('__STORE_SELECT__', () => [
         "const store = process.env.SQL_DRIVER === 'memory'",
         '  ? new MemoryStore()',
         "  : new SqlStore(process.env.DATABASE_URL || 'mysql://arcod:arcod@mysql:3306/arcod');",
       ].join('\n'));
   }
   return streamSource(SERVICE_TEMPLATE, svc)
-    .replace('__SQL_STORE__', '')
-    .replace('__STORE_SELECT__', [
+    .replace('__SQL_STORE__', () => '')
+    .replace('__STORE_SELECT__', () => [
       "const store = process.env.KV_DRIVER === 'memory'",
       '  ? new MemoryStore()',
       "  : new RedisStore(process.env.KV_HOST || 'kv', Number(process.env.KV_PORT || 6379));",
@@ -454,11 +457,35 @@ function serviceTemplate(svc: ServiceNode): string {
 
 // The hub is emitted only where someone can subscribe to it.
 function streamSource(template: string, svc: ServiceNode): string {
-  return template.replace('__STREAM_SOURCE__', hasStream(svc) ? STREAM_SOURCE : '');
+  return template.replace('__STREAM_SOURCE__', () => (hasStream(svc) ? STREAM_SOURCE : ''));
 }
 
 export function hasStream(svc: ServiceNode | null): boolean {
   return Boolean(svc && svc.uses.some((use) => use.capability === 'stream' || use.capability.endsWith('.stream')));
+}
+
+export function hasQueue(svc: ServiceNode | null): boolean {
+  return Boolean(svc && svc.uses.some((use) => use.capability === 'queue' || use.capability.endsWith('.queue')));
+}
+
+// Queue drivers and consumers are emitted only in impl mode: reference and
+// scaffold handlers are self-contained and never touch the io adapter.
+function queueSourceFor(svc: ServiceNode, impl?: Record<string, string>): string {
+  if (!hasQueue(svc) || !impl) return '';
+  const consumers = svc.contract
+    .filter((op) => op.kind === 'job')
+    .flatMap((op) => {
+      const consume = op.clauses.find((clause) => clause.kind === 'consume');
+      if (!consume || consume.kind !== 'consume' || !impl[op.name]) return [];
+      const retry = op.clauses.find((clause) => clause.kind === 'retry');
+      return [{
+        topic: consume.source.split('.').slice(1).join('.'),
+        handler: 'impl' + op.name.charAt(0).toUpperCase() + op.name.slice(1),
+        params: op.params.map((param) => param.name),
+        retry: retry && retry.kind === 'retry' ? retry.value : 3,
+      }];
+    });
+  return QUEUE_SOURCE + '\n' + consumerSource(consumers);
 }
 
 function dropRedis(template: string): string {
@@ -531,10 +558,19 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
   const readOp = svc.contract.find((op) => op.name === 'read');
   const atomicRead = Boolean(readOp && svc.rules.some((rule) => rule.kind === 'atomic' && rule.name === readOp.name));
 
+  const DEFAULT_SHUTDOWN = `for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    server.close(() => process.exit(0));
+  });
+}`;
+
   const reference = options.reference === true && !options.impl;
   const externals = mod.services.filter((item) => item.external);
   const template = withHandlers(serviceTemplate(svc), reference, svc, options.impl, externals)
-    .replace(CRYPTO_IMPORT, cryptoImportFor(svc, reference || Boolean(options.impl)));
+    .replace(CRYPTO_IMPORT, () => cryptoImportFor(svc, reference || Boolean(options.impl)))
+    .replace('__QUEUE_SOURCE__\n', () => queueSourceFor(svc, options.impl))
+    .replace('__QUEUE_WIRE__', () => (hasQueue(svc) && options.impl ? 'startConsumers();\n' : ''))
+    .replace('__SHUTDOWN__', () => (hasQueue(svc) && options.impl ? QUEUE_SHUTDOWN : DEFAULT_SHUTDOWN));
   const header = [
     '// Generated by arcod from ' + mod.name + '@' + mod.version + ' (' + svc.name + '). Do not edit.',
     '// Routes, limits, errors and rules come from the model.',
@@ -547,10 +583,10 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
   ].join('\n');
 
   return header + template
-    .replace('__CONFIG__', JSON.stringify(config, null, 2))
-    .replace('__ROUTES__', JSON.stringify(routes, null, 2))
-    .replace('__ERRORS__', JSON.stringify(errors, null, 2))
-    .replace('__ATOMIC__', String(atomicRead))
+    .replace('__CONFIG__', () => JSON.stringify(config, null, 2))
+    .replace('__ROUTES__', () => JSON.stringify(routes, null, 2))
+    .replace('__ERRORS__', () => JSON.stringify(errors, null, 2))
+    .replace('__ATOMIC__', () => String(atomicRead))
     .replace('__STREAM_WIRE__', hasStream(svc)
       ? "server.on('upgrade', (req, socket, head) => wsUpgrade(req, socket, head));"
       : '');
@@ -703,8 +739,9 @@ function guardedHandlers(svc: ServiceNode): string {
 }
 
 function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: boolean, externals: ServiceNode[] = []): string {
-  const ops = svc.contract.filter((op) => op.kind === 'op' && impl[op.name]);
-  const names = ops.map((op) => op.name);
+  const bodies = svc.contract.filter((op) => impl[op.name]);
+  const ops = bodies.filter((op) => op.kind === 'op');
+  const names = bodies.map((op) => op.name);
   const parts: string[] = [];
 
   for (const name of names) {
@@ -724,6 +761,7 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
   const hasIdentity = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'));
   const hasBlob = svc.uses.some((use) => use.capability === 'blob' || use.capability.endsWith('.blob'));
   const hasLlm = svc.uses.some((use) => use.capability === 'llm' || use.capability.endsWith('.llm'));
+  const usesQueue = hasQueue(svc);
 
   if (hasIdentity) parts.push(IDENTITY_SOURCE);
   if (hasBlob) parts.push(BLOB_SOURCE);
@@ -787,6 +825,13 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     parts.push('    async publish(topic, message) { return wsPublish(topic, message); },');
   }
 
+  if (usesQueue) {
+    parts.push(
+      '    async queuePublish(topic, message) { return queuePublishDriver(String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0 })); },',
+      '    async queueDead(topic) { const items = await queueDeadDriver(String(topic)); return items.map((item) => { try { return JSON.parse(item); } catch { return item; } }); },',
+    );
+  }
+
   if (externals.length > 0) {
     parts.push('    async remote(service, op, input) { return remoteCall(service, op, input); },');
   }
@@ -838,6 +883,40 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     );
   }
 
+  // Access control, straight from the model: `auth` needs an actor (401),
+  // `roles:` needs one of the token roles (403), `owner:` needs the record
+  // loaded by the named parameter to belong to the actor (403; admins
+  // bypass, a missing record is NotFound, never a leak). The guard runs
+  // before the body, so bodies start past the 401/403 boundary.
+  const authzTable: Record<string, { auth: boolean; roles: string[]; owner: string | null }> = {};
+  for (const op of svc.contract) {
+    if (op.kind !== 'op') continue;
+    const roles = op.clauses.find((clause) => clause.kind === 'roles');
+    const owner = op.clauses.find((clause) => clause.kind === 'owner');
+    authzTable[op.name] = {
+      auth: op.auth,
+      roles: roles && roles.kind === 'roles' ? roles.names : [],
+      owner: owner && owner.kind === 'owner' ? owner.param : null,
+    };
+  }
+  parts.push(
+    'const AUTHZ = ' + JSON.stringify(authzTable, null, 2) + ';',
+    '',
+    'async function authorize(spec, io, input) {',
+    '  if (!spec || (!spec.auth && spec.roles.length === 0 && !spec.owner)) return null;',
+    '  const actor = await io.actor();',
+    "  if (!actor) return 'Unauthorized';",
+    '  if (spec.roles.length > 0 && !(actor.roles || []).some((role) => spec.roles.includes(role))) return ' + "'Forbidden';",
+    '  if (spec.owner) {',
+    '    const rec = await io.load(input[spec.owner]);',
+    '    if (!rec || !rec.b) return ' + "'NotFound';",
+    '    if (!actor.admin && rec.b.owner !== actor.id) return ' + "'Forbidden';",
+    '  }',
+    '  return null;',
+    '}',
+    '',
+  );
+
   parts.push(
     'async function readInput(req, params, names) {',
     "  const url = new URL(req.url || '/', 'http://localhost');",
@@ -866,10 +945,13 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     '  return input;',
     '}',
     '',
-    'async function callImpl(req, res, params, implFn, names, status) {',
+    'async function callImpl(req, res, params, implFn, names, status, opName) {',
     '  const input = await readInput(req, params, names);',
     '  if (input && input.error) return sendError(res, input.error);',
-    '  const out = await implFn(input, makeIo(req));',
+    '  const io = makeIo(req);',
+    '  const denied = await authorize(AUTHZ[opName], io, input);',
+    '  if (denied) return sendError(res, denied);',
+    '  const out = await implFn(input, io);',
     '  if (out && out.error) return sendError(res, out.error);',
     "  if (!out) return sendError(res, 'Internal');",
     '  const result = out.result;',
@@ -890,7 +972,7 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     const status = method === 'GET' ? 200 : 201;
     parts.push(
       'async function handle' + cap + '(req, res, params) {',
-      '  return callImpl(req, res, params, impl' + cap + ', [' + names.map((name) => "'" + name + "'").join(', ') + '], ' + status + ');',
+      "  return callImpl(req, res, params, impl" + cap + ', [' + names.map((name) => "'" + name + "'").join(', ') + '], ' + status + ", '" + op.name + "');",
       '}',
       '',
     );

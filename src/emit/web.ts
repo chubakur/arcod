@@ -391,7 +391,7 @@ function chatOps(mod: ModuleNode, svc: ServiceNode, ui: UiNode): Record<string, 
     if (!ref) return null;
     const [svcName, opName] = ref.split('.');
     if (svcName !== svc.name) return null;
-    const op = svc.contract.find((item) => item.name === opName && item.kind === 'op' && item.isPublic);
+    const op = svc.contract.find((item) => item.name === opName && item.kind === 'op' && (item.isPublic || item.auth));
     return op ? describeOp(mod, op) : null;
   };
   const history = find(ui.history);
@@ -435,7 +435,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
 
   const wanted = new Set(ui.uses.map((entry) => entry.split('.').pop() ?? entry));
   const ops = svc.contract
-    .filter((op) => op.kind === 'op' && op.isPublic)
+    .filter((op) => op.kind === 'op' && (op.isPublic || op.auth))
     .filter((op) => wanted.size === 0 || wanted.has(op.name))
     .map((op) => describeOp(mod, op));
 
@@ -452,9 +452,6 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
       slides: ui.slides.map((slide) => ({
         title: slide.title,
         body: slide.body,
-        widget: slide.widget
-          ? { kind: slide.widget.kind, options: slide.widget.options, max: slide.widget.max }
-          : null,
       })),
     };
     return PRESENTATION_PAGE
@@ -490,8 +487,8 @@ function jsonForScript(value: unknown): string {
 }
 
 // The page is told which operation creates a session, which one brings a guest
-// in, which one reports the live state and which one moves the deck. A widget
-// binding may be absent when the deck has no such widget, but never guessed.
+// in, which one reports the live state and which one moves the deck. The
+// bindings are explicit and never guessed.
 function presentationOps(mod: ModuleNode, svc: ServiceNode, ui: UiNode): Record<string, unknown> {
   const compact = (op: UiOp) => ({
     name: op.name,
@@ -504,7 +501,7 @@ function presentationOps(mod: ModuleNode, svc: ServiceNode, ui: UiNode): Record<
     if (!ref) return null;
     const [svcName, opName] = ref.split('.');
     if (svcName !== svc.name) return null;
-    const op = svc.contract.find((item) => item.name === opName && item.kind === 'op' && item.isPublic);
+    const op = svc.contract.find((item) => item.name === opName && item.kind === 'op' && (item.isPublic || item.auth));
     return op ? compact(describeOp(mod, op)) : null;
   };
   const ops: Record<string, unknown> = {
@@ -512,9 +509,6 @@ function presentationOps(mod: ModuleNode, svc: ServiceNode, ui: UiNode): Record<
     join: find(ui.join),
     state: find(ui.state),
     advance: find(ui.advance),
-    vote: find(ui.vote),
-    rate: find(ui.rate),
-    comment: find(ui.comment),
   };
   for (const key of ['start', 'join', 'state', 'advance']) {
     if (!ops[key]) throw new Error('layout: presentation needs a ' + key + ' operation');

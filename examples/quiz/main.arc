@@ -119,29 +119,22 @@ ui Stage {
   join:    Live.join
   state:   Live.state
   advance: Live.advance
-  vote:    Live.vote
-  rate:    Live.rate
-  comment: Live.comment
-  uses     Live.start, Live.join, Live.state, Live.advance, Live.vote, Live.rate, Live.comment
+  uses     Live.start, Live.join, Live.state, Live.advance
 
   slide "Who are you?" {
-    body: "Pick a role — the result appears on the screen."
-    poll("Backend", "Frontend", "QA", "Product")
+    body: "Developers, QA, product — the host asks, the room answers out loud."
   }
 
   slide "Join" {
-    body: "Open the link or scan the code to answer from your phone."
-    qr
+    body: "Open the link shown on the big screen or scan the code to follow from your phone."
   }
 
-  slide "How useful was it?" {
-    body: "Rate the talk from 1 to 5."
-    rating(max: 5)
+  slide "Agenda" {
+    body: "The host advances the deck; guests see every slide as it changes."
   }
 
-  slide "What is still unclear?" {
-    body: "Write a question — the host sees it on the screen."
-    comments
+  slide "Questions" {
+    body: "Write a question — the host sees it in the live state."
   }
 }
 

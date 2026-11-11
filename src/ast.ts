@@ -122,6 +122,10 @@ export interface ServiceNode {
   uses: CapUse[];
   contract: OpNode[];
   rules: RuleNode[];
+  // The role vocabulary the service understands; operations reference it via
+  // the `roles:` clause. Roles themselves arrive with the token, the service
+  // only declares which ones mean something here.
+  roles: string[];
   effects: EffectsNode | null;
   examples: ExampleNode[];
   budget: BudgetNode | null;
@@ -140,6 +144,9 @@ export interface OpNode {
   kind: 'op' | 'job';
   name: string;
   isPublic: boolean;
+  // `auth op` requires an authenticated actor; anonymous callers get 401
+  // before the body runs. Mutually exclusive with isPublic.
+  auth: boolean;
   params: Param[];
   returns: TypeExpr | null;
   clauses: Clause[];
@@ -155,6 +162,17 @@ export type Clause =
   | { kind: 'onerror'; error: string; expr: Expr; loc: Loc }
   | { kind: 'route'; value: string; loc: Loc }
   | { kind: 'schedule'; value: string; loc: Loc }
+  // A job consumes a queue topic: the runtime starts a consumer before the
+  // http server and routes each message to the job body. Retry counts the
+  // attempts after the first one before the message lands in the dead letter.
+  | { kind: 'consume'; source: string; loc: Loc }
+  | { kind: 'retry'; value: number; loc: Loc }
+  // Access control, enforced by the generated runtime before the body runs:
+  // `roles: admin, manager` requires one of the token roles (403 otherwise),
+  // `owner: id` requires the record loaded by param `id` to belong to the
+  // actor (403 otherwise; admins bypass, a missing record is NotFound).
+  | { kind: 'roles'; names: string[]; loc: Loc }
+  | { kind: 'owner'; param: string; loc: Loc }
   | { kind: 'idempotent'; loc: Loc }
   | { kind: 'since'; value: string; loc: Loc };
 
@@ -206,19 +224,9 @@ export interface BudgetNode {
   loc: Loc;
 }
 
-// A widget is content on a slide, not part of the service: the page owns it
-// and the service only counts what it receives.
-export interface UiWidget {
-  kind: 'poll' | 'rating' | 'comments' | 'qr';
-  options: string[];
-  max: number | null;
-  loc: Loc;
-}
-
 export interface UiSlide {
   title: string;
   body: string | null;
-  widget: UiWidget | null;
   loc: Loc;
 }
 
@@ -234,14 +242,11 @@ export interface UiNode {
   history: string | null;
   send: string | null;
   start: string | null;
-  // A presentation page has two audiences (host and guests) and widgets that
-  // each need their own operation; every binding is named, never guessed.
+  // A presentation page has two audiences (host and guests); every binding
+  // is named, never guessed.
   join: string | null;
   state: string | null;
   advance: string | null;
-  vote: string | null;
-  rate: string | null;
-  comment: string | null;
   slides: UiSlide[];
   loc: Loc;
 }

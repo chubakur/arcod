@@ -76,6 +76,10 @@ export function normalizeBody(code: string, op: string): string {
 export function validateBody(code: string, op: string): string | null {
   if (/^\s*import\s/m.test(code)) return 'body must not import anything';
   if (/\brequire\s*\(/.test(code)) return 'body must not use require';
+  if (/\bimport\s*\(/.test(code)) return 'body must not use dynamic import';
+  if (/\bfetch\s*\(/.test(code)) return 'body must not use raw network (deny net)';
+  if (/\bWebSocket\b/.test(code)) return 'body must not use raw network (deny net)';
+  if (/\bprocess\.env\b/.test(code)) return 'body must not read the environment';
   const expected = new RegExp('export\\s+async\\s+function\\s+' + op + '\\s*\\(');
   if (!expected.test(code)) return 'expected export async function ' + op + '(input, io)';
   if (/res\.|res\.writeHead|sendError\(/.test(code)) return 'body must not write HTTP responses';

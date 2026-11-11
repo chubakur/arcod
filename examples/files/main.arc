@@ -29,7 +29,7 @@ service FileShare : http {
   uses files: blob
 
   contract {
-    public op upload(name: FileName, body: Contents, visibility: Visibility, allowed: list<UserId>) -> FileId {
+    auth op upload(name: FileName, body: Contents, visibility: Visibility, allowed: list<UserId>) -> FileId {
       route: "POST /v1/files"
       effects: store.set, uuid.new, auth.actor, files.put
       errors: Unauthorized, Invalid
@@ -40,23 +40,23 @@ service FileShare : http {
 
     public op list() -> list<FileId> {
       route: "GET /v1/files"
-      effects: store.scan, auth.actor
-      errors: Unauthorized
-      on error Unauthorized: result != null
+      effects: store.scan
+      errors: none
     }
 
     public op download(id: FileId) -> { name: FileName, body: Contents } {
       route: "GET /v1/files/:id"
-      effects: store.get, auth.actor, files.get
+      effects: store.get, files.get
       errors: Unauthorized, NotFound, Forbidden
       on error Unauthorized: id != null
       on error NotFound: id != null
       on error Forbidden: id != null
     }
 
-    public op setVisibility(id: FileId, visibility: Visibility, allowed: list<UserId>) -> bool {
+    auth op setVisibility(id: FileId, visibility: Visibility, allowed: list<UserId>) -> bool {
       route: "PUT /v1/files/:id/visibility"
-      effects: store.get, store.set, auth.actor
+      owner: id
+      effects: store.get, store.set
       errors: Unauthorized, NotFound, Forbidden, Invalid
       on error Unauthorized: id != null
       on error NotFound: id != null
@@ -64,9 +64,9 @@ service FileShare : http {
       on error Invalid: visibility != null
     }
 
-    public op users() -> list<UserId> {
+    auth op users() -> list<UserId> {
       route: "GET /v1/users"
-      effects: auth.actor, auth.users
+      effects: auth.users
       errors: Unauthorized
       on error Unauthorized: result != null
     }

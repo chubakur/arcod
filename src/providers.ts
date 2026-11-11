@@ -16,6 +16,10 @@ export function endpointEnv(alias: string): string {
 export interface ProviderSpec {
   name: string;
   capability: string;
+  // Capabilities beyond the primary one this provider can also satisfy.
+  // Redis is the reference zero-dependency broker: kv, stream pub/sub and
+  // queue lists ride one process.
+  extraCapabilities?: string[];
   image?: string;
   // external providers are configured, not provisioned: Sentry, for instance.
   external?: boolean;
@@ -42,6 +46,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   redis: {
     name: 'redis',
     capability: 'kv',
+    extraCapabilities: ['stream', 'queue'],
     image: 'redis:7-alpine',
     port: 6379,
     command: ['redis-server', '--save', '', '--appendonly', 'no'],
@@ -297,10 +302,15 @@ export function providerNames(): string[] {
 }
 
 // Which capability each provider can satisfy, for diagnostics.
+export function providerImplements(spec: ProviderSpec, capability: string): boolean {
+  const name = capability.includes('.') ? capability.split('.').pop()! : capability;
+  return spec.capability === name || (spec.extraCapabilities ?? []).includes(name);
+}
+
 export function providersForCapability(capability: string): string[] {
   const name = capability.includes('.') ? capability.split('.').pop()! : capability;
   return Object.values(PROVIDERS)
-    .filter((spec) => spec.capability === name)
+    .filter((spec) => providerImplements(spec, name))
     .map((spec) => spec.name)
     .sort();
 }

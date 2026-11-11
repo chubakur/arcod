@@ -103,7 +103,22 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
     short: {
       publish: 'publish(topic, msg) -> n',
     },
-    notes: 'topic is a plain string chosen by the body, e.g. "room:" + code. Returns how many clients received it; 0 means nobody is listening, which is not an error.',
+    notes: 'topic is a plain string chosen by the body, e.g. "room:" + code. Returns how many clients received it; 0 means nobody is listening, which is not an error. With a redis binding every replica receives every event, so websocket clients may sit on any replica.',
+  },
+  // Reliable asynchronous handoff between operations. The body only
+  // publishes; consumers are declared in the model — `job ... { on: alias.topic }`
+  // — and the runtime owns the lifecycle: start, stop, graceful shutdown,
+  // retry with a dead letter. None of that is body code.
+  queue: {
+    effects: {
+      publish: 'publish(topic: string, message: any) -> boolean',
+      dead: 'dead(topic: string) -> list<{ payload: any, attempts: number, lastError: string }>',
+    },
+    short: {
+      publish: 'publish(topic, msg) -> bool',
+      dead: 'dead(topic) -> list',
+    },
+    notes: 'Returns true when the broker accepted the message. Delivery to the consumer is at-least-once: a failed body (exception or { error }) is retried up to the job retry count, then moved to the dead letter queue, where dead(topic) reads it.',
   },
   ids: {
     effects: {

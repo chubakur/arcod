@@ -339,8 +339,8 @@ export function emitOpenapi(mod: ModuleNode, options: OpenapiOptions = {}): Open
   const paths: Record<string, unknown> = {};
 
   for (const op of svc.contract) {
-    if (op.kind !== 'op' || !routeOf(op)) continue; // A041 covers the no-route case
-    if (!svc.external && !op.isPublic) continue; // an external contract is entirely public surface
+    if (op.kind !== 'op' || !routeOf(op)) continue; // A050 covers the no-route case
+    if (!svc.external && !op.isPublic && !op.auth) continue; // auth ops are public surface too // an external contract is entirely public surface
     const { method, path } = routeInfo(op);
     const operation = operationFor(mod, svc, op);
 

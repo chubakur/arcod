@@ -51,7 +51,9 @@ test('parses the onetimemessage example', () => {
 test('the example has no errors', () => {
   const diags = check(ast);
   assert.deepEqual(diags.filter((item) => item.severity === 'error'), []);
-  assert.ok(diags.some((item) => item.code === 'W016'));
+  // native denies (net, fs, exec) are enforced by body validation, so the
+  // unenforced-deny warning only fires for capability-level denies
+  assert.ok(!diags.some((item) => item.code === 'W016'));
   assert.ok(diags.some((item) => item.code === 'W018'));
 });
 
@@ -543,15 +545,21 @@ const quizImplDir = fileURLToPath(new URL('../examples/quiz/impl', import.meta.u
 const quizSource = await readFile(quizUrl, 'utf8');
 const quizAst = parse(quizSource, 'main.arc');
 
-test('a presentation is a deck with checked widgets', () => {
+test('a presentation is a deck of slides', () => {
   const ui = quizAst.uis[0];
   assert.equal(ui.layout, 'presentation');
-  assert.deepEqual(ui.slides.map((slide) => slide.widget!.kind), ['poll', 'qr', 'rating', 'comments']);
-  const pollLine = quizSource.split('\n').find((line) => /^\s*poll\(/.test(line))!;
-  const pollOptions = pollLine.slice(pollLine.indexOf('(') + 1, pollLine.lastIndexOf(')'))
-    .split(',').map((item) => item.trim().replace(/^"|"$/g, ''));
-  assert.deepEqual(ui.slides[0].widget!.options, pollOptions);
-  assert.equal(ui.slides[2].widget!.max, 5);
+  assert.deepEqual(ui.slides.map((slide) => [slide.title, slide.body]), [
+    ['Who are you?', 'Developers, QA, product — the host asks, the room answers out loud.'],
+    ['Join', 'Open the link shown on the big screen or scan the code to follow from your phone.'],
+    ['Agenda', 'The host advances the deck; guests see every slide as it changes.'],
+    ['Questions', 'Write a question — the host sees it in the live state.'],
+  ]);
+  // interactive widgets were removed from the language in v0.1: slide bodies
+  // are plain text, poll/rating/comments/qr are not parsed anymore
+  assert.throws(
+    () => parse(quizSource.replace('answers out loud."\n  }', 'answers out loud."\n    poll("Yes", "No")\n  }'), 'main.arc'),
+    /slide property|expected/,
+  );
 
   const diags = check(quizAst);
   assert.equal(diags.filter((item) => item.severity === 'error').length, 0);
@@ -565,26 +573,20 @@ test('a presentation without its bindings does not compile', () => {
   const codes = (text: string) => check(parse(text, 'main.arc')).map((item) => item.code);
 
   assert.ok(codes(quizSource.replace('  join:    Live.join\n', '')).includes('A040'), 'A040: no join');
-  assert.ok(codes(quizSource.replace('  vote:    Live.vote\n', '')).includes('A045'), 'A045: poll without vote');
-  assert.ok(codes(quizSource.replace(/poll\([^)\n]*\)/, 'poll("Only")')).includes('A043'), 'A043: one option');
-  assert.ok(codes(quizSource.replace('rating(max: 5)', 'rating(max: 1)')).includes('A044'), 'A044: bad scale');
-  assert.ok(codes(quizSource.replace(/^\s*poll\([^)\n]*\)\n/m, '')).includes('A042'), 'A042: slide without a widget');
 
   const noSlides = quizSource.replace(/  slide[\s\S]*?\n  }\n/g, '');
   assert.ok(codes(noSlides).includes('A041'), 'A041: empty deck');
-  const noQr = quizSource.replace(/ {2}slide "[^"\n]*" \{\n {4}body: "[^"\n]*"\n {4}qr\n {2}\}\n/, '');
-  assert.ok(codes(noQr).includes('W027'), 'W027: nobody sees the join link');
 });
 
-test('the presentation page carries the deck, the bindings and a real QR encoder', () => {
+test('the presentation page carries the deck and a real QR encoder', () => {
   const html = emitWeb(quizAst, { maxBytes: 2_000_000 });
   assert.ok(!/__[A-Z]+__/.test(html), 'no unexpanded placeholders');
-  assert.ok(html.includes('"kind":"poll"') && html.includes('"kind":"comments"'), 'the deck is embedded');
   const titles = quizAst.uis[0].slides.map((slide) => slide.title);
   assert.ok(titles.every((title) => html.includes(title)), 'every slide title is in the page');
+  assert.ok(!html.includes('"widget"'), 'no widget markup in the deck');
   assert.ok(html.includes('"stream":true'), 'the deck knows it has a socket');
   assert.ok(html.includes('POST') && html.includes('/v1/sessions/:code/join'), 'operations are described');
-  assert.ok(html.includes('var qrcode=function'), 'the QR encoder is inline, not a CDN');
+  assert.ok(html.includes('var qrcode=function'), 'the QR encoder for the join link is inline, not a CDN');
 });
 
 test('the quiz example builds a working page and keeps its bodies', async () => {
@@ -592,7 +594,7 @@ test('the quiz example builds a working page and keeps its bodies', async () => 
   const built = await buildExample(quizAst, dir, { implDir: quizImplDir });
   const html = await readFile(join(built.dir, 'web', 'index.html'), 'utf8');
   assert.ok(html.includes(quizAst.uis[0].title));
-  assert.ok(html.includes(JSON.stringify(quizAst.uis[0].slides[0].widget!.options)));
+  assert.ok(html.includes(quizAst.uis[0].slides[0].title));
   assert.equal(built.impl.length, 7);
 });
 
@@ -610,9 +612,13 @@ test('stream is a capability the environment binds, not a package', () => {
   const unbound = quizSource.replace('  bind stream -> websocket()\n', '');
   assert.ok(check(parse(unbound, 'main.arc')).map((item) => item.code).includes('A002'), 'A002: stream is unbound');
 
-  const wrong = quizSource.split('bind stream -> websocket()').join('bind stream -> redis(host: "kv")');
+  const wrong = quizSource.split('bind stream -> websocket()').join('bind stream -> postgres(host: "pg", port: 5432)');
   const codes = check(parse(wrong, 'main.arc')).map((item) => item.code);
-  assert.ok(codes.includes('A024'), 'A024: redis does not implement stream');
+  assert.ok(codes.includes('A024'), 'A024: postgres does not implement stream');
+
+  // redis does implement stream (and queue) since M0.3 — one broker, three roles
+  const redisBound = quizSource.split('bind stream -> websocket()').join('bind stream -> redis(host: "bus", port: 6379)');
+  assert.ok(!check(parse(redisBound, 'main.arc')).some((item) => item.code === 'A024'));
 });
 
 test('a presentation without stream still builds but says what it costs', () => {
@@ -979,6 +985,36 @@ test('file visibility: restricted list, authenticated, public and admin bypass',
     });
     assert.equal(flip.status, 403, 'only the owner or an administrator may share');
 
+    // --- declarative guard (M0.2): auth op / owner clause, enforced before the body ---
+    const anonUpload = await fetch(base + '/v1/files', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'x.txt', body: 'x', visibility: 'public', allowed: [] }),
+    });
+    assert.equal(anonUpload.status, 401, 'auth op rejects anonymous before the body');
+    assert.equal((await fetch(base + '/v1/users')).status, 401, 'auth op rejects anonymous (users)');
+
+    const own = await fetch(base + '/v1/files', {
+      method: 'POST',
+      headers: { ...as('u-vika'), 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'mine.txt', body: 'own', visibility: 'restricted', allowed: ['u-vika'] }),
+    });
+    assert.equal(own.status, 201, 'authenticated upload passes the guard');
+    const ownId = (await own.json() as { id: string }).id;
+    const ownFlip = await fetch(base + '/v1/files/' + ownId + '/visibility', {
+      method: 'PUT',
+      headers: { ...as('u-vika'), 'content-type': 'application/json' },
+      body: JSON.stringify({ visibility: 'public', allowed: [] }),
+    });
+    assert.equal(ownFlip.status, 201, 'owner clause passes for the owner');
+
+    const ghostFlip = await fetch(base + '/v1/files/00000000-0000-0000-0000-000000000000/visibility', {
+      method: 'PUT',
+      headers: { ...as('u-vika'), 'content-type': 'application/json' },
+      body: JSON.stringify({ visibility: 'public', allowed: [] }),
+    });
+    assert.equal(ghostFlip.status, 404, 'missing record is NotFound, not a 403 leak');
+
     const share = await fetch(base + '/v1/files/' + id + '/visibility', {
       method: 'PUT',
       headers: { ...as('u-andrey', true), 'content-type': 'application/json' },
@@ -1244,13 +1280,13 @@ test('openapi: examples are exported from the examples block', async () => {
   assert.deepEqual(errorExamples.rejects_empty.value, { error: 'Invalid' });
 });
 
-test('openapi: a public operation without a route is rejected (A041)', async () => {
+test('openapi: a public operation without a route is rejected (A050)', async () => {
   const broken = parse(source.replace('route: "GET /api/messages/:id"', ''), 'main.arc');
   const diags = check(broken);
-  assert.ok(diags.some((d) => d.code === 'A041' && d.severity === 'error'));
-  assert.ok(diags.find((d) => d.code === 'A041')?.message.includes('read'));
+  assert.ok(diags.some((d) => d.code === 'A050' && d.severity === 'error'));
+  assert.ok(diags.find((d) => d.code === 'A050')?.message.includes('read'));
   // clean specs stay clean
-  assert.ok(!check(ast).some((d) => d.code === 'A041'));
+  assert.ok(!check(ast).some((d) => d.code === 'A050'));
 });
 
 test('openapi: an external service contract can be exported on its own', async () => {
@@ -1262,4 +1298,536 @@ test('openapi: an external service contract can be exported on its own', async (
   assert.ok(body);
   // the local service is not part of the external contract
   assert.ok(!(doc.paths as Record<string, unknown>)['/v1/orders']);
+});
+
+// --- AuthZ guard (M0.2) ---
+
+const AUTHZ_SPEC = `module authz @0.1.0 {
+}
+
+use capability arcod.std.identity @1
+
+error Unauthorized
+error Forbidden
+error NotFound
+
+service Vault : http {
+  uses auth: identity
+
+  roles: admin, support
+
+  contract {
+    public op ping() -> string {
+      route: "GET /v1/ping"
+      errors: none
+    }
+
+    auth op whoami() -> string {
+      route: "GET /v1/whoami"
+      errors: Unauthorized
+      on error Unauthorized: result != null
+    }
+
+    auth op adminOnly() -> string {
+      route: "GET /v1/admin"
+      roles: admin
+      errors: Unauthorized, Forbidden
+      on error Unauthorized: result != null
+      on error Forbidden: result != null
+    }
+
+    auth op mine(id: string) -> string {
+      route: "GET /v1/mine/:id"
+      owner: id
+      errors: Unauthorized, NotFound, Forbidden
+      on error Unauthorized: id != null
+      on error NotFound: id != null
+      on error Forbidden: id != null
+    }
+  }
+
+  effects {
+    allow auth.actor
+    deny net, fs, exec
+  }
+}
+
+environment dev {
+  bind auth -> keycloak(host: "idp", port: 8080)
+  deploy docker
+}
+`;
+
+const authzAst = () => parse(AUTHZ_SPEC, 'main.arc');
+
+test('authz: auth op, roles and owner parse into the AST', () => {
+  const mod = authzAst();
+  const svc = mod.services[0];
+  assert.deepEqual(svc.roles, ['admin', 'support']);
+  const [ping, whoami, adminOnly, mine] = svc.contract;
+  assert.equal(ping.isPublic, true);
+  assert.equal(ping.auth, false);
+  assert.equal(whoami.auth, true);
+  assert.equal(whoami.isPublic, false);
+  const roles = adminOnly.clauses.find((clause) => clause.kind === 'roles');
+  assert.ok(roles && roles.kind === 'roles' && roles.names.join(',') === 'admin');
+  const owner = mine.clauses.find((clause) => clause.kind === 'owner');
+  assert.ok(owner && owner.kind === 'owner' && owner.param === 'id');
+});
+
+test('authz: public and auth are mutually exclusive', () => {
+  assert.throws(() => parse(AUTHZ_SPEC.replace('auth op whoami', 'public auth op whoami'), 'main.arc'));
+});
+
+test('authz: a guarded operation needs an actor source (A046)', () => {
+  const broken = parse(AUTHZ_SPEC.replace('  uses auth: identity\n', ''), 'main.arc');
+  assert.ok(check(broken).some((d) => d.code === 'A046' && d.message.includes('whoami')));
+  assert.ok(!check(authzAst()).some((d) => d.severity === 'error'));
+});
+
+test('authz: a role must exist in the service vocabulary (A047)', () => {
+  const broken = parse(AUTHZ_SPEC.replace('      roles: admin\n', '      roles: root\n'), 'main.arc');
+  const diags = check(broken).filter((d) => d.code === 'A047');
+  assert.equal(diags.length, 1);
+  assert.ok(diags[0].message.includes('root'));
+});
+
+test('authz: a public operation must not require an actor (A048)', () => {
+  const withOwner = parse(AUTHZ_SPEC.replace('auth op mine', 'public op mine'), 'main.arc');
+  assert.ok(check(withOwner).some((d) => d.code === 'A048' && d.message.includes('mine')));
+  const withEffect = parse(AUTHZ_SPEC.replace(
+    '      route: "GET /v1/ping"\n      errors: none',
+    '      route: "GET /v1/ping"\n      errors: none\n      effects: auth.actor',
+  ), 'main.arc');
+  const diags = check(withEffect).filter((d) => d.code === 'A048');
+  assert.ok(diags.some((d) => d.message.includes('ping')), JSON.stringify(diags));
+});
+
+test('authz: owner must name a real parameter (A049)', () => {
+  const broken = parse(AUTHZ_SPEC.replace('owner: id', 'owner: ghost'), 'main.arc');
+  const diags = check(broken).filter((d) => d.code === 'A049');
+  assert.equal(diags.length, 1);
+  assert.ok(diags[0].message.includes('ghost'));
+});
+
+test('authz: capability-level deny stays a warning, native deny is enforced (W016)', () => {
+  assert.ok(!check(authzAst()).some((d) => d.code === 'W016'));
+  const withDeny = parse(AUTHZ_SPEC + `
+service Other : http {
+  uses auth: identity
+  effects {
+    allow auth.actor
+    deny auth
+  }
+  contract {
+    auth op ping2() -> string {
+      route: "GET /v2/ping"
+      errors: none
+    }
+  }
+}
+`, 'main.arc');
+  const diags = check(withDeny).filter((d) => d.code === 'W016');
+  assert.equal(diags.length, 1, JSON.stringify(check(withDeny)));
+  assert.ok(diags[0].message.includes('auth'));
+});
+
+test('authz: the runtime emits the guard before the body', () => {
+  const code = emitService(authzAst(), { impl: { whoami: 'export async function whoami(input, io) { return { result: "x" }; }' } });
+  assert.ok(code.includes('const AUTHZ = '));
+  assert.ok(code.includes('"whoami": {\n    "auth": true'));
+  assert.ok(code.includes('"adminOnly": {\n    "auth": true,\n    "roles": [\n      "admin"'));
+  assert.ok(code.includes('"owner": "id"'));
+  assert.ok(code.includes('async function authorize(spec, io, input)'));
+  assert.ok(code.includes('const denied = await authorize(AUTHZ[opName], io, input);'));
+});
+
+test('authz: validateBody closes the native deny hole', () => {
+  assert.ok(validateBody('export async function read(input, io) { await fetch("http://x"); }', 'read'));
+  assert.ok(validateBody('export async function read(input, io) { return import("node:fs"); }', 'read'));
+  assert.equal(validateBody('export async function read(input, io) { return { result: 1 }; }', 'read'), null);
+});
+
+// --- Async layer (M0.3): redis-backed stream + queue effects ---
+
+// A broker just enough for the generated clients: pub/sub (SUBSCRIBE,
+// UNSUBSCRIBE, PUBLISH) and lists (RPUSH/LPUSH/LPOP/LLEN/LRANGE). Lets the
+// e2e tests prove the wire protocol without docker.
+async function startFakeRedis(port: number): Promise<() => Promise<void>> {
+  const { createServer } = await import('node:net');
+  const subs = new Map<string, Set<import('node:net').Socket>>();
+  const lists = new Map<string, string[]>();
+  const bulk = (value: string) => '$' + Buffer.byteLength(value) + '\r\n' + value + '\r\n';
+  const array = (items: string[]) => '*' + items.length + '\r\n' + items.join('');
+
+  const server = createServer((socket) => {
+    let buffer = Buffer.alloc(0);
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      for (;;) {
+        if (buffer.length < 1 || buffer[0] !== 0x2a) break;
+        const headEnd = buffer.indexOf('\r\n');
+        if (headEnd === -1) break;
+        const count = Number(buffer.toString('utf8', 1, headEnd));
+        let offset = headEnd + 2;
+        const args: string[] = [];
+        let complete = true;
+        for (let i = 0; i < count; i += 1) {
+          if (offset >= buffer.length || buffer[offset] !== 0x24) { complete = false; break; }
+          const lenEnd = buffer.indexOf('\r\n', offset);
+          if (lenEnd === -1) { complete = false; break; }
+          const len = Number(buffer.toString('utf8', offset + 1, lenEnd));
+          const start = lenEnd + 2;
+          if (buffer.length < start + len + 2) { complete = false; break; }
+          args.push(buffer.toString('utf8', start, start + len));
+          offset = start + len + 2;
+        }
+        if (!complete) break;
+        buffer = buffer.subarray(offset);
+
+        const cmd = args[0].toUpperCase();
+        if (cmd === 'PING') socket.write('+PONG\r\n');
+        else if (cmd === 'SUBSCRIBE') {
+          const channel = args[1];
+          const set = subs.get(channel) || new Set();
+          set.add(socket);
+          subs.set(channel, set);
+          socket.write(array([bulk('subscribe'), bulk(channel), ':1\r\n']));
+        } else if (cmd === 'UNSUBSCRIBE') {
+          const set = subs.get(args[1]);
+          if (set) { set.delete(socket); if (set.size === 0) subs.delete(args[1]); }
+          socket.write(array([bulk('unsubscribe'), bulk(args[1]), ':0\r\n']));
+        } else if (cmd === 'PUBLISH') {
+          const set = subs.get(args[1]);
+          let delivered = 0;
+          if (set) {
+            const frame = array([bulk('message'), bulk(args[1]), bulk(args[2])]);
+            for (const client of set) { client.write(frame); delivered += 1; }
+          }
+          socket.write(':' + delivered + '\r\n');
+        } else if (cmd === 'RPUSH' || cmd === 'LPUSH') {
+          const list = lists.get(args[1]) || [];
+          if (cmd === 'RPUSH') list.push(args[2]);
+          else list.unshift(args[2]);
+          lists.set(args[1], list);
+          socket.write(':' + list.length + '\r\n');
+        } else if (cmd === 'LPOP') {
+          const list = lists.get(args[1]) || [];
+          const value = list.length > 0 ? list.shift()! : null;
+          lists.set(args[1], list);
+          socket.write(value == null ? '$-1\r\n' : bulk(value));
+        } else if (cmd === 'LLEN') {
+          socket.write(':' + (lists.get(args[1]) || []).length + '\r\n');
+        } else if (cmd === 'LRANGE') {
+          const list = lists.get(args[1]) || [];
+          socket.write(array(list.map(bulk)));
+        } else {
+          socket.write('-ERR unknown command ' + cmd + '\r\n');
+        }
+      }
+    });
+    socket.on('close', () => {
+      for (const [channel, set] of subs) { set.delete(socket); if (set.size === 0) subs.delete(channel); }
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
+  return async () => {
+    for (const set of subs) for (const client of set[1]) client.destroy();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  };
+}
+
+const QUEUE_SPEC = `module pipetest @0.1.0 {
+}
+
+use capability arcod.std.kv @1
+use capability arcod.std.ids @1
+use capability arcod.std.queue @1
+
+error Invalid
+
+service Pipe : http {
+  uses store: kv
+  uses uuid: ids
+  uses events: queue
+
+  contract {
+    public op submit(entry: string) -> bool {
+      route: "POST /v1/submit"
+      effects: events.publish
+      errors: none
+    }
+
+    public op seen() -> list<string> {
+      route: "GET /v1/seen"
+      effects: store.scan
+      errors: none
+    }
+
+    public op dead(topic: string) -> list<json> {
+      route: "GET /v1/dead"
+      effects: events.dead
+      errors: none
+    }
+
+    job audit(entry: string) {
+      on: events.jobs
+      retry: 1
+      effects: store.set
+      errors: none
+    }
+  }
+
+  effects {
+    allow store.set, store.scan, events.publish, events.dead, uuid.new
+    deny net, fs, exec
+  }
+}
+
+environment dev {
+  bind store -> redis(host: "kv", port: 6379)
+  bind uuid -> local
+  bind events -> redis(host: "events", port: 6379)
+  deploy docker
+}
+`;
+
+test('queue: on/retry clauses parse into the AST', () => {
+  const mod = parse(QUEUE_SPEC, 'main.arc');
+  const audit = mod.services[0].contract.find((op) => op.name === 'audit')!;
+  assert.equal(audit.kind, 'job');
+  const consume = audit.clauses.find((clause) => clause.kind === 'consume');
+  assert.ok(consume && consume.kind === 'consume' && consume.source === 'events.jobs');
+  const retry = audit.clauses.find((clause) => clause.kind === 'retry');
+  assert.ok(retry && retry.kind === 'retry' && retry.value === 1);
+});
+
+test('queue: consumer wiring is checked (A051-A053, W017)', () => {
+  const codes = (text: string) => check(parse(text, 'main.arc')).map((item) => item.code);
+
+  // a consumer job is executed, so the not-executable warning is gone
+  assert.ok(!codes(QUEUE_SPEC).includes('W017'));
+  assert.ok(codes(QUEUE_SPEC.replace('    job audit(entry: string) {', '    job audit(entry: string) {\n      schedule: "0 3 * * *"')).length >= 0);
+  const scheduled = QUEUE_SPEC.replace('      on: events.jobs\n', '      schedule: "0 3 * * *"\n');
+  assert.ok(codes(scheduled).includes('W017'), 'a scheduled job is still not executed');
+
+  const asOp = QUEUE_SPEC.replace('    job audit(entry: string) {', '    op audit(entry: string) {');
+  assert.ok(codes(asOp).includes('A051'), 'only a job can consume');
+
+  const unknownAlias = QUEUE_SPEC.replace('on: events.jobs', 'on: ghost.jobs');
+  assert.ok(codes(unknownAlias).includes('A052'), 'unknown queue alias');
+
+  const retryWithoutOn = QUEUE_SPEC.replace('      on: events.jobs\n', '');
+  assert.ok(codes(retryWithoutOn).includes('A053'), 'retry without a consumer');
+});
+
+async function buildQueueService(dir: string, auditBody: string) {
+  const implDir = join(dir, 'impl');
+  await mkdir(implDir, { recursive: true });
+  await writeFile(join(implDir, 'submit.mjs'), 'export async function submit(input, io) { return { result: await io.queuePublish("jobs", input.entry) }; }\n');
+  await writeFile(join(implDir, 'seen.mjs'), 'export async function seen(input, io) { const items = await io.scan(); return { result: items.map((item) => item.b && item.b.entry).filter((entry) => entry != null) }; }\n');
+  await writeFile(join(implDir, 'dead.mjs'), 'export async function dead(input, io) { return { result: await io.queueDead(input.topic) }; }\n');
+  await writeFile(join(implDir, 'audit.mjs'), auditBody);
+  const mod = parse(QUEUE_SPEC, 'main.arc');
+  return buildExample(mod, dir, { implDir });
+}
+
+async function spawnService(builtDir: string, port: number, extraEnv: Record<string, string>) {
+  const child = spawn(process.execPath, [join(builtDir, 'service', 'index.mjs')], {
+    env: { ...process.env, PORT: String(port), KV_DRIVER: 'memory', ...extraEnv },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const base = 'http://127.0.0.1:' + port;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      const res = await fetch(base + '/healthz');
+      if (res.ok) return { child, base };
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  throw new Error('service did not start on ' + port);
+}
+
+async function waitFor<T>(probe: () => Promise<T | null>, attempts = 50): Promise<T> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const value = await probe();
+    if (value != null && (!Array.isArray(value) || value.length > 0)) return value;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('condition was not met in time');
+}
+
+test('queue: memory driver consumes, and a failing body retries then dead-letters', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-queue-mem-'));
+  const built = await buildQueueService(dir, [
+    'export async function audit(input, io) {',
+    '  const id = await io.new();',
+    '  await io.save(id, { b: { entry: input.entry }, h: null });',
+    '  return { result: true };',
+    '}',
+    '',
+  ].join('\n'));
+  const port = 19000 + Math.floor(Math.random() * 500);
+  const { child, base } = await spawnService(built.dir, port, {});
+  try {
+    const ok = await fetch(base + '/v1/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ entry: 'hello-queue' }),
+    });
+    assert.equal(ok.status, 201);
+
+    const seen = await waitFor(async () => {
+      const res = await fetch(base + '/v1/seen');
+      const body = await res.json() as string[];
+      return Array.isArray(body) && body.includes('hello-queue') ? body : null;
+    });
+    assert.deepEqual(seen, ['hello-queue'], 'the consumer body saw the message');
+  } finally {
+    child.kill('SIGTERM');
+  }
+
+  // failing body: retried once (retry: 1), then moved to the dead letter
+  const dir2 = await mkdtemp(join(tmpdir(), 'arcod-queue-dead-'));
+  const built2 = await buildQueueService(dir2, 'export async function audit(input, io) { return { error: "Invalid" }; }\n');
+  const port2 = 19500 + Math.floor(Math.random() * 500);
+  const second = await spawnService(built2.dir, port2, {});
+  try {
+    await fetch(second.base + '/v1/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ entry: 'poison' }),
+    });
+    const dead = await waitFor(async () => {
+      const res = await fetch(second.base + '/v1/dead?topic=jobs');
+      const body = await res.json() as Array<{ payload: string; attempts: number; lastError: string }>;
+      return Array.isArray(body) && body.length > 0 ? body : null;
+    });
+    assert.equal(dead[0].payload, 'poison');
+    assert.equal(dead[0].attempts, 2, 'one initial delivery plus one retry');
+    assert.ok(dead[0].lastError.includes('Invalid'));
+  } finally {
+    second.child.kill('SIGTERM');
+  }
+});
+
+test('queue: the redis driver carries messages over the wire', async () => {
+  const redisPort = 20000 + Math.floor(Math.random() * 5000);
+  const stopRedis = await startFakeRedis(redisPort);
+  try {
+    const dir = await mkdtemp(join(tmpdir(), 'arcod-queue-redis-'));
+    const built = await buildQueueService(dir, [
+      'export async function audit(input, io) {',
+      '  const id = await io.new();',
+      '  await io.save(id, { b: { entry: input.entry }, h: null });',
+      '  return { result: true };',
+      '}',
+      '',
+    ].join('\n'));
+    const port = 19000 + Math.floor(Math.random() * 500);
+    const { child, base } = await spawnService(built.dir, port, { QUEUE_REDIS_URL: 'redis://127.0.0.1:' + redisPort });
+    try {
+      await fetch(base + '/v1/submit', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entry: 'over-redis' }),
+      });
+      const seen = await waitFor(async () => {
+        const res = await fetch(base + '/v1/seen');
+        const body = await res.json() as string[];
+        return Array.isArray(body) && body.includes('over-redis') ? body : null;
+      });
+      assert.deepEqual(seen, ['over-redis']);
+    } finally {
+      child.kill('SIGTERM');
+    }
+  } finally {
+    await stopRedis();
+  }
+});
+
+const STREAM_SPEC = `module streamshare @0.1.0 {
+}
+
+use capability arcod.std.kv @1
+use capability arcod.std.stream @1
+
+service Hub : http {
+  uses store: kv
+  uses bus: stream
+
+  contract {
+    public op poke(topic: string, message: string) -> number {
+      route: "POST /v1/poke"
+      effects: bus.publish
+      errors: none
+    }
+  }
+
+  effects {
+    allow bus.publish
+    deny net, fs, exec
+  }
+}
+
+environment dev {
+  bind store -> redis(host: "kv", port: 6379)
+  bind bus -> redis(host: "bus", port: 6379)
+  deploy docker
+}
+`;
+
+test('stream: two replicas see the same websocket events through redis pub/sub', async () => {
+  const redisPort = 20000 + Math.floor(Math.random() * 5000);
+  const stopRedis = await startFakeRedis(redisPort);
+  try {
+    const dir = await mkdtemp(join(tmpdir(), 'arcod-stream-'));
+    const implDir = join(dir, 'impl');
+    await mkdir(implDir, { recursive: true });
+    await writeFile(join(implDir, 'poke.mjs'), 'export async function poke(input, io) { return { result: await io.publish(input.topic, input.message) }; }\n');
+    const built = await buildExample(parse(STREAM_SPEC, 'main.arc'), dir, { implDir });
+
+    const portA = 19000 + Math.floor(Math.random() * 400);
+    const portB = 19400 + Math.floor(Math.random() * 400);
+    const replicaA = await spawnService(built.dir, portA, { STREAM_REDIS_URL: 'redis://127.0.0.1:' + redisPort });
+    const replicaB = await spawnService(built.dir, portB, { STREAM_REDIS_URL: 'redis://127.0.0.1:' + redisPort });
+    let socket: WebSocket | null = null;
+    try {
+      socket = new WebSocket('ws://127.0.0.1:' + portB + '/ws?topic=room');
+      const received: string[] = [];
+      await new Promise<void>((resolve, reject) => {
+        socket.onmessage = (event) => {
+          const data = JSON.parse(String(event.data)) as { type: string };
+          if (data.type === 'ready') resolve();
+        };
+        socket.onerror = () => reject(new Error('websocket failed'));
+      });
+      // let the SUBSCRIBE reach the broker before publishing
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const poke = await fetch(replicaA.base + '/v1/poke', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ topic: 'room', message: 'hello-replicas' }),
+      });
+      assert.equal(poke.status, 201);
+
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('no event received on replica B: ' + JSON.stringify(received))), 5000);
+        socket.onmessage = (event) => {
+          received.push(String(event.data));
+          const data = JSON.parse(String(event.data)) as { type: string };
+          if (data.type !== 'ready') { clearTimeout(timer); resolve(); }
+        };
+      });
+      assert.ok(received.some((text) => text.includes('hello-replicas')), 'replica B delivered the event published on replica A');
+    } finally {
+      socket?.close();
+      replicaA.child.kill('SIGTERM');
+      replicaB.child.kill('SIGTERM');
+    }
+  } finally {
+    await stopRedis();
+  }
 });

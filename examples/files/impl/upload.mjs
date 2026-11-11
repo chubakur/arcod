@@ -1,6 +1,7 @@
 export async function upload(input, io) {
+  // The runtime guard already rejected anonymous callers (401): from here on
+  // the actor exists. io.actor() is only needed for the owner field.
   const actor = await io.actor();
-  if (!actor) return { error: 'Unauthorized' };
   const name = String(input.name || '');
   const body = String(input.body || '');
   const visibility = String(input.visibility || '');
@@ -27,6 +28,8 @@ function isVisibility(value) {
   return value === 'public' || value === 'authenticated' || value === 'restricted';
 }
 
+// Resource-level read policy (visibility matrix): not a standard guard, so
+// it stays in the body. Standard authN/ownership checks are declarative.
 function canRead(actor, meta) {
   if (!actor) return meta.visibility === 'public';
   if (actor.admin) return true;

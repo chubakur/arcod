@@ -1,7 +1,7 @@
 import type { Diagnostic } from './diagnostics.ts';
 import type { Expr, Loc, ModuleNode, OpNode, ServiceNode, UiNode } from './ast.ts';
 import { templateFor } from './templates.ts';
-import { providerFor, providerNames, providersForCapability } from './providers.ts';
+import { providerFor, providerImplements, providerNames, providersForCapability } from './providers.ts';
 import { storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
 
@@ -99,7 +99,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
 
       const capability = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
-      if (spec.capability !== capability) {
+      if (!providerImplements(spec, capability)) {
         const alternatives = providersForCapability(capability);
         diags.push(
           diag('A024', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
@@ -180,9 +180,12 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
-    // W016 — deny entries the compiler cannot enforce in v0.1
+    // W016 — deny entries the compiler cannot enforce in v0.1. Native denies
+    // (net, fs, exec) are enforced: bodies are validated to have no imports,
+    // no require, no raw network — the io capabilities are the only door.
     if (svc.effects) {
-      const unenforceable = svc.effects.deny.filter((item) => !item.includes('.'));
+      const native = new Set(['net', 'fs', 'exec']);
+      const unenforceable = svc.effects.deny.filter((item) => !item.includes('.') && !native.has(item));
       if (unenforceable.length > 0) {
         diags.push(diag('W016', 'warning', mod.file, svc.effects.loc, `services.${svc.name}.effects.deny`, 'deny is not enforced in v0.1: ' + unenforceable.join(', '), 'restrict access at the environment level'));
       }
@@ -232,21 +235,103 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       diags.push(diag('W018', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'operation bodies are not specified: ' + templated.join(', '), 'arcod impl generates them, build --reference substitutes a demo body, scaffold leaves a TODO'));
     }
 
-    // A041 — a public operation is the external contract; without a route it
+    // A050 — a public operation is the external contract; without a route it
     // has no place in HTTP or OpenAPI, which usually means `public` is a typo.
     if (!svc.external) {
       for (const op of svc.contract) {
         if (op.kind !== 'op' || !op.isPublic) continue;
         if (!routeOf(op)) {
-          diags.push(diag('A041', 'error', mod.file, op.loc, `services.${svc.name}.contract.${op.name}`, `public operation ${op.name} has no route`, 'add route: "VERB /path" or drop public'));
+          diags.push(diag('A050', 'error', mod.file, op.loc, `services.${svc.name}.contract.${op.name}`, `public operation ${op.name} has no route`, 'add route: "VERB /path" or drop public'));
         }
       }
     }
 
-    // W017 — jobs are parsed but not executable in v0.1
+    // Access control: `auth`, `roles:` and `owner:` are enforced by the
+    // generated runtime before the body runs, so the model has to be sound.
+    const identityAliases = svc.uses
+      .filter((use) => use.capability === 'identity' || use.capability.endsWith('.identity'))
+      .map((use) => use.alias);
+    const rolesClause = (op: OpNode) => op.clauses.find((c) => c.kind === 'roles');
+    const ownerClause = (op: OpNode) => op.clauses.find((c) => c.kind === 'owner');
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      const roles = rolesClause(op);
+      const owner = ownerClause(op);
+      const guarded = op.auth || roles || owner;
+
+      // A046 — a guarded operation needs an actor source
+      if (guarded && identityAliases.length === 0) {
+        diags.push(diag('A046', 'error', mod.file, op.loc, `services.${svc.name}.contract.${op.name}`,
+          `operation ${op.name} is guarded but the service has no identity capability`, 'add uses auth: identity — tokens are verified by the provider, roles come from the token'));
+      }
+
+      // A047 — a role must exist in the service role vocabulary
+      if (roles && roles.kind === 'roles') {
+        for (const role of roles.names) {
+          if (!svc.roles.includes(role)) {
+            diags.push(diag('A047', 'error', mod.file, roles.loc, `services.${svc.name}.contract.${op.name}.roles`,
+              `role ${role} is not declared by the service`, 'add roles: ' + role + ' to ' + svc.name + ' or fix the typo'));
+          }
+        }
+      }
+
+      // A048 — a public operation must not require an actor
+      if (op.isPublic) {
+        if (roles || owner) {
+          diags.push(diag('A048', 'error', mod.file, op.loc, `services.${svc.name}.contract.${op.name}`,
+            `public operation ${op.name} requires an actor`, 'declare it `auth op` or drop the roles/owner clause'));
+        } else {
+          const clause = op.clauses.find((c) => c.kind === 'effects');
+          const names = clause && clause.kind === 'effects' ? clause.names : [];
+          const usesActor = names.some((entry) => identityAliases.includes(entry.split('.')[0]));
+          if (usesActor) {
+            diags.push(diag('A048', 'error', mod.file, op.loc, `services.${svc.name}.contract.${op.name}`,
+              `public operation ${op.name} uses the actor and stays public by accident`, 'declare it `auth op`; resource-level visibility checks stay in the body'));
+          }
+        }
+      }
+
+      // A049 — owner must name a real parameter
+      if (owner && owner.kind === 'owner' && !op.params.some((param) => param.name === owner.param)) {
+        diags.push(diag('A049', 'error', mod.file, owner.loc, `services.${svc.name}.contract.${op.name}.owner`,
+          `owner references unknown parameter ${owner.param}`, 'use one of: ' + op.params.map((param) => param.name).join(', ')));
+      }
+    }
+
+    // W017 — jobs are parsed but not executable in v0.1, unless a queue
+    // consumer is declared: `job ... { on: alias.topic }` runs for real.
     for (const op of svc.contract) {
       if (op.kind !== 'job') continue;
+      if (op.clauses.some((clause) => clause.kind === 'consume')) continue;
       diags.push(diag('W017', 'warning', mod.file, op.loc, `services.${svc.name}.contract.${op.name}`, `job ${op.name} is not executed in v0.1`, 'no state model or selection condition; TTL is a provider guarantee'));
+    }
+
+    // Queue consumers: `on: alias.topic` turns a job into a consumer the
+    // runtime starts and stops with the service. The wiring lives here, in
+    // the model, so the body stays a plain function of the message.
+    for (const op of svc.contract) {
+      const consume = op.clauses.find((clause) => clause.kind === 'consume');
+      const retry = op.clauses.find((clause) => clause.kind === 'retry');
+      if (op.kind !== 'job' && consume) {
+        diags.push(diag('A051', 'error', mod.file, consume.loc, `services.${svc.name}.contract.${op.name}`,
+          `only a job can consume a queue, not ${op.kind} ${op.name}`, 'make it a job or drop the on: clause'));
+        continue;
+      }
+      if (!consume) {
+        if (retry) {
+          diags.push(diag('A053', 'error', mod.file, retry.loc, `services.${svc.name}.contract.${op.name}`,
+            `retry on ${op.name} has no effect without on: alias.topic`, 'add a queue consumer or drop retry'));
+        }
+        continue;
+      }
+      const source = consume.kind === 'consume' ? consume.source : '';
+      const [alias] = source.split('.');
+      const use = svc.uses.find((item) => item.alias === alias);
+      const cap = use && (use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability);
+      if (!use || cap !== 'queue') {
+        diags.push(diag('A052', 'error', mod.file, consume.loc, `services.${svc.name}.contract.${op.name}`,
+          `consumer source ${source} is not a declared queue`, 'add uses ' + alias + ': queue to ' + svc.name));
+      }
     }
 
     // W012 — operation without examples
@@ -318,8 +403,8 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
-    // A040 — a presentation has two audiences (host and guests) and live
-    // widgets; each capability must name its operation instead of guessing.
+    // A040 — a presentation has two audiences (host and guests); each
+    // capability must name its operation instead of guessing.
     if (ui.layout === 'presentation') checkPresentation(mod, ui, diags);
 
     for (const ref of ui.uses) {
@@ -597,43 +682,9 @@ function checkPresentation(
     }
   }
 
-  for (const key of ['vote', 'rate', 'comment'] as const) {
-    if (ui[key]) has(ui[key]);
-  }
-
   if (ui.slides.length === 0) {
     diags.push(diag('A041', 'error', mod.file, ui.loc, where, 'the presentation has no slides',
       'add slide "Title" { ... }'));
-  }
-
-  // A045 — a widget without its operation would render controls that cannot do
-  // anything, so the pairing is explicit and checked.
-  const binding: Record<string, 'vote' | 'rate' | 'comment'> = {
-    poll: 'vote', rating: 'rate', comments: 'comment',
-  };
-  let hasQr = false;
-  for (const slide of ui.slides) {
-    if (!slide.widget) {
-      diags.push(diag('A042', 'error', mod.file, slide.loc, where + '.slide',
-        'slide "' + slide.title + '" has no widget', 'add poll(...), rating, comments or qr'));
-      continue;
-    }
-    const widget = slide.widget;
-    if (widget.kind === 'qr') hasQr = true;
-    const key = binding[widget.kind];
-    if (key && !ui[key]) {
-      diags.push(diag('A045', 'error', mod.file, widget.loc, where + '.slide',
-        'widget ' + widget.kind + ' requires ' + key + ': Service.op',
-        'without this binding the widget cannot send an answer'));
-    }
-    if (widget.kind === 'poll' && widget.options.length < 2) {
-      diags.push(diag('A043', 'error', mod.file, widget.loc, where + '.slide',
-        'poll requires at least two options', 'poll("Yes", "No")'));
-    }
-    if (widget.kind === 'rating' && (!widget.max || widget.max < 2 || widget.max > 10)) {
-      diags.push(diag('A044', 'error', mod.file, widget.loc, where + '.slide',
-        'rating(max: n) requires 2 <= n <= 10', 'rating(max: 5)'));
-    }
   }
 
   // W028 — a presentation without stream still works, but the page has to
@@ -645,12 +696,6 @@ function checkPresentation(
     diags.push(diag('W028', 'warning', mod.file, ui.loc, where,
       'presentation without stream: the page polls state every 1.5 s',
       'add uses stream: stream in ' + hostSvc.name + ' and bind stream -> websocket() in environment'));
-  }
-
-  if (!hasQr && ui.slides.length > 0) {
-    diags.push(diag('W027', 'warning', mod.file, ui.loc, where,
-      'no slide has qr: participants will not see the session link',
-      'add slide "Join" { qr }'));
   }
 }
 

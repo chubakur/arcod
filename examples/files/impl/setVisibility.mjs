@@ -1,10 +1,9 @@
 export async function setVisibility(input, io) {
-  const actor = await io.actor();
-  if (!actor) return { error: 'Unauthorized' };
+  // The runtime guard already checked auth (401) and ownership (403, admin
+  // bypasses); a missing record came back as NotFound before this body ran.
   const id = String(input.id);
   const rec = await io.load(id);
   if (!rec || !rec.b) return { error: 'NotFound' };
-  if (rec.b.owner !== actor.id && !actor.admin) return { error: 'Forbidden' };
   const visibility = String(input.visibility || '');
   if (!isVisibility(visibility)) return { error: 'Invalid' };
   const allowed = Array.isArray(input.allowed) ? input.allowed.map(String) : [];

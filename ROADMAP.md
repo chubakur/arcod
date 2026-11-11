@@ -45,6 +45,8 @@
 
 ### 2. AuthZ в языке, а не в телах операций
 
+**Статус: реализовано (2026-11-11), базовый уровень.** Декларативная модель: `auth op` (anonymous → 401), клаузы `roles: ...` (403, словарь сервиса `roles:` проверяется компилятором, A047) и `owner: <param>` (запись должна принадлежать actor'у, admin bypass, отсутствующая запись → 404). Guard генерируется в runtime до вызова body (таблица AUTHZ + authorize() в impl-режиме). Проверки: A046 (guarded op без identity), A048 (public op не должен требовать actor), A049 (owner без такого параметра). `examples/files` переведён: upload/users — `auth op`, setVisibility — `owner: id`; visibility-матрица осталась в body как resource-level политика (canRead). W016 закрыт для нативных deny (net/fs/exec) — validateBody теперь режет imports/require/fetch/WebSocket/dynamic-import/env; для deny целого capability warning сохраняется. Роли из токена (roles в actor) готовы к использованию; tenant-level правила — за пределами v0.2.
+
 **Проблема:** сейчас есть только authN (`identity`), а права копируются руками в bodies (`examples/files/impl/*`). `policy` парсится, но не влияет на сборку.
 
 **Сделать:**
@@ -126,6 +128,8 @@
 ---
 
 ### 5. Асинхронность и события
+
+**Статус: частично (2026-11-11) — M0.3 закрыт, outbox и runner остались.** Stream: `bind stream -> redis(...)` переключает транспорт на pub/sub — реплики делят подписчиков, событие приходит ровно один раз (собственный echo приходит через брокер, локальная доставка не дублируется), reconnect переподписывается; memory-драйвер без бинда. Queue: capability с эффектами `publish`/`dead`; консьюмеры объявляются в модели — `job ... { on: alias.topic, retry: n }` — runtime владеет lifecycle (старт до http, graceful shutdown с дообработкой текущего сообщения, ack-by-completion, requeue, dead letter после retry-бюджета); драйверы memory и redis (lists, zero-dep RESP-клиент); проверки A051–A053, W017 не действует на queue-backed job'ы. Redis теперь реализует `kv` + `stream` + `queue` (extraCapabilities). e2e-тесты на fake-RESP-брокере: две реплики видят одни события, retry/dead-letter на обоих драйверах. Осталось: outbox (atomic publish+fact, вместе с миграциями M0.5), saga, `given` в `arcod test`, workflow runner — помечен как external-runner contract.
 
 **Проблема:** `stream` in-memory и однонаправленный; `queue`, `workflow`, `job` декларативны; `given` не исполняется.
 
@@ -237,7 +241,8 @@
 - Реальные cloud deploy targets: Kubernetes manifests/Helm, Terraform, secrets из Vault, image publish.
 - GraphQL/gRPC emitters.
 - Python/Go/PHP emitters после стабилизации IR.
-- Более богатый UI: design system, i18n, a11y, SSR.
+- Более богатый UI: design system, i18n, a11y, SSR; интерактивные виджеты —
+  отдельным пакетом поверх языка.
 - Plugin registry для capabilities/providers.
 - Web console для services/workflows, если появится реальный runner.
 
@@ -246,6 +251,10 @@
 ## Сознательно не делаем сейчас
 
 - Новые UI-layouts до закрытия P0.
+- Интерактивные виджеты (poll/rating/comments/qr) удалены из языка v0.1: это
+  продуктовая фича, а не ядро компилятора; вернутся отдельным пакетом после
+  пакетной модели. Коды A042–A045 и W027 освобождены и не переиспользуются
+  (коды диагностик — append-only, семейный план кодов — задача P1).
 - Новые инфраструктурные провайдеры без runtime effects.
 - Мультиязыковую генерацию до стабильного IR и data model.
 - Сложный plugin marketplace до пакетной модели и semver.
@@ -261,7 +270,7 @@
    Закрывает главный security gap и убирает ручной копипаст политик.
 
 3. **M0.3 — Redis-backed stream + queue effects**  
-   Делает async-слой реальным без полного workflow runner.
+   Делает async-слой реальным без полного workflow runner. ✅ stream-redis + queue (memory/redis), consumer lifecycle, retry/dead-letter. Outbox — в M0.5.
 
 4. **M0.4 — data model v2**  
    Типизированные записи, query, pagination, unique, indexes.

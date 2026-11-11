@@ -1,5 +1,4 @@
 export async function users(input, io) {
-  const actor = await io.actor();
-  if (!actor) return { error: 'Unauthorized' };
+  // Anonymous callers were rejected by the runtime guard (401).
   return { result: await io.users() };
 }

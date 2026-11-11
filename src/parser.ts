@@ -2,7 +2,7 @@ import type {
   Arg, BindNode, BudgetNode, CapUse, Clause, EnumDecl, EnvironmentNode, ErrorDecl,
   ExampleNode, Expr, EffectsNode, Loc, ModuleNode, OpNode, Param, RuleNode,
   ServiceNode, Stmt, TriggerNode, TypeArg, TypeDecl, TypeExpr, UiNode, UiSlide,
-  UiWidget, UseNode,
+  UseNode,
   WorkflowNode, WorkflowStepNode,
 } from './ast.ts';
 import { lex, locOf, type Token } from './lexer.ts';
@@ -214,13 +214,21 @@ class Parser {
 
     const svc: ServiceNode = {
       kind: 'service', name, impl, external, meta: {}, uses: [], contract: [],
-      rules: [], effects: null, examples: [], budget: null, loc: locOf(start),
+      rules: [], effects: null, examples: [], budget: null, roles: [], loc: locOf(start),
     };
 
     while (!this.is('}')) {
       if (this.accept('meta')) { Object.assign(svc.meta, this.parseMeta()); continue; }
       if (this.accept('uses')) { svc.uses.push(this.parseCapUse()); continue; }
       if (this.accept('contract')) { this.parseContract(svc); continue; }
+      if (this.accept('roles')) {
+        this.expect(':');
+        while (true) {
+          svc.roles.push(this.expectIdent('role name').value);
+          if (!this.accept(',')) break;
+        }
+        continue;
+      }
       if (this.accept('rules')) { this.parseRules(svc); continue; }
       if (this.accept('effects')) { svc.effects = this.parseEffects(); continue; }
       if (this.accept('examples')) { this.parseExamples(svc); continue; }
@@ -255,14 +263,16 @@ class Parser {
     this.expect('{');
     while (!this.is('}')) {
       const isPublic = this.accept('public');
+      const auth = this.accept('auth');
+      if (isPublic && auth) this.error('public and auth are mutually exclusive');
       if (this.is('op')) {
         this.next();
-        svc.contract.push(this.parseOp('op', isPublic));
+        svc.contract.push(this.parseOp('op', isPublic, auth));
         continue;
       }
       if (this.is('job')) {
         this.next();
-        svc.contract.push(this.parseOp('job', false));
+        svc.contract.push(this.parseOp('job', false, false));
         continue;
       }
       this.error('expected op or job');
@@ -270,7 +280,7 @@ class Parser {
     this.expect('}');
   }
 
-  private parseOp(kind: 'op' | 'job', isPublic: boolean): OpNode {
+  private parseOp(kind: 'op' | 'job', isPublic: boolean, auth: boolean): OpNode {
     const start = this.prev();
     const name = this.expectIdent('operation name').value;
     const params = this.parseParams();
@@ -283,10 +293,27 @@ class Parser {
       if (this.accept('idempotent')) { clauses.push({ kind: 'idempotent', loc: locOf(this.prev()) }); continue; }
       const key = this.expectIdent('clause').value;
       if (key === 'on') {
-        this.expect('error');
-        const error = this.expectIdent('error name').value;
+        if (this.accept('error')) {
+          const error = this.expectIdent('error name').value;
+          this.expect(':');
+          clauses.push({ kind: 'onerror', error, expr: this.parseExpr(), loc: locOf(this.prev()) });
+          continue;
+        }
+        // `on: alias.topic` — a job consumes this queue topic. Not an
+        // expression: the consumer is wired by the runtime, not the body.
         this.expect(':');
-        clauses.push({ kind: 'onerror', error, expr: this.parseExpr(), loc: locOf(this.prev()) });
+        const alias = this.expectIdent('queue alias').value;
+        this.expect('.');
+        const topic = this.expectIdent('topic').value;
+        clauses.push({ kind: 'consume', source: alias + '.' + topic, loc: locOf(this.prev()) });
+        continue;
+      }
+      if (key === 'retry') {
+        this.expect(':');
+        const tok = this.next();
+        const value = Number(tok.value);
+        if (!Number.isInteger(value) || value < 0) this.error('retry expects a non-negative integer');
+        clauses.push({ kind: 'retry', value, loc: locOf(tok) });
         continue;
       }
       if (key === 'pre' || key === 'post') {
@@ -320,6 +347,22 @@ class Parser {
         clauses.push({ kind: 'errors', names, loc: locOf(this.prev()) });
         continue;
       }
+      if (key === 'roles') {
+        this.expect(':');
+        const names: string[] = [];
+        while (true) {
+          names.push(this.expectIdent('role name').value);
+          if (!this.accept(',')) break;
+        }
+        clauses.push({ kind: 'roles', names, loc: locOf(this.prev()) });
+        continue;
+      }
+      if (key === 'owner') {
+        this.expect(':');
+        const param = this.expectIdent('parameter name').value;
+        clauses.push({ kind: 'owner', param, loc: locOf(this.prev()) });
+        continue;
+      }
       if (key === 'route' || key === 'schedule' || key === 'since') {
         this.expect(':');
         const tok = this.next();
@@ -330,7 +373,7 @@ class Parser {
       this.error('unknown op clause ' + JSON.stringify(key));
     }
     const end = this.expect('}');
-    return { kind, name, isPublic, params, returns, clauses, loc: this.loc(start, end) };
+    return { kind, name, isPublic, auth, params, returns, clauses, loc: this.loc(start, end) };
   }
 
   private parseParams(): Param[] {
@@ -467,7 +510,7 @@ class Parser {
     const ui: UiNode = {
       kind: 'ui', name, impl: 'spa', route: '/', title: null, uses: [],
       layout: null, history: null, send: null, start: null,
-      join: null, state: null, advance: null, vote: null, rate: null, comment: null,
+      join: null, state: null, advance: null,
       slides: [], loc: locOf(start),
     };
     this.expect('{');
@@ -500,8 +543,7 @@ class Parser {
         }
         ui.layout = value;
       } else if (key === 'history' || key === 'send' || key === 'start'
-        || key === 'join' || key === 'state' || key === 'advance'
-        || key === 'vote' || key === 'rate' || key === 'comment') {
+        || key === 'join' || key === 'state' || key === 'advance') {
         ui[key] = this.parseQName();
       } else {
         this.next();
@@ -515,47 +557,22 @@ class Parser {
 
   // slide "Title" {
   //   body: "Slide text"
-  //   poll("Yes", "No")
   // }
   private parseSlide(): UiSlide {
     const start = this.expect('slide');
     const title = this.next();
     if (title.kind !== 'string') this.error('slide requires a quoted title');
     let body: string | null = null;
-    let widget: UiWidget | null = null;
     this.expect('{');
     while (!this.is('}')) {
-      const token = this.peek();
-      if (token.kind === 'ident' && ['poll', 'rating', 'comments', 'qr'].includes(token.value)) {
-        widget = this.parseWidget();
-      } else {
-        const key = this.expectIdent('slide property').value;
-        this.expect(':');
-        const value = this.next();
-        if (key === 'body' && value.kind === 'string') body = value.value;
-      }
+      const key = this.expectIdent('slide property').value;
+      this.expect(':');
+      const value = this.next();
+      if (key === 'body' && value.kind === 'string') body = value.value;
       this.accept(';');
     }
     const end = this.expect('}');
-    return { title: title.value, body, widget, loc: this.loc(start, end) };
-  }
-
-  private parseWidget(): UiWidget {
-    const start = this.next();
-    const loc = locOf(start);
-    if (start.value === 'comments' || start.value === 'qr') {
-      return { kind: start.value, options: [], max: null, loc };
-    }
-    const args = this.parseArgs();
-    if (start.value === 'poll') {
-      const options = args
-        .filter((arg) => !arg.name)
-        .map((arg) => (arg.value.kind === 'literal' ? String(arg.value.value) : ''));
-      return { kind: 'poll', options, max: null, loc };
-    }
-    const max = args.find((arg) => arg.name === 'max');
-    const value = max && max.value.kind === 'literal' ? Number(max.value.value) : 5;
-    return { kind: 'rating', options: [], max: Number.isFinite(value) ? value : 5, loc };
+    return { title: title.value, body, loc: this.loc(start, end) };
   }
 
   // workflow Name {

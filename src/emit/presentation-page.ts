@@ -1,7 +1,7 @@
 // The presentation layout: one page, two audiences. The host opens it on the
-// big screen, guests open the same page from a QR code. Slides and widgets are
-// declared in the spec, so the page never guesses what is on a slide; the
-// service only stores the position and the answers.
+// big screen, guests open the same page from the join link or a QR code.
+// Slides are declared in the spec, so the page never guesses what is on a
+// slide; the service only stores the position.
 export const PRESENTATION_PAGE = String.raw`<!doctype html>
 <html lang="en">
 <head>
@@ -355,66 +355,6 @@ function renderHost(stage, state, session) {
   stage.appendChild(el('div', 'pill', 'slide ' + (state.index + 1) + ' of ' + DECK.slides.length));
   stage.appendChild(el('h2', null, slide.title));
   if (slide.body) stage.appendChild(el('p', 'slide-body', slide.body));
-  var widget = slide.widget;
-  if (!widget) return;
-  if (widget.kind === 'qr') {
-    var box = el('div', 'row');
-    box.appendChild(qrBox(joinLink()));
-    var info = el('div');
-    info.appendChild(el('div', 'muted', 'Open the link or scan the code'));
-    var link = el('div', 'code', joinLink());
-    link.style.fontSize = '16px';
-    link.style.wordBreak = 'break-all';
-    info.appendChild(link);
-    box.appendChild(info);
-    stage.appendChild(box);
-    return;
-  }
-  if (widget.kind === 'poll') {
-    var counts = state.counts || [];
-    var total = counts.reduce(function (sum, value) { return sum + (value || 0); }, 0);
-    var list = el('div', 'option');
-    widget.options.forEach(function (label, index) {
-      var count = counts[index] || 0;
-      var share = total > 0 ? Math.round((count / total) * 100) : 0;
-      var bar = el('div', 'bar');
-      var fill = el('i');
-      fill.style.width = share + '%';
-      bar.appendChild(fill);
-      var text = el('span');
-      text.appendChild(el('span', null, label));
-      text.appendChild(el('span', null, count + ' · ' + share + '%'));
-      bar.appendChild(text);
-      list.appendChild(bar);
-    });
-    stage.appendChild(list);
-    stage.appendChild(el('p', 'muted', 'Votes: ' + total));
-    return;
-  }
-  if (widget.kind === 'rating') {
-    var average = state.average;
-    var rated = state.rated || 0;
-    var row = el('div', 'row');
-    row.appendChild(el('div', 'big', average == null ? '—' : Number(average).toFixed(1)));
-    var meta = el('div');
-    meta.appendChild(el('div', 'muted', 'out of ' + widget.max));
-    meta.appendChild(el('div', 'muted', 'ratings: ' + rated));
-    row.appendChild(meta);
-    stage.appendChild(row);
-    return;
-  }
-  if (widget.kind === 'comments') {
-    var comments = state.comments || [];
-    if (comments.length === 0) { stage.appendChild(el('p', 'muted', 'No comments yet.')); return; }
-    var feed = el('div', 'comments');
-    comments.slice(-12).reverse().forEach(function (item) {
-      var row = el('div', 'comment');
-      row.appendChild(el('b', null, item.name || 'anonymous'));
-      row.appendChild(el('span', null, item.text || ''));
-      feed.appendChild(row);
-    });
-    stage.appendChild(feed);
-  }
 }
 
 async function guestView(member) {
@@ -443,81 +383,14 @@ async function guestView(member) {
 
   var stage = el('div', 'card slide');
   app.appendChild(stage);
-  var widgetBox = el('div');
-  var voted = {};
 
-  function renderGuest(state, slider) {
+  function renderGuest(state) {
     stage.replaceChildren();
     var slide = slideAt(state.index);
     if (!slide) { stage.appendChild(el('p', 'muted', 'The host has not started yet.')); return; }
     stage.appendChild(el('div', 'pill', 'slide ' + (state.index + 1) + ' of ' + DECK.slides.length));
     stage.appendChild(el('h2', null, slide.title));
     if (slide.body) stage.appendChild(el('p', 'slide-body', slide.body));
-    var widget = slide.widget;
-    if (!widget) return;
-    if (widget.kind === 'qr') {
-      stage.appendChild(el('p', 'muted', 'This slide shows a QR code for joining.'));
-      return;
-    }
-    if (widget.kind === 'poll') {
-      var list = el('div', 'option');
-      var answered = voted[state.index];
-      widget.options.forEach(function (label, index) {
-        var button = el('button', answered === index ? 'chosen' : '', label);
-        button.disabled = answered != null;
-        button.onclick = function () {
-          call(OPS.vote, { id: member.id, token: member.token, choice: index }).then(function () {
-            voted[state.index] = index;
-            toast('Vote counted');
-            renderGuest(state, slider);
-          }).catch(function (error) { toast('Could not submit the vote: ' + (error.code || error.message)); });
-        };
-        list.appendChild(button);
-      });
-      stage.appendChild(list);
-      return;
-    }
-    if (widget.kind === 'rating') {
-      var stars = el('div', 'stars');
-      var rated = voted['r' + state.index];
-      for (var value = 1; value <= widget.max; value += 1) {
-        (function (value) {
-          var button = el('button', rated === value ? 'chosen' : '', String(value));
-          button.disabled = rated != null;
-          button.onclick = function () {
-            call(OPS.rate, { id: member.id, token: member.token, value: value }).then(function () {
-              voted['r' + state.index] = value;
-              toast('Rating received');
-              renderGuest(state, slider);
-            }).catch(function (error) { toast('Could not submit the rating: ' + (error.code || error.message)); });
-          };
-          stars.appendChild(button);
-        })(value);
-      }
-      stage.appendChild(stars);
-      return;
-    }
-    if (widget.kind === 'comments') {
-      var form = el('div');
-      var input = el('textarea');
-      input.rows = 3;
-      input.placeholder = 'Your comment';
-      input.style.marginBottom = '10px';
-      var send = el('button', 'primary', 'Send');
-      send.onclick = function () {
-        var text = input.value.trim();
-        if (!text) return;
-        send.disabled = true;
-        call(OPS.comment, { id: member.id, token: member.token, text: text }).then(function () {
-          input.value = '';
-          send.disabled = false;
-          toast('Comment sent');
-        }).catch(function (error) { send.disabled = false; toast('Could not send: ' + (error.code || error.message)); });
-      };
-      form.appendChild(input);
-      form.appendChild(send);
-      stage.appendChild(form);
-    }
   }
 
   async function tick() {
@@ -525,7 +398,7 @@ async function guestView(member) {
       var state = await call(OPS.state, { id: member.id, token: member.token });
       if (current.index !== state.index) {
         current = state;
-        renderGuest(state, member);
+        renderGuest(state);
       } else {
         current = state;
       }
@@ -541,7 +414,7 @@ async function guestView(member) {
     if (error.code === 'NotFound') { drop(GUEST_PREFIX + member.code); stopPolling(); landing('The session has ended or was not found.'); }
     return null;
   });
-  if (first) { current = first; renderGuest(first, member); }
+  if (first) { current = first; renderGuest(first); }
   follow(liveTopic(member.code), tick);
 }
 

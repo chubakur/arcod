@@ -1,6 +1,6 @@
 import { kebab } from '../plan.ts';
 import type { BindNode, ModuleNode } from '../ast.ts';
-import { providerFor, type ProviderSpec } from '../providers.ts';
+import { providerFor, providerImplements, type ProviderSpec } from '../providers.ts';
 
 export function serviceDockerfile(): string {
   return [
@@ -245,6 +245,13 @@ export function composeYaml(mod: ModuleNode, port: number, hasUi = true): string
       // Two binds of the same capability would otherwise clash on DATABASE_URL.
       const name = key in appEnv ? key + '_' + item.alias.toUpperCase() : key;
       appEnv[name] = value;
+    }
+    // A redis bound as a broker tells the service which transport to use:
+    // without these the runtime falls back to in-process memory drivers.
+    if (item.spec.name === 'redis' && item.port > 0) {
+      const url = 'redis://' + item.host + ':' + item.port;
+      if (providerImplements(item.spec, 'stream') && !appEnv.STREAM_REDIS_URL) appEnv.STREAM_REDIS_URL = url;
+      if (providerImplements(item.spec, 'queue') && !appEnv.QUEUE_REDIS_URL) appEnv.QUEUE_REDIS_URL = url;
     }
   }
 
