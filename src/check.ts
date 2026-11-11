@@ -292,7 +292,148 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     }
   }
 
+  checkWorkflows(mod, diags);
+
   return sortDiagnostics(diags);
+}
+
+// Workflows are graphs, so the interesting checks are structural: names,
+// edges, cycles and whether every input port has exactly one producer.
+function checkWorkflows(mod: ModuleNode, diags: Diagnostic[]): void {
+  const knownOps = new Set<string>();
+  for (const svc of mod.services) {
+    for (const op of svc.contract) knownOps.add(svc.name + '.' + op.name);
+  }
+
+  for (const wf of mod.workflows) {
+    const path = 'workflows.' + wf.name;
+
+    // W022 — declarative only in v0.1, like job (W017).
+    diags.push(diag('W022', 'warning', mod.file, wf.loc, path,
+      'workflow описывается, но не исполняется в v0.1',
+      'граф попадает в манифест deploy.<env>.json; запуск появится вместе с runner'));
+
+    // A033 — a graph without a start is dead weight.
+    if (!wf.trigger) {
+      diags.push(diag('A033', 'error', mod.file, wf.loc, path, 'workflow без trigger',
+        'добавьте trigger cron("...") | event(...) | manual | after Job'));
+    } else if (!['cron', 'event', 'manual', 'after'].includes(wf.trigger.kind)) {
+      diags.push(diag('A033', 'error', mod.file, wf.trigger.loc, path + '.trigger',
+        'неизвестный триггер ' + wf.trigger.kind, 'cron, event, manual, after'));
+    } else if (wf.trigger.kind === 'cron' && wf.trigger.args.length === 0) {
+      diags.push(diag('A033', 'error', mod.file, wf.trigger.loc, path + '.trigger',
+        'cron без выражения', 'cron("0 3 * * *", tz: "Europe/Moscow")'));
+    }
+
+    const byName = new Map<string, (typeof wf.steps)[number]>();
+    for (const step of wf.steps) {
+      // A032 — two steps with the same name make edges ambiguous.
+      if (byName.has(step.name)) {
+        diags.push(diag('A032', 'error', mod.file, step.loc, path + '.steps.' + step.name,
+          'шаг ' + step.name + ' объявлен дважды'));
+      }
+      byName.set(step.name, step);
+
+      // W023 — call points at an operation the module does not declare.
+      if (step.call && !knownOps.has(step.call) && mod.uses.every((use) => use.what !== 'module')) {
+        diags.push(diag('W023', 'warning', mod.file, step.loc, path + '.steps.' + step.name,
+          'call ' + step.call + ' не объявлен в модуле',
+          'тело шага должно быть операцией этого модуля или импортированного модуля'));
+      }
+      if (!step.call) {
+        diags.push(diag('W024', 'warning', mod.file, step.loc, path + '.steps.' + step.name,
+          'шаг без call: тело придётся сгенерировать по контракту',
+          'укажите call: Service.op, чтобы переиспользовать существующее тело'));
+      }
+
+      for (const need of step.needs) {
+        if (need === step.name) {
+          diags.push(diag('A030', 'error', mod.file, step.loc, path + '.steps.' + step.name,
+            'шаг ' + step.name + ' зависит от себя'));
+          continue;
+        }
+        // A029 — edge to a step that does not exist.
+        if (!byName.has(need) && !wf.steps.some((item) => item.name === need)) {
+          diags.push(diag('A029', 'error', mod.file, step.loc, path + '.steps.' + step.name,
+            'needs ссылается на неизвестный шаг ' + need));
+        }
+      }
+    }
+
+    // A030 — a cycle means no step can ever start.
+    const cycle = findStepCycle(wf.steps.map((step) => [step.name, step.needs] as const));
+    if (cycle) {
+      diags.push(diag('A030', 'error', mod.file, wf.loc, path,
+        'цикл в графе: ' + cycle.join(' → '), 'зависимости должны образовывать DAG'));
+    }
+
+    for (const step of wf.steps) {
+      for (const param of step.params) {
+        const type = namedType(param.type);
+        if (!type) continue;
+        const producers = wf.steps.filter((item) =>
+          step.needs.includes(item.name) && item.returns !== null && namedType(item.returns) === type);
+        // A031 — every input port needs exactly one producer among the steps it waits for.
+        if (producers.length === 0) {
+          diags.push(diag('A031', 'error', mod.file, param.loc, path + '.steps.' + step.name + '.' + param.name,
+            'порт ' + param.name + ': ' + type + ' не производится ни одним из needs',
+            step.needs.length ? 'добавьте в needs шаг, возвращающий ' + type : 'добавьте needs с шагом, возвращающим ' + type));
+        } else if (producers.length > 1) {
+          diags.push(diag('A031', 'error', mod.file, param.loc, path + '.steps.' + step.name + '.' + param.name,
+            'порт ' + param.name + ': ' + type + ' производят несколько шагов (' + producers.map((item) => item.name).join(', ') + ')',
+            'оставьте одного производителя в needs'));
+        }
+      }
+    }
+
+    // W020 — skipping a step silently starves the steps that read its port.
+    for (const step of wf.steps) {
+      if (step.onFail !== 'skip') continue;
+      const consumers = wf.steps.filter((item) => item.needs.includes(step.name));
+      if (consumers.length > 0) {
+        diags.push(diag('W020', 'warning', mod.file, step.loc, path + '.steps.' + step.name,
+          'onFail: skip, но от шага зависят ' + consumers.map((item) => item.name).join(', '),
+          'зависимые шаги будут пропущены; используйте onFail: stop, если это не задумано'));
+      }
+    }
+  }
+}
+
+function namedType(type: { kind: string; name?: string }): string | null {
+  return type.kind === 'named' && typeof type.name === 'string' ? type.name : null;
+}
+
+function findStepCycle(edges: ReadonlyArray<readonly [string, string[]]>): string[] | null {
+  const graph = new Map<string, string[]>();
+  for (const [name, needs] of edges) graph.set(name, [...needs]);
+  const state = new Map<string, 1 | 2>();
+  const stack: string[] = [];
+
+  const dfs = (node: string): string[] | null => {
+    state.set(node, 1);
+    stack.push(node);
+    for (const next of graph.get(node) ?? []) {
+      if (!graph.has(next)) continue;
+      if (state.get(next) === 1) {
+        return [...stack.slice(stack.indexOf(next)), next];
+      }
+      if (!state.has(next)) {
+        const found = dfs(next);
+        if (found) return found;
+      }
+    }
+    stack.pop();
+    state.set(node, 2);
+    return null;
+  };
+
+  for (const node of graph.keys()) {
+    if (!state.has(node)) {
+      const found = dfs(node);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 function diag(code: string, severity: 'error' | 'warning', file: string, loc: Loc, path: string, message: string, hint?: string): Diagnostic {

@@ -1,7 +1,8 @@
 import type {
   Arg, BindNode, BudgetNode, CapUse, Clause, EnumDecl, EnvironmentNode, ErrorDecl,
   ExampleNode, Expr, EffectsNode, Loc, ModuleNode, OpNode, Param, RuleNode,
-  ServiceNode, Stmt, TypeArg, TypeDecl, TypeExpr, UiNode, UseNode,
+  ServiceNode, Stmt, TriggerNode, TypeArg, TypeDecl, TypeExpr, UiNode, UseNode,
+  WorkflowNode, WorkflowStepNode,
 } from './ast.ts';
 import { lex, locOf, type Token } from './lexer.ts';
 
@@ -54,7 +55,7 @@ class Parser {
 
     const mod: ModuleNode = {
       kind: 'module', name, version, meta, uses: [], types: [], errors: [], enums: [],
-      services: [], environments: [], uis: [], file: this.file, source: this.source,
+      services: [], workflows: [], environments: [], uis: [], file: this.file, source: this.source,
       loc: this.loc(start, end),
     };
 
@@ -65,6 +66,7 @@ class Parser {
       if (this.is('enum')) { mod.enums.push(this.parseEnumDecl()); continue; }
       if (this.is('service')) { mod.services.push(this.parseService(false)); continue; }
       if (this.is('external')) { this.next(); mod.services.push(this.parseService(true)); continue; }
+      if (this.is('workflow')) { mod.workflows.push(this.parseWorkflow()); continue; }
       if (this.is('environment')) { mod.environments.push(this.parseEnvironment()); continue; }
       if (this.is('ui')) { mod.uis.push(this.parseUi()); continue; }
       if (this.is('unknown')) { this.skipUnknown(); continue; }
@@ -488,6 +490,122 @@ class Parser {
     const end = this.expect('}');
     ui.loc = this.loc(start, end);
     return ui;
+  }
+
+  // workflow Name {
+  //   trigger cron("0 3 * * *", tz: "Europe/Moscow")
+  //   overlap: skip
+  //   step collect(day: Day) -> Snapshot {
+  //     call: FileShare.scan
+  //     needs: prepare
+  //     onFail: skip
+  //   }
+  // }
+  private parseWorkflow(): WorkflowNode {
+    const start = this.expect('workflow');
+    const name = this.expectIdent('workflow name').value;
+    this.expect('{');
+    const wf: WorkflowNode = {
+      kind: 'workflow', name, trigger: null, overlap: null, catchup: null,
+      retry: null, timeout: null, steps: [], loc: locOf(start),
+    };
+    while (!this.is('}')) {
+      if (this.accept(';')) continue;
+      if (this.is('step')) { wf.steps.push(this.parseWorkflowStep()); continue; }
+      if (this.accept('trigger')) { wf.trigger = this.parseTrigger(); continue; }
+      const key = this.expectIdent('workflow clause').value;
+      this.expect(':');
+      if (key === 'overlap') {
+        const value = this.expectIdent('overlap policy').value;
+        if (value !== 'skip' && value !== 'queue' && value !== 'parallel') {
+          this.error('overlap должен быть skip, queue или parallel');
+        }
+        wf.overlap = value;
+        continue;
+      }
+      if (key === 'catchup') {
+        const value = this.expectIdent('catchup policy').value;
+        if (value !== 'none' && value !== 'last' && value !== 'all') {
+          this.error('catchup должен быть none, last или all');
+        }
+        wf.catchup = value;
+        continue;
+      }
+      if (key === 'retry') { wf.retry = this.parseIntLiteral('retry'); continue; }
+      if (key === 'timeout') { wf.timeout = this.parseExpr(); continue; }
+      this.error('unexpected workflow clause ' + JSON.stringify(key));
+    }
+    const end = this.expect('}');
+    wf.loc = this.loc(start, end);
+    return wf;
+  }
+
+  private parseWorkflowStep(): WorkflowStepNode {
+    const start = this.expect('step');
+    const name = this.expectIdent('step name').value;
+    const params = this.parseParams();
+    let returns: TypeExpr | null = null;
+    if (this.accept('->')) returns = this.parseTypeExpr();
+    this.expect('{');
+    const step: WorkflowStepNode = {
+      name, params, returns, call: null, needs: [], effects: [], onFail: null,
+      retry: null, timeout: null, loc: locOf(start),
+    };
+    while (!this.is('}')) {
+      if (this.accept(';')) continue;
+      const key = this.expectIdent('step clause').value;
+      this.expect(':');
+      if (key === 'call') { step.call = this.parseQName(); continue; }
+      if (key === 'needs') {
+        step.needs = [];
+        while (true) {
+          step.needs.push(this.expectIdent('step name').value);
+          if (!this.accept(',')) break;
+        }
+        continue;
+      }
+      if (key === 'effects') {
+        while (true) {
+          const alias = this.expectIdent('effect alias').value;
+          this.expect('.');
+          const effect = this.expectIdent('effect name').value;
+          step.effects.push(alias + '.' + effect);
+          if (!this.accept(',')) break;
+        }
+        continue;
+      }
+      if (key === 'onFail' || key === 'onfail' || key === 'on_fail') {
+        const value = this.expectIdent('failure policy').value;
+        if (value !== 'stop' && value !== 'skip' && value !== 'retry' && value !== 'continue') {
+          this.error('onFail должен быть stop, skip, retry или continue');
+        }
+        step.onFail = value;
+        continue;
+      }
+      if (key === 'retry') { step.retry = this.parseIntLiteral('retry'); continue; }
+      if (key === 'timeout') { step.timeout = this.parseExpr(); continue; }
+      this.error('unexpected step clause ' + JSON.stringify(key));
+    }
+    const end = this.expect('}');
+    step.loc = this.loc(start, end);
+    return step;
+  }
+
+  // cron("0 3 * * *", tz: "..."), event(Something), manual, after Cleanup
+  private parseTrigger(): TriggerNode {
+    const expr = this.parseExpr();
+    if (expr.kind === 'call' && expr.callee.kind === 'ident') {
+      return { kind: expr.callee.name, args: expr.args, loc: expr.loc };
+    }
+    if (expr.kind === 'ident') return { kind: expr.name, args: [], loc: expr.loc };
+    this.error('trigger должен быть cron(...), event(...), manual или after Job');
+  }
+
+  private parseIntLiteral(what: string): number {
+    const tok = this.peek();
+    if (tok.kind !== 'number') this.error(what + ' должен быть числом');
+    this.next();
+    return Number(tok.value);
   }
 
   private parseEnvironment(): EnvironmentNode {

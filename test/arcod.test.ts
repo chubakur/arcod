@@ -9,6 +9,7 @@ import { emitService } from '../src/emit/service.ts';
 import { emitWeb } from '../src/emit/web.ts';
 import { composeYaml, nginxConf } from '../src/emit/compose.ts';
 import { buildExample } from '../src/build.ts';
+import { deployManifest } from '../src/deploy.ts';
 import { runExamples } from '../src/test.ts';
 import { runPipeline } from '../src/pipeline.ts';
 import { buildPrompts } from '../src/prompts.ts';
@@ -480,6 +481,109 @@ test('sql binds to mysql without touching the model', () => {
   assert.ok(compose.includes('image: mysql:8.4'));
   assert.ok(!compose.includes('redis:7-alpine'));
   assert.ok(compose.includes('DATABASE_URL: "mysql://arcod:arcod@store:3306/arcod"'));
+});
+
+const workflowSpec = `module nightly @0.1.0 { meta { owner: "@andrey" status: draft since: "2026-11-11" } }
+
+use capability arcod.std.kv @1
+
+type Snapshot = string
+type Report = string
+type Receipt = string
+
+service Reports : http {
+  uses store: kv(ttl: 999s)
+
+  contract {
+    public op prepare() -> Snapshot { route: "POST /v1/prepare" }
+    public op render(snapshot: Snapshot) -> Report { route: "POST /v1/render" }
+    public op send(report: Report) -> Receipt { route: "POST /v1/send" }
+  }
+}
+
+workflow Nightly {
+  trigger cron("0 3 * * *", tz: "Europe/Moscow")
+  overlap: skip
+  catchup: last
+  retry: 2
+  timeout: 30m
+
+  step prepare() -> Snapshot {
+    call: Reports.prepare
+    effects: store.set
+  }
+
+  step render(snapshot: Snapshot) -> Report {
+    call: Reports.render
+    needs: prepare
+    retry: 0
+  }
+
+  step send(report: Report) -> Receipt {
+    call: Reports.send
+    needs: render
+    onFail: stop
+  }
+}
+
+environment dev {
+  bind store -> redis(host: "kv", port: 6379)
+  deploy docker
+}
+`;
+
+test('a workflow is a declared graph of steps', () => {
+  const ast = parse(workflowSpec, 'main.arc');
+  assert.equal(ast.workflows.length, 1);
+  const wf = ast.workflows[0];
+  assert.equal(wf.name, 'Nightly');
+  assert.equal(wf.trigger?.kind, 'cron');
+  assert.equal(wf.trigger?.args[0].value.kind, 'literal');
+  assert.equal(wf.overlap, 'skip');
+  assert.equal(wf.catchup, 'last');
+  assert.equal(wf.retry, 2);
+  assert.deepEqual(wf.steps.map((step) => step.name), ['prepare', 'render', 'send']);
+  assert.deepEqual(wf.steps[1].needs, ['prepare']);
+  assert.equal(wf.steps[2].onFail, 'stop');
+  assert.equal(wf.steps[2].call, 'Reports.send');
+
+  const diags = check(ast);
+  assert.equal(diags.filter((item) => item.severity === 'error').length, 0);
+  assert.ok(diags.some((item) => item.code === 'W022'), 'workflows are declarative in v0.1');
+});
+
+test('a broken graph names the broken edge', () => {
+  const source = workflowSpec
+    .replace('needs: render', 'needs: send')
+    .replace('trigger cron("0 3 * * *", tz: "Europe/Moscow")', 'trigger whenever');
+  const diags = check(parse(source, 'main.arc'));
+  assert.ok(diags.some((item) => item.code === 'A030'), 'cycle is reported');
+  assert.ok(diags.some((item) => item.code === 'A033'), 'unknown trigger is reported');
+
+  const missing = check(parse(workflowSpec.replace('needs: render', 'needs: nope'), 'main.arc'));
+  assert.ok(missing.some((item) => item.code === 'A029'), 'unknown step is reported');
+
+  const port = check(parse(workflowSpec.replace('step render(snapshot: Snapshot)', 'step render(snapshot: Receipt)'), 'main.arc'));
+  assert.ok(port.some((item) => item.code === 'A031'), 'unproduced port is reported');
+});
+
+test('the plan and the manifest both carry the graph', () => {
+  const ast = parse(workflowSpec, 'main.arc');
+  const plan = buildPlan(ast);
+  const task = plan.tasks.find((item) => item.title.includes('workflow Nightly'));
+  assert.ok(task, 'workflow is a planning task');
+  assert.ok(task!.acceptance.some((line) => line.includes('граф')));
+
+  const env = ast.environments[0];
+  const manifest = deployManifest(ast, env) as { workflows: Array<Record<string, unknown>> };
+  const wf = manifest.workflows[0];
+  assert.equal(wf.name, 'Nightly');
+  assert.equal(wf.executed, false);
+  assert.equal((wf.trigger as { kind: string }).kind, 'cron');
+  const steps = wf.steps as Array<{ name: string; needs: string[]; onFail: string | null }>;
+  assert.deepEqual(steps.map((step) => step.name), ['prepare', 'render', 'send']);
+  assert.deepEqual(steps[2].needs, ['render']);
+  assert.equal(steps[2].onFail, 'stop');
 });
 
 test('every environment names its own deployment target', () => {

@@ -108,6 +108,33 @@ export function deployManifest(mod: ModuleNode, env: EnvironmentNode): Record<st
         kind: svc.impl,
         image: args.image ?? 'arcod/' + mod.name + '-' + svc.name + ':' + mod.version,
       })),
+    // Graphs travel with the manifest: a runner elsewhere can read them
+    // without re-parsing the spec.
+    workflows: mod.workflows.map((wf) => ({
+      name: wf.name,
+      trigger: wf.trigger
+        ? {
+            kind: wf.trigger.kind,
+            args: wf.trigger.args.map((arg) => ({
+              name: arg.name ?? null,
+              value: arg.value.kind === 'literal' ? String(arg.value.value) : '<expr>',
+            })),
+          }
+        : null,
+      overlap: wf.overlap,
+      catchup: wf.catchup,
+      retry: wf.retry,
+      steps: wf.steps.map((step) => ({
+        name: step.name,
+        call: step.call,
+        needs: step.needs,
+        effects: step.effects,
+        onFail: step.onFail,
+        retry: step.retry,
+        returns: step.returns && step.returns.kind === 'named' ? step.returns.name : null,
+      })),
+      executed: false,
+    })),
     providers: env.binds.map((bind) => ({
       alias: bind.alias,
       provider: bind.provider,

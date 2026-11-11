@@ -106,6 +106,25 @@ export function buildPlan(mod: ModuleNode): Plan {
     });
   }
 
+  // A workflow is a graph, so the plan states the graph explicitly: which steps
+  // run, what each one waits for, and what "done" means.
+  for (const wf of mod.workflows) {
+    tasks.push({
+      id: nextId(),
+      title: 'собрать workflow ' + wf.name + ' (' + wf.steps.length + ' шаг(ов))',
+      kind: 'infra',
+      service: '*',
+      deps: tasks.filter((t) => t.kind === 'implement').map((t) => t.id),
+      files: { create: ['workflows/' + wf.name + '.json'], modify: [], forbid: [] },
+      acceptance: [
+        'arcod check',
+        'граф без циклов, у каждого порта ровно один производитель',
+        'deploy.<env>.json содержит шаги и зависимости',
+      ],
+      budget: null,
+    });
+  }
+
   // A deployment target is a property of the environment: the same module is
   // built locally and, separately, packaged for a cloud provider.
   for (const env of mod.environments) {

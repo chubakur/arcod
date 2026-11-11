@@ -20,6 +20,7 @@ export interface ModuleNode {
   errors: ErrorDecl[];
   enums: EnumDecl[];
   services: ServiceNode[];
+  workflows: WorkflowNode[];
   environments: EnvironmentNode[];
   uis: UiNode[];
   file: string;
@@ -73,6 +74,42 @@ export interface Param {
   name: string;
   type: TypeExpr;
   default?: Expr;
+  loc: Loc;
+}
+
+// A workflow is a declared graph of steps. Edges are explicit (`needs`), data
+// travels through typed ports, and the trigger says when the graph starts.
+// Nothing here is executed by arcod itself: the graph is a contract for the
+// environment's runner.
+export interface WorkflowNode {
+  kind: 'workflow';
+  name: string;
+  trigger: TriggerNode | null;
+  overlap: 'skip' | 'queue' | 'parallel' | null;
+  catchup: 'none' | 'last' | 'all' | null;
+  retry: number | null;
+  timeout: Expr | null;
+  steps: WorkflowStepNode[];
+  loc: Loc;
+}
+
+export interface TriggerNode {
+  kind: string;
+  args: Arg[];
+  loc: Loc;
+}
+
+export interface WorkflowStepNode {
+  name: string;
+  params: Param[];
+  returns: TypeExpr | null;
+  // Operation (or single-step job) whose body this step runs.
+  call: string | null;
+  needs: string[];
+  effects: string[];
+  onFail: 'stop' | 'skip' | 'retry' | 'continue' | null;
+  retry: number | null;
+  timeout: Expr | null;
   loc: Loc;
 }
 
