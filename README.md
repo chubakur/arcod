@@ -558,6 +558,8 @@ arcod run --impl examples/onetimemessage-pwd
   значения `layout`, `overlap`, `catchup`, `onFail`, `trigger`;
 - `arcod check --json` на открытии и сохранении: Problems, счётчик в
   статус-баре, ошибки разбора с позицией;
+- навигация: Cmd/Ctrl+Click и F12 ведут к объявлению, Shift+F12 — использования,
+  hover показывает подпись, одинаковые имена подсвечиваются в файле;
 - outline модуля и команды `arcod.check|plan|build|make|deploy|providers`.
 
 ```bash

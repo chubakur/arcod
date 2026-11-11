@@ -2,7 +2,19 @@ import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
-import { completionsFor, mapDiagnostics, symbolsFromText, type CompletionKind, type RawDiagnostic, type SymbolSpec } from './model';
+import {
+  completionsFor,
+  declarationsFromText,
+  findDeclaration,
+  mapDiagnostics,
+  occurrencesOf,
+  qualifiedAt,
+  symbolsFromText,
+  type CompletionKind,
+  type Declaration,
+  type RawDiagnostic,
+  type SymbolSpec,
+} from './model';
 
 let collection: vscode.DiagnosticCollection;
 let output: vscode.OutputChannel;
@@ -73,6 +85,64 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    vscode.languages.registerDefinitionProvider('arcod', {
+      provideDefinition(document, position) {
+        const declaration = resolveAt(document, position);
+        if (!declaration) return null;
+        return new vscode.Location(document.uri, new vscode.Position(declaration.line, declaration.col));
+      },
+    }),
+
+    vscode.languages.registerReferenceProvider('arcod', {
+      async provideReferences(document, position) {
+        const declaration = resolveAt(document, position);
+        if (!declaration) return null;
+        const locations: vscode.Location[] = [];
+        const files = await vscode.workspace.findFiles('**/*.arc', '**/node_modules/**', 200);
+        const uris = [document.uri, ...files.filter((uri) => uri.toString() !== document.uri.toString())];
+        for (const uri of uris) {
+          let text: string;
+          if (uri.toString() === document.uri.toString()) {
+            text = document.getText();
+          } else {
+            try {
+              text = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf8');
+            } catch {
+              continue;
+            }
+          }
+          for (const place of occurrencesOf(text, declaration.name)) {
+            locations.push(new vscode.Location(uri, new vscode.Position(place.line, place.col)));
+          }
+        }
+        return locations;
+      },
+    }),
+
+    vscode.languages.registerDocumentHighlightProvider('arcod', {
+      provideDocumentHighlights(document, position) {
+        const declaration = resolveAt(document, position);
+        if (!declaration) return null;
+        return occurrencesOf(document.getText(), declaration.name).map((place) =>
+          new vscode.DocumentHighlight(
+            new vscode.Range(place.line, place.col, place.line, place.col + declaration.name.length),
+            vscode.DocumentHighlightKind.Text,
+          ));
+      },
+    }),
+
+    vscode.languages.registerHoverProvider('arcod', {
+      provideHover(document, position) {
+        const declaration = resolveAt(document, position);
+        if (!declaration) return null;
+        const markdown = new vscode.MarkdownString();
+        markdown.appendMarkdown('**' + declaration.kind + '** `' + declaration.name + '`\n\n');
+        markdown.appendCodeblock(declaration.signature, 'arcod');
+        if (declaration.container) markdown.appendMarkdown('\nв `' + declaration.container + '`');
+        return new vscode.Hover(markdown);
+      },
+    }),
+
     vscode.languages.registerDocumentSymbolProvider('arcod', {
       provideDocumentSymbols(document) {
         return symbolsFromText(document.getText()).map((symbol) =>
@@ -101,6 +171,21 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {
   for (const timer of timers.values()) clearTimeout(timer);
   timers.clear();
+}
+
+// Definition, references, highlights and hover all start from the same place:
+// the declaration a symbol points at.
+function resolveAt(document: vscode.TextDocument, position: vscode.Position): Declaration | null {
+  const declarations = declarationsFromText(document.getText());
+  const word = document.getWordRangeAtPosition(position);
+  const name = word ? document.getText(word) : '';
+  const qualified = qualifiedAt(document.lineAt(position.line).text, position.character);
+  if (qualified) {
+    const nested = findDeclaration(declarations, qualified.member, position.line, qualified.owner);
+    if (nested) return nested;
+  }
+  if (!name) return null;
+  return findDeclaration(declarations, name, position.line);
 }
 
 function activeDocument(): vscode.TextDocument | undefined {

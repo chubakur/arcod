@@ -51,6 +51,105 @@ export function mapDiagnostics(raw: RawDiagnostic[], lines: string[]): MappedDia
   });
 }
 
+export interface Declaration {
+  name: string;
+  kind: 'module' | 'type' | 'error' | 'enum' | 'service' | 'workflow' | 'environment' | 'ui' | 'op' | 'job' | 'step' | 'alias';
+  line: number;
+  col: number;
+  length: number;
+  container?: string;
+  signature: string;
+}
+
+// Declarations are recognised syntactically: the editor needs to answer
+// "where is this defined" without executing the compiler. A name may repeat
+// (every service can have `send`), so the caller also gets the container.
+export function declarationsFromText(text: string): Declaration[] {
+  const out: Declaration[] = [];
+  const lines = text.split(/\r?\n/);
+  let container: string | undefined;
+  let containerIndent = -1;
+
+  lines.forEach((line, index) => {
+    const indent = line.length - line.trimStart().length;
+    if (container && indent <= containerIndent && line.trim() === '}') container = undefined;
+
+    const push = (name: string, kind: Declaration['kind'], start: number, owner?: string) => {
+      out.push({ name, kind, line: index, col: start, length: name.length, container: owner, signature: line.trim() });
+    };
+
+    let match = /^\s*module\s+([A-Za-z_][\w-]*)/.exec(line);
+    if (match) { push(match[1], 'module', line.indexOf(match[1])); return; }
+
+    match = /^\s*(service|external|workflow|environment|ui|type|error|enum)\s+([A-Za-z_][\w-]*)/.exec(line);
+    if (match) {
+      const kind = match[1] === 'external' ? 'service' : (match[1] as Declaration['kind']);
+      push(match[2], kind, line.indexOf(match[2]));
+      if (kind === 'service' || kind === 'workflow') {
+        container = match[2];
+        containerIndent = indent;
+      }
+      return;
+    }
+
+    match = /^\s*(public\s+)?(op|job)\s+([A-Za-z_][\w-]*)/.exec(line);
+    if (match) { push(match[3], match[2] as Declaration['kind'], line.indexOf(match[3]), container); return; }
+
+    match = /^\s*step\s+([A-Za-z_][\w-]*)/.exec(line);
+    if (match) { push(match[1], 'step', line.indexOf(match[1]), container); return; }
+
+    match = /^\s*uses\s+([A-Za-z_][\w]*)\s*:/.exec(line);
+    if (match) { push(match[1], 'alias', line.indexOf(match[1])); return; }
+
+    match = /^\s*bind\s+([A-Za-z_][\w]*)\s*->/.exec(line);
+    if (match) { push(match[1], 'alias', line.indexOf(match[1])); return; }
+  });
+
+  return out;
+}
+
+// `Chat.send` — the owner is the service, the member the operation.
+export function qualifiedAt(lineText: string, character: number): { owner: string; member: string } | null {
+  const pattern = /\b([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(lineText)) !== null) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (character >= start && character <= end) return { owner: match[1], member: match[2] };
+  }
+  return null;
+}
+
+// Nearest preceding declaration wins: inside an environment, `store` means the
+// local bind, not the one in another environment. With an owner, prefer the
+// declaration nested in that service.
+export function findDeclaration(
+  declarations: Declaration[],
+  name: string,
+  atLine: number,
+  owner?: string,
+): Declaration | null {
+  let candidates = declarations.filter((item) => item.name === name);
+  if (candidates.length === 0) return null;
+  if (owner) {
+    const nested = candidates.filter((item) => item.container === owner);
+    if (nested.length > 0) candidates = nested;
+  }
+  const before = candidates.filter((item) => item.line <= atLine);
+  if (before.length > 0) return before[before.length - 1];
+  return candidates[0];
+}
+
+export function occurrencesOf(text: string, name: string): Array<{ line: number; col: number }> {
+  const out: Array<{ line: number; col: number }> = [];
+  const pattern = new RegExp('\\b' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g');
+  text.split(/\r?\n/).forEach((line, index) => {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(line)) !== null) out.push({ line: index, col: match.index });
+  });
+  return out;
+}
+
 export interface SymbolSpec {
   name: string;
   kind: 'module' | 'service' | 'workflow' | 'environment' | 'ui' | 'type' | 'error' | 'enum' | 'operation' | 'step';

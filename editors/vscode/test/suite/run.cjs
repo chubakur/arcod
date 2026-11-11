@@ -37,6 +37,25 @@ exports.run = async function run() {
   assert.ok(warnings.length > 0, 'check ran on open');
   assert.ok(warnings.every((item) => item.source === 'arcod'), 'diagnostics come from arcod');
 
+  const text = document.getText();
+  const lines = text.split(/\r?\n/);
+  const opLine = lines.findIndex((line) => /^\s*public op history\b/.test(line));
+  const usageLine = lines.findIndex((line) => /history:\s*Chat\.history/.test(line));
+  assert.ok(opLine >= 0 && usageLine >= 0, 'the spec has a declaration and a usage');
+
+  const usagePosition = new vscode.Position(usageLine, lines[usageLine].indexOf('history: Chat.history') + 'history: Chat.'.length + 1);
+  const definitions = await vscode.commands.executeCommand('vscode.executeDefinitionProvider', document.uri, usagePosition);
+  assert.ok(Array.isArray(definitions) && definitions.length > 0, 'Cmd+Click finds a definition');
+  assert.equal(definitions[0].uri.toString(), document.uri.toString());
+  assert.equal(definitions[0].range.start.line, opLine, 'the definition is the operation declaration');
+
+  const references = await vscode.commands.executeCommand('vscode.executeReferenceProvider', document.uri, usagePosition);
+  assert.ok(Array.isArray(references) && references.length >= 2, 'references include declaration and usage');
+
+  const hovers = await vscode.commands.executeCommand('vscode.executeHoverProvider', document.uri, usagePosition);
+  assert.ok(Array.isArray(hovers) && hovers.length > 0, 'hover describes the symbol');
+  console.log('suite: navigation ok, history -> line ' + opLine);
+
   const temporary = path.join(repo, '.tmp-extension-test.arc');
   fs.writeFileSync(temporary, [
     'module broken @0.1.0 {',
