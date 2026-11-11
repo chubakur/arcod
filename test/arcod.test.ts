@@ -324,9 +324,11 @@ test('byte limits are scaled: 64kb is 65536, not 64', async () => {
 });
 
 test('nginx proxies healthz next to the api', () => {
-  const conf = nginxConf();
+  const conf = nginxConf(ast);
   assert.match(conf, /location = \/healthz \{/);
   assert.match(conf, /proxy_pass http:\/\/service:3000\/healthz;/);
+  assert.match(conf, /location \/api\/messages \{/, 'proxies the declared route, not a hardcoded /api/');
+  assert.ok(!conf.includes('location /api/ {'), 'no hardcoded prefix');
 });
 
 test('generated bodies are read from impl/ and from .arcod/impl as a fallback', async () => {

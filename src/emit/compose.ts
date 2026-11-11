@@ -25,7 +25,27 @@ export function webDockerfile(): string {
   ].join('\n');
 }
 
-export function nginxConf(): string {
+// Static prefix of a route: everything before the first :param segment.
+// "GET /v1/api/messages/:id" becomes "/v1/api/messages".
+export function routeRoot(route: string): string {
+  const path = route.includes(' ') ? route.slice(route.indexOf(' ') + 1) : route;
+  const segments = path.split('/').filter((segment) => segment.length > 0);
+  const staticSegments: string[] = [];
+  for (const segment of segments) {
+    if (segment.startsWith(':')) break;
+    staticSegments.push(segment);
+  }
+  return '/' + staticSegments.join('/');
+}
+
+export function nginxConf(mod: ModuleNode): string {
+  const roots = [...new Set(mod.services.flatMap((svc) => svc.contract
+    .filter((op) => op.kind === 'op')
+    .flatMap((op) => op.clauses.filter((clause) => clause.kind === 'route'))
+    .map((clause) => routeRoot(clause.value))))]
+    .filter((root) => root !== '/')
+    .sort();
+
   return [
     'server {',
     '  listen 80;',
@@ -37,13 +57,15 @@ export function nginxConf(): string {
     '    proxy_pass http://service:3000/healthz;',
     '  }',
     '',
-    '  location /api/ {',
-    '    proxy_pass http://service:3000;',
-    '    proxy_http_version 1.1;',
-    '    proxy_set_header Host $host;',
-    '    proxy_set_header X-Real-IP $remote_addr;',
-    '  }',
-    '',
+    ...roots.flatMap((root) => [
+      '  location ' + root + ' {',
+      '    proxy_pass http://service:3000;',
+      '    proxy_http_version 1.1;',
+      '    proxy_set_header Host $host;',
+      '    proxy_set_header X-Real-IP $remote_addr;',
+      '  }',
+      '',
+    ]),
     '  location / {',
     '    try_files $uri /index.html;',
     '  }',

@@ -64,7 +64,7 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     const web = emitWeb(mod, { maxBytes: maxBodyBytes(mod) });
     files.push(
       [join(webDir, 'index.html'), web],
-      [join(webDir, 'nginx.conf'), nginxConf()],
+      [join(webDir, 'nginx.conf'), nginxConf(mod)],
       [join(webDir, 'Dockerfile'), webDockerfile()],
     );
   }
