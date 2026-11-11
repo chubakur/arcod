@@ -1,5 +1,5 @@
 import type { Diagnostic } from './diagnostics.ts';
-import type { Expr, Loc, ModuleNode, OpNode, ServiceNode } from './ast.ts';
+import type { Expr, Loc, ModuleNode, OpNode, ServiceNode, UiNode } from './ast.ts';
 import { templateFor } from './templates.ts';
 import { providerFor, providerNames, providersForCapability } from './providers.ts';
 import { storageUse } from './capabilities.ts';
@@ -307,6 +307,10 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // A040 — a presentation has two audiences (host and guests) and live
+    // widgets; each capability must name its operation instead of guessing.
+    if (ui.layout === 'presentation') checkPresentation(mod, ui, diags);
+
     for (const ref of ui.uses) {
       const parts = ref.split('.');
       const svc = mod.services.find((item) => item.name === parts[0]);
@@ -546,6 +550,86 @@ export function asOnce(expr: Expr): { target: string; elseName: string | null } 
   const elseArg = expr.args.find((arg) => arg.name === 'else');
   const elseName = elseArg && elseArg.value.kind === 'ident' ? elseArg.value.name : null;
   return { target: target.name, elseName };
+}
+
+function checkPresentation(
+  mod: ModuleNode,
+  ui: UiNode,
+  diags: Diagnostic[],
+): void {
+  const where = 'ui.' + ui.name;
+  const has = (ref: string | null): boolean => {
+    if (!ref) return false;
+    const [svcName, opName] = ref.split('.');
+    const svc = mod.services.find((item) => item.name === svcName);
+    const op = svc?.contract.find((item) => item.name === opName && item.kind === 'op' && item.isPublic);
+    if (!op || !routeOf(op)) {
+      diags.push(diag('A018', 'error', mod.file, ui.loc, where, 'ui ссылается на несуществующую операцию ' + ref));
+      return false;
+    }
+    return true;
+  };
+
+  const requirement: Record<string, string> = {
+    start: 'создаёт сеанс и возвращает его код',
+    join: 'подключает участника по коду',
+    state: 'отдаёт текущий слайд, счётчики и комментарии',
+    advance: 'переключает слайд (только ведущий)',
+  };
+  for (const key of ['start', 'join', 'state', 'advance'] as const) {
+    if (!ui[key]) {
+      diags.push(diag('A040', 'error', mod.file, ui.loc, where,
+        'layout: presentation требует ' + key + ': Service.op',
+        'укажите операцию, которая ' + requirement[key]));
+    } else {
+      has(ui[key]);
+    }
+  }
+
+  for (const key of ['vote', 'rate', 'comment'] as const) {
+    if (ui[key]) has(ui[key]);
+  }
+
+  if (ui.slides.length === 0) {
+    diags.push(diag('A041', 'error', mod.file, ui.loc, where, 'в презентации нет ни одного слайда',
+      'добавьте slide "Заголовок" { ... }'));
+  }
+
+  // A045 — a widget without its operation would render controls that cannot do
+  // anything, so the pairing is explicit and checked.
+  const binding: Record<string, 'vote' | 'rate' | 'comment'> = {
+    poll: 'vote', rating: 'rate', comments: 'comment',
+  };
+  let hasQr = false;
+  for (const slide of ui.slides) {
+    if (!slide.widget) {
+      diags.push(diag('A042', 'error', mod.file, slide.loc, where + '.slide',
+        'слайд "' + slide.title + '" без виджета', 'добавьте poll(...), rating, comments или qr'));
+      continue;
+    }
+    const widget = slide.widget;
+    if (widget.kind === 'qr') hasQr = true;
+    const key = binding[widget.kind];
+    if (key && !ui[key]) {
+      diags.push(diag('A045', 'error', mod.file, widget.loc, where + '.slide',
+        'виджет ' + widget.kind + ' требует ' + key + ': Service.op',
+        'без этой привязки виджет не сможет отправить ответ'));
+    }
+    if (widget.kind === 'poll' && widget.options.length < 2) {
+      diags.push(diag('A043', 'error', mod.file, widget.loc, where + '.slide',
+        'poll требует минимум два варианта', 'poll("Да", "Нет")'));
+    }
+    if (widget.kind === 'rating' && (!widget.max || widget.max < 2 || widget.max > 10)) {
+      diags.push(diag('A044', 'error', mod.file, widget.loc, where + '.slide',
+        'rating(max: n) требует 2 <= n <= 10', 'rating(max: 5)'));
+    }
+  }
+
+  if (!hasQr && ui.slides.length > 0) {
+    diags.push(diag('W027', 'warning', mod.file, ui.loc, where,
+      'ни на одном слайде нет qr: участники не увидят ссылку на сеанс',
+      'добавьте slide "Подключение" { qr }'));
+  }
 }
 
 function routeOf(op: OpNode): string | null {

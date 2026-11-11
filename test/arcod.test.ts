@@ -537,6 +537,59 @@ const chatUrl = new URL('../examples/chat/main.arc', import.meta.url);
 const chatImplDir = (await import('node:url')).fileURLToPath(new URL('../examples/chat/impl', import.meta.url));
 const chatAst = parse(await readFile(chatUrl, 'utf8'), 'main.arc');
 
+const quizUrl = new URL('../examples/quiz/main.arc', import.meta.url);
+const quizImplDir = fileURLToPath(new URL('../examples/quiz/impl', import.meta.url));
+const quizSource = await readFile(quizUrl, 'utf8');
+const quizAst = parse(quizSource, 'main.arc');
+
+test('a presentation is a deck with checked widgets', () => {
+  const ui = quizAst.uis[0];
+  assert.equal(ui.layout, 'presentation');
+  assert.deepEqual(ui.slides.map((slide) => slide.widget!.kind), ['poll', 'qr', 'rating', 'comments']);
+  assert.deepEqual(ui.slides[0].widget!.options, ['Бэкенд', 'Фронтенд', 'QA', 'Продукт']);
+  assert.equal(ui.slides[2].widget!.max, 5);
+
+  const diags = check(quizAst);
+  assert.equal(diags.filter((item) => item.severity === 'error').length, 0);
+
+  const plan = buildPlan(quizAst);
+  const implemented = plan.tasks.filter((task) => task.kind === 'implement');
+  assert.equal(implemented.length, 7, 'every operation is planned');
+});
+
+test('a presentation without its bindings does not compile', () => {
+  const codes = (text: string) => check(parse(text, 'main.arc')).map((item) => item.code);
+
+  assert.ok(codes(quizSource.replace('  join:    Live.join\n', '')).includes('A040'), 'A040: no join');
+  assert.ok(codes(quizSource.replace('  vote:    Live.vote\n', '')).includes('A045'), 'A045: poll without vote');
+  assert.ok(codes(quizSource.replace('poll("Бэкенд", "Фронтенд", "QA", "Продукт")', 'poll("Бэкенд")')).includes('A043'), 'A043: one option');
+  assert.ok(codes(quizSource.replace('rating(max: 5)', 'rating(max: 1)')).includes('A044'), 'A044: bad scale');
+  assert.ok(codes(quizSource.replace('    poll("Бэкенд", "Фронтенд", "QA", "Продукт")\n', '')).includes('A042'), 'A042: slide without a widget');
+
+  const noSlides = quizSource.replace(/  slide[\s\S]*?\n  }\n/g, '');
+  assert.ok(codes(noSlides).includes('A041'), 'A041: empty deck');
+  const noQr = quizSource.replace(/  slide "Подключение" \{[\s\S]*?\n  }\n/, '');
+  assert.ok(codes(noQr).includes('W027'), 'W027: nobody sees the join link');
+});
+
+test('the presentation page carries the deck, the bindings and a real QR encoder', () => {
+  const html = emitWeb(quizAst, { maxBytes: 2_000_000 });
+  assert.ok(!/__[A-Z]+__/.test(html), 'no unexpanded placeholders');
+  assert.ok(html.includes('"kind":"poll"') && html.includes('"kind":"comments"'), 'the deck is embedded');
+  assert.ok(html.includes('"Join"' ) === false);
+  assert.ok(html.includes('POST') && html.includes('/v1/sessions/:code/join'), 'operations are described');
+  assert.ok(html.includes('var qrcode=function'), 'the QR encoder is inline, not a CDN');
+});
+
+test('the quiz example builds a working page and keeps its bodies', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-quiz-'));
+  const built = await buildExample(quizAst, dir, { implDir: quizImplDir });
+  const html = await readFile(join(built.dir, 'web', 'index.html'), 'utf8');
+  assert.ok(html.includes('Квиз: arcod'));
+  assert.ok(html.includes('"options":["Бэкенд","Фронтенд","QA","Продукт"]'));
+  assert.equal(built.impl.length, 7);
+});
+
 const paymentsUrl = new URL('../examples/payments/main.arc', import.meta.url);
 const paymentsImplDir = (await import('node:url')).fileURLToPath(new URL('../examples/payments/impl', import.meta.url));
 const paymentsAst = parse(await readFile(paymentsUrl, 'utf8'), 'main.arc');

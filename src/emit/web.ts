@@ -1,6 +1,8 @@
 import type { ModuleNode, OpNode, Param, ServiceNode, TypeExpr, UiNode } from './ast.ts';
 import { isGuarded, pickService } from './service.ts';
 import { CHAT_PAGE } from './chat-page.ts';
+import { PRESENTATION_PAGE } from './presentation-page.ts';
+import { QR_SOURCE } from './qr-code.ts';
 
 export interface WebOptions {
   maxBytes: number;
@@ -441,6 +443,28 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
   const hasAuth = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'));
   const guarded = isGuarded(svc);
 
+  if (ui.layout === 'presentation') {
+    const live = presentationOps(mod, svc, ui);
+    const deck = {
+      title: options.title ?? ui.title ?? mod.name,
+      slides: ui.slides.map((slide) => ({
+        title: slide.title,
+        body: slide.body,
+        widget: slide.widget
+          ? { kind: slide.widget.kind, options: slide.widget.options, max: slide.widget.max }
+          : null,
+      })),
+    };
+    return PRESENTATION_PAGE
+      .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
+      .replaceAll('__DECK__', jsonForScript(deck))
+      .replaceAll('__OPS__', jsonForScript(live))
+      .replaceAll('__HAS_AUTH__', hasAuth || guarded ? 'true' : 'false')
+      // The QR source is third-party generated code: never interpolate it as a
+      // replacement pattern, and insert it last so nothing rewrites it.
+      .replaceAll('__QR__', () => QR_SOURCE);
+  }
+
   if (ui.layout === 'chat') {
     const chat = chatOps(mod, svc, ui);
     return CHAT_PAGE
@@ -455,6 +479,45 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
     .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · операций: ' + ops.length))
     .replaceAll('__OPS__', JSON.stringify(ops))
     .replaceAll('__HAS_AUTH__', hasAuth || guarded ? 'true' : 'false');
+}
+
+// A slide title is author-written text, but it still lands inside a <script>:
+// '$' and backslashes are fine, a closing tag is not.
+function jsonForScript(value: unknown): string {
+  return JSON.stringify(value).split('<').join('\\u003c');
+}
+
+// The page is told which operation creates a session, which one brings a guest
+// in, which one reports the live state and which one moves the deck. A widget
+// binding may be absent when the deck has no such widget, but never guessed.
+function presentationOps(mod: ModuleNode, svc: ServiceNode, ui: UiNode): Record<string, unknown> {
+  const compact = (op: UiOp) => ({
+    name: op.name,
+    method: op.method,
+    path: op.path,
+    returns: op.returns,
+    params: op.params.map((param) => ({ name: param.name, where: param.where })),
+  });
+  const find = (ref: string | null): Record<string, unknown> | null => {
+    if (!ref) return null;
+    const [svcName, opName] = ref.split('.');
+    if (svcName !== svc.name) return null;
+    const op = svc.contract.find((item) => item.name === opName && item.kind === 'op' && item.isPublic);
+    return op ? compact(describeOp(mod, op)) : null;
+  };
+  const ops: Record<string, unknown> = {
+    start: find(ui.start),
+    join: find(ui.join),
+    state: find(ui.state),
+    advance: find(ui.advance),
+    vote: find(ui.vote),
+    rate: find(ui.rate),
+    comment: find(ui.comment),
+  };
+  for (const key of ['start', 'join', 'state', 'advance']) {
+    if (!ops[key]) throw new Error('layout: presentation needs a ' + key + ' operation');
+  }
+  return ops;
 }
 
 function escapeHtml(value: string): string {
