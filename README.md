@@ -74,6 +74,24 @@ arcod run --down
 node ../../bin/arcod.mjs run
 ```
 
+### Типы
+
+Типы — часть контракта, а не аннотации для вида: из них выводятся JSON-схемы
+параметров и ответов, проверки `check` и тексты промптов.
+
+```arcod
+type MessageId = uuid
+type Body = { author: string, text: string, attachments: list<uuid> }
+type Result = Body | NotFound          // объединение вариантов
+type Password = string?                // optional
+
+enum Visibility { draft, published, archived }
+```
+
+Есть записи `{ ... }`, `list<T>`, `bytes`, `uuid`, объединения и значения по
+умолчанию у параметров (`limit: number = 20`). Длительности (`999s`, `24h`) —
+значения в клаузах (`ttl: 999s`, `timeout: 30s`), а не тип.
+
 ## Команды
 
 | Команда | Что делает |
@@ -87,11 +105,18 @@ node ../../bin/arcod.mjs run
 | `arcod test [dir]` | поднимает сгенерированный сервис с in-memory kv и прогоняет `examples` |
 | `arcod make [dir]` | весь цикл одной командой: check → prompts → тела → build → test |
 | `arcod run [dir]` | build + `docker compose up --build` |
-| `arcod run --down` | останавливает окружение |
+| `arcod run --down` | останавливает окружение (`down --remove-orphans`) |
+| `arcod providers` | таблица возможностей, провайдеров и их портов; `--json` |
+| `arcod deploy [dir]` | target развёртывания и манифест `deploy.<env>.json`; `--env`, `--json` |
+| `arcod prompts [dir]` | только промпты: `--max-tokens`, `--full` (не урезать), `--json` |
+| `arcod impl [dir]` | тела операций локальной моделью: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote` |
+| `arcod fmt [dir]` | заглушка v0.1: печатает, что форматтера нет |
 
-Флаги: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`.
-У `make`: `--force` (перегенерировать тела), `--skip-impl`, `--no-test`,
-`--model`, `--endpoint`, `--reference`.
+Флаги: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`,
+`--remove-orphans`. У `make`: `--force` (перегенерировать тела), `--skip-impl`,
+`--no-test`, `--model`, `--endpoint`, `--reference`, `--port`.
+У `ast` — `--check` (разобрать и прогнать проверки), у `test` — `--impl`,
+у `run` — `--impl` или `--scaffold`, у `check` — `--strict`.
 
 ```bash
 arcod make .            # первая сборка с нуля
@@ -104,16 +129,16 @@ arcod make . --skip-impl --no-test   # только check + prompts + build
 
 ## Провайдеры
 
-Модель называет возможность (`kv`, `sql`, `queue`…), окружение — провайдера
-(`redis`, `postgres`, `kafka`…). Компилятор знает, какой провайдер реализует
+Модель называет возможность (`kv`, `sql`, `blob`…), окружение — провайдера
+(`redis`, `postgres`, `s3`…). Компилятор знает, какой провайдер реализует
 какую возможность, и проверяет это (`A023` неизвестный, `A024` несовместимый,
 `A025` двойной bind).
 
 ```arcod
 environment dev {
-  bind db -> postgres(host: "db", expose: true)
-  bind files -> s3(host: "s3")
-  bind events -> kafka(host: "kafka")
+  bind db     -> postgres(host: "db", expose: true)
+  bind files  -> s3(host: "s3")
+  bind stream -> websocket()
 }
 ```
 
@@ -122,11 +147,21 @@ arcod providers            # таблица возможностей и пров
 arcod deploy . --env prod  # target развёртывания и манифест
 ```
 
-Реестр: redis, postgres, mysql, mariadb, mongodb, keycloak, s3 (minio), rabbitmq,
-kafka, nginx, liquibase, clickhouse, prometheus, sentry, jaeger, grafana, mailpit,
-vault. На каждый bind генерируется
-сервис в compose с healthcheck, томом и env; порты публикуются только при
-`expose: true`.
+**Возможности с адаптером** (тело операции может их вызывать): `kv` (redis),
+`sql` (postgres, mysql, mariadb), `blob` (s3), `identity` (keycloak),
+`llm` (ollama, openai), `stream` (websocket), `ids` и `hash` — привязываются к
+`local`: это специальный провайдер «ничего не нужно», инфраструктуры у него нет.
+
+**Только инфраструктура** — провайдер провижинится в compose, но эффектов у
+возможности пока нет, и адаптер в сервис не попадает: `queue` (rabbitmq,
+kafka), `document` (mongodb), `proxy` (nginx), `migrations` (liquibase),
+`olap` (clickhouse), `metrics` (prometheus), `errors` (sentry), `tracing`
+(jaeger), `dashboards` (grafana), `mail` (mailpit), `secrets` (vault).
+`endpoint` и `websocket` контейнера не создают вовсе: первый — адрес чужого
+сервиса, второй — сервер внутри самого сервиса.
+
+На каждый bind, которому нужен контейнер, генерируется сервис в compose с
+healthcheck, томом и env; порты публикуются только при `expose: true`.
 
 ### Модель как возможность
 
@@ -166,6 +201,33 @@ arcod build examples/chat --impl && arcod run examples/chat
 настройки. На Linux контейнер до loopback хоста не дотянется: поднимите Ollama
 на `0.0.0.0` (`OLLAMA_HOST=0.0.0.0 ollama serve`) или укажите в привязке
 другой хост.
+
+### Чат-страница
+
+`layout: chat` — не форма на операцию, а лента сообщений. Странице нужны две
+привязки и необязательная третья:
+
+```arcod
+ui Chat {
+  kind:    spa
+  route:   "/"
+  layout:  chat
+  history: Agent.history    // что читать
+  send:    Agent.send       // куда отправлять
+  start:   Agent.start      // опционально: создать диалог
+  uses     Agent.history, Agent.send, Agent.start
+}
+```
+
+Текст сообщения берётся из параметра операции с типом строки; имя параметра
+страница не угадывает, оно приходит из контракта. Если `history` или `send`
+нет, или операция не публичная, — ошибка `A036`: лента без источника или без
+получателя не имеет смысла.
+
+Страница не опрашивает сервер: читает историю при открытии, отправляет
+сообщение и добавляет ответ, который вернула операция `send`. Живые обновления —
+это отдельная возможность `stream` (см. «Поток событий»), и в `layout: chat`
+она пока не подключена.
 
 ### Чужой сервис: только контракт и адрес
 
@@ -348,7 +410,8 @@ ui Stage {
 - виджеты не рендерятся «на всякий случай»: `poll` требует `vote`, `rating` —
   `rate`, `comments` — `comment` (`A045`), иначе контролы некуда отправлять;
 - `qr` рисуется на клиенте из ссылки на текущий сеанс; код генерируется
-  сервисом, поэтому QR всегда ведёт на живую комнату;
+  сервисом, поэтому QR всегда ведёт на живую комнату; энкодер вендорен в
+  страницу (MIT, без CDN), так что презентация работает офлайн;
 - коды `A041`–`A044` ловят пустую деку, слайд без виджета, `poll` из одного
   варианта и шкалу вне 2..10; `W027` — забыли слайд с QR.
 
@@ -536,15 +599,24 @@ arcod run --impl examples/onetimemessage-pwd
 `read(id, password?)`, ошибка `WrongPassword`, `on error WrongPassword: store.has(id)`
 и возможность `hash(scrypt)`. Маршруты, TTL, лимиты и инфраструктура совпадают.
 
-- `.arcod/build/service/index.mjs` — HTTP-сервис на Node без зависимостей, с минимальным RESP-клиентом;
-- `.arcod/build/web/` — статический фронтенд и nginx с проксированием `/api` (только при объявленном `ui`);
-- `.arcod/build/docker-compose.yml` — redis + сервис + фронтенд.
+- `.arcod/build/service/index.mjs` — HTTP-сервис на Node без зависимостей, с
+  адаптером под выбранные возможности: RESP-клиент для `kv`, MySQL-клиент для
+  `sql`, JWKS для `identity`, S3 для `blob`, OpenAI-совместимый чат для `llm`,
+  websocket-хаб для `stream`;
+- `.arcod/build/web/` — статический фронтенд и nginx с проксированием корней
+  объявленных маршрутов (`/api`, `/v1`) и `/ws` при потоке `stream` (только при
+  объявленном `ui`);
+- `.arcod/build/docker-compose.yml` — провайдеры + сервис + фронтенд;
+- `.arcod/build/prompts/` — по промпту на операцию и `manifest.json` с хешем
+  модели и бюджетом токенов;
+- `.arcod/build/deploy.<env>.json` — манифест на каждое окружение с `deploy`.
 
 `budget { concurrency: N }` даёт лимитер in-flight запросов: сверх лимита — `503`.
 
 `atomic read { get; del }` переключает чтение на атомарный Lua-скрипт; без правила генерируются раздельные `GET` и `DEL`. `once(read, by: id, else: Gone)` задаёт ошибку повторного чтения — эмиттер берёт её из модели, а не из константы.
 
 Правила из спеки превращаются в поведение: `atomic read { get; del }` — в Lua-скрипт с гетом и удалением, `once(read, by: id)` — в tombstone-ключ, который даёт `Gone` при повторном чтении.
+
 
 ## Проверки
 
@@ -570,6 +642,7 @@ arcod run --impl examples/onetimemessage-pwd
 - `W017` `job` не исполняется в v0.1;
 - `W018` тела операций не заданы в спеке: их даёт `arcod impl`, `--reference` или `TODO` в scaffold;
 - `A022` `once(..., else: E)` ссылается на ошибку вне контракта;
+- `A027` операция называет эффект, чей алиас не объявлен в `uses`;
 - `A028` неизвестный провайдер развёртывания, `W019` неизвестный аргумент;
 - `A029` `needs` ссылается на неизвестный шаг;
 - `A030` цикл в графе workflow;
@@ -595,6 +668,37 @@ arcod run --impl examples/onetimemessage-pwd
 - `W028` презентация без `stream`: страница будет опрашивать состояние.
 
 `arcod check` возвращает `1` при ошибках и `0`, когда модель чистая.
+
+### Примеры — это тесты
+
+`examples` в модели — не документация, а исполняемые сценарии: `arcod test`
+поднимает сервис и прогоняет их. Без флага он берёт reference-тела
+(`create`/`read`), с `--impl` — тела из `impl/`.
+
+```arcod
+service OneTimeMessage : http {
+  // ...
+  examples {
+    example create_and_read {
+      when { let id = create("hi") }
+      then {
+        read(id) == "hi"
+        read(id) is Gone
+      }
+    }
+
+    example rejects_empty {
+      when { let e = create("") }
+      then { e is Invalid }
+    }
+  }
+}
+```
+
+`when` вызывает операции и связывает результаты через `let`, `then` утверждает:
+сравнение, `is <Ошибка>`, `&&`, `||`, `!`. `given` (подготовка состояния) в v0.1
+не исполняется. Операция без примера — предупреждение `W012`; объявленная
+ошибка, которую не обработали и не покрыли примером, — `A007`.
 
 ## Редактор — VS Code
 
@@ -631,18 +735,39 @@ src/
   parser.ts       ручной recursive descent + Pratt для выражений
   ast.ts          канонический AST
   check.ts        статические проверки
+  capabilities.ts подписи эффектов: что можно просить у возможности
+  providers.ts    реестр провайдеров, портов и переменных окружения
   plan.ts         DAG задач
-  build.ts        сборка примера в .arcod/build
-  emit/service.ts генерация сервиса
-  emit/llm.ts     адаптер модели (OpenAI-совместимый чат)
-  emit/chat-page.ts страница для layout: chat
-  emit/web.ts     генерация фронтенда
-  emit/compose.ts Dockerfile и compose
-  cli.ts          команды
+  plan-body.ts    что нужно телу операции: шаги и эффекты
+  prompts.ts      детерминированные промпты и бюджет токенов
+  impl.ts         генерация тел локальной моделью
+  pipeline.ts     конвейер `arcod make`
+  test.ts         прогон `examples` против сгенерированного сервиса
+  build.ts        сборка в `.arcod/build`
+  deploy.ts       провайдеры развёртывания и манифест
+  templates.ts    встроенные reference-тела
+  cli.ts          команды и флаги
+  emit/service.ts        сервис, адаптеры и `io`
+  emit/sql-store.ts      клиент MySQL
+  emit/identity.ts       Keycloak/JWKS
+  emit/blob.ts           S3
+  emit/llm.ts            OpenAI-совместимый чат
+  emit/stream.ts         websocket-сервер (RFC 6455)
+  emit/web.ts            фронтенд: формы
+  emit/chat-page.ts      `layout: chat`
+  emit/presentation-page.ts `layout: presentation`
+  emit/qr-code.ts        вендоренный QR-энкодер
+  emit/compose.ts        Dockerfile, compose и nginx
 editors/vscode/ расширение VS Code: грамматика, дополнения, проверки
 examples/
-  onetimemessage/     одноразовые сообщения
-  onetimemessage-pwd/ то же, но с необязательным паролем
+  onetimemessage/      одноразовое сообщение
+  onetimemessage-pwd/  то же, пароль необязателен
+  project1/            сообщение с автором, хранилище kv
+  project1-mysql/      та же модель на sql
+  files/               вход, права, объекты в S3
+  chat/                диалог с моделью, `layout: chat`
+  payments/            чужой сервис: контракт и адрес
+  quiz/                презентация, виджеты и поток событий
 test/             node --test
 ```
 
@@ -656,13 +781,18 @@ npm test
 
 Это вертикальный срез, а не готовый язык.
 
-- Эмиттер поддерживает только сервисы с операциями `create` и `read` поверх `kv`.
-- Провайдер `kv` — только Redis.
-- `arcod fmt`, `arcod diff`, `arcod adopt` ещё не реализованы.
+- **Scaffold без тел** (`arcod build` без `--impl`) знает только `create` и
+  `read`: встроенных шаблонов для других операций нет. С `--impl` эмиттер
+  принимает любые операции и любую из восьми возможностей.
+- `kv` в реальном окружении — Redis; in-memory драйвер есть только для
+  `arcod test`.
+- `arcod fmt` — заглушка, `arcod diff` и `arcod adopt` не реализованы.
 - `arcod test` не исполняет `given`; из предикатов поддерживает только `once`.
 - `unique` и `ordering` пока не проверяются глубже синтаксиса и циклов.
 - Генерация только в JavaScript/Node. PHP, Go и Python — отдельные эмиттеры позже.
-- `change`, `unknown` и `external` парсятся, но не влияют на сборку.
+- `change`, `policy`, `hint` и `unknown`, а также клаузы `idempotent`, `since`
+  и `schedule` парсятся, но не влияют на сборку: это заготовки, а не работающие
+  конструкты.
 - `lifecycle`, `ordering` и предикаты, кроме `once`, пока декларативны.
 - `ui` поддерживает только `kind: spa` и генерирует страницу под операции `create`/`read`; произвольная вёрстка не выражается.
 - `budget.latency` и `budget.cost` — декларативные SLO, runtime-проверки для них ещё нет.
