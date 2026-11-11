@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arcod — a service specification that compiles</title>
+<meta name="description" content="Arcod is a specification language and compiler: describe a service once, get the code, the UI, the prompts for a coding model and the environment to run it.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236c7cff'/%3E%3Cpath d='M9 23 16 9l7 14' stroke='white' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0b0d12;
+    --bg-soft: #11141c;
+    --card: #141824;
+    --line: #232a3a;
+    --text: #e8ecf6;
+    --muted: #9aa4bb;
+    --accent: #6c7cff;
+    --accent-2: #38e1c3;
+    --warning: #ffb454;
+    --radius: 16px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.65 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  code, pre { font-family: var(--mono); }
+  .wrap { width: min(1120px, calc(100% - 48px)); margin: 0 auto; }
+
+  /* nav */
+  header.nav {
+    position: sticky; top: 0; z-index: 20;
+    backdrop-filter: blur(14px);
+    background: rgba(11, 13, 18, .78);
+    border-bottom: 1px solid rgba(35, 42, 58, .7);
+  }
+  .nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: -.01em; }
+  .brand svg { width: 26px; height: 26px; }
+  .nav-links { display: flex; align-items: center; gap: 26px; font-size: 14px; color: var(--muted); }
+  .nav-links a:hover { color: var(--text); }
+  .nav-cta {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 16px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--bg-soft); color: var(--text);
+    font-size: 14px; font-weight: 550;
+  }
+  .nav-cta:hover { border-color: #38415a; }
+  @media (max-width: 760px) { .nav-links { display: none; } }
+
+  /* hero */
+  .hero { position: relative; overflow: hidden; padding: 96px 0 72px; }
+  .hero::before {
+    content: ""; position: absolute; inset: -20% -10% auto -10%; height: 620px;
+    background:
+      radial-gradient(600px 320px at 22% 20%, rgba(108, 124, 255, .22), transparent 70%),
+      radial-gradient(520px 300px at 78% 8%, rgba(56, 225, 195, .12), transparent 70%);
+    pointer-events: none;
+  }
+  .hero::after {
+    content: ""; position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(35,42,58,.35) 1px, transparent 1px), linear-gradient(90deg, rgba(35,42,58,.35) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black, transparent 75%);
+    pointer-events: none;
+  }
+  .hero .wrap { position: relative; z-index: 1; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font: 500 12.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+    color: var(--accent-2);
+    border: 1px solid rgba(56, 225, 195, .25);
+    background: rgba(56, 225, 195, .06);
+    padding: 8px 12px; border-radius: 999px; margin-bottom: 26px;
+  }
+  h1 {
+    margin: 0 0 20px; max-width: 900px;
+    font-size: clamp(38px, 6vw, 68px); line-height: 1.05; letter-spacing: -.035em; font-weight: 680;
+  }
+  h1 .grad {
+    background: linear-gradient(96deg, var(--accent) 0%, #9aa6ff 45%, var(--accent-2) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lede { max-width: 680px; font-size: 18px; color: var(--muted); margin: 0 0 32px; }
+  .lede strong { color: var(--text); font-weight: 560; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 12px 20px; border-radius: 12px; font-weight: 600; font-size: 15px;
+    border: 1px solid transparent; transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-primary { background: var(--accent); color: #0a0c12; box-shadow: 0 12px 30px -12px rgba(108, 124, 255, .8); }
+  .btn-ghost { border-color: var(--line); background: var(--bg-soft); color: var(--text); }
+  .btn-ghost:hover { border-color: #38415a; }
+  .hero-note { margin-top: 18px; font: 13px/1.5 var(--mono); color: #6f7a92; }
+
+  /* code window */
+  .window {
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: linear-gradient(180deg, #12151f, #0e1119);
+    box-shadow: 0 40px 80px -40px rgba(0, 0, 0, .9);
+    overflow: hidden;
+  }
+  .window-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+    background: rgba(17, 20, 28, .8);
+    font: 12.5px/1 var(--mono); color: #7b87a3;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #2b3247; }
+  .dot.live { background: var(--accent-2); box-shadow: 0 0 12px rgba(56, 225, 195, .6); }
+  .window-bar .file { margin-left: 10px; }
+  .window pre { margin: 0; padding: 22px 24px; overflow: auto; font-size: 13.5px; line-height: 1.75; }
+  .c { color: #5d6880; }
+  .k { color: #9aa6ff; }
+  .s { color: #8ee6c8; }
+  .n { color: #ffcc8a; }
+  .p { color: #7f8aa3; }
+
+  .hero-grid { display: grid; grid-template-columns: 1.02fr .98fr; gap: 44px; align-items: center; margin-top: 56px; }
+  .hero-grid > * { min-width: 0; }
+  .window { max-width: 100%; }
+  @media (max-width: 980px) { .hero-grid { grid-template-columns: 1fr; gap: 34px; } }
+
+  /* sections */
+  section { padding: 84px 0; border-top: 1px solid rgba(35, 42, 58, .55); }
+  section.first { border-top: none; }
+  .kicker { font: 500 12.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent-2); margin-bottom: 14px; }
+  h2 { margin: 0 0 14px; font-size: clamp(26px, 3.4vw, 38px); line-height: 1.15; letter-spacing: -.025em; font-weight: 650; }
+  .sub { max-width: 720px; color: var(--muted); margin: 0 0 40px; font-size: 17px; }
+
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  @media (max-width: 900px) { .grid-3, .grid-2 { grid-template-columns: 1fr; } }
+  .card {
+    background: linear-gradient(180deg, rgba(20, 24, 36, .95), rgba(17, 20, 28, .95));
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 24px;
+    transition: border-color .2s ease, transform .2s ease;
+  }
+  .card:hover { border-color: #333c55; transform: translateY(-2px); }
+  .card h3 { margin: 0 0 8px; font-size: 17px; letter-spacing: -.01em; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .card .num { font: 600 12px/1 var(--mono); color: var(--accent); letter-spacing: .08em; margin-bottom: 14px; display: block; }
+  .icon {
+    width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+    background: rgba(108, 124, 255, .1); border: 1px solid rgba(108, 124, 255, .22);
+    color: #aab4ff; margin-bottom: 16px;
+  }
+  .icon svg { width: 19px; height: 19px; }
+
+  /* steps */
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; counter-reset: step; }
+  @media (max-width: 900px) { .steps { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .steps { grid-template-columns: 1fr; } }
+  .step { position: relative; padding: 22px 20px 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-soft); }
+  .step::before {
+    counter-increment: step; content: counter(step, decimal-leading-zero);
+    font: 600 11.5px/1 var(--mono); color: var(--accent);
+  }
+  .step h3 { margin: 10px 0 6px; font-size: 16px; }
+  .step p { margin: 0; color: var(--muted); font-size: 14px; }
+  .step code { font-size: 12.5px; color: #b9c2d8; }
+
+  /* tabs */
+  .tabs { margin-top: 26px; }
+  .tabbar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .tab {
+    font: 500 13px/1 var(--mono); color: var(--muted); background: transparent;
+    border: 1px solid var(--line); border-radius: 9px; padding: 9px 13px; cursor: pointer;
+  }
+  .tab[aria-selected="true"] { color: var(--text); border-color: #3a4460; background: #1a2030; }
+  .panel[hidden] { display: none; }
+
+  /* chips */
+  .chips { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 18px; }
+  .chip {
+    font: 12.5px/1 var(--mono); color: #c3cbe0; background: #151a26;
+    border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px;
+  }
+  .chip b { color: var(--accent-2); font-weight: 600; }
+  .chip.dim { color: #77839b; }
+
+  /* examples */
+  .examples { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 900px) { .examples { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 620px) { .examples { grid-template-columns: 1fr; } }
+  .example { display: flex; flex-direction: column; gap: 8px; padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-soft); }
+  .example:hover { border-color: #38415a; }
+  .example .path { font: 12px/1 var(--mono); color: #7f8aa3; }
+  .example h3 { margin: 2px 0 0; font-size: 16px; }
+  .example p { margin: 0; color: var(--muted); font-size: 14px; }
+  .example .tags { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .tag { font: 11.5px/1 var(--mono); color: #93a0ba; background: #1a2030; border-radius: 6px; padding: 5px 8px; }
+
+  /* honesty */
+  .honest { display: grid; grid-template-columns: 1.1fr .9fr; gap: 22px; }
+  @media (max-width: 900px) { .honest { grid-template-columns: 1fr; } }
+  .honest ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 15px; }
+  .honest li + li { margin-top: 9px; }
+  .honest li b { color: var(--text); font-weight: 560; }
+
+  /* footer */
+  footer { border-top: 1px solid var(--line); padding: 34px 0 46px; color: #7f8aa3; font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between; align-items: center; }
+  footer a:hover { color: var(--text); }
+  footer .muted { font: 12.5px/1.6 var(--mono); }
+
+  @media (max-width: 620px) {
+    .window pre { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#6c7cff"/><path d="M9 23 16 9l7 14" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round"/></svg>
+      Arcod
+    </a>
+    <nav class="nav-links">
+      <a href="#why">Why</a>
+      <a href="#how">How it works</a>
+      <a href="#get">What you get</a>
+      <a href="#examples">Examples</a>
+      <a href="#limits">Limits</a>
+    </nav>
+    <a class="nav-cta" href="https://github.com/chubakur/arcod">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero first">
+    <div class="wrap">
+      <div class="eyebrow">specification → working service</div>
+      <h1>Describe the service.<br><span class="grad">Get the service.</span></h1>
+      <p class="lede">
+        Arcod is a language and a compiler for agent-built services. You write one
+        <code>.arc</code> file — types, operations, errors, rules, effects, bindings —
+        and get routes, adapters, a UI, tests, deploy manifests and
+        <strong>prompts a small local model can actually follow</strong>.
+        No library shopping, no drift between the model and the code.
+      </p>
+      <div class="actions">
+        <a class="btn btn-primary" href="#how">See how it works</a>
+        <a class="btn btn-ghost" href="https://github.com/chubakur/arcod#quick-start">Quick start</a>
+      </div>
+      <p class="hero-note">Node ≥ 22.18 · Docker · MIT · no cloud model required</p>
+
+      <div class="hero-grid">
+        <div class="window">
+          <div class="window-bar"><span class="dot"></span><span class="dot"></span><span class="dot live"></span><span class="file">examples/quiz/main.arc</span></div>
+          <pre><code><span class="c">// one deck, two audiences, four widgets</span>
+<span class="k">ui</span> Stage {
+  kind:    spa
+  route:   <span class="s">"/"</span>
+  layout:  presentation
+  start:   Live.start
+  join:    Live.join
+  state:   Live.state
+  advance: Live.advance
+  vote:    Live.vote
+
+  <span class="k">slide</span> <span class="s">"Who are you?"</span> {
+    body: <span class="s">"Pick a role"</span>
+    poll(<span class="s">"Backend"</span>, <span class="s">"Frontend"</span>, <span class="s">"QA"</span>)
+  }
+  <span class="k">slide</span> <span class="s">"Join"</span> { qr }
+  <span class="k">slide</span> <span class="s">"How useful?"</span> { rating(max: <span class="n">5</span>) }
+}</code></pre>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:14px">
+            <span class="num">CHECKED, NOT GUESSED</span>
+            <h3>A widget without an operation is a compile error</h3>
+            <p><code>A045</code>: a control whose answer has nowhere to go never reaches the screen.
+            The deck lives in the model, so a one-option poll or an empty slide fails
+            <code>check</code>, not production.</p>
+          </div>
+          <div class="card" style="margin-bottom:14px">
+            <span class="num">LIVE, NOT POLLED</span>
+            <h3>One page, a websocket, zero idle traffic</h3>
+            <p>The service publishes an event after every mutation and the page reads
+            <code>state</code>. A vote reaches the presenter in <b>55 ms</b>; with polling
+            it took up to 1.5 s and 300 requests a slide.</p>
+          </div>
+          <div class="card" style="padding:18px 22px">
+            <div style="display:flex; gap:26px; flex-wrap:wrap; font:13px/1.5 var(--mono); color:var(--muted)">
+              <span><b style="color:var(--text); font-size:18px">0</b><br>runtime deps</span>
+              <span><b style="color:var(--text); font-size:18px">47</b><br>diagnostics</span>
+              <span><b style="color:var(--text); font-size:18px">8</b><br>capabilities</span>
+              <span><b style="color:var(--text); font-size:18px">71</b><br>tests</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="why">
+    <div class="wrap">
+      <div class="kicker">why another tool</div>
+      <h2>The model and the code are two descriptions of one thing.<br>They drift.</h2>
+      <p class="sub">Arcod removes the second description. What cannot be checked — is not allowed to be guessed.</p>
+      <div class="grid-3">
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M4 12h10M4 17h7" stroke-linecap="round"/></svg></div>
+          <h3>No library shopping</h3>
+          <p>The model names a capability (<code>kv</code>, <code>sql</code>, <code>llm</code>, <code>stream</code>),
+          the environment names a provider. The compiler knows the adapter and refuses a
+          provider that does not implement the capability.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m8 9-4 3 4 3M16 9l4 3-4 3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <h3>Prompts a 7B model can follow</h3>
+          <p>One prompt per operation, derived from the contract: 66–109 tokens instead of a
+          service description. Constant rules live in the system prompt, so the model
+          never re-invents the framework.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <h3>Unresolved is a failure</h3>
+          <p>If a step cannot be derived from effects and type shapes, generation stops with
+          <code>unresolved</code> instead of quietly inventing code. Unhandled errors,
+          unused bindings and unknown clauses are diagnostics, not surprises.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="kicker">the pipeline</div>
+      <h2>One file in. A running system out.</h2>
+      <p class="sub"><code>arcod make</code> runs the same steps the standalone commands do, so the pipeline cannot drift from the CLI.</p>
+      <div class="steps">
+        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, examples. 47 diagnostics, errors stop the build.</p></div>
+        <div class="step"><h3>Plan</h3><p>A deterministic task DAG: files, dependencies, acceptance criteria, <code>--json</code>.</p></div>
+        <div class="step"><h3>Prompts</h3><p>One prompt per operation with a token budget and a hash for caching.</p></div>
+        <div class="step"><h3>Build &amp; test</h3><p>Service, UI, compose, manifests — then the model's own examples run against it.</p></div>
+      </div>
+
+      <div class="tabs">
+        <div class="tabbar" role="tablist">
+          <button class="tab" role="tab" aria-selected="true" data-panel="p-spec">model.arc</button>
+          <button class="tab" role="tab" aria-selected="false" data-panel="p-plan">plan --json</button>
+          <button class="tab" role="tab" aria-selected="false" data-panel="p-prompt">prompt</button>
+          <button class="tab" role="tab" aria-selected="false" data-panel="p-gen">generated</button>
+        </div>
+
+        <div class="window panel" id="p-spec">
+          <div class="window-bar"><span class="dot"></span><span class="dot"></span><span class="dot live"></span><span class="file">examples/onetimemessage/main.arc</span></div>
+          <pre><code><span class="k">service</span> OneTimeMessage : http {
+  <span class="k">uses</span> store: kv(ttl: <span class="n">999s</span>)
+  <span class="k">uses</span> uuid: ids
+
+  <span class="k">contract</span> {
+    <span class="k">public op</span> create(body: Body) -&gt; MessageId {
+      route: <span class="s">"POST /api/messages"</span>
+      effects: store.set, uuid.new
+      errors: Invalid
+      on error Invalid: body != <span class="k">null</span>
+    }
+
+    <span class="k">public op</span> read(id: MessageId) -&gt; Body {
+      route: <span class="s">"GET /api/messages/:id"</span>
+      errors: NotFound, Gone
+    }
+  }
+
+  <span class="k">rules</span> {
+    invariant read.at_most_once: once(read, by: id)
+    atomic read { get; del }
+  }
+}</code></pre>
+        </div>
+
+        <div class="window panel" id="p-plan" hidden>
+          <div class="window-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">arcod plan examples/onetimemessage --json</span></div>
+          <pre><code>{
+  <span class="s">"module"</span>: <span class="s">"onetimemessage@0.1.0"</span>,
+  <span class="s">"tasks"</span>: [
+    { <span class="s">"id"</span>: <span class="s">"check"</span>,     <span class="s">"depends"</span>: [] },
+    { <span class="s">"id"</span>: <span class="s">"prompts"</span>,   <span class="s">"depends"</span>: [<span class="s">"check"</span>] },
+    { <span class="s">"id"</span>: <span class="s">"implement:create"</span>, <span class="s">"depends"</span>: [<span class="s">"prompts"</span>] },
+    { <span class="s">"id"</span>: <span class="s">"implement:read"</span>,   <span class="s">"depends"</span>: [<span class="s">"prompts"</span>] },
+    { <span class="s">"id"</span>: <span class="s">"build"</span>,     <span class="s">"depends"</span>: [<span class="s">"implement:create"</span>, <span class="s">"implement:read"</span>] },
+    { <span class="s">"id"</span>: <span class="s">"test"</span>,      <span class="s">"depends"</span>: [<span class="s">"build"</span>] }
+  ]
+}</code></pre>
+        </div>
+
+        <div class="window panel" id="p-prompt" hidden>
+          <div class="window-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="file">.arcod/build/prompts/create.md</span></div>
+          <pre><code>create(input, io)
+in:  { body: string /* 1..65536 bytes */,
+       password: string | null /* 1..128 chars */ }
+out: { result: string } | { error: <span class="s">"Invalid"</span> }
+io:  new() -&gt; id; hash(password); set(id, value)
+value: {b: string, h: string|null}
+
+<span class="c"># 66 tokens. no routes, no other operations,</span>
+<span class="c"># no infrastructure — the model gets only the function.</span></code></pre>
+        </div>
+
+        <div class="window panel" id="p-gen" hidden>
+          <div class="window-bar"><span class="dot"></span><span class="dot"></span><span class="dot live"></span><span class="file">.arcod/build/</span></div>
+          <pre><code>service/index.mjs        HTTP service, one file, <span class="k">zero dependencies</span>
+                         (RESP, MySQL, JWKS, S3, LLM, websocket)
+web/index.html           UI: forms · chat · presentation
+web/nginx.conf           route roots + /ws upgrade
+docker-compose.yml       providers + service + frontend
+prompts/*.md             one per operation + manifest.json
+deploy.dev.json          deploy manifest per environment</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="get">
+    <div class="wrap">
+      <div class="kicker">what you get</div>
+      <h2>Everything the service needs, derived from one source.</h2>
+      <p class="sub">Not snippets to paste — artifacts that run, and that the compiler keeps honest.</p>
+      <div class="grid-2">
+        <div class="card">
+          <h3>Contracts that become behaviour</h3>
+          <p><code>atomic read { get; del }</code> becomes a Lua script; <code>once(read, by: id)</code>
+          becomes a tombstone key returning <code>Gone</code>. <code>budget { concurrency: 8 }</code>
+          becomes a 503 limiter.</p>
+        </div>
+        <div class="card">
+          <h3>UIs without a frontend decision</h3>
+          <p>Forms from public operations, <code>layout: chat</code> for dialogue,
+          <code>layout: presentation</code> for decks with polls, ratings, comments and a
+          vendored QR encoder that works offline.</p>
+        </div>
+        <div class="card">
+          <h3>Someone else's service, still typed</h3>
+          <p><code>external service Ledger { ... }</code> gives a remote client typed by a
+          partial contract; the address comes from the environment, never from the body.</p>
+        </div>
+        <div class="card">
+          <h3>Deploy as a declaration</h3>
+          <p><code>deploy docker | aws | yandex | kubernetes</code> produces compose or a
+          <code>deploy.&lt;env&gt;.json</code> manifest with <code>"executed": false</code> —
+          no credentials, no API calls behind your back.</p>
+        </div>
+      </div>
+
+      <div class="chips">
+        <span class="chip"><b>kv</b> redis</span>
+        <span class="chip"><b>sql</b> postgres · mysql · mariadb</span>
+        <span class="chip"><b>blob</b> s3</span>
+        <span class="chip"><b>identity</b> keycloak</span>
+        <span class="chip"><b>llm</b> ollama · openai</span>
+        <span class="chip"><b>stream</b> websocket</span>
+        <span class="chip"><b>ids</b> local</span>
+        <span class="chip"><b>hash</b> local</span>
+        <span class="chip dim">infrastructure-only: queue · olap · metrics · tracing …</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="examples">
+    <div class="wrap">
+      <div class="kicker">examples that run</div>
+      <h2>Eight services, all in the repository.</h2>
+      <p class="sub">Each one is a single <code>.arc</code> file plus bodies generated by a local 7B model and verified by tests.</p>
+      <div class="examples">
+        <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/onetimemessage">
+          <span class="path">examples/onetimemessage</span>
+          <h3>One-time message</h3>
+          <p>Create, read once, 410 on the second read.</p>
+          <div class="tags"><span class="tag">kv</span><span class="tag">rules</span></div>
+        </a>
+        <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/chat">
+          <span class="path">examples/chat</span>
+          <h3>Chat with a model</h3>
+          <p>History, replies, a local model as a capability.</p>
+          <div class="tags"><span class="tag">llm</span><span class="tag">sql</span><span class="tag">layout: chat</span></div>
+        </a>
+        <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/files">
+          <span class="path">examples/files</span>
+          <h3>Files and rights</h3>
+          <p>Keycloak sign-in, S3 objects, three visibilities.</p>
+          <div class="tags"><span class="tag">identity</span><span class="tag">blob</span></div>
+        </a>
+        <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/payments">
+          <span class="path">examples/payments</span>
+          <h3>Calling a foreign service</h3>
+          <p>A ledger that exists already: contract and address only.</p>
+          <div class="tags"><span class="tag">external</span><span class="tag">endpoint</span></div>
+        </a>
+        <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/quiz">
+          <span class="path">examples/quiz</span>
+          <h3>Live quiz</h3>
+          <p>Slides, polls, ratings, comments, QR, websocket.</p>
+          <div class="tags"><span class="tag">presentation</span><span class="tag">stream</span></div>
+        </a>
+        <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/project1">
+          <span class="path">examples/project1</span>
+          <h3>Messages with an author</h3>
+          <p>One-time read over Redis, with a typed payload.</p>
+          <div class="tags"><span class="tag">kv</span><span class="tag">types</span></div>
+        </a>
+        <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/project1-mysql">
+          <span class="path">examples/project1-mysql</span>
+          <h3>Same model, MySQL</h3>
+          <p>Two lines differ from the Redis version; the bodies do not.</p>
+          <div class="tags"><span class="tag">sql</span><span class="tag">providers</span></div>
+        </a>
+        <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/onetimemessage-pwd">
+          <span class="path">examples/onetimemessage-pwd</span>
+          <h3>Password, optional</h3>
+          <p>Same service plus scrypt; the difference is the model only.</p>
+          <div class="tags"><span class="tag">hash</span><span class="tag">errors</span></div>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section id="limits">
+    <div class="wrap">
+      <div class="kicker">honesty</div>
+      <h2>v0.1 is a vertical slice.</h2>
+      <p class="sub">A compiler you cannot trust is worse than no compiler, so the gaps are documented and diagnosed, not hidden.</p>
+      <div class="honest">
+        <div class="card">
+          <h3>What does not work yet</h3>
+          <ul>
+            <li><b>Scaffold without bodies</b> knows only <code>create</code> and <code>read</code>; with <code>--impl</code> any operation is accepted.</li>
+            <li><b>Queue, OLAP, metrics, secrets</b> and friends are provisioned in compose but have no effect signatures.</li>
+            <li><b>Workflows and jobs</b> are parsed, described and validated — no runner is generated (<code>W022</code>, <code>W017</code>).</li>
+            <li><b>One process</b> owns the websocket hub: several replicas need a pub/sub provider.</li>
+            <li><b>JavaScript only.</b> PHP, Go and Python would be separate emitters.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>What that buys you</h3>
+          <ul>
+            <li>Every claim above has a diagnostic code, a test, or a note in the README.</li>
+            <li>No silent fallbacks: an underivable step fails with <code>unresolved</code>.</li>
+            <li>No cloud calls: the default model endpoint is local and a remote one is refused without <code>--allow-remote</code>.</li>
+            <li>No hidden dependencies: the emitted service and page are single files, including the RESP client and the QR encoder.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap" style="text-align:center">
+      <div class="kicker" style="justify-content:center">try it</div>
+      <h2 style="margin-bottom:10px">Write the model. Run the make.</h2>
+      <p class="sub" style="margin:0 auto 28px">The demo reproduces without a model: bodies are already in <code>impl/</code>.</p>
+      <div style="display:inline-block; text-align:left" class="window">
+        <div class="window-bar"><span class="dot"></span><span class="dot"></span><span class="dot live"></span><span class="file">terminal</span></div>
+        <pre><code><span class="p">$</span> git clone git@github.com:chubakur/arcod.git
+<span class="p">$</span> cd arcod &amp;&amp; npm link
+<span class="p">$</span> cd examples/quiz &amp;&amp; arcod make . --impl
+<span class="p">$</span> arcod run --impl
+<span class="c"># http://localhost:8080</span></code></pre>
+      </div>
+      <div class="actions" style="justify-content:center; margin-top:26px">
+        <a class="btn btn-primary" href="https://github.com/chubakur/arcod">Open on GitHub</a>
+        <a class="btn btn-ghost" href="https://github.com/chubakur/arcod/blob/main/README.md">Read the docs</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>Arcod — MIT · built by <a href="https://github.com/chubakur">@chubakur</a></div>
+    <div class="muted">spec → check → plan → prompts → build → test</div>
+  </div>
+</footer>
+
+<script>
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      tabs.forEach(function (other) { other.setAttribute('aria-selected', String(other === tab)); });
+      document.querySelectorAll('.panel').forEach(function (panel) {
+        panel.hidden = panel.id !== tab.dataset.panel;
+      });
+    });
+  });
+</script>
+</body>
+</html>
