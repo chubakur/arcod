@@ -10,6 +10,9 @@ const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysq
 
 export interface CheckOptions {
   environment?: string;
+  // Budgets are a design decision, not a prerequisite: a draft may not know
+  // its latency or cost yet. Strict mode asks for them explicitly.
+  strict?: boolean;
 }
 
 export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[] {
@@ -244,9 +247,10 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
-    // W013 — no budget
-    if (!svc.budget) {
-      diags.push(diag('W013', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'бюджет не задан', 'добавьте budget с latency или cost'));
+    // W013 — no budget (strict mode only). Omitting budget is legitimate:
+    // the language has `unknown` precisely for undecided numbers.
+    if (!svc.budget && options.strict) {
+      diags.push(diag('W013', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'бюджет не задан (необязательно)', 'добавьте budget с latency или cost, когда требования известны'));
     }
 
     // A008 — budget metric without a comparison

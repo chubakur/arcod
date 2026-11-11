@@ -95,7 +95,7 @@ export async function main(argv: string[]): Promise<void> {
 
 async function runCheck(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  const diags = check(loaded.mod, { environment: flags.env });
+  const diags = check(loaded.mod, { environment: flags.env, strict: flags.strict });
   if (flags.json) {
     console.log(JSON.stringify(diags, null, 2));
   } else {
@@ -456,6 +456,7 @@ interface Flags {
   full: boolean;
   impl: boolean;
   allowRemote: boolean;
+  strict: boolean;
   force: boolean;
   skipImpl: boolean;
   noTest: boolean;
@@ -478,6 +479,7 @@ function parseFlags(args: string[]): Flags {
     full: false,
     impl: false,
     allowRemote: false,
+    strict: false,
     force: false,
     skipImpl: false,
     noTest: false,
@@ -500,6 +502,7 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--full') flags.full = true;
     else if (arg === '--impl') flags.impl = true;
     else if (arg === '--allow-remote') flags.allowRemote = true;
+    else if (arg === '--strict') flags.strict = true;
     else if (arg === '--force') flags.force = true;
     else if (arg === '--skip-impl') flags.skipImpl = true;
     else if (arg === '--no-test') flags.noTest = true;
@@ -550,7 +553,7 @@ function printHelp(): void {
   console.log(`arcod ${VERSION} — specification compiler for agent-built services
 
 usage:
-  arcod check [dir|spec.arc] [--json] [--env name]
+  arcod check [dir|spec.arc] [--json] [--env name] [--strict]
   arcod ast   [dir|spec.arc] [--check]
   arcod plan  [dir|spec.arc] [--json]
   arcod providers [--json]

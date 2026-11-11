@@ -626,6 +626,17 @@ test('the model is a capability with local and cloud providers', () => {
   assert.equal(llm!.alias, 'llm');
 });
 
+test('a budget is optional unless strict mode asks for it', () => {
+  const plain = check(chatAst);
+  assert.ok(!plain.some((item) => item.code === 'W013'), 'no nagging by default');
+  assert.equal(plain.filter((item) => item.severity === 'error').length, 0);
+
+  const strict = check(chatAst, { strict: true });
+  const budget = strict.find((item) => item.code === 'W013');
+  assert.ok(budget, 'strict mode asks for a budget');
+  assert.equal(budget!.severity, 'warning', 'still not an error');
+});
+
 test('the chat contract is the same for every model', () => {
   const diags = check(chatAst);
   assert.equal(diags.filter((item) => item.severity === 'error').length, 0);
