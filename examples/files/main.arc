@@ -97,4 +97,13 @@ environment dev {
   bind auth -> keycloak(host: "idp", port: 8080, import: "realm.json")
   bind files -> s3(host: "s3", port: 9000)
   bind uuid -> local
+  deploy docker
+}
+
+environment prod {
+  bind store -> postgres(host: "pg", port: 5432)
+  bind auth -> keycloak(host: "idp", port: 8080)
+  bind files -> s3(host: "s3", port: 9000)
+  bind uuid -> local
+  deploy yandex(region: "ru-central1", folder: "arcod-prod", service: "files", image: "cr.yandex/arcod/files:0.1.0")
 }

@@ -12,6 +12,7 @@ import { buildPrompts, formatPrompts } from './prompts.ts';
 import { formatPipeline, runPipeline } from './pipeline.ts';
 import { DEFAULT_IMPL, formatImplReport, runImpl } from './impl.ts';
 import { PROVIDERS, providerNames } from './providers.ts';
+import { deployManifest, deployNames, deployProvider, formatDeploy } from './deploy.ts';
 
 const VERSION = '0.1.0';
 
@@ -58,6 +59,9 @@ export async function main(argv: string[]): Promise<void> {
         return;
       case 'providers':
         runProviders(flags);
+        return;
+      case 'deploy':
+        await runDeploy(flags);
         return;
       case 'prompts':
         await runPrompts(flags);
@@ -114,6 +118,36 @@ async function runAst(flags: Flags): Promise<void> {
   }
   const { source, ...ast } = loaded.mod;
   console.log(JSON.stringify(ast, null, 2));
+}
+
+async function runDeploy(flags: Flags): Promise<void> {
+  const loaded = await load(flags.spec);
+  const env = flags.env
+    ? loaded.mod.environments.find((item) => item.name === flags.env)
+    : loaded.mod.environments[0];
+  if (!env) throw new Error('no environment to deploy' + (flags.env ? ': ' + flags.env : ''));
+  if (!env.deploy) {
+    console.log(env.name + ': deploy не объявлен (по умолчанию считается docker)');
+    console.log('доступные провайдеры: ' + deployNames().join(', '));
+    return;
+  }
+  const spec = deployProvider(env.deploy.provider);
+  if (!spec) throw new Error('unknown deploy provider ' + env.deploy.provider + '; available: ' + deployNames().join(', '));
+
+  if (flags.json) {
+    console.log(JSON.stringify(deployManifest(loaded.mod, env), null, 2));
+    return;
+  }
+
+  console.log(formatDeploy(loaded.mod, env));
+  console.log('');
+  if (spec.artifacts === 'compose') {
+    console.log('артефакт: docker-compose.yml — локальная сборка');
+    console.log('запуск: arcod run ' + (flags.spec ?? '.'));
+    return;
+  }
+  console.log('артефакт: deploy.' + env.name + '.json — манифест, пишется при arcod build');
+  console.log('провайдер пока декларативный: ни кредов, ни вызовов API');
 }
 
 async function runPlan(flags: Flags): Promise<void> {
@@ -520,6 +554,7 @@ usage:
   arcod ast   [dir|spec.arc] [--check]
   arcod plan  [dir|spec.arc] [--json]
   arcod providers [--json]
+  arcod deploy [dir|spec.arc] [--env name] [--json]
   arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]
   arcod impl  [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
                               [--dry-run] [--no-cache] [--allow-remote]

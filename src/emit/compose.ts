@@ -198,7 +198,9 @@ function providerLines(item: RenderedProvider): string[] {
 
 export function composeYaml(mod: ModuleNode, port: number, hasUi = true): string {
   const name = 'arcod-' + kebab(mod.name);
-  const environment = mod.environments[0];
+  // Compose is the local view: prefer the environment that runs on docker.
+  const environment = mod.environments.find((env) => !env.deploy || env.deploy.provider === 'docker')
+    ?? mod.environments[0];
   const bound = (environment?.binds ?? [])
     .filter((bind) => providerFor(bind.provider) !== null)
     .map(renderProvider)

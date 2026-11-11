@@ -106,17 +106,33 @@ export function buildPlan(mod: ModuleNode): Plan {
     });
   }
 
-  if (mod.environments.some((env) => env.deploy === 'docker')) {
-    tasks.push({
-      id: nextId(),
-      title: 'собрать docker-окружение',
-      kind: 'infra',
-      service: '*',
-      deps: tasks.filter((t) => t.kind === 'implement').map((t) => t.id),
-      files: { create: ['Dockerfile', 'docker-compose.yml'], modify: [], forbid: [] },
-      acceptance: ['arcod run --detach', 'curl -fsS localhost:8080/healthz'],
-      budget: null,
-    });
+  // A deployment target is a property of the environment: the same module is
+  // built locally and, separately, packaged for a cloud provider.
+  for (const env of mod.environments) {
+    const provider = env.deploy ? env.deploy.provider : 'docker';
+    if (provider === 'docker') {
+      tasks.push({
+        id: nextId(),
+        title: 'собрать docker-окружение (' + env.name + ')',
+        kind: 'infra',
+        service: '*',
+        deps: tasks.filter((t) => t.kind === 'implement').map((t) => t.id),
+        files: { create: ['Dockerfile', 'docker-compose.yml'], modify: [], forbid: [] },
+        acceptance: ['arcod run --detach', 'curl -fsS localhost:8080/healthz'],
+        budget: null,
+      });
+    } else {
+      tasks.push({
+        id: nextId(),
+        title: 'упаковать для ' + provider + ' (' + env.name + ')',
+        kind: 'infra',
+        service: '*',
+        deps: tasks.filter((t) => t.kind === 'implement').map((t) => t.id),
+        files: { create: ['deploy.' + env.name + '.json'], modify: [], forbid: [] },
+        acceptance: ['arcod deploy --env ' + env.name + ' --dry-run', 'манифест описывает сервисы и провайдеров'],
+        budget: null,
+      });
+    }
   }
 
   return {

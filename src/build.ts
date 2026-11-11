@@ -5,6 +5,7 @@ import { emitService, maxBodyBytes } from './emit/service.ts';
 import { emitWeb } from './emit/web.ts';
 import { composeYaml, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
 import { buildPrompts } from './prompts.ts';
+import { deployManifest, deployProvider } from './deploy.ts';
 
 export interface BuildOptions {
   port?: number;
@@ -104,6 +105,20 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
 
   for (const [path, content] of files) {
     await writeFile(path, content, { encoding: 'utf8', mode: 0o644 });
+  }
+
+  // Cloud environments are packaged as a manifest next to the local compose
+  // build. The manifest is declarative: nothing is uploaded or called.
+  for (const environment of mod.environments) {
+    const deploy = environment.deploy;
+    if (!deploy) continue;
+    const spec = deployProvider(deploy.provider);
+    if (!spec || spec.artifacts !== 'manifest') continue;
+    await writeFile(
+      join(dir, 'deploy.' + environment.name + '.json'),
+      JSON.stringify(deployManifest(mod, environment), null, 2) + '\n',
+      { encoding: 'utf8', mode: 0o644 },
+    );
   }
 
   // Files a provider imports (a Keycloak realm, for instance) travel with the

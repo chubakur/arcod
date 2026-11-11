@@ -119,6 +119,7 @@ environment dev {
 
 ```bash
 arcod providers            # таблица возможностей и провайдеров
+arcod deploy . --env prod  # target развёртывания и манифест
 ```
 
 Реестр: redis, postgres, mysql, mariadb, mongodb, keycloak, s3 (minio), rabbitmq,
@@ -126,6 +127,27 @@ kafka, nginx, liquibase, clickhouse, prometheus, sentry, jaeger, grafana, mailpi
 vault. На каждый bind генерируется
 сервис в compose с healthcheck, томом и env; порты публикуются только при
 `expose: true`.
+
+### Где живёт сервис
+
+Возможность и развёртывание — разные оси. Возможность говорит, чем сервис
+пользуется (`bind store -> redis`), развёртывание — где он сам работает:
+
+```arcod
+environment dev  { ... deploy docker }
+environment prod { ... deploy yandex(region: "ru-central1", folder: "arcod-prod") }
+```
+
+`docker` даёт локальный `docker-compose.yml`; `aws`, `yandex` и
+`kubernetes` — декларативный манифест `deploy.<env>.json`
+(`"executed": false`: ни кредов, ни вызовов API). Неизвестный провайдер —
+`A028`, неизвестный аргумент — `W019`. Compose собирается из локального
+окружения, prod-привязки в него не протекают.
+
+```bash
+arcod deploy . --env prod          # target и артефакт
+arcod deploy . --env prod --json   # манифест
+```
 
 ### Файлы, вход и права
 

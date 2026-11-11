@@ -3,6 +3,7 @@ import type { Expr, Loc, ModuleNode, OpNode, ServiceNode } from './ast.ts';
 import { templateFor } from './templates.ts';
 import { providerFor, providerNames, providersForCapability } from './providers.ts';
 import { storageUse } from './capabilities.ts';
+import { deployNames, deployProvider } from './deploy.ts';
 
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
 const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysql', 'mongodb', 'localhost', '127.0.0.1'];
@@ -16,6 +17,26 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   const env = options.environment
     ? mod.environments.find((e) => e.name === options.environment)
     : mod.environments[0];
+  // A028 — unknown deploy provider; W019 — unknown deploy argument.
+  // Every environment is checked, not only the selected one.
+  for (const environment of mod.environments) {
+    const deploy = environment.deploy;
+    if (!deploy) continue;
+    const spec = deployProvider(deploy.provider);
+    if (!spec) {
+      diags.push(diag('A028', 'error', mod.file, deploy.loc, 'environments.' + environment.name + '.deploy',
+        'неизвестный провайдер развёртывания ' + deploy.provider, 'доступны: ' + deployNames().join(', ')));
+      continue;
+    }
+    for (const key of Object.keys(deploy.args)) {
+      if (!(key in spec.args)) {
+        diags.push(diag('W019', 'warning', mod.file, deploy.loc, 'environments.' + environment.name + '.deploy',
+          'провайдер ' + deploy.provider + ' не знает аргумент ' + key,
+          'известные: ' + Object.keys(spec.args).join(', ')));
+      }
+    }
+  }
+
   const bound = new Map<string, string>();
   for (const bind of env?.binds ?? []) bound.set(bind.alias, bind.provider);
 

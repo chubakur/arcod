@@ -179,11 +179,18 @@ export interface UiNode {
   loc: Loc;
 }
 
+export interface DeployNode {
+  kind: 'deploy';
+  provider: string;
+  args: Record<string, Expr>;
+  loc: Loc;
+}
+
 export interface EnvironmentNode {
   kind: 'environment';
   name: string;
   binds: BindNode[];
-  deploy: string | null;
+  deploy: DeployNode | null;
   loc: Loc;
 }
 

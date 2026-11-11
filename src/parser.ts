@@ -495,7 +495,7 @@ class Parser {
     const name = this.expectIdent('environment name').value;
     this.expect('{');
     const binds: BindNode[] = [];
-    let deploy: string | null = null;
+    let deploy: DeployNode | null = null;
     while (!this.is('}')) {
       if (this.accept('bind')) {
         const bindStart = this.prev();
@@ -522,7 +522,19 @@ class Parser {
         continue;
       }
       if (this.accept('deploy')) {
-        deploy = this.expectIdent('deploy target').value;
+        const deployStart = this.prev();
+        const provider = this.expectIdent('deploy provider').value;
+        const args: Record<string, Expr> = {};
+        if (this.accept('(')) {
+          while (!this.is(')')) {
+            const key = this.expectIdent('deploy argument').value;
+            this.expect(':');
+            args[key] = this.parseExpr();
+            this.accept(',');
+          }
+          this.expect(')');
+        }
+        deploy = { kind: 'deploy', provider, args, loc: this.loc(deployStart, this.prev()) };
         continue;
       }
       this.error('unexpected environment member ' + JSON.stringify(this.peek().value));

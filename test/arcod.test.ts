@@ -482,6 +482,49 @@ test('sql binds to mysql without touching the model', () => {
   assert.ok(compose.includes('DATABASE_URL: "mysql://arcod:arcod@store:3306/arcod"'));
 });
 
+test('every environment names its own deployment target', () => {
+  const dev = filesAst.environments.find((env) => env.name === 'dev')!;
+  const prod = filesAst.environments.find((env) => env.name === 'prod')!;
+  assert.equal(dev.deploy?.provider, 'docker');
+  assert.equal(prod.deploy?.provider, 'yandex');
+  const region = prod.deploy?.args.region;
+  assert.ok(region && region.kind === 'literal' && region.value === 'ru-central1');
+
+  const plan = buildPlan(filesAst);
+  assert.ok(plan.tasks.some((task) => task.title.includes('docker')), 'dev builds locally');
+  assert.ok(plan.tasks.some((task) => task.title.includes('yandex')), 'prod is packaged for the cloud');
+});
+
+test('an unknown deployment provider is an error', async () => {
+  const broken = parse(
+    (await readFile(filesUrl, 'utf8')).replace('deploy yandex(', 'deploy fly('),
+    'main.arc',
+  );
+  const diags = check(broken);
+  assert.ok(diags.some((item) => item.code === 'A028'), 'A028 names the provider');
+});
+
+test('a cloud environment becomes a manifest, while compose stays local', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-deploy-'));
+  await cp(
+    (await import('node:url')).fileURLToPath(new URL('../examples/files/realm.json', import.meta.url)),
+    join(dir, 'realm.json'),
+  );
+  const built = await buildExample(filesAst, dir, {
+    implDir: (await import('node:url')).fileURLToPath(new URL('../examples/files/impl', import.meta.url)),
+  });
+  const manifest = JSON.parse(await readFile(join(built.dir, 'deploy.prod.json'), 'utf8'));
+  assert.equal(manifest.target.provider, 'yandex');
+  assert.equal(manifest.target.kind, 'cloud');
+  assert.equal(manifest.target.args.region, 'ru-central1');
+  assert.equal(manifest.executed, false);
+  assert.ok(manifest.services.some((svc: { name: string }) => svc.name === 'FileShare'));
+
+  const compose = await readFile(join(built.dir, 'docker-compose.yml'), 'utf8');
+  assert.ok(compose.includes('mysql:8.4'), 'the local environment keeps its own providers');
+  assert.ok(!compose.includes('postgres:16-alpine'), 'the cloud environment does not leak into compose');
+});
+
 test('the planner derives procedures for arbitrary operations', () => {
   const svc = filesAst.services[0];
   const plan = (name: string) => planBody(filesAst, svc, svc.contract.find((op) => op.kind === 'op' && op.name === name)!);
