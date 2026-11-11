@@ -104,6 +104,14 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   // An address somewhere else: nothing is provisioned, the service is only
   // put on the compose network and described by its URL. Bodies reach it
   // through io.remote, never by building a URL themselves.
+  // Served by the service itself: no image, no container, nothing to
+  // provision. The binding exists so "where do events come from" is answered
+  // in the environment like every other capability.
+  websocket: {
+    name: 'websocket',
+    capability: 'stream',
+    external: true,
+  },
   endpoint: {
     name: 'endpoint',
     capability: 'endpoint',

@@ -14,5 +14,6 @@ export async function vote(input, io) {
   session.votes[key] = session.votes[key] || {};
   session.votes[key][token] = choice;
   await io.save(String(input.id), { b: session, h: rec.h });
+  await io.publish('room:' + session.code, { type: 'changed', index: session.index });
   return { result: { ok: true } };
 }

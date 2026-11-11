@@ -625,6 +625,17 @@ function checkPresentation(
     }
   }
 
+  // W028 — a presentation without stream still works, but the page has to
+  // poll, and the presenter sees every answer one interval late.
+  const hostRef = ui.start;
+  const hostSvc = hostRef ? mod.services.find((item) => item.name === hostRef.split('.')[0]) : undefined;
+  const streams = Boolean(hostSvc && hostSvc.uses.some((use) => use.capability === 'stream' || use.capability.endsWith('.stream')));
+  if (!streams && hostSvc) {
+    diags.push(diag('W028', 'warning', mod.file, ui.loc, where,
+      'презентация без stream: страница опрашивает состояние раз в 1.5 с',
+      'добавьте uses stream: stream в ' + hostSvc.name + ' и bind stream -> websocket() в environment'));
+  }
+
   if (!hasQr && ui.slides.length > 0) {
     diags.push(diag('W027', 'warning', mod.file, ui.loc, where,
       'ни на одном слайде нет qr: участники не увидят ссылку на сеанс',

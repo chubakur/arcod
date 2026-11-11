@@ -12,5 +12,6 @@ export async function rate(input, io) {
   session.ratings[key] = session.ratings[key] || {};
   session.ratings[key][token] = value;
   await io.save(String(input.id), { b: session, h: rec.h });
+  await io.publish('room:' + session.code, { type: 'changed', index: session.index });
   return { result: { ok: true } };
 }

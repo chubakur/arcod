@@ -46,6 +46,10 @@ export function nginxConf(mod: ModuleNode): string {
     .filter((root) => root !== '/')
     .sort();
 
+  // A socket cannot ride the http proxy: it needs its own upgrade headers and
+  // no read timeout, or the connection dies as soon as a slide pauses.
+  const streams = mod.services.some((svc) => svc.uses.some((use) => use.capability === 'stream' || use.capability.endsWith('.stream')));
+
   // The browser must reach the identity provider on the same origin as the
   // page, otherwise the login redirect and CORS get in the way.
   const idp = (mod.environments[0]?.binds ?? []).find((bind) => bind.provider === 'keycloak');
@@ -87,6 +91,18 @@ export function nginxConf(mod: ModuleNode): string {
       '  }',
       '',
     ]),
+    ...(streams ? [
+      '  location /ws {',
+      '    proxy_pass http://service:3000;',
+      '    proxy_http_version 1.1;',
+      '    proxy_set_header Upgrade $http_upgrade;',
+      '    proxy_set_header Connection "upgrade";',
+      '    proxy_set_header Host $host;',
+      '    proxy_read_timeout 3600s;',
+      '    proxy_send_timeout 3600s;',
+      '  }',
+      '',
+    ] : []),
     '  location / {',
     '    try_files $uri /index.html;',
     '  }',

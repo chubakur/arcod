@@ -94,6 +94,17 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
     },
     notes: 'Rows, not keys. The adapter owns the table and TTL.',
   },
+  // Server-to-client events. The body publishes, the page subscribes; the
+  // provider is the transport, so a body never names a protocol or a broker.
+  stream: {
+    effects: {
+      publish: 'publish(topic: string, message: any) -> number',
+    },
+    short: {
+      publish: 'publish(topic, msg) -> n',
+    },
+    notes: 'topic is a plain string chosen by the body, e.g. "room:" + code. Returns how many clients received it; 0 means nobody is listening, which is not an error.',
+  },
   ids: {
     effects: {
       new: 'new() -> string',

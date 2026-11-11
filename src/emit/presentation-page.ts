@@ -76,7 +76,9 @@ var HOST_KEY = 'arcod.presentation.host';
 var GUEST_PREFIX = 'arcod.presentation.guest.';
 var app = document.getElementById('app');
 var toastEl = document.getElementById('toast');
-var timer = null;
+var tickTimer = null;
+var liveSocket = null;
+var reconnectTimer = null;
 
 function toast(text) {
   toastEl.textContent = text;
@@ -233,11 +235,58 @@ function guestSession() {
   return null;
 }
 
-function startPolling(fn) {
+// One channel per session. The server publishes a notification after every
+// mutation; the page then reads state, which stays the single source of truth.
+// If the socket cannot be opened, polling resumes so the page still works.
+function liveTopic(code) { return 'room:' + String(code || '').toUpperCase(); }
+
+function settle(fn) { stopInterval(); tickTimer = setInterval(fn, 3000); }
+function stopInterval() { if (tickTimer) { clearInterval(tickTimer); tickTimer = null; } }
+
+function follow(topic, apply) {
   stopPolling();
-  timer = setInterval(fn, 1500);
+  if (!DECK.stream) { settle(function () { apply(); }); return; }
+  var attempt = 0;
+
+  function connect() {
+    var proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    var socket;
+    try {
+      socket = new WebSocket(proto + location.host + '/ws?topic=' + encodeURIComponent(topic));
+    } catch (error) {
+      settle(function () { apply(); });
+      return;
+    }
+    liveSocket = socket;
+    socket.onopen = function () { attempt = 0; stopInterval(); };
+    socket.onmessage = function (event) {
+      var data;
+      try { data = JSON.parse(event.data); } catch (error) { return; }
+      if (!data || data.type === 'ready') return;
+      apply();
+    };
+    socket.onerror = function () { try { socket.close(); } catch (error) {} };
+    socket.onclose = function () {
+      if (liveSocket !== socket) return;
+      liveSocket = null;
+      settle(function () { apply(); });
+      attempt += 1;
+      reconnectTimer = setTimeout(connect, Math.min(1000 * Math.pow(2, attempt - 1), 10000));
+    };
+  }
+
+  connect();
 }
-function stopPolling() { if (timer) { clearInterval(timer); timer = null; } }
+
+function stopPolling() {
+  stopInterval();
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  if (liveSocket) {
+    var socket = liveSocket;
+    liveSocket = null;
+    try { socket.close(); } catch (error) {}
+  }
+}
 
 async function hostView(session) {
   stopPolling();
@@ -292,7 +341,7 @@ async function hostView(session) {
     }
   }
   await tick();
-  startPolling(tick);
+  follow(liveTopic(session.code), tick);
 }
 
 function renderHost(stage, state, session) {
@@ -493,7 +542,7 @@ async function guestView(member) {
     return null;
   });
   if (first) { current = first; renderGuest(first, member); }
-  startPolling(tick);
+  follow(liveTopic(member.code), tick);
 }
 
 function route() {

@@ -8,6 +8,7 @@ module quiz @0.1.0 {
 
 use capability arcod.std.kv @1
 use capability arcod.std.ids @1
+use capability arcod.std.stream @1
 
 type SessionId = uuid
 type Code = string
@@ -32,9 +33,10 @@ error Unavailable
 service Live : http {
   uses store: kv(ttl: 86400s, consistency: strong)
   uses uuid: ids
+  uses stream: stream
 
   effects {
-    allow store.get, store.set, uuid.new
+    allow store.get, store.set, uuid.new, stream.publish
   }
 
   contract {
@@ -51,7 +53,7 @@ service Live : http {
     // own: the host never shares its token with the audience.
     public op join(code: Code, name: string) -> Member {
       route: "POST /v1/sessions/:code/join"
-      effects: store.get, store.set
+      effects: store.get, store.set, stream.publish
       errors: NotFound, Invalid
       post: result != null
       on error NotFound: code != null
@@ -73,7 +75,7 @@ service Live : http {
     // deck lives in the model, not in the service.
     public op advance(id: SessionId, token: string, delta: number, total: number) -> Ack {
       route: "POST /v1/sessions/:id/advance"
-      effects: store.get, store.set
+      effects: store.get, store.set, stream.publish
       errors: NotFound, Invalid, Forbidden
       post: result != null
       on error Forbidden: token != null
@@ -81,7 +83,7 @@ service Live : http {
 
     public op vote(id: SessionId, token: string, choice: number) -> Ack {
       route: "POST /v1/sessions/:id/votes"
-      effects: store.get, store.set
+      effects: store.get, store.set, stream.publish
       errors: NotFound, Invalid, Forbidden
       post: result != null
       on error Forbidden: token != null
@@ -90,7 +92,7 @@ service Live : http {
 
     public op rate(id: SessionId, token: string, value: number) -> Ack {
       route: "POST /v1/sessions/:id/ratings"
-      effects: store.get, store.set
+      effects: store.get, store.set, stream.publish
       errors: NotFound, Invalid, Forbidden
       post: result != null
       on error Forbidden: token != null
@@ -99,7 +101,7 @@ service Live : http {
 
     public op comment(id: SessionId, token: string, text: string) -> Ack {
       route: "POST /v1/sessions/:id/comments"
-      effects: store.get, store.set
+      effects: store.get, store.set, stream.publish
       errors: NotFound, Invalid, Forbidden
       post: result != null
       on error Forbidden: token != null
@@ -146,11 +148,13 @@ ui Stage {
 environment dev {
   bind store -> redis(host: "kv", port: 6379)
   bind uuid -> local
+  bind stream -> websocket()
   deploy docker
 }
 
 environment prod {
   bind store -> redis(host: "kv", port: 6379)
   bind uuid -> local
+  bind stream -> websocket()
   deploy yandex(region: "ru-central1", folder: "arcod-prod", service: "quiz", image: "cr.yandex/arcod/quiz:0.1.0")
 }

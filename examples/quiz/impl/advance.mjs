@@ -15,6 +15,7 @@ export async function advance(input, io) {
   if (next !== session.index) {
     session.index = next;
     await io.save(String(input.id), { b: session, h: rec.h });
+    await io.publish('room:' + session.code, { type: 'changed', index: next });
   }
   return { result: { ok: true, index: next } };
 }

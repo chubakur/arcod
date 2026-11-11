@@ -16,5 +16,6 @@ export async function comment(input, io) {
   list.push({ name: member.name, text });
   if (list.length > 200) list.splice(0, list.length - 200);
   await io.save(String(input.id), { b: session, h: rec.h });
+  await io.publish('room:' + session.code, { type: 'changed', index: session.index });
   return { result: { ok: true } };
 }

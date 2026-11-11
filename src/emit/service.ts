@@ -5,6 +5,7 @@ import { SQL_STORE_SOURCE } from './sql-store.ts';
 import { IDENTITY_SOURCE } from './identity.ts';
 import { BLOB_SOURCE } from './blob.ts';
 import { LLM_SOURCE } from './llm.ts';
+import { STREAM_SOURCE } from './stream.ts';
 import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
 
@@ -285,6 +286,8 @@ class MemoryStore {
 __SQL_STORE__
 __STORE_SELECT__
 
+__STREAM_SOURCE__
+
 // ---------- http ----------
 
 function send(res, status, body, type) {
@@ -411,6 +414,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+__STREAM_WIRE__
+
 const PORT = Number(process.env.PORT || CONFIG.port);
 
 server.listen(PORT, '0.0.0.0', () => {
@@ -430,7 +435,7 @@ const CRYPTO_IMPORT = "import { randomUUID, randomBytes, scryptSync, timingSafeE
 // environment can provision. kv gets a Redis client, sql a MySQL client.
 function serviceTemplate(svc: ServiceNode): string {
   if (storageKind(svc) === 'sql') {
-    return dropRedis(SERVICE_TEMPLATE)
+    return streamSource(dropRedis(SERVICE_TEMPLATE), svc)
       .replace('__SQL_STORE__', SQL_STORE_SOURCE)
       .replace('__STORE_SELECT__', [
         "const store = process.env.SQL_DRIVER === 'memory'",
@@ -438,13 +443,22 @@ function serviceTemplate(svc: ServiceNode): string {
         "  : new SqlStore(process.env.DATABASE_URL || 'mysql://arcod:arcod@mysql:3306/arcod');",
       ].join('\n'));
   }
-  return SERVICE_TEMPLATE
+  return streamSource(SERVICE_TEMPLATE, svc)
     .replace('__SQL_STORE__', '')
     .replace('__STORE_SELECT__', [
       "const store = process.env.KV_DRIVER === 'memory'",
       '  ? new MemoryStore()',
       "  : new RedisStore(process.env.KV_HOST || 'kv', Number(process.env.KV_PORT || 6379));",
     ].join('\n'));
+}
+
+// The hub is emitted only where someone can subscribe to it.
+function streamSource(template: string, svc: ServiceNode): string {
+  return template.replace('__STREAM_SOURCE__', hasStream(svc) ? STREAM_SOURCE : '');
+}
+
+export function hasStream(svc: ServiceNode | null): boolean {
+  return Boolean(svc && svc.uses.some((use) => use.capability === 'stream' || use.capability.endsWith('.stream')));
 }
 
 function dropRedis(template: string): string {
@@ -458,6 +472,7 @@ function cryptoImportFor(svc: ServiceNode, withBodies: boolean): string {
   const names = ['randomUUID'];
   if (withBodies && isGuarded(svc)) names.push('randomBytes', 'scryptSync', 'timingSafeEqual');
   if (storageKind(svc) === 'sql') names.push('constants', 'createHash', 'createPublicKey', 'publicEncrypt');
+  if (hasStream(svc)) names.push('createHash');
   if (svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'))) {
     names.push('createPublicKey', 'verify');
   }
@@ -535,7 +550,10 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
     .replace('__CONFIG__', JSON.stringify(config, null, 2))
     .replace('__ROUTES__', JSON.stringify(routes, null, 2))
     .replace('__ERRORS__', JSON.stringify(errors, null, 2))
-    .replace('__ATOMIC__', String(atomicRead));
+    .replace('__ATOMIC__', String(atomicRead))
+    .replace('__STREAM_WIRE__', hasStream(svc)
+      ? "server.on('upgrade', (req, socket, head) => wsUpgrade(req, socket, head));"
+      : '');
 }
 
 function withHandlers(template: string, reference: boolean, svc: ServiceNode, impl?: Record<string, string>, externals: ServiceNode[] = []): string {
@@ -763,6 +781,10 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
       '    async chat(messages, system) { return llmChat(messages, system); },',
       '    model() { return llmModel(); },',
     );
+  }
+
+  if (hasStream(svc)) {
+    parts.push('    async publish(topic, message) { return wsPublish(topic, message); },');
   }
 
   if (externals.length > 0) {

@@ -594,7 +594,61 @@ const paymentsUrl = new URL('../examples/payments/main.arc', import.meta.url);
 const paymentsImplDir = (await import('node:url')).fileURLToPath(new URL('../examples/payments/impl', import.meta.url));
 const paymentsAst = parse(await readFile(paymentsUrl, 'utf8'), 'main.arc');
 
-test('an external service is described, not generated', () => {
+const quizBodies = { start: '', join: '', state: '', advance: '', vote: '', rate: '', comment: '' };
+
+test('stream is a capability the environment binds, not a package', () => {
+  const svc = quizAst.services.find((item) => item.name === 'Live')!;
+  assert.ok(svc.uses.some((use) => use.capability === 'stream'), 'the service asks for stream');
+  assert.ok(quizSource.includes('bind stream -> websocket()'), 'the environment answers');
+
+  const unbound = quizSource.replace('  bind stream -> websocket()\n', '');
+  assert.ok(check(parse(unbound, 'main.arc')).map((item) => item.code).includes('A002'), 'A002: stream is unbound');
+
+  const wrong = quizSource.split('bind stream -> websocket()').join('bind stream -> redis(host: "kv")');
+  const codes = check(parse(wrong, 'main.arc')).map((item) => item.code);
+  assert.ok(codes.includes('A024'), 'A024: redis does not implement stream');
+});
+
+test('a presentation without stream still builds but says what it costs', () => {
+  const plain = quizSource
+    .split('  uses stream: stream\n').join('')
+    .split(', stream.publish').join('')
+    .split('  bind stream -> websocket()\n').join('');
+  const codes = check(parse(plain, 'main.arc')).map((item) => item.code);
+  assert.ok(codes.includes('W028'), 'W028: the page will poll');
+  assert.equal(codes.filter((code) => code.startsWith('A')).length, 0, 'still no errors');
+
+  const html = emitWeb(parse(plain, 'main.arc'), {});
+  assert.ok(html.includes('"stream":false'), 'the page knows there is no socket');
+  assert.ok(!nginxConf(parse(plain, 'main.arc')).includes('location /ws'), 'nothing to proxy');
+});
+
+test('the emitted service carries a websocket server, not a dependency', () => {
+  const code = emitService(quizAst, { impl: quizBodies });
+  assert.ok(code.includes('Sec-WebSocket-Accept'), 'handshake is answered');
+  assert.ok(code.includes('function wsPublish'), 'publish reaches subscribers');
+  assert.ok(code.includes("server.on('upgrade'"), 'the upgrade is wired to the http server');
+  assert.ok(code.includes('async publish(topic, message)'), 'io.publish exists in bodies');
+  assert.ok(code.includes('createHash'), 'the accept key is hashed');
+  assert.ok(!code.includes("from 'ws'"), 'no websocket package');
+
+  const plain = emitService(parse(quizSource.split('  uses stream: stream\n').join(''), 'main.arc'), { impl: quizBodies });
+  assert.ok(!plain.includes('wsPublish'), 'no hub where nobody subscribes');
+});
+
+test('the page subscribes to the room and falls back to polling', () => {
+  const html = emitWeb(quizAst, {});
+  assert.ok(html.includes('"stream":true'), 'the deck carries the flag');
+  assert.ok(html.includes("location.host + '/ws?topic='"), 'one socket per room');
+  assert.ok(html.includes('reconnectTimer'), 'a dropped socket is retried');
+  assert.ok(html.includes('settle(function () { apply(); })'), 'polling is the fallback');
+  assert.ok(nginxConf(quizAst).includes('proxy_set_header Upgrade $http_upgrade'), 'nginx lets the upgrade through');
+
+  const service = emitService(quizAst, { impl: quizBodies });
+  assert.ok(service.includes("'/ws'"), 'the server listens on the same port');
+});
+
+test('a payment service outsources nothing it cannot check', () => {
   const ledger = paymentsAst.services.find((svc) => svc.external)!;
   assert.equal(ledger.name, 'Ledger');
   assert.equal(ledger.contract[0].kind, 'op');

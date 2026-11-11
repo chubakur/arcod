@@ -2,6 +2,7 @@ import type { ModuleNode, OpNode, Param, ServiceNode, TypeExpr, UiNode } from '.
 import { isGuarded, pickService } from './service.ts';
 import { CHAT_PAGE } from './chat-page.ts';
 import { PRESENTATION_PAGE } from './presentation-page.ts';
+import { hasStream } from './service.ts';
 import { QR_SOURCE } from './qr-code.ts';
 
 export interface WebOptions {
@@ -447,6 +448,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
     const live = presentationOps(mod, svc, ui);
     const deck = {
       title: options.title ?? ui.title ?? mod.name,
+      stream: hasStream(svc),
       slides: ui.slides.map((slide) => ({
         title: slide.title,
         body: slide.body,

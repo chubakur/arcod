@@ -17,5 +17,6 @@ export async function join(input, io) {
   const token = await io.new();
   session.members[token] = { name };
   await io.save(pointer.b.id, { b: session, h: rec.h });
+  await io.publish('room:' + code, { type: 'changed', index: session.index });
   return { result: { id: pointer.b.id, token, name } };
 }
