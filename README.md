@@ -55,7 +55,7 @@ environment dev {
 A frontend appears only when a `ui` block is declared. Without it you get the
 API and the service port, nothing else.
 
-Website: <https://chubakur.github.io/arcod/> · Russian version: [README_rus.md](README_rus.md).
+Website: <https://chubakur.github.io/arcod/> · Russian version: [README_rus.md](README_rus.md) · Roadmap: [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 
@@ -105,6 +105,7 @@ in clauses (`ttl: 999s`, `timeout: 30s`), not a type.
 | `arcod check [dir]` | parse, check types, bindings, effects and rules; `--json`; `--strict` turns on W013 (missing budget); `--env <name>` checks one environment |
 | `arcod ast [dir]` | print the canonical AST; `--check` also runs the checks |
 | `arcod plan [dir]` | deterministic task DAG: files, dependencies, acceptance criteria |
+| `arcod openapi [dir]` | OpenAPI 3.1 on stdout: paths from `route`, schemas from `types`, errors mapped as in the runtime, examples from the `examples` block; `--service <name>` picks one service |
 | `arcod build [dir]` | scaffold: routes, adapters, tests, infrastructure in `.arcod/build`; bodies are TODO |
 | `arcod build --impl` | bodies from `impl/*.mjs`, the `io` adapter, nothing invented |
 | `arcod build --reference` | the same plus built-in demo bodies for `create`/`read` |
@@ -158,6 +159,11 @@ arcod deploy . --env prod  # deployment target and manifest
 `llm` (ollama, openai), `stream` (websocket, redis), `queue` (redis — publish,
 consume, retry, dead letter) and `ids`/`hash`, which bind to
 `local` — a provider that provisions nothing.
+
+`rabbitmq` and `kafka` also satisfy `queue` and are provisioned, but the
+emitted adapter speaks only the Redis list protocol. Bind `queue` to Redis for
+delivery across processes; with any other broker the driver stays in-process
+while an idle container runs.
 
 **Infrastructure only** — the provider is provisioned in compose, but the
 capability has no effect signatures yet and no adapter reaches the service:
@@ -527,10 +533,31 @@ be a declared `queue` alias (`A052`), `retry` without `on:` is an error
 (`A053`), and a queue-backed job is executed — so the `W017` "jobs are not
 executed" warning no longer applies to it.
 
-Limitations: the channel is one-way (server → client); commands stay on HTTP
-where there are statuses and limits. The hub lives in process memory, so several
-service replicas do not share subscribers — that needs a pub/sub provider, and
-there is none yet.
+
+### The contract as OpenAPI
+
+`arcod openapi` renders the same model as an OpenAPI 3.1 document on stdout —
+the contract other teams, SDK generators and API gateways read, with no compiler
+in the loop:
+
+```bash
+arcod openapi examples/files > openapi.json
+arcod openapi . --service FileShare   # a spec with several services
+```
+
+Paths come from `route`; request and response schemas from `types` (a declared
+type becomes a `$ref` under `components/schemas`); status codes from the same
+error mapping the runtime uses — `Invalid` is `400`, `Unauthorized` `401`,
+`Forbidden` `403`, `NotFound` `404`, `Unavailable` `503`; and the
+`examples` block attaches as named examples, including error examples produced
+by `then { e is Invalid }`. Providers and hosts never appear in the document:
+the model is not allowed to name them (`A003`), so neither does the contract.
+
+What it does not describe: no `servers` — the address belongs to the
+environment, not to the contract — and no `securitySchemes` yet. A guarded
+operation lists its `401`/`403` responses, but the bearer scheme itself is
+documented only in this README. Read the document as shapes and statuses, not as
+authentication.
 
 ### One model, different providers
 
@@ -626,7 +653,9 @@ Routes, TTL, limits and infrastructure are identical.
 - `.arcod/build/service/index.mjs` — an HTTP service on Node with no
   dependencies and an adapter per capability: a RESP client for `kv`, a MySQL
   client for `sql`, JWKS for `identity`, S3 for `blob`, an OpenAI-compatible
-  chat for `llm`, a websocket hub for `stream`;
+  chat for `llm`, a websocket hub and pub/sub for `stream`, a queue runtime
+  with retry and dead letters for `queue` (Redis lists, or in-process when no
+  broker is bound);
 - `.arcod/build/web/` — a static frontend and nginx proxying the roots of
   declared routes (`/api`, `/v1`) and `/ws` when `stream` is used (only when a
   `ui` block is declared);
@@ -688,8 +717,7 @@ Errors:
 - `A050` a `public` operation has no `route`;
 - `A051` `on: alias.topic` on something that is not a `job`;
 - `A052` a consumer source that is not a declared `queue` alias;
-- `A053` `retry` without an `on:` consumer;
-- `A045` a widget without its operation (poll → vote, rating → rate, comments → comment).
+- `A053` `retry` without an `on:` consumer.
 
 Warnings:
 
@@ -793,6 +821,7 @@ src/
   emit/llm.ts            OpenAI-compatible chat
   emit/stream.ts         websocket server (RFC 6455) and redis pub/sub
   emit/queue.ts          queue drivers (memory, redis) and consumers
+  emit/openapi.ts        OpenAPI 3.1 from the same model
   emit/web.ts            frontend: forms
   emit/chat-page.ts      `layout: chat`
   emit/presentation-page.ts `layout: presentation`
@@ -823,7 +852,7 @@ This is a vertical slice, not a finished language.
 
 - **Scaffold without bodies** (`arcod build` without `--impl`) knows only
   `create` and `read`: there are no built-in templates for other operations.
-  With `--impl` the emitter accepts any operations and any of the eight
+  With `--impl` the emitter accepts any operations and any of the nine
   capabilities.
 - `kv` in a real environment is Redis; the in-memory driver exists only for
   `arcod test`.
@@ -836,8 +865,9 @@ This is a vertical slice, not a finished language.
 - `change`, `policy`, `hint` and `unknown`, as well as the `idempotent`,
   `since` and `schedule` clauses, are parsed but do not affect the build: they
   are placeholders, not working constructs.
-- `job` is parsed but not executed (`W017`): the language has no state model or
-  selection condition yet.
+- a `job` without an `on:` consumer is still parsed but not executed
+  (`W017`): there is no state model or selection condition yet. Queue-backed
+  consumers do run, with retry and dead letters.
 - **There are no operation bodies in the spec** (`W018`): `build` gives a
   scaffold with TODO, `--impl` takes bodies from `impl/`, `--reference`
   substitutes a built-in demo template.

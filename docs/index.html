@@ -252,7 +252,7 @@
       <p class="lede">
         Arcod is a language and a compiler for agent-built services. You write one
         <code>.arc</code> file — types, operations, errors, rules, effects, bindings —
-        and get routes, adapters, a UI, tests, deploy manifests and
+        and get routes, adapters, an OpenAPI contract, a UI, tests, deploy manifests and
         <strong>prompts a small local model can actually follow</strong>.
         No library shopping, no drift between the model and the code.
       </p>
@@ -265,7 +265,7 @@
       <div class="hero-grid">
         <div class="window">
           <div class="window-bar"><span class="dot"></span><span class="dot"></span><span class="dot live"></span><span class="file">examples/quiz/main.arc</span></div>
-          <pre><code><span class="c">// one deck, two audiences, four widgets</span>
+          <pre><code><span class="c">// one deck, one code, every phone in the room</span>
 <span class="k">ui</span> Stage {
   kind:    spa
   route:   <span class="s">"/"</span>
@@ -274,37 +274,37 @@
   join:    Live.join
   state:   Live.state
   advance: Live.advance
-  vote:    Live.vote
 
   <span class="k">slide</span> <span class="s">"Who are you?"</span> {
-    body: <span class="s">"Pick a role"</span>
-    poll(<span class="s">"Backend"</span>, <span class="s">"Frontend"</span>, <span class="s">"QA"</span>)
+    body: <span class="s">"Developers, QA, product."</span>
   }
-  <span class="k">slide</span> <span class="s">"Join"</span> { qr }
-  <span class="k">slide</span> <span class="s">"How useful?"</span> { rating(max: <span class="n">5</span>) }
+  <span class="k">slide</span> <span class="s">"Join"</span> {
+    body: <span class="s">"Scan the code, follow along."</span>
+  }
 }</code></pre>
         </div>
         <div>
           <div class="card" style="margin-bottom:14px">
             <span class="num">CHECKED, NOT GUESSED</span>
-            <h3>A widget without an operation is a compile error</h3>
-            <p><code>A045</code>: a control whose answer has nowhere to go never reaches the screen.
-            The deck lives in the model, so a one-option poll or an empty slide fails
-            <code>check</code>, not production.</p>
+            <h3>Rights are declared, not hand-written</h3>
+            <p><code>auth op</code>, <code>roles:</code> and <code>owner: id</code> become a guard in the
+            runtime: <code>401</code> for anonymous, <code>403</code> for the wrong role or somebody
+            else's record, <code>404</code> when the record is gone. <code>A046</code>–<code>A049</code>
+            catch a guard with no actor source or a role outside the service vocabulary.</p>
           </div>
           <div class="card" style="margin-bottom:14px">
             <span class="num">LIVE, NOT POLLED</span>
             <h3>One page, a websocket, zero idle traffic</h3>
             <p>The service publishes an event after every mutation and the page reads
-            <code>state</code>. A vote reaches the presenter in <b>55 ms</b>; with polling
-            it took up to 1.5 s and 300 requests a slide.</p>
+            <code>state</code>. A slide reaches the phones in <b>13–17 ms</b>, and an idle room
+            sends nothing at all; polling every 3 s would keep every phone talking all session.</p>
           </div>
           <div class="card" style="padding:18px 22px">
             <div style="display:flex; gap:26px; flex-wrap:wrap; font:13px/1.5 var(--mono); color:var(--muted)">
               <span><b style="color:var(--text); font-size:18px">0</b><br>runtime deps</span>
-              <span><b style="color:var(--text); font-size:18px">47</b><br>diagnostics</span>
-              <span><b style="color:var(--text); font-size:18px">8</b><br>capabilities</span>
-              <span><b style="color:var(--text); font-size:18px">71</b><br>tests</span>
+              <span><b style="color:var(--text); font-size:18px">52</b><br>diagnostics</span>
+              <span><b style="color:var(--text); font-size:18px">9</b><br>capabilities</span>
+              <span><b style="color:var(--text); font-size:18px">93</b><br>tests</span>
             </div>
           </div>
         </div>
@@ -349,7 +349,7 @@
       <h2>One file in. A running system out.</h2>
       <p class="sub"><code>arcod make</code> runs the same steps the standalone commands do, so the pipeline cannot drift from the CLI.</p>
       <div class="steps">
-        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, examples. 47 diagnostics, errors stop the build.</p></div>
+        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, access, examples. 52 diagnostics, errors stop the build.</p></div>
         <div class="step"><h3>Plan</h3><p>A deterministic task DAG: files, dependencies, acceptance criteria, <code>--json</code>.</p></div>
         <div class="step"><h3>Prompts</h3><p>One prompt per operation with a token budget and a hash for caching.</p></div>
         <div class="step"><h3>Build &amp; test</h3><p>Service, UI, compose, manifests — then the model's own examples run against it.</p></div>
@@ -447,13 +447,20 @@ deploy.dev.json          deploy manifest per environment</code></pre>
         <div class="card">
           <h3>UIs without a frontend decision</h3>
           <p>Forms from public operations, <code>layout: chat</code> for dialogue,
-          <code>layout: presentation</code> for decks with polls, ratings, comments and a
-          vendored QR encoder that works offline.</p>
+          <code>layout: presentation</code> for decks: a join code, a QR encoder vendored
+          into the page, and slide changes pushed to every phone.</p>
         </div>
         <div class="card">
           <h3>Someone else's service, still typed</h3>
           <p><code>external service Ledger { ... }</code> gives a remote client typed by a
           partial contract; the address comes from the environment, never from the body.</p>
+        </div>
+        <div class="card">
+          <h3>A contract others can read</h3>
+          <p><code>arcod openapi</code> prints OpenAPI 3.1 on stdout: paths from <code>route</code>,
+          schemas from <code>types</code>, status codes from the same error mapping the runtime
+          uses, and the model's <code>examples</code> as named examples. No server, no host,
+          no provider in the document.</p>
         </div>
         <div class="card">
           <h3>Deploy as a declaration</h3>
@@ -469,10 +476,11 @@ deploy.dev.json          deploy manifest per environment</code></pre>
         <span class="chip"><b>blob</b> s3</span>
         <span class="chip"><b>identity</b> keycloak</span>
         <span class="chip"><b>llm</b> ollama · openai</span>
-        <span class="chip"><b>stream</b> websocket</span>
+        <span class="chip"><b>stream</b> websocket · redis</span>
+        <span class="chip"><b>queue</b> redis</span>
         <span class="chip"><b>ids</b> local</span>
         <span class="chip"><b>hash</b> local</span>
-        <span class="chip dim">infrastructure-only: queue · olap · metrics · tracing …</span>
+        <span class="chip dim">infrastructure-only: olap · metrics · tracing …</span>
       </div>
     </div>
   </section>
@@ -510,7 +518,7 @@ deploy.dev.json          deploy manifest per environment</code></pre>
         <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/quiz">
           <span class="path">examples/quiz</span>
           <h3>Live quiz</h3>
-          <p>Slides, polls, ratings, comments, QR, websocket.</p>
+          <p>Slides, a join code and QR, live over websocket.</p>
           <div class="tags"><span class="tag">presentation</span><span class="tag">stream</span></div>
         </a>
         <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/project1">
@@ -545,9 +553,9 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <h3>What does not work yet</h3>
           <ul>
             <li><b>Scaffold without bodies</b> knows only <code>create</code> and <code>read</code>; with <code>--impl</code> any operation is accepted.</li>
-            <li><b>Queue, OLAP, metrics, secrets</b> and friends are provisioned in compose but have no effect signatures.</li>
-            <li><b>Workflows and jobs</b> are parsed, described and validated — no runner is generated (<code>W022</code>, <code>W017</code>).</li>
-            <li><b>One process</b> owns the websocket hub: several replicas need a pub/sub provider.</li>
+            <li><b>OLAP, metrics, secrets</b> and friends are provisioned in compose but have no effect signatures; <b>Kafka and RabbitMQ</b> provision a queue the adapter cannot speak — bind <code>queue</code> to Redis.</li>
+            <li><b>Workflows</b> are parsed, described and validated — no runner is generated (<code>W022</code>); a job runs only when it declares an <code>on:</code> queue consumer (<code>W017</code>).</li>
+            <li><b>Streams and queues are in-process</b> until you bind them to Redis; only then do replicas share events. OpenAPI has no <code>securitySchemes</code> yet.</li>
             <li><b>JavaScript only.</b> PHP, Go and Python would be separate emitters.</li>
           </ul>
         </div>

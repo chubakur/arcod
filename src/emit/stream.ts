@@ -170,6 +170,11 @@ function createStreamPubSub(url) {
     buffer: Buffer.alloc(0),
     connecting: null,
   };
+  // A connection in subscribe mode may not issue PUBLISH: Redis answers
+  // "only (P)SUBSCRIBE / (P)UNSUBSCRIBE / PING / QUIT allowed in this
+  // context". Publishing therefore gets its own connection; the push one
+  // stays read-only for events.
+  const pub = { socket: null, connecting: null };
 
   function encode(...args) {
     const parts = ['*' + args.length + '\r\n'];
@@ -268,11 +273,26 @@ function createStreamPubSub(url) {
     }
   }
 
+  function connectPub() {
+    if (pub.socket && !pub.socket.destroyed) return Promise.resolve();
+    if (pub.connecting) return pub.connecting;
+    pub.connecting = new Promise((resolve, reject) => {
+      const socket = net.createConnection({ host, port }, () => {
+        pub.connecting = null;
+        resolve();
+      });
+      socket.on('error', () => { pub.connecting = null; });
+      socket.on('close', () => { pub.socket = null; });
+      pub.socket = socket;
+    });
+    return pub.connecting;
+  }
+
   function publish(channel, text) {
     // Fire and forget: the broker fans out to every replica, including us —
     // our own delivery comes back through the subscription like any other.
-    connect()
-      .then(() => state.socket.write(encode('PUBLISH', channel, text)))
+    connectPub()
+      .then(() => pub.socket.write(encode('PUBLISH', channel, text)))
       .catch(() => {});
   }
 

@@ -322,7 +322,7 @@ async function hostView(session) {
     if (busy) return;
     busy = true;
     call(OPS.advance, { id: session.id, token: session.token, delta: delta, total: DECK.slides.length })
-      .then(function (state) { current = state; renderHost(stage, state, session); })
+      .then(function (state) { current = state; renderHost(stage, state, session); progress.textContent = (state.index + 1) + ' / ' + DECK.slides.length; })
       .catch(function (error) { toast('Could not change the slide: ' + (error.code || error.message)); })
       .finally(function () { busy = false; });
   }
