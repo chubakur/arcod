@@ -75,7 +75,9 @@ test('build defaults to scaffold, reference is opt-in', async () => {
   const scaffoldCode = await readFile(join(scaffold.dir, 'service', 'index.mjs'), 'utf8');
   assert.ok(scaffoldCode.includes('Mode: scaffold'));
   assert.ok(scaffoldCode.includes('const HANDLERS = {};'));
-  assert.ok(!scaffoldCode.includes('randomUUID()'));
+  assert.ok(!scaffoldCode.includes('async function handleCreate'));
+  // request-id plumbing uses randomUUID in every generated service, including
+  // scaffold, so the "no operation bodies" marker is the handler, not the uuid.
 
   const reference = await buildExample(ast, dir, { reference: true });
   const referenceCode = await readFile(join(reference.dir, 'service', 'index.mjs'), 'utf8');
@@ -1907,3 +1909,35 @@ test('the entity store enforces unique, filters, sorts and pages by cursor', asy
     service.child.kill('SIGTERM');
   }
 });
+test('the service exposes /metrics, request ids and a structured access log', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-obs-'));
+  const implDir = fileURLToPath(new URL('../examples/tasks/impl', import.meta.url));
+  const built = await buildExample(tasksAst, dir, { implDir });
+  const port = 19500 + Math.floor(Math.random() * 500);
+  const service = await spawnService(built.dir, port, {});
+
+  let logs = '';
+  service.child.stdout?.on('data', (chunk: Buffer) => { logs += chunk.toString(); });
+
+  try {
+    const created = await fetch(service.base + '/v1/tasks', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-request-id': 'trace-abc-123' },
+      body: JSON.stringify({ title: 'obs task', status: 'open', priority: 1 }),
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.headers.get('x-request-id'), 'trace-abc-123', 'request id is echoed');
+
+    await waitFor(() => (logs.includes('request_id') ? logs : null));
+
+    const metrics = await (await fetch(service.base + '/metrics')).text();
+    assert.ok(metrics.includes('arcod_requests_total{method="POST",route="/v1/tasks",status="201"}'), 'counts the create');
+    assert.ok(metrics.includes('arcod_capability_calls_total{capability="store.insert"}'), 'counts the capability call');
+    assert.ok(metrics.includes('# TYPE arcod_request_duration_seconds histogram'), 'histogram is typed');
+    assert.ok(metrics.includes('arcod_inflight_requests '), 'gauge is present');
+    assert.ok(logs.includes('"route":"/v1/tasks"'), 'access log names the route');
+  } finally {
+    service.child.kill('SIGTERM');
+  }
+});
+

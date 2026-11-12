@@ -175,7 +175,30 @@ namespace), constrained-типы (`email`, `url`, `enum`) и вторая реа
 
 ### 6. Observability и production runtime
 
-**Проблема:** Prometheus/Jaeger/Sentry/Vault провижнятся, но сгенерированный сервис почти не пишет телеметрию.
+**Статус: observability — готово (2026-11-12); миграции — нет.**
+Каждый сгенерированный HTTP-сервис теперь отдаёт прод-базлайн:
+
+- **Structured access log** — одна JSON-строка на запрос: `method`, `route`
+  (шаблон пути, не конкретный), `status`, `latency_ms`, `request_id`,
+  `actor_id` (когда identity), `operation`.
+- **request-id** — входящий `x-request-id` (или сгенерированный UUID)
+  эхом уходит в ответ и пробрасывается в `remoteCall` через AsyncLocalStorage.
+- **`/metrics`** (Prometheus text format, без зависимостей):
+  `arcod_requests_total` по method/route/status, `arcod_request_duration_seconds`
+  (гистограмма с бакетами), `arcod_errors_total` по operation,
+  `arcod_inflight_requests` (gauge), `arcod_capability_calls_total`
+  (store.insert/find/…, remote.*).
+- **явные request timeouts** — `server.requestTimeout`/`headersTimeout` и
+  `AbortSignal.timeout` у внешних вызовов; настраивается `ARCod_TIMEOUT_MS`
+  (по умолчанию 30000).
+
+Тесты: `/metrics`, эхо request-id и access-log покрыты интеграционно;
+capability-счётчики считают store-операции и remote-вызовы.
+
+Осталось из M0.5: миграции (`arcod migrate`, changelog, up/down, checksum) и
+trace-hooks (span/OTEL export) — это следующий срез.
+
+**Проблема (на момент аудита):** Prometheus/Jaeger/Sentry/Vault провижнятся, но сгенерированный сервис почти не пишет телеметрию.
 
 **Сделать:**
 
@@ -297,5 +320,8 @@ namespace), constrained-типы (`email`, `url`, `enum`) и вторая реа
 
 5. **M0.5 — migrations + observability**  
    Prod baseline: миграции, метрики, логи, request-id, timeouts.
+   ✅ structured access log, request-id (in → ответ → external), `/metrics`
+   Prometheus (RPS/histogram/errors/in-flight/capability calls), `ARCod_TIMEOUT_MS`;
+   ⏳ миграции и trace-hooks.
 
 После этих пяти можно честно говорить, что Arcod подходит не только для demo-сервисов, а для большинства типовых backend-сервисов.

@@ -718,6 +718,33 @@ Rules become behaviour: `atomic read { get; del }` becomes a Lua script with a
 get and a delete, `once(read, by: id)` becomes a tombstone key that yields
 `Gone` on a repeated read.
 
+## Observability
+
+Every generated HTTP service ships with a production baseline out of the box —
+no dependencies, no config required:
+
+- **Structured access log.** One JSON line per request on stdout:
+  `method`, `route` (the declared path template, not the concrete URL),
+  `status`, `latency_ms`, `request_id`, `actor_id` (when identity is used)
+  and `operation`.
+- **Request id.** An incoming `x-request-id` header (or a generated UUID) is
+  echoed on the response and propagated to every external call through
+  `AsyncLocalStorage`, so one trace crosses service boundaries.
+- **`/metrics`.** Prometheus text format:
+  `arcod_requests_total` (by method/route/status),
+  `arcod_request_duration_seconds` (histogram with fixed buckets),
+  `arcod_errors_total` (by operation), `arcod_inflight_requests` (gauge) and
+  `arcod_capability_calls_total` (`store.insert`, `store.find`, `remote.*`).
+- **Request timeouts.** `server.requestTimeout`/`headersTimeout` and an
+  `AbortSignal.timeout` on external calls, driven by `ARCod_TIMEOUT_MS`
+  (default `30000`).
+
+```bash
+curl -s localhost:8091/metrics | head
+# arcod_requests_total{method="POST",route="/v1/tasks",status="201"} 1
+# arcod_capability_calls_total{capability="store.insert"} 1
+```
+
 ## Checks
 
 `arcod check` returns `1` when there are errors and `0` when the model is clean.

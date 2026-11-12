@@ -731,6 +731,31 @@ arcod run --impl examples/onetimemessage-pwd
 
 Правила из спеки превращаются в поведение: `atomic read { get; del }` — в Lua-скрипт с гетом и удалением, `once(read, by: id)` — в tombstone-ключ, который даёт `Gone` при повторном чтении.
 
+## Observability
+
+Каждый сгенерированный HTTP-сервис по умолчанию несёт прод-базлайн — без зависимостей и настройки:
+
+- **Structured access log.** Одна JSON-строка на запрос в stdout:
+  `method`, `route` (шаблон объявленного пути, а не конкретный URL),
+  `status`, `latency_ms`, `request_id`, `actor_id` (когда подключён
+  identity) и `operation`.
+- **Request id.** Входящий `x-request-id` (или сгенерированный UUID)
+  эхом уходит в ответ и пробрасывается в каждый внешний вызов через
+  `AsyncLocalStorage` — один trace проходит сквозь границы сервисов.
+- **`/metrics`.** Prometheus text format:
+  `arcod_requests_total` (по method/route/status),
+  `arcod_request_duration_seconds` (гистограмма с фиксированными бакетами),
+  `arcod_errors_total` (по operation), `arcod_inflight_requests` (gauge) и
+  `arcod_capability_calls_total` (`store.insert`, `store.find`, `remote.*`).
+- **Request timeouts.** `server.requestTimeout`/`headersTimeout` и
+  `AbortSignal.timeout` на внешних вызовах, управляются `ARCod_TIMEOUT_MS`
+  (по умолчанию `30000`).
+
+```bash
+curl -s localhost:8091/metrics | head
+# arcod_requests_total{method="POST",route="/v1/tasks",status="201"} 1
+# arcod_capability_calls_total{capability="store.insert"} 1
+```
 
 ## Проверки
 

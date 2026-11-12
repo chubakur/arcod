@@ -304,7 +304,7 @@
               <span><b style="color:var(--text); font-size:18px">0</b><br>runtime deps</span>
               <span><b style="color:var(--text); font-size:18px">55</b><br>diagnostics</span>
               <span><b style="color:var(--text); font-size:18px">9</b><br>capabilities</span>
-              <span><b style="color:var(--text); font-size:18px">96</b><br>tests</span>
+              <span><b style="color:var(--text); font-size:18px">97</b><br>tests</span>
             </div>
           </div>
         </div>
@@ -445,6 +445,13 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <code>Conflict</code>, not a 500. <code>io.find</code> takes
           <code>where</code>, <code>order</code>, <code>limit</code> and a keyset
           <code>cursor</code>, so a page does not shift under inserts.</p>
+        </div>
+        <div class="card">
+          <h3>Observable without a stack</h3>
+          <p>Every service logs one JSON access line per request, echoes and
+          propagates <code>x-request-id</code>, and serves <code>/metrics</code> in
+          Prometheus format — RPS, latency histogram, errors, in-flight and
+          capability calls. Timeouts come from <code>ARCod_TIMEOUT_MS</code>.</p>
         </div>
         <div class="card">
           <h3>Contracts that become behaviour</h3>

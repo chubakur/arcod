@@ -19,13 +19,115 @@ export interface EmitOptions {
 const SERVICE_TEMPLATE = `import http from 'node:http';
 import net from 'node:net';
 import { randomUUID, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 const CONFIG = __CONFIG__;
+CONFIG.timeoutMs = Number(process.env.ARCod_TIMEOUT_MS || CONFIG.timeoutMs || 30000);
 const ROUTES = __ROUTES__;
 const ERRORS = __ERRORS__;
 const STORES = __STORES__;
 
 let inFlight = 0;
+
+// ---------- observability ----------
+
+const requestCtx = new AsyncLocalStorage();
+
+const HISTO_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
+
+const METRICS = {
+  requests: new Map(),
+  durations: new Map(),
+  errors: new Map(),
+  capabilities: new Map(),
+};
+
+function metricRequests(method, route, status) {
+  const key = method + '\\u0000' + route + '\\u0000' + status;
+  METRICS.requests.set(key, (METRICS.requests.get(key) || 0) + 1);
+}
+
+function metricDuration(method, route, ms) {
+  const key = method + '\\u0000' + route;
+  const h = METRICS.durations.get(key) || { count: 0, sum: 0, buckets: new Array(HISTO_BUCKETS.length + 1).fill(0) };
+  h.count += 1;
+  h.sum += ms / 1000;
+  let i = 0;
+  while (i < HISTO_BUCKETS.length && ms / 1000 > HISTO_BUCKETS[i]) i++;
+  h.buckets[i] += 1;
+  METRICS.durations.set(key, h);
+}
+
+function metricError(operation) {
+  METRICS.errors.set(operation, (METRICS.errors.get(operation) || 0) + 1);
+}
+
+function metricCapability(capability) {
+  METRICS.capabilities.set(capability, (METRICS.capabilities.get(capability) || 0) + 1);
+}
+
+function finish(route, op, status, start, req) {
+  metricRequests(req.method || 'GET', route, status);
+  metricDuration(req.method || 'GET', route, Date.now() - start);
+  const ctx = requestCtx.getStore() || {};
+  console.log(JSON.stringify({
+    level: 'access',
+    ts: new Date().toISOString(),
+    service: CONFIG.service,
+    method: req.method,
+    route,
+    path: req.url,
+    status,
+    latency_ms: Date.now() - start,
+    request_id: ctx.id || '',
+    operation: op,
+    actor_id: ctx.actor || '',
+  }));
+}
+
+function prometheusMetrics() {
+  const out = [];
+  out.push('# HELP arcod_requests_total Total HTTP requests by method, route and status.');
+  out.push('# TYPE arcod_requests_total counter');
+  for (const [key, n] of METRICS.requests) {
+    const parts = key.split('\\u0000');
+    out.push('arcod_requests_total{method="' + parts[0] + '",route="' + parts[1] + '",status="' + parts[2] + '"} ' + n);
+  }
+
+  out.push('# HELP arcod_request_duration_seconds Request latency.');
+  out.push('# TYPE arcod_request_duration_seconds histogram');
+  for (const [key, h] of METRICS.durations) {
+    const parts = key.split('\\u0000');
+    const labels = 'method="' + parts[0] + '",route="' + parts[1] + '"';
+    let cumulative = 0;
+    for (let i = 0; i < HISTO_BUCKETS.length; i++) {
+      cumulative += h.buckets[i];
+      out.push('arcod_request_duration_seconds_bucket{' + labels + ',le="' + HISTO_BUCKETS[i] + '"} ' + cumulative);
+    }
+    cumulative += h.buckets[HISTO_BUCKETS.length];
+    out.push('arcod_request_duration_seconds_bucket{' + labels + ',le="+Inf"} ' + cumulative);
+    out.push('arcod_request_duration_seconds_sum{' + labels + '} ' + h.sum);
+    out.push('arcod_request_duration_seconds_count{' + labels + '} ' + h.count);
+  }
+
+  out.push('# HELP arcod_errors_total Operation-level server error count.');
+  out.push('# TYPE arcod_errors_total counter');
+  for (const [op, n] of METRICS.errors) {
+    out.push('arcod_errors_total{operation="' + op + '"} ' + n);
+  }
+
+  out.push('# HELP arcod_inflight_requests Requests currently being handled.');
+  out.push('# TYPE arcod_inflight_requests gauge');
+  out.push('arcod_inflight_requests ' + inFlight);
+
+  out.push('# HELP arcod_capability_calls_total Calls into capabilities (store, remote).');
+  out.push('# TYPE arcod_capability_calls_total counter');
+  for (const [cap, n] of METRICS.capabilities) {
+    out.push('arcod_capability_calls_total{capability="' + cap + '"} ' + n);
+  }
+
+  return out.join('\\n') + '\\n';
+}
 
 const ATOMIC_READ = __ATOMIC__;
 
@@ -433,7 +535,7 @@ function matchRoute(method, pathname) {
         break;
       }
     }
-    if (ok) return { op: route.op, params };
+    if (ok) return { op: route.op, path: route.path, params };
   }
   return null;
 }
@@ -499,43 +601,80 @@ __QUEUE_SOURCE__
 
 // ---------- http ----------
 
-const server = http.createServer(async (req, res) => {
+const server = http.createServer((req, res) => {
+  const start = Date.now();
+  const requestId = String(req.headers['x-request-id'] || '').slice(0, 128) || randomUUID();
+  res.setHeader('x-request-id', requestId);
+  requestCtx.run({ id: requestId, actor: null }, () => handleRequest(req, res, start));
+});
+
+async function handleRequest(req, res, start) {
   if (CONFIG.concurrency) {
     if (inFlight >= CONFIG.concurrency) {
-      return send(res, 503, JSON.stringify({ error: 'Unavailable', message: 'too many concurrent requests' }));
+      send(res, 503, JSON.stringify({ error: 'Unavailable', message: 'too many concurrent requests' }));
+      metricError('unavailable');
+      finish('unavailable', '', 503, start, req);
+      return;
     }
     inFlight++;
     res.on('close', () => { inFlight--; });
   }
 
+  let routeName = 'unknown';
+  let opName = '';
   try {
     const url = new URL(req.url || '/', 'http://localhost');
     if (url.pathname === '/healthz') {
       try {
         await store.ping();
-        return send(res, 200, JSON.stringify({ status: 'ok', service: CONFIG.service, kv: 'up' }));
+        send(res, 200, JSON.stringify({ status: 'ok', service: CONFIG.service, kv: 'up' }));
+        finish('/healthz', '', 200, start, req);
       } catch {
-        return send(res, 503, JSON.stringify({ status: 'degraded', kv: 'down' }));
+        send(res, 503, JSON.stringify({ status: 'degraded', kv: 'down' }));
+        finish('/healthz', '', 503, start, req);
       }
+      return;
+    }
+
+    if (url.pathname === '/metrics') {
+      send(res, 200, prometheusMetrics(), 'text/plain; version=0.0.4; charset=utf-8');
+      finish('/metrics', '', 200, start, req);
+      return;
     }
 
     const route = matchRoute(req.method || 'GET', url.pathname);
-    if (!route) return sendError(res, 'NotFound');
+    if (!route) {
+      sendError(res, 'NotFound');
+      finish('not_found', '', res.statusCode, start, req);
+      return;
+    }
+    routeName = route.path;
+    opName = route.op;
     const handler = HANDLERS[route.op];
-    if (!handler) return send(res, 501, JSON.stringify({ error: 'NotImplemented', op: route.op }));
+    if (!handler) {
+      send(res, 501, JSON.stringify({ error: 'NotImplemented', op: route.op }));
+      finish(route.path, opName, 501, start, req);
+      return;
+    }
 
-    return await handler(req, res, route.params);
+    await handler(req, res, route.params);
+    finish(route.path, opName, res.statusCode, start, req);
   } catch (err) {
     console.error('request failed:', err && err.message ? err.message : err);
     send(res, 500, JSON.stringify({ error: 'Internal', message: 'internal error' }));
+    metricError(opName || routeName);
+    finish(routeName, opName, 500, start, req);
   }
-});
+}
 
 __STREAM_WIRE__
 
 const PORT = Number(process.env.PORT || CONFIG.port);
 
 __QUEUE_WIRE__
+
+server.requestTimeout = Number(process.env.ARCod_TIMEOUT_MS || CONFIG.timeoutMs || 30000);
+server.headersTimeout = server.requestTimeout + 5000;
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('arcod service ' + CONFIG.service + ' listening on :' + PORT);
@@ -664,6 +803,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
     minBody: limits.min,
     maxBody: limits.max,
     concurrency: budgetConcurrency(svc),
+    timeoutMs: 30000,
     consumedError: consumedErrorName(svc) ?? (errors.Gone ? 'Gone' : 'NotFound'),
   };
 
@@ -918,11 +1058,13 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     '      });',
     '    },',
     '    async fetch(entity, id) {',
+    '      metricCapability("store.fetch");',
     '      const meta = requestEntity(entity);',
     "      const raw = await store.get(meta.prefix + String(id));",
     '      return raw == null ? null : recordOf(raw);',
     '    },',
     '    async insert(entity, record) {',
+    '      metricCapability("store.insert");',
     '      const meta = requestEntity(entity);',
     '      const value = Object.assign({}, record || {});',
     "      if (value.id == null || value.id === '') throw new ArcodError('Invalid');",
@@ -943,6 +1085,7 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     '      return value;',
     '    },',
     '    async update(entity, id, patch) {',
+    '      metricCapability("store.update");',
     '      const meta = requestEntity(entity);',
     '      const key = meta.prefix + String(id);',
     '      const raw = await store.get(key);',
@@ -972,6 +1115,7 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     '      return value;',
     '    },',
     '    async remove(entity, id) {',
+    '      metricCapability("store.remove");',
     '      const meta = requestEntity(entity);',
     '      const key = meta.prefix + String(id);',
     '      const raw = await store.get(key);',
@@ -985,6 +1129,7 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     '      return true;',
     '    },',
     '    async find(entity, query) {',
+    '      metricCapability("store.find");',
     '      const meta = requestEntity(entity);',
     '      const q = query || {};',
     '      const requested = Number(q.limit);',
@@ -1033,7 +1178,10 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     parts.push(
       '    async actor() {',
       '      if (!actorPromise) actorPromise = actorFrom(req);',
-      '      return actorPromise;',
+      '      const a = await actorPromise;',
+      '      const c = requestCtx.getStore();',
+      '      if (c && a && a.id) c.actor = a.id;',
+      '      return a;',
       '    },',
       '    async users() { return listUsers(); },',
     );
@@ -1259,8 +1407,12 @@ async function remoteCall(service, op, input) {
   }
   const url = base + path + (query.toString() ? '?' + query.toString() : '');
   const init = { method: route.method, headers: { 'content-type': 'application/json' } };
+  const ctx = requestCtx.getStore();
+  if (ctx && ctx.id) init.headers['x-request-id'] = ctx.id;
+  if (CONFIG.timeoutMs) init.signal = AbortSignal.timeout(CONFIG.timeoutMs);
   if (route.method !== 'GET' && route.method !== 'DELETE') init.body = JSON.stringify(body);
 
+  metricCapability('remote.' + service + '.' + op);
   const response = await fetch(url, init);
   const raw = await response.text();
   let data = null;
