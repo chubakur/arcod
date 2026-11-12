@@ -116,7 +116,7 @@
     "declarations": {
       "patterns": [
         {
-          "match": "\\b(service|external|workflow|environment|ui|type|error|enum|policy|change)\\s+([A-Za-z_][\\w-]*)",
+          "match": "\\b(service|external|workflow|environment|ui|type|error|enum)\\s+([A-Za-z_][\\w-]*)",
           "captures": {
             "1": {
               "name": "keyword.declaration.arcod"
@@ -127,7 +127,7 @@
           }
         },
         {
-          "match": "\\b(contract|meta|budget|examples|rules|effects|lifecycle|unknown)\\b",
+          "match": "\\b(contract|meta|budget|examples|rules|effects)\\b",
           "name": "keyword.control.block.arcod"
         },
         {
@@ -222,7 +222,7 @@
     "clauses": {
       "patterns": [
         {
-          "match": "\\b(route|schedule|errors|post|pre|effects|hint|once|else|kind|impl|title|layout|history|send|start|needs|onFail|retry|timeout|overlap|catchup|allow|deny|extends|since|owner|status|option)\\s*:",
+          "match": "\\b(route|errors|post|pre|effects|once|else|kind|title|layout|history|send|start|needs|onFail|retry|timeout|overlap|catchup|allow|deny|extends|since|owner|status|option)\\s*:",
           "captures": {
             "1": {
               "name": "keyword.other.clause.arcod"
@@ -234,7 +234,7 @@
     "keywords": {
       "patterns": [
         {
-          "match": "\\b(public|idempotent|atomic|ordering|invariant|never)\\b",
+          "match": "\\b(public|atomic|ordering|invariant|never)\\b",
           "name": "storage.modifier.arcod"
         },
         {

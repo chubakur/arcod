@@ -136,6 +136,14 @@ arcod make . --skip-impl --no-test   # check + prompts + build only
 Each step is the same function as the standalone command, so the pipeline cannot
 drift from the CLI. It stops at the first failure and says where.
 
+Operation bodies are part of the model, not a hidden blob. Every `impl/*.mjs`
+body is checked against the sandbox — no imports, raw network, fs, exec,
+process or eval, only the `io` adapter — and `arcod build` fails naming the
+operation and the reason. Each body is hashed into
+`.arcod/build/impl-manifest.json`, and generated bodies carry a
+`// @arcod generated:` header with the prompt hash and model, so provenance is
+never lost.
+
 ## Providers
 
 The model names a capability (`kv`, `sql`, `blob`…), the environment names a
@@ -1014,9 +1022,10 @@ This is a vertical slice, not a finished language.
 - `unique` and `ordering` are not checked beyond syntax and cycles.
 - Generation targets JavaScript/Node only. PHP, Go and Python would be separate
   emitters.
-- `change`, `policy`, `hint` and `unknown`, as well as the `idempotent`,
-  `since` and `schedule` clauses, are parsed but do not affect the build: they
-  are placeholders, not working constructs.
+- `change`, `policy`, `hint`, `impl`, `lifecycle` and `unknown` blocks, and
+  the `idempotent`, `since` and `schedule` clauses, are rejected by the parser:
+  they are not supported in v0.1 — a model must say what it means, not leave
+  placeholders.
 - a `job` without an `on:` consumer is still parsed but not executed
   (`W017`): there is no state model or selection condition yet. Queue-backed
   consumers do run, with retry and dead letters.

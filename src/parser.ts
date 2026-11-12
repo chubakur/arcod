@@ -70,8 +70,9 @@ class Parser {
       if (this.is('workflow')) { mod.workflows.push(this.parseWorkflow()); continue; }
       if (this.is('environment')) { mod.environments.push(this.parseEnvironment()); continue; }
       if (this.is('ui')) { mod.uis.push(this.parseUi()); continue; }
-      if (this.is('unknown')) { this.skipUnknown(); continue; }
-      if (this.is('policy') || this.is('change')) { this.skipBlockOrLine(); continue; }
+      if (this.is('unknown')) this.error('`unknown` is not supported in v0.1 — declare the concrete type/service instead');
+      if (this.is('policy')) this.error('`policy` is not supported in v0.1 — use `roles:`/`owner:`/`auth` clauses');
+      if (this.is('change')) this.error('`change` is not supported in v0.1 — the module version records change');
       this.error('unexpected top-level token ' + JSON.stringify(this.peek().value));
     }
 
@@ -234,8 +235,10 @@ class Parser {
       if (this.accept('examples')) { this.parseExamples(svc); continue; }
       if (this.is('saga')) { this.next(); svc.sagas.push(this.parseSaga()); continue; }
       if (this.accept('budget')) { svc.budget = this.parseBudget(); continue; }
-      if (this.is('lifecycle')) { this.next(); this.skipBalanced('{'); continue; }
-      if (this.is('hint') || this.is('impl') || this.is('unknown')) { this.skipBlockOrLine(); continue; }
+      if (this.is('lifecycle')) this.error('`lifecycle` is not supported in v0.1');
+      if (this.is('hint')) this.error('`hint` is not supported in v0.1 — the contract is the prompt');
+      if (this.is('impl')) this.error('`impl` blocks are not supported in v0.1 — bodies live in impl/*.mjs');
+      if (this.is('unknown')) this.error('`unknown` is not supported in v0.1');
       this.error('unexpected member ' + JSON.stringify(this.peek().value));
     }
     const end = this.expect('}');
@@ -291,7 +294,7 @@ class Parser {
     this.expect('{');
     while (!this.is('}')) {
       if (this.accept(';')) continue;
-      if (this.accept('idempotent')) { clauses.push({ kind: 'idempotent', loc: locOf(this.prev()) }); continue; }
+      if (this.is('idempotent')) this.error('`idempotent` is not supported in v0.1 — retry semantics come from `job { retry: n }` and `saga`');
       const key = this.expectIdent('clause').value;
       if (key === 'on') {
         if (this.accept('error')) {
@@ -370,7 +373,9 @@ class Parser {
         clauses.push({ kind: 'owner', param, loc: locOf(this.prev()) });
         continue;
       }
-      if (key === 'route' || key === 'schedule' || key === 'since') {
+      if (key === 'schedule') this.error('`schedule` on an operation is not supported in v0.1 — use a `workflow` trigger');
+      if (key === 'since') this.error('`since` on an operation is not supported in v0.1 — module `meta { since: ... }` carries the version');
+      if (key === 'route') {
         this.expect(':');
         const tok = this.next();
         clauses.push({ kind: key, value: tok.value, loc: locOf(tok) });
@@ -957,28 +962,6 @@ class Parser {
     return name;
   }
 
-  private skipUnknown(): void {
-    this.expect('unknown');
-    this.expectIdent('unknown id');
-    if (this.is('{')) this.skipBalanced('{');
-  }
-
-  private skipBlockOrLine(): void {
-    this.next();
-    if (this.is('{')) { this.skipBalanced('{'); return; }
-    while (this.peek().kind !== 'eof' && !this.is('}')) this.next();
-  }
-
-  private skipBalanced(open: string): void {
-    const close = open === '{' ? '}' : ')';
-    this.expect(open);
-    let depth = 1;
-    while (depth > 0 && this.peek().kind !== 'eof') {
-      const tok = this.next();
-      if (tok.value === open) depth++;
-      else if (tok.value === close) depth--;
-    }
-  }
 
   private peek(offset = 0): Token { return this.tokens[Math.min(this.pos + offset, this.tokens.length - 1)]; }
   private next(): Token { return this.tokens[Math.min(this.pos++, this.tokens.length - 1)]; }

@@ -6,6 +6,8 @@ import { emitWeb } from './emit/web.ts';
 import { composeYaml, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
 import { buildPrompts } from './prompts.ts';
 import { deployManifest, deployProvider } from './deploy.ts';
+import { sandboxViolation } from './impl.ts';
+import { createHash } from 'node:crypto';
 
 export interface BuildOptions {
   port?: number;
@@ -54,6 +56,23 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
   const reference = options.reference === true;
   const impl =
     options.implDir === null ? undefined : await readImpl(options.implDir ?? (await implDirFor(exampleDir)));
+
+  // Bodies are part of the model, not an anonymous blob: every impl/ body is
+  // checked against the sandbox (no raw network/fs/exec/process, only io) and
+  // hashed into a provenance manifest next to the build output.
+  const implManifest: Record<string, { sha256: string; bytes: number; source: string }> = {};
+  if (impl) {
+    for (const op of Object.keys(impl).sort()) {
+      const violation = sandboxViolation(impl[op]);
+      if (violation) throw new Error('impl body ' + op + '.mjs violates the sandbox: ' + violation);
+      implManifest[op] = {
+        sha256: createHash('sha256').update(impl[op]).digest('hex'),
+        bytes: Buffer.byteLength(impl[op]),
+        source: 'impl',
+      };
+    }
+  }
+
   const service = emitService(mod, { reference, impl });
 
   const files: Array<[string, string]> = [
@@ -97,6 +116,21 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
           sha256: task.sha256,
           unresolved: task.unresolved,
         })),
+      },
+      null,
+      2,
+    ) + '\n',
+  ]);
+
+  // Body provenance: which ops have impl bodies, their hashes, and the emit
+  // mode. Together with the sandbox check above this makes a body part of the
+  // auditable build, not a hidden file next to the model.
+  files.push([
+    join(dir, 'impl-manifest.json'),
+    JSON.stringify(
+      {
+        mode: impl ? 'impl' : reference ? 'reference' : 'scaffold',
+        bodies: implManifest,
       },
       null,
       2,

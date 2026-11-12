@@ -283,17 +283,26 @@ trace-hooks — оба закрыты (см. статус выше). M0.5 зак
 
 ### 7. Поведение в спецификации и sandbox для тел
 
+**Статус: направление выбрано и закрыто (2026-11-12) — first-class `impl`-блоки + sandbox-контракт + provenance.**
+
 **Сделать:**
 
-- Выбрать направление:
-  - либо typed executable expressions для простых операций;
-  - либо first-class `impl` blocks;
-  - либо versioned external bodies с sandbox-контрактом.
-- Ограничить bodies: нет raw network/fs/exec/process; только `io` capabilities.
-- Body provenance: кто/чем сгенерировано, prompt hash, model, тесты.
-- `change`, `hint`, `unknown`, `idempotent`, `since`, `schedule` — либо оживить, либо убрать из публичного синтаксиса.
+- Выбрать направление — ✅: first-class `impl` blocks. Тело операции — файл
+  `impl/<op>.mjs` (`export async function op(input, io)`), генерируется локальной
+  моделью (`arcod impl`) или пишется руками; versioned external bodies — сам
+  сгенерированный сервис (single-file, io-адаптер, прод-базлайн).
+- Ограничить bodies — ✅: deny-list в `sandboxViolation`/`validateBody` (нет
+  import/require, raw network, fs, exec/process, eval/Function); применяется и к
+  рукописным bodies — `arcod build` падает с именем операции и причиной.
+- Body provenance — ✅: сгенерированные bodies несут заголовок
+  `// @arcod generated: op · prompt <sha12> · model`; build пишет
+  `impl-manifest.json` (mode + op → sha256/bytes/source). «Тесты» — `arcod test`
+  гоняет примеры, W012/W018 висят на операциях без покрытия/тел.
+- `change`, `hint`, `unknown`, `idempotent`, `since`, `schedule` — ✅ убраны из
+  публичного синтаксиса (как и `policy`/`impl`/`lifecycle`): парсер отклоняет их
+  внятной ошибкой, а не игнорирует молча.
 
-**Готово, когда:** тело операции не является скрытым непроверяемым кодом вне модели.
+**Готово, когда:** тело операции не является скрытым непроверяемым кодом вне модели. ✅
 
 ### 8. Spec tooling: fmt, diff, adopt, migrate
 

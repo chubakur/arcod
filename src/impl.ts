@@ -73,13 +73,28 @@ export function normalizeBody(code: string, op: string): string {
   return trimmed;
 }
 
-export function validateBody(code: string, op: string): string | null {
+export function sandboxViolation(code: string): string | null {
   if (/^\s*import\s/m.test(code)) return 'body must not import anything';
   if (/\brequire\s*\(/.test(code)) return 'body must not use require';
   if (/\bimport\s*\(/.test(code)) return 'body must not use dynamic import';
   if (/\bfetch\s*\(/.test(code)) return 'body must not use raw network (deny net)';
   if (/\bWebSocket\b/.test(code)) return 'body must not use raw network (deny net)';
+  if (/\bXMLHttpRequest\b/.test(code)) return 'body must not use raw network (deny net)';
   if (/\bprocess\.env\b/.test(code)) return 'body must not read the environment';
+  if (/\bprocess\.exit\b/.test(code)) return 'body must not control the process';
+  if (/\bprocess\.kill\b/.test(code)) return 'body must not control the process';
+  if (/\bchild_process\b/.test(code)) return 'body must not spawn processes (deny exec)';
+  if (/\bexecSync\b/.test(code)) return 'body must not spawn processes (deny exec)';
+  if (/\bspawnSync\b/.test(code)) return 'body must not spawn processes (deny exec)';
+  if (/\bfs\b\./.test(code)) return 'body must not touch the filesystem (deny fs)';
+  if (/\beval\s*\(/.test(code)) return 'body must not use eval';
+  if (/\bnew\s+Function\s*\(/.test(code)) return 'body must not use the Function constructor';
+  return null;
+}
+
+export function validateBody(code: string, op: string): string | null {
+  const deny = sandboxViolation(code);
+  if (deny) return deny;
   const expected = new RegExp('export\\s+async\\s+function\\s+' + op + '\\s*\\(');
   if (!expected.test(code)) return 'expected export async function ' + op + '(input, io)';
   if (/res\.|res\.writeHead|sendError\(/.test(code)) return 'body must not write HTTP responses';
@@ -187,7 +202,11 @@ async function runTask(task: PromptTask, outDir: string, cacheDir: string, optio
   const problem = validateBody(code, task.op);
   if (problem) return { ...base, error: problem };
 
-  await writeFile(target, code, 'utf8');
+  // Provenance travels with the body: the prompt hash and model name pin what
+  // generated this file, so an impl/ body is never an anonymous blob.
+  const promptHash = createHash('sha256').update(task.prompt).digest('hex').slice(0, 12);
+  const header = '// @arcod generated: op ' + task.op + ' · prompt ' + promptHash + ' · model ' + options.model + '\n';
+  await writeFile(target, header + code, 'utf8');
   const syntax = spawnSync(process.execPath, ['--check', target], { encoding: 'utf8' });
   if (syntax.status !== 0) {
     return { ...base, bytes: Buffer.byteLength(code), error: (syntax.stderr || 'syntax error').split('\n').slice(0, 3).join(' ') };
