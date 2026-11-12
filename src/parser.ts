@@ -1,7 +1,7 @@
 import type {
   Arg, BindNode, BudgetNode, CapUse, Clause, EnumDecl, EnvironmentNode, ErrorDecl,
   ExampleNode, Expr, EffectsNode, Loc, ModuleNode, OpNode, Param, RuleNode,
-  ServiceNode, Stmt, TriggerNode, TypeArg, TypeDecl, TypeExpr, UiNode, UiSlide,
+  ServiceNode, SagaNode, SagaStepNode, Stmt, TriggerNode, TypeArg, TypeDecl, TypeExpr, UiNode, UiSlide,
   UseNode,
   WorkflowNode, WorkflowStepNode,
 } from './ast.ts';
@@ -213,7 +213,7 @@ class Parser {
     this.expect('{');
 
     const svc: ServiceNode = {
-      kind: 'service', name, impl, external, meta: {}, uses: [], contract: [],
+      kind: 'service', name, impl, external, meta: {}, uses: [], contract: [], sagas: [],
       rules: [], effects: null, examples: [], budget: null, roles: [], loc: locOf(start),
     };
 
@@ -232,6 +232,7 @@ class Parser {
       if (this.accept('rules')) { this.parseRules(svc); continue; }
       if (this.accept('effects')) { svc.effects = this.parseEffects(); continue; }
       if (this.accept('examples')) { this.parseExamples(svc); continue; }
+      if (this.is('saga')) { this.next(); svc.sagas.push(this.parseSaga()); continue; }
       if (this.accept('budget')) { svc.budget = this.parseBudget(); continue; }
       if (this.is('lifecycle')) { this.next(); this.skipBalanced('{'); continue; }
       if (this.is('hint') || this.is('impl') || this.is('unknown')) { this.skipBlockOrLine(); continue; }
@@ -314,6 +315,12 @@ class Parser {
         const value = Number(tok.value);
         if (!Number.isInteger(value) || value < 0) this.error('retry expects a non-negative integer');
         clauses.push({ kind: 'retry', value, loc: locOf(tok) });
+        continue;
+      }
+      // `saga: name` — a job that drives a declared saga instead of a body.
+      if (key === 'saga') {
+        this.expect(':');
+        clauses.push({ kind: 'saga', name: this.expectIdent('saga name').value, loc: locOf(this.prev()) });
         continue;
       }
       if (key === 'pre' || key === 'post') {
@@ -573,6 +580,49 @@ class Parser {
     }
     const end = this.expect('}');
     return { title: title.value, body, loc: this.loc(start, end) };
+  }
+
+  // saga Name {
+  //   step reserve {
+  //     call: reserve            // own op (unqualified)
+  //     compensate: release
+  //   }
+  //   step charge {
+  //     call: Billing.charge     // external service (qualified)
+  //     compensate: Billing.refund
+  //     retry: 3
+  //   }
+  // }
+  private parseSaga(): SagaNode {
+    const start = this.prev();
+    const name = this.expectIdent('saga name').value;
+    this.expect('{');
+    const saga: SagaNode = { kind: 'saga', name, steps: [], loc: locOf(start) };
+    while (!this.is('}')) {
+      if (this.accept(';')) continue;
+      this.expect('step');
+      saga.steps.push(this.parseSagaStep());
+    }
+    this.expect('}');
+    return saga;
+  }
+
+  private parseSagaStep(): SagaStepNode {
+    const start = this.prev();
+    const name = this.expectIdent('step name').value;
+    this.expect('{');
+    const step: SagaStepNode = { name, call: null, compensate: null, retry: null, loc: locOf(start) };
+    while (!this.is('}')) {
+      if (this.accept(';')) continue;
+      const key = this.expectIdent('step clause').value;
+      this.expect(':');
+      if (key === 'call') { step.call = this.parseQName(); continue; }
+      if (key === 'compensate') { step.compensate = this.parseQName(); continue; }
+      if (key === 'retry') { step.retry = this.parseIntLiteral('retry'); continue; }
+      this.error('unexpected saga step clause ' + JSON.stringify(key));
+    }
+    this.expect('}');
+    return step;
   }
 
   // workflow Name {

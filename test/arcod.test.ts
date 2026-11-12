@@ -2055,6 +2055,78 @@ test('the service emits operation spans and exports OTLP when asked', async () =
   assert.ok(code.includes('withSpan(opName || routeName'), 'the operation dispatch is wrapped in a span');
 });
 
+test('a saga parses, checks and emits the runner', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-saga-'));
+  const sagaUrl = new URL('../examples/saga/main.arc', import.meta.url);
+  const sagaAst = parse(await readFile(sagaUrl, 'utf8'), 'main.arc');
+  const svc = sagaAst.services.find((s) => s.name === 'Checkout');
+  assert.ok(svc, 'the Checkout service exists');
+  assert.equal(svc.sagas.length, 1, 'one saga is declared');
+  assert.deepEqual(svc.sagas[0].steps.map((st) => st.name), ['mark', 'boom']);
+  assert.equal(svc.sagas[0].steps[0].compensate, 'unmark');
+
+  const implDir = fileURLToPath(new URL('../examples/saga/impl', import.meta.url));
+  const built = await buildExample(sagaAst, dir, { implDir });
+  const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(code.includes('const SAGAS = ['), 'the saga table is emitted');
+  assert.ok(code.includes('const OWN_OPS = {'), 'own ops are wired');
+  assert.ok(code.includes('async function runSaga('), 'the runner is emitted');
+  assert.ok(code.includes('async function sagaInvoke('), 'step invocation is emitted');
+  assert.ok(code.includes('(input, io) => runSaga(\"checkout\", input, io)'), 'the job drives the saga');
+});
+
+test('saga steps and job references are checked', async () => {
+  const badCall = [
+    'module m @0.1.0 { }',
+    'use capability arcod.std.kv @1',
+    'service S : http { uses store: kv contract { public op a() -> string { route: \"GET /a\" } }',
+    '  saga broken { step one { call: nope } } }',
+  ].join('\n');
+  const ast1 = parse(badCall, 'main.arc');
+  const d1 = check(ast1).filter((d) => d.code === 'A057');
+  assert.ok(d1.length > 0, 'unknown step call is A057');
+
+  const badJob = [
+    'module m @0.1.0 { }',
+    'use capability arcod.std.kv @1',
+    'use capability arcod.std.queue @1',
+    'service S : http { uses store: kv uses events: queue contract {',
+    '  public op a() -> string { route: \"GET /a\" }',
+    '  job j() { on: events.t saga: missing } } }',
+  ].join('\n');
+  const ast2 = parse(badJob, 'main.arc');
+  const d2 = check(ast2).filter((d) => d.code === 'A058');
+  assert.ok(d2.length > 0, 'a job saga naming an undeclared saga is A058');
+});
+
+test('a failed saga step compensates completed steps in reverse', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-saga-e2e-'));
+  const sagaUrl = new URL('../examples/saga/main.arc', import.meta.url);
+  const sagaAst = parse(await readFile(sagaUrl, 'utf8'), 'main.arc');
+  const implDir = fileURLToPath(new URL('../examples/saga/impl', import.meta.url));
+  const built = await buildExample(sagaAst, dir, { implDir });
+  const port = 19500 + Math.floor(Math.random() * 400);
+  const { child, base } = await spawnService(built.dir, port, {});
+  try {
+    const res = await fetch(base + '/v1/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'saga-1' }),
+    });
+    assert.equal(res.status, 201);
+    const metrics = await waitFor(async () => {
+      const text = await (await fetch(base + '/metrics')).text();
+      return text.includes('saga.compensate.mark') ? text : null;
+    });
+    assert.ok(metrics.includes('saga.compensate.mark'), 'the mark step was compensated');
+    assert.ok(metrics.includes('saga.checkout.compensated'), 'the saga reports it was compensated');
+    assert.ok(!metrics.includes('capability=\"saga.checkout\"'), 'the saga did not complete');
+  } finally {
+    child.kill('SIGTERM');
+  }
+});
+
+
 
 
 

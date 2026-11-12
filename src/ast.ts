@@ -113,6 +113,30 @@ export interface WorkflowStepNode {
   loc: Loc;
 }
 
+export interface SagaStepNode {
+  name: string;
+  // The operation this step runs: an unqualified name is the service's own op
+  // (invoked in-process); a qualified name (Service.op) is an external service
+  // (invoked through remoteCall).
+  call: string | null;
+  // The compensating operation, run when a later step fails, in reverse order.
+  compensate: string | null;
+  retry: number | null;
+  loc: Loc;
+}
+
+// A saga is a declared, linear multi-step operation with compensation. Unlike a
+// workflow (an external-runner contract), the runtime executes a saga itself:
+// steps run in order, a failed step is retried, and on final failure the
+// completed steps are compensated in reverse. Triggered by a job with
+// 'saga: <name>'.
+export interface SagaNode {
+  kind: 'saga';
+  name: string;
+  steps: SagaStepNode[];
+  loc: Loc;
+}
+
 export interface ServiceNode {
   kind: 'service';
   name: string;
@@ -121,6 +145,7 @@ export interface ServiceNode {
   meta: Record<string, string>;
   uses: CapUse[];
   contract: OpNode[];
+  sagas: SagaNode[];
   rules: RuleNode[];
   // The role vocabulary the service understands; operations reference it via
   // the `roles:` clause. Roles themselves arrive with the token, the service
@@ -166,6 +191,9 @@ export type Clause =
   // http server and routes each message to the job body. Retry counts the
   // attempts after the first one before the message lands in the dead letter.
   | { kind: 'consume'; source: string; loc: Loc }
+  // A job may run a saga instead of a body: each message drives the saga's
+  // steps to completion (or compensation) through the saga runner.
+  | { kind: 'saga'; name: string; loc: Loc }
   | { kind: 'retry'; value: number; loc: Loc }
   // Access control, enforced by the generated runtime before the body runs:
   // `roles: admin, manager` requires one of the token roles (403 otherwise),

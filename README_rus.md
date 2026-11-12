@@ -528,6 +528,35 @@ job audit(entry: string) {
 (`A052`), `retry` без `on:` — ошибка (`A053`); job с очередью исполняется,
 поэтому предупреждение `W017` «job не исполняется» к нему не применяется.
 
+### Saga: multi-step с компенсацией
+
+Saga — линейный multi-step сценарий, который исполняет сам рантайм (в отличие от
+`workflow`, который остаётся external-runner контрактом). Каждый шаг вызывает
+операцию и может назвать компенсирующую:
+
+```arcod
+saga checkout {
+  step reserve {
+    call: reserve          // свой op, in-process
+    compensate: release
+  }
+  step charge {
+    call: Billing.charge   // внешний сервис, через remoteCall
+    compensate: Billing.refund
+    retry: 2
+  }
+}
+```
+
+Триггер — job: `job run_checkout(label: string) { on: events.checkout
+saga: checkout }`. Раннер исполняет шаги по порядку, ретраит падающий шаг до
+`retry` раз (по умолчанию одна попытка) и на финальном падении компенсирует
+завершённые шаги в обратном порядке. Компенсация — терминальное состояние,
+сообщение не ретраится. Пример: `examples/saga`.
+
+Проверки: `call`/`compensate` шага должны называть реальную операцию (`A057`),
+`saga:` в job — объявленную saga (`A058`).
+
 ### Контракт как OpenAPI
 
 `arcod openapi` печатает ту же модель документом OpenAPI 3.1 в stdout —
@@ -854,6 +883,8 @@ arcod migrate examples/tasks
 - `A054` `unique` не указывает на поле типа-записи;
 - `A055` `unique` без объявленной ошибки `Conflict`;
 - `A056` `unique` без хранилища `kv`/`sql`, где держать claim;
+- `A057` `call`/`compensate` шага saga называет неизвестную операцию;
+- `A058` `saga:` в job называет необъявленную saga;
 - `W026` внешний сервис вызывают, но адрес не задан;
 - `W028` презентация без `stream`: страница будет опрашивать состояние.
 
@@ -964,6 +995,7 @@ examples/
   tasks/               хранилище записей: unique, фильтр, страницы (kv)
   tasks-sql/           те же тела на sql
   orders/              sql + queue: атомарный publish+fact через outbox
+  saga/                saga: multi-step с компенсацией, исполняет рантайм
 test/             node --test
 ```
 

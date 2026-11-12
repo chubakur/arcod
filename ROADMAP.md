@@ -161,7 +161,8 @@ namespace), constrained-типы (`email`, `url`, `enum`) и вторая реа
 повторный запуск ничего не делает, дубль title — 409.
 
 Транзакционный publish+fact через outbox закрыт (см. раздел 5); runtime на
-осознанных таблицах тоже (M0.4). Осталось: multi-step `tx`/saga.
+осознанных таблицах тоже (M0.4). Saga (линейные multi-step сценарии с
+компенсацией, `saga` в модели + рантайм-раннер) закрыт; пример `examples/saga`.
 
 **Проблема (на момент аудита):** Liquibase поднимается как контейнер, но changelog не генерируется. Транзакционность есть только в виде специализированного atomic read.
 
@@ -184,7 +185,7 @@ namespace), constrained-типы (`email`, `url`, `enum`) и вторая реа
 
 ### 5. Асинхронность и события
 
-**Статус: частично (2026-11-12) — M0.3 закрыт, outbox закрыт, runner остался.** Stream: `bind stream -> redis(...)` переключает транспорт на pub/sub — реплики делят подписчиков, событие приходит ровно один раз (собственный echo приходит через брокер, локальная доставка не дублируется), reconnect переподписывается; memory-драйвер без бинда. Queue: capability с эффектами `publish`/`dead`; консьюмеры объявляются в модели — `job ... { on: alias.topic, retry: n }` — runtime владеет lifecycle (старт до http, graceful shutdown с дообработкой текущего сообщения, ack-by-completion, requeue, dead letter после retry-бюджета); драйверы memory и redis (lists, zero-dep RESP-клиент); проверки A051–A053, W017 не действует на queue-backed job'ы. Redis теперь реализует `kv` + `stream` + `queue` (extraCapabilities). e2e-тесты на fake-RESP-брокере: две реплики видят одни события, retry/dead-letter на обоих драйверах. Осталось: saga, workflow runner — помечен как external-runner contract.
+**Статус: частично (2026-11-12) — M0.3 закрыт, outbox закрыт, runner остался.** Stream: `bind stream -> redis(...)` переключает транспорт на pub/sub — реплики делят подписчиков, событие приходит ровно один раз (собственный echo приходит через брокер, локальная доставка не дублируется), reconnect переподписывается; memory-драйвер без бинда. Queue: capability с эффектами `publish`/`dead`; консьюмеры объявляются в модели — `job ... { on: alias.topic, retry: n }` — runtime владеет lifecycle (старт до http, graceful shutdown с дообработкой текущего сообщения, ack-by-completion, requeue, dead letter после retry-бюджета); драйверы memory и redis (lists, zero-dep RESP-клиент); проверки A051–A053, W017 не действует на queue-backed job'ы. Redis теперь реализует `kv` + `stream` + `queue` (extraCapabilities). e2e-тесты на fake-RESP-брокере: две реплики видят одни события, retry/dead-letter на обоих драйверах. Saga (линейные multi-step сценарии с компенсацией) тоже закрыта: `saga` в модели, рантайм-раннер с retry шага и reverse-компенсацией, триггер — job с `saga:`. Осталось: workflow runner — помечен как external-runner contract.
 
 **Проблема:** `stream` in-memory и однонаправленный; `queue`, `workflow`, `job` декларативны.
 
@@ -201,6 +202,12 @@ namespace), constrained-типы (`email`, `url`, `enum`) и вторая реа
   в таблицу `arcod_outbox` (миграция `0003`), диспетчер на своей connection
   ретранслирует в брокер и помечает published. Идентификаторы SQL всегда
   бэктикаются (`q()`), так что reserved-слова (`order`) безопасны. Пример `examples/orders`.
+- Saga — ✅: `saga Name { step s { call, compensate, retry } }` в модели,
+  рантайм-раннер исполняет шаги по порядку, ретраит падающий шаг и на финальном
+  падении компенсирует завершённые шаги в обратном порядке; триггер — job с
+  `saga:`. Компенсация — терминальное состояние (не ретрай сообщения). Пример
+  `examples/saga`; шаг вызывает свой op (без точки) или внешний (`Svc.op` через
+  remote).
 - Минимальный исполняемый `job`/`workflow` runner:
   - либо собственный `journal` + scheduler;
   - либо честно отдать граф внешнему runner, но тогда закрыть promise в docs и убрать из “рабочих” фич.

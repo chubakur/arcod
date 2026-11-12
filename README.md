@@ -544,6 +544,34 @@ be a declared `queue` alias (`A052`), `retry` without `on:` is an error
 (`A053`), and a queue-backed job is executed — so the `W017` "jobs are not
 executed" warning no longer applies to it.
 
+### A saga: multi-step with compensation
+
+A saga is a linear, multi-step operation the runtime executes itself — unlike a
+`workflow`, which is an external-runner contract. Each step runs an operation
+and may name a compensating operation:
+
+```arcod
+saga checkout {
+  step reserve {
+    call: reserve          // own op, in-process
+    compensate: release
+  }
+  step charge {
+    call: Billing.charge   // external service, via remoteCall
+    compensate: Billing.refund
+    retry: 2
+  }
+}
+```
+
+A job drives it: `job run_checkout(label: string) { on: events.checkout
+saga: checkout }`. The runner executes steps in order, retries a failing step
+up to `retry` (default one attempt), and on final failure compensates the
+completed steps in reverse order. Compensation is the terminal state — the
+message is not retried. See `examples/saga`.
+
+Checked by the compiler: a step's `call`/`compensate` must name a real
+operation (`A057`), and a job's `saga:` must name a declared saga (`A058`).
 
 ### The contract as OpenAPI
 
@@ -835,7 +863,9 @@ Errors:
 - `A053` `retry` without an `on:` consumer;
 - `A054` `unique` does not name a field of a record type;
 - `A055` `unique` without a declared `Conflict` error to return;
-- `A056` `unique` without a `kv`/`sql` store to keep the claim.
+- `A056` `unique` without a `kv`/`sql` store to keep the claim;
+- `A057` a saga step's `call`/`compensate` names an unknown operation;
+- `A058` a job's `saga:` names an undeclared saga.
 
 Warnings:
 
@@ -959,6 +989,7 @@ examples/
   tasks/               a record store: unique, filter, keyset pages (kv)
   tasks-sql/           the same bodies on sql
   orders/              sql + queue: an atomic publish+fact via the outbox
+  saga/                a saga: multi-step with compensation, run by the runtime
 test/             node --test
 ```
 

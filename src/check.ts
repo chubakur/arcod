@@ -459,6 +459,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
 
   checkExternalServices(mod, diags);
   checkWorkflows(mod, diags);
+  checkSagas(mod, diags);
 
   return sortDiagnostics(diags);
 }
@@ -560,6 +561,53 @@ function checkWorkflows(mod: ModuleNode, diags: Diagnostic[]): void {
         diags.push(diag('W020', 'warning', mod.file, step.loc, path + '.steps.' + step.name,
           'onFail: skip, but these steps depend on it: ' + consumers.map((item) => item.name).join(', '),
           'dependent steps will be skipped; use onFail: stop if that is not intended'));
+      }
+    }
+  }
+}
+
+// Sagas are executed by the runtime, so the checks are about resolvability:
+// every step's call and compensate must point at a real operation — an own op
+// (unqualified name) or an external service op (qualified). A job's 'saga:'
+// clause must name a declared saga.
+function checkSagas(mod: ModuleNode, diags: Diagnostic[]): void {
+  const knownOps = new Set<string>();
+  for (const svc of mod.services) {
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      knownOps.add(svc.name + '.' + op.name);
+    }
+  }
+
+  for (const svc of mod.services) {
+    if (svc.external) continue;
+    const sagaNames = new Set(svc.sagas.map((s) => s.name));
+    for (const saga of svc.sagas) {
+      const path = 'services.' + svc.name + '.sagas.' + saga.name;
+      // Unqualified = own op, qualified = external service op.
+      const qualify = (name: string): string => name.includes('.') ? name : svc.name + '.' + name;
+      for (const step of saga.steps) {
+        if (!step.call) {
+          diags.push(diag('A057', 'error', mod.file, step.loc, path + '.steps.' + step.name,
+            'a saga step needs a call', 'add call: <op> or call: <Service>.<op>'));
+        } else if (!knownOps.has(qualify(step.call))) {
+          diags.push(diag('A057', 'error', mod.file, step.loc, path + '.steps.' + step.name,
+            'saga step calls unknown operation ' + step.call,
+            'an unqualified name must be an own op; a qualified one an external service op'));
+        }
+        if (step.compensate && !knownOps.has(qualify(step.compensate))) {
+          diags.push(diag('A057', 'error', mod.file, step.loc, path + '.steps.' + step.name,
+            'saga step compensates with unknown operation ' + step.compensate,
+            'the compensation must reference an existing operation'));
+        }
+      }
+    }
+    for (const op of svc.contract) {
+      if (op.kind !== 'job') continue;
+      const sagaClause = op.clauses.find((c) => c.kind === 'saga');
+      if (sagaClause && sagaClause.kind === 'saga' && !sagaNames.has(sagaClause.name)) {
+        diags.push(diag('A058', 'error', mod.file, sagaClause.loc, 'services.' + svc.name + '.contract.' + op.name,
+          'job runs undeclared saga ' + sagaClause.name, 'declare saga ' + sagaClause.name + ' in this service'));
       }
     }
   }

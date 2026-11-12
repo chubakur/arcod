@@ -844,6 +844,97 @@ function outboxOps(svc: ServiceNode): Set<string> {
   return out;
 }
 
+// A saga is a linear multi-step operation with compensation, executed by the
+// runtime. Steps run in order; a failed step is retried, and on final failure
+// the completed steps are compensated in reverse. Triggered by a job with
+// 'saga: <name>'.
+function sagaSource(svc: ServiceNode, impl: Record<string, string>): string {
+  if (svc.sagas.length === 0) return '';
+  const ownOps = svc.contract
+    .filter((op) => op.kind === 'op' && impl[op.name])
+    .map((op) => {
+      const fn = 'impl' + op.name.charAt(0).toUpperCase() + op.name.slice(1);
+      return '    ' + JSON.stringify(op.name) + ': ' + fn + ',';
+    });
+  const sagas = svc.sagas.map((saga) => {
+    const steps = saga.steps.map((step) => [
+      '      { name: ' + JSON.stringify(step.name) + ',',
+      '        call: ' + JSON.stringify(step.call ?? '') + ',',
+      '        compensate: ' + JSON.stringify(step.compensate ?? '') + ',',
+      '        retry: ' + (step.retry ?? 0) + ' },',
+    ].join('\n'));
+    return [
+      '  { name: ' + JSON.stringify(saga.name) + ', steps: [',
+      steps.join('\n'),
+      '  ] },',
+    ].join('\n');
+  });
+
+  return [
+    '',
+    '// ---------- saga ----------',
+    '',
+    'const SAGAS = [',
+    sagas.join('\n'),
+    '];',
+    '',
+    'const OWN_OPS = {',
+    ownOps.join('\n'),
+    '};',
+    '',
+    'async function sagaInvoke(ref, input, io) {',
+    "  if (ref.indexOf('.') >= 0) {",
+    "    const parts = ref.split('.');",
+    '    return await remoteCall(parts[0], parts[1], input);',
+    '  }',
+    '  const fn = OWN_OPS[ref];',
+    "  if (!fn) throw new Error('saga: unknown own op ' + ref);",
+    '  return await fn(input, io);',
+    '}',
+    '',
+    'async function runSaga(name, input, io) {',
+    '  const saga = SAGAS.find((s) => s.name === name);',
+    "  if (!saga) throw new Error('saga: unknown saga ' + name);",
+    '  const completed = [];',
+    '  for (const step of saga.steps) {',
+    '    const attempts = (step.retry == null ? 0 : step.retry) + 1;',
+    '    let ok = false;',
+    '    let lastError = null;',
+    '    for (let attempt = 0; attempt < attempts; attempt++) {',
+    '      try {',
+    '        const out = await sagaInvoke(step.call, input, io);',
+    "        if (out && out.error) throw new Error('saga step ' + step.name + ' returned ' + out.error);",
+    '        ok = true;',
+    '        break;',
+    '      } catch (error) {',
+    '        lastError = error;',
+    '      }',
+    '    }',
+    '    if (!ok) {',
+    '      // Compensate the completed steps in reverse order. Compensation is',
+    '      // the terminal state of a failed saga: the message is not retried.',
+    '      for (let i = completed.length - 1; i >= 0; i--) {',
+    '        const done = completed[i];',
+    '        if (!done.compensate) continue;',
+    '        try {',
+    '          await sagaInvoke(done.compensate, input, io);',
+    "          metricCapability('saga.compensate.' + done.name);",
+    '        } catch (error) {',
+    "          console.error('saga compensation failed:', done.compensate, error && error.message ? error.message : error);",
+    '        }',
+    '      }',
+    "      metricCapability('saga.' + name + '.compensated');",
+    "      return { result: { status: 'compensated', step: step.name, error: String(lastError && lastError.message ? lastError.message : lastError) } };",
+    '    }',
+    '    completed.push(step);',
+    '  }',
+    "  metricCapability('saga.' + name);",
+    "  return { result: { status: 'completed' } };",
+    '}',
+    '',
+  ].join('\n');
+}
+
 // Queue drivers and consumers are emitted only in impl mode: reference and
 // scaffold handlers are self-contained and never touch the io adapter.
 function queueSourceFor(svc: ServiceNode, impl?: Record<string, string>): string {
@@ -852,16 +943,21 @@ function queueSourceFor(svc: ServiceNode, impl?: Record<string, string>): string
     .filter((op) => op.kind === 'job')
     .flatMap((op) => {
       const consume = op.clauses.find((clause) => clause.kind === 'consume');
-      if (!consume || consume.kind !== 'consume' || !impl[op.name]) return [];
+      if (!consume || consume.kind !== 'consume') return [];
       const retry = op.clauses.find((clause) => clause.kind === 'retry');
+      const sagaClause = op.clauses.find((clause) => clause.kind === 'saga');
+      const isSaga = sagaClause && sagaClause.kind === 'saga';
+      if (!isSaga && !impl[op.name]) return [];
       return [{
         topic: consume.source.split('.').slice(1).join('.'),
-        handler: 'impl' + op.name.charAt(0).toUpperCase() + op.name.slice(1),
+        handler: isSaga
+          ? '(input, io) => runSaga(' + JSON.stringify(sagaClause.name) + ', input, io)'
+          : 'impl' + op.name.charAt(0).toUpperCase() + op.name.slice(1),
         params: op.params.map((param) => param.name),
         retry: retry && retry.kind === 'retry' ? retry.value : 3,
       }];
     });
-  return QUEUE_SOURCE + '\n' + consumerSource(consumers);
+  return sagaSource(svc, impl) + QUEUE_SOURCE + '\n' + consumerSource(consumers);
 }
 
 function dropRedis(template: string): string {
