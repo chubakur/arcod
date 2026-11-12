@@ -43,6 +43,55 @@ function utf8Of(cell) {
   return cell == null ? null : cell.toString('utf8');
 }
 
+// ---------- typed entity codec ----------
+//
+// Records live in real tables when the driver is sql. A value is written as a
+// literal of its column type and read back through the same base type, so a
+// field can never drift between schema and runtime.
+
+function normalizeDateTime(value) {
+  return String(value).replace('T', ' ').replace(/Z$/, '');
+}
+
+function isoDateTime(value) {
+  return String(value).replace(' ', 'T') + 'Z';
+}
+
+function sqlLiteral(base, value) {
+  if (value === null || value === undefined) return 'NULL';
+  if (base === 'bool' || base === 'boolean') return value ? '1' : '0';
+  if (base === 'int' || base === 'float' || base === 'number' || base === 'decimal') {
+    return typeof value === 'number' ? String(value) : literal(hexOf(String(value)));
+  }
+  if (base === 'datetime') return literal(hexOf(normalizeDateTime(value)));
+  if (base === 'json' || base === 'list' || base === 'map') return literal(hexOf(JSON.stringify(value)));
+  return literal(hexOf(String(value)));
+}
+
+function readCell(base, cell) {
+  if (cell === null || cell === undefined) return null;
+  const text = cell.toString('utf8');
+  if (base === 'int' || base === 'float' || base === 'number' || base === 'decimal') {
+    const n = Number(text);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (base === 'bool' || base === 'boolean') return text === '1';
+  if (base === 'datetime') return isoDateTime(text);
+  if (base === 'json' || base === 'list' || base === 'map') {
+    try { return JSON.parse(text); } catch (ignored) { return null; }
+  }
+  return text;
+}
+
+function rowToObject(columns, row) {
+  const obj = {};
+  for (let index = 0; index < columns.length; index += 1) {
+    obj[columns[index].name] = readCell(columns[index].base, row[index]);
+  }
+  return obj;
+}
+
+
 function xorBytes(left, right) {
   const out = Buffer.alloc(left.length);
   for (let index = 0; index < left.length; index += 1) {
@@ -352,6 +401,113 @@ class SqlStore {
     const result = await this.query("DELETE FROM arcod_kv WHERE k = " + literal(hexOf(key)));
     return result.affected;
   }
+
+  // ---------- typed entity operations ----------
+
+  async entityFetch(table, columns, id) {
+    const names = columns.map((c) => c.name).join(', ');
+    const found = await this.query('SELECT ' + names + ' FROM ' + table + ' WHERE id = ' + literal(hexOf(String(id))) + ' LIMIT 1');
+    if (found.rows.length === 0) return null;
+    return rowToObject(columns, found.rows[0]);
+  }
+
+  async entityInsert(table, columns, record) {
+    const names = columns.map((c) => c.name).join(', ');
+    const values = columns.map((c) => sqlLiteral(c.base, record[c.name])).join(', ');
+    try {
+      await this.query('INSERT INTO ' + table + ' (' + names + ') VALUES (' + values + ')');
+    } catch (error) {
+      if (String(error && error.message).includes('mysql 1062')) throw new ArcodError('Conflict');
+      throw error;
+    }
+  }
+
+  async entityUpdate(table, columns, id, patch) {
+    const current = await this.entityFetch(table, columns, id);
+    if (current == null) throw new ArcodError('NotFound');
+    const next = Object.assign({}, current, patch || {});
+    const set = columns.map((c) => c.name + ' = ' + sqlLiteral(c.base, next[c.name])).join(', ');
+    try {
+      await this.query('UPDATE ' + table + ' SET ' + set + ' WHERE id = ' + literal(hexOf(String(id))));
+    } catch (error) {
+      if (String(error && error.message).includes('mysql 1062')) throw new ArcodError('Conflict');
+      throw error;
+    }
+    return next;
+  }
+
+  async entityRemove(table, columns, id) {
+    await this.query('DELETE FROM ' + table + ' WHERE id = ' + literal(hexOf(String(id))));
+  }
+
+  async entityFind(table, columns, query) {
+    const q = query || {};
+    const requested = Number(q.limit);
+    const limit = Number.isFinite(requested) && requested > 0 ? Math.min(500, Math.floor(requested)) : 50;
+    const order = parseOrder(q.order);
+
+    const where = [];
+    for (const [field, cond] of Object.entries(q.where || {})) {
+      const col = columns.find((c) => c.name === field);
+      if (!col) continue;
+      where.push(...this.whereClauses(col, cond));
+    }
+
+    const at = q.cursor ? decodeCursor(q.cursor) : null;
+    if (at && Array.isArray(at.v) && at.v.length === order.length) {
+      where.push(this.keysetClause(columns, order, at.v, at.id));
+    }
+
+    const whereSql = where.length > 0 ? ' WHERE ' + where.join(' AND ') : '';
+    const orderSql = order.map((r) => r.field + ' ' + (r.dir < 0 ? 'DESC' : 'ASC')).join(', ') + ', id ASC';
+    const names = columns.map((c) => c.name).join(', ');
+
+    const found = await this.query('SELECT ' + names + ' FROM ' + table + whereSql + ' ORDER BY ' + orderSql + ' LIMIT ' + (limit + 1));
+    const items = found.rows.map((row) => rowToObject(columns, row));
+    const hasMore = items.length > limit;
+    const page = hasMore ? items.slice(0, limit) : items;
+
+    let next = null;
+    if (hasMore && page.length > 0) {
+      const tail = page[page.length - 1];
+      next = encodeCursor(order.map((r) => (tail[r.field] == null ? null : tail[r.field])), tail.id);
+    }
+    return { items: page, next };
+  }
+
+  whereClauses(col, cond) {
+    const clauses = [];
+    const ops = (typeof cond === 'object' && cond !== null && !Array.isArray(cond)) ? cond : { eq: cond };
+    for (const [op, value] of Object.entries(ops)) {
+      const colSql = col.name;
+      if (op === 'eq') clauses.push(colSql + ' = ' + sqlLiteral(col.base, value));
+      else if (op === 'ne') clauses.push(colSql + ' <> ' + sqlLiteral(col.base, value));
+      else if (op === 'in' && Array.isArray(value)) clauses.push(colSql + ' IN (' + value.map((v) => sqlLiteral(col.base, v)).join(', ') + ')');
+      else if (op === 'gt') clauses.push(colSql + ' > ' + sqlLiteral(col.base, value));
+      else if (op === 'gte') clauses.push(colSql + ' >= ' + sqlLiteral(col.base, value));
+      else if (op === 'lt') clauses.push(colSql + ' < ' + sqlLiteral(col.base, value));
+      else if (op === 'lte') clauses.push(colSql + ' <= ' + sqlLiteral(col.base, value));
+      else if (op === 'contains') clauses.push(colSql + ' LIKE ' + literal(hexOf('%' + String(value) + '%')));
+    }
+    return clauses;
+  }
+
+  keysetClause(columns, order, values, id) {
+    const terms = [];
+    const eqs = [];
+    for (let index = 0; index < order.length; index += 1) {
+      const col = columns.find((c) => c.name === order[index].field);
+      if (!col) continue;
+      const colSql = order[index].field;
+      const cmp = order[index].dir < 0 ? '<' : '>';
+      const literalValue = sqlLiteral(col.base, values[index]);
+      terms.push((eqs.length > 0 ? eqs.join(' AND ') + ' AND ' : '') + colSql + ' ' + cmp + ' ' + literalValue);
+      eqs.push(colSql + ' <=> ' + literalValue);
+    }
+    terms.push((eqs.length > 0 ? eqs.join(' AND ') + ' AND ' : '') + 'id > ' + literal(hexOf(String(id))));
+    return '(' + terms.join(' OR ') + ')';
+  }
+
 
   // Claiming a unique value must not race: INSERT IGNORE reports zero affected
   // rows when the key already exists, and the primary key decides the winner.

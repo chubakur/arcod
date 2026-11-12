@@ -9,7 +9,7 @@ import { STREAM_SOURCE } from './stream.ts';
 import { QUEUE_SOURCE, QUEUE_SHUTDOWN, consumerSource } from './queue.ts';
 import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
-import { migrationPlan } from '../migrate.ts';
+import { migrationPlan, recordColumns } from '../migrate.ts';
 
 export interface EmitOptions {
   port?: number;
@@ -836,7 +836,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
     '',
   ].join('\n');
 
-  const stores = entityStores(mod, svc);
+  const stores = storageKind(svc) === 'sql' ? sqlEntityStores(mod, svc) : entityStores(mod, svc);
 
   return header + template
     .replace('__CONFIG__', () => JSON.stringify(config, null, 2))
@@ -994,6 +994,43 @@ function guardedHandlers(svc: ServiceNode): string {
   }
 
   return parts.join('\n');
+}
+
+// Entity methods for the sql driver: records live in typed tables, so the io
+// surface delegates to the store's typed operations. Unique is the table's
+// UNIQUE KEY (a duplicate is the declared Conflict), find is pushed into SQL.
+function sqlEntityIoLines(): string[] {
+  return [
+    '    async fetch(entity, id) {',
+    '      metricCapability("store.fetch");',
+    '      const meta = requestEntity(entity);',
+    '      return await store.entityFetch(meta.table, meta.columns, id);',
+    '    },',
+    '    async insert(entity, record) {',
+    '      metricCapability("store.insert");',
+    '      const meta = requestEntity(entity);',
+    '      const value = Object.assign({}, record || {});',
+    "      if (value.id == null || value.id === '') throw new ArcodError('Invalid');",
+    '      await store.entityInsert(meta.table, meta.columns, value);',
+    '      return value;',
+    '    },',
+    '    async update(entity, id, patch) {',
+    '      metricCapability("store.update");',
+    '      const meta = requestEntity(entity);',
+    '      return await store.entityUpdate(meta.table, meta.columns, id, patch);',
+    '    },',
+    '    async remove(entity, id) {',
+    '      metricCapability("store.remove");',
+    '      const meta = requestEntity(entity);',
+    '      await store.entityRemove(meta.table, meta.columns, id);',
+    '      return true;',
+    '    },',
+    '    async find(entity, query) {',
+    '      metricCapability("store.find");',
+    '      const meta = requestEntity(entity);',
+    '      return await store.entityFind(meta.table, meta.columns, query);',
+    '    },',
+  ];
 }
 
 function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: boolean, externals: ServiceNode[] = []): string {
@@ -1176,6 +1213,10 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     '      };',
     '    },',
   );
+
+  if (storageKind(svc) === 'sql') {
+    parts.push(...sqlEntityIoLines());
+  }
 
   if (hasIdentity) {
     parts.push(
@@ -1489,6 +1530,26 @@ function entityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { prefi
     table[decl.name] = {
       prefix: decl.name.toLowerCase() + ':',
       unique: uniques.filter(([entity]) => entity === decl.name).map(([, field]) => field),
+    };
+  }
+  return table;
+}
+
+function sqlEntityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { table: string; columns: unknown[]; unique: string[] }> {
+  const table: Record<string, { table: string; columns: unknown[]; unique: string[] }> = {};
+  const uniquesByEntity: Record<string, string[]> = {};
+  for (const rule of svc.rules) {
+    if (rule.kind !== 'unique') continue;
+    const parts = rule.path.split('.');
+    if (parts.length === 2) (uniquesByEntity[parts[0]] ??= []).push(parts[1]);
+  }
+  for (const decl of mod.types) {
+    if (decl.type.kind !== 'record') continue;
+    const unique = uniquesByEntity[decl.name] ?? [];
+    table[decl.name] = {
+      table: decl.name.toLowerCase(),
+      columns: recordColumns(mod, decl, unique),
+      unique,
     };
   }
   return table;

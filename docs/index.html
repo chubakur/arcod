@@ -304,7 +304,7 @@
               <span><b style="color:var(--text); font-size:18px">0</b><br>runtime deps</span>
               <span><b style="color:var(--text); font-size:18px">55</b><br>diagnostics</span>
               <span><b style="color:var(--text); font-size:18px">9</b><br>capabilities</span>
-              <span><b style="color:var(--text); font-size:18px">99</b><br>tests</span>
+              <span><b style="color:var(--text); font-size:18px">100</b><br>tests</span>
             </div>
           </div>
         </div>
@@ -589,8 +589,8 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <ul>
             <li><b>Scaffold without bodies</b> knows only <code>create</code> and <code>read</code>; with <code>--impl</code> any operation is accepted.</li>
             <li><b>OLAP, metrics, secrets</b> and friends are provisioned in compose but have no effect signatures; <b>Kafka and RabbitMQ</b> provision a queue the adapter cannot speak — bind <code>queue</code> to Redis.</li>
-            <li><b><code>find</code> is a scan with a filter</b>, not a query planner: one entity namespace matched in memory. Fine for thousands of rows, not millions; schema-aware SQL tables and indexes come next. A unique claim also outlives a TTL-expired record until the record is removed.</li>
-            <li><b>Migrations create the typed tables</b>, but the v0.1 runtime still writes records as blobs in <code>arcod_kv</code> — the typed schema is the schema of record until the runtime moves onto it.</li>
+            <li><b><code>find</code> on <code>kv</code> is a scan with a filter</b>, not a query planner: one entity namespace matched in memory. On <code>sql</code> the same <code>find</code> is pushed into <code>WHERE</code>/<code>ORDER BY</code>/<code>LIMIT</code>. Declared indexes beyond <code>unique</code> are not generated yet.</li>
+            <li><b>A unique claim on <code>kv</code> outlives the record</b>: the claim key has no TTL, so an expired record holds its value until removed or updated. On <code>sql</code>, uniqueness is the table constraint, so nothing to clean up.</li>
             <li><b>Workflows</b> are parsed, described and validated — no runner is generated (<code>W022</code>); a job runs only when it declares an <code>on:</code> queue consumer (<code>W017</code>).</li>
             <li><b>Streams and queues are in-process</b> until you bind them to Redis; only then do replicas share events. OpenAPI has no <code>securitySchemes</code> yet.</li>
             <li><b>JavaScript only.</b> PHP, Go and Python would be separate emitters.</li>

@@ -769,9 +769,12 @@ arcod migrate examples/tasks
 # artifact: .arcod/build/migrations/ — changelog.json + up/down .sql
 ```
 
-The typed tables are the schema of record. The v0.1 runtime still writes records
-as blobs in `arcod_kv`; moving the runtime onto the typed tables is the
-remaining piece of the data-model work.
+On the `sql` driver the runtime writes straight into these typed tables: a
+record is a row, `unique` is the table's `UNIQUE KEY` (a duplicate is the
+database's ER_DUP_ENTRY, surfaced as the declared `Conflict`), and `find` is
+pushed into SQL (`WHERE`/`ORDER BY`/`LIMIT` with a keyset predicate). The
+`kv` driver (memory/Redis) keeps the blob store and claim keys, so the same
+bodies run unchanged on both.
 
 ## Checks
 
@@ -972,10 +975,11 @@ This is a vertical slice, not a finished language.
 - a `job` without an `on:` consumer is still parsed but not executed
   (`W017`): there is no state model or selection condition yet. Queue-backed
   consumers do run, with retry and dead letters.
-- **`find` is a scan with a filter**, not a query planner: the adapter reads
-  one entity namespace and matches in memory, which is fine for thousands of
-  rows and wrong for millions. Schema-aware SQL tables, declared indexes and
-  pushdown are the next step.
+- **`find` on `kv` is a scan with a filter**, not a query planner: the adapter
+  reads one entity namespace and matches in memory, which is fine for thousands
+  of rows and wrong for millions. On `sql` the same `find` is pushed into
+  `WHERE`/`ORDER BY`/`LIMIT`; declared indexes beyond `unique` are not
+  generated yet.
 - **A unique claim outlives the record**: the claim key has no TTL of its own,
   so a record that expires still holds its value until `io.remove`/`io.update`
   releases it. Update and delete keep the index in step; TTL cleanup is not

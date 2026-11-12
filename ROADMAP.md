@@ -78,7 +78,25 @@
 
 ### 3. Настоящая модель данных
 
-**Статус: частично (2026-11-12) — запись, unique, find и курсор есть; схема БД и индексы — нет.**
+**Статус: готово (2026-11-12) — запись, unique, find, курсор и schema-aware SQL.**
+Тип-запись — хранилище: `io.insert/fetch/update/remove` держат запись, `io.find`
+фильтрует (`eq`, `ne`, `in`, `gt/gte/lt/lte`, `contains`), сортирует и листает
+keyset-курсором. `rules { unique Task.title }` проверяется компилятором
+(`A054`–`A056`) и исполняется адаптером: дубль — `Conflict` (409), не 500.
+
+На `sql`-драйвере запись теперь лежит в осознанной таблице, а не блобом:
+`arcod migrate` генерирует типизированные колонки и `UNIQUE KEY`, рантайм пишет
+и читает через один codec (`sqlLiteral`/`readCell`), `find` уходит в SQL
+(`WHERE`/`ORDER BY`/`LIMIT` + keyset-предикат), unique — constraint БД
+(ER_DUP_ENTRY → `Conflict`), а не claim-ключ. `datetime` ходит как
+`DATETIME(3)` туда и ISO-строкой обратно; числа — как числа. Проверено на
+MySQL 8.4: строки в таблице `task`, `arcod_kv` пуст, фильтр/сортировка/
+курсор/дубль 409/404 работают. `kv`-драйвер (память/Redis) оставлен на blob+claim.
+
+Осталось из модели данных: значения по умолчанию на уровне схемы и
+constrained-типы (`email`, `url`) — мелочь; индексы за пределами unique.
+
+
 Тип-запись теперь и есть хранилище: `io.insert/fetch/update/remove` держат запись и
 unique-claim вместе, `io.find(entity, { where, order, limit, cursor })` фильтрует
 (`eq`, `ne`, `in`, `gt/gte/lt/lte`, `contains`), сортирует по нескольким полям и
@@ -336,8 +354,8 @@ trace-hooks (span/OTEL export) — это следующий срез.
 4. **M0.4 — data model v2**  
    Типизированные записи, query, pagination, unique, indexes.
    ✅ запись как хранилище, `insert/fetch/update/remove/find`, keyset-курсор,
-   unique с атомарным claim, `datetime`/`decimal` в OpenAPI; ⏳ индексы,
-   SQL-схема на запись и pushdown.
+   unique, `datetime`/`decimal` в OpenAPI, schema-aware SQL (типизированные
+   таблицы, pushdown `find`, unique как constraint).
 
 5. **M0.5 — migrations + observability**  
    Prod baseline: миграции, метрики, логи, request-id, timeouts.

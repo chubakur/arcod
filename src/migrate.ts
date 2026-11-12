@@ -56,6 +56,32 @@ function sqlTypeOf(base: string, unique: boolean): string {
   }
 }
 
+export interface Column {
+  name: string;
+  base: string;
+  nullable: boolean;
+  unique: boolean;
+  sql: string;
+}
+
+// Column metadata shared by the DDL emitter and the sql runtime codec: the
+// same resolution that picks a column type decides how a value is written and
+// read back, so a field can never drift between schema and runtime.
+export function recordColumns(mod: ModuleNode, decl: TypeDecl, uniques: string[]): Column[] {
+  const fields = decl.type.kind === 'record' ? decl.type.fields : [];
+  return fields.map((field) => {
+    const base = baseType(mod, field.type);
+    const unique = uniques.includes(field.name);
+    return {
+      name: field.name,
+      base,
+      nullable: field.type.kind === 'optional',
+      unique,
+      sql: sqlTypeOf(base, unique),
+    };
+  });
+}
+
 function columnDef(mod: ModuleNode, name: string, type: TypeExpr, unique: boolean): string {
   const optional = type.kind === 'optional';
   const base = baseType(mod, type);

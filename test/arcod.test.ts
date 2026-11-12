@@ -1978,3 +1978,22 @@ test('the sql service embeds and applies migrations', async () => {
   assert.ok(code.includes('was edited after it was applied'), 'a checksum mismatch refuses to start');
 });
 
+test('the sql service writes records to typed tables, not blobs', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-typed-'));
+  const sqlUrl = new URL('../examples/tasks-sql/main.arc', import.meta.url);
+  const sqlAst = parse(await readFile(sqlUrl, 'utf8'), 'main.arc');
+  const implDir = fileURLToPath(new URL('../examples/tasks/impl', import.meta.url));
+  const built = await buildExample(sqlAst, dir, { implDir });
+  const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(code.includes('async entityFind('), 'the sql store has typed find');
+  assert.ok(code.includes('async entityInsert('), 'the sql store has typed insert');
+  assert.ok(code.includes('"table": "task"'), 'the entity is wired to a typed table');
+  assert.ok(code.includes('function sqlLiteral('), 'the value codec is emitted');
+  assert.ok(code.includes('mysql 1062'), 'a duplicate key surfaces as Conflict');
+
+  const kvDir = await mkdtemp(join(tmpdir(), 'arcod-kv-')); 
+  const kvBuilt = await buildExample(tasksAst, kvDir, { implDir });
+  const kvCode = await readFile(join(kvBuilt.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(!kvCode.includes('async entityFind('), 'the kv driver keeps the blob store');
+});
+
