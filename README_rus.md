@@ -760,6 +760,10 @@ arcod run --impl examples/onetimemessage-pwd
 - **Request timeouts.** `server.requestTimeout`/`headersTimeout` и
   `AbortSignal.timeout` на внешних вызовах, управляются `ARCod_TIMEOUT_MS`
   (по умолчанию `30000`).
+- **Трейсы.** Каждая операция выполняется в server-span, каждый внешний вызов —
+  в client-span, связка parent/child через `AsyncLocalStorage`. При
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` спаны уходят батчами как OTLP/JSON
+  (`POST <endpoint>/v1/traces`) — без зависимостей, opt-in.
 
 ```bash
 curl -s localhost:8091/metrics | head

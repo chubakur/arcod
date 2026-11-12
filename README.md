@@ -748,6 +748,10 @@ no dependencies, no config required:
 - **Request timeouts.** `server.requestTimeout`/`headersTimeout` and an
   `AbortSignal.timeout` on external calls, driven by `ARCod_TIMEOUT_MS`
   (default `30000`).
+- **Traces.** Every operation runs in a server span and every external call in
+  a client span, parented through `AsyncLocalStorage`. With
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` set, spans are flushed as OTLP/JSON
+  (`POST <endpoint>/v1/traces`) in batches — zero dependencies, opt-in.
 
 ```bash
 curl -s localhost:8091/metrics | head

@@ -2040,5 +2040,21 @@ test('arcod test executes the given section as state setup', async () => {
   assert.ok(seeded.ok, 'given setup produced a readable message: ' + (seeded.error ?? ''));
 });
 
+test('the service emits operation spans and exports OTLP when asked', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-trace-'));
+  const project1Url = new URL('../examples/project1/main.arc', import.meta.url);
+  const project1Ast = parse(await readFile(project1Url, 'utf8'), 'main.arc');
+  const implDir = fileURLToPath(new URL('../examples/project1/impl', import.meta.url));
+  const built = await buildExample(project1Ast, dir, { implDir });
+  const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(code.includes('async function withSpan('), 'the span helper exists');
+  assert.ok(code.includes('const spanCtx = new AsyncLocalStorage()'), 'spans are parented via ALS');
+  assert.ok(code.includes('startTimeUnixNano'), 'spans carry OTLP timestamps');
+  assert.ok(code.includes('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'), 'the OTLP exporter is gated by env');
+  assert.ok(code.includes('function flushOtlp()'), 'spans are flushed in batches');
+  assert.ok(code.includes('withSpan(opName || routeName'), 'the operation dispatch is wrapped in a span');
+});
+
+
 
 

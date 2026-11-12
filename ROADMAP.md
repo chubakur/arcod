@@ -240,7 +240,7 @@ namespace), constrained-типы (`email`, `url`, `enum`) и вторая реа
 capability-счётчики считают store-операции и remote-вызовы.
 
 Осталось из M0.5: миграции (`arcod migrate`, changelog, up/down, checksum) и
-trace-hooks (span/OTEL export) — это следующий срез.
+trace-hooks — оба закрыты (см. статус выше). M0.5 закрыт целиком.
 
 **Проблема (на момент аудита):** Prometheus/Jaeger/Sentry/Vault провижнятся, но сгенерированный сервис почти не пишет телеметрию.
 
@@ -249,7 +249,11 @@ trace-hooks (span/OTEL export) — это следующий срез.
 - Structured access log: method, route, status, latency, request id, actor id, operation.
 - Request-id propagation: входящий header → лог → external calls.
 - `/metrics` в Prometheus format: RPS, latency histogram, errors, in-flight, capability call counts.
-- Trace hooks: span на operation и capability calls; OTEL export при наличии env.
+- Trace hooks: ✅ span на operation (server span вокруг dispatch) и на внешние
+  вызовы (client span вокруг `remoteCall`), parent/child через AsyncLocalStorage;
+  OTEL export при `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (OTLP/JSON, zero-dep, batch
+  flush). Store-операции счётчик уже покрывает (`arcod_capability_calls_total`),
+  span'ы по ним — follow-up.
 - Runtime enforcement для `budget`: хотя бы concurrency и max latency guard; cost — как declarative SLO.
 - Graceful shutdown и drained requests.
 - Security baseline:
@@ -367,6 +371,6 @@ trace-hooks (span/OTEL export) — это следующий срез.
    ✅ structured access log, request-id (in → ответ → external), `/metrics`
    Prometheus (RPS/histogram/errors/in-flight/capability calls), `ARCod_TIMEOUT_MS`,
    миграции (`arcod migrate`, checksum, идемпотентность), outbox (атомарный
-   publish+fact); ⏳ trace-hooks (span/OTEL).
+   publish+fact), trace-hooks (span на operation/remote + OTEL export).
 
 После этих пяти можно честно говорить, что Arcod подходит не только для demo-сервисов, а для большинства типовых backend-сервисов.

@@ -87,6 +87,82 @@ function finish(route, op, status, start, req) {
   }));
 }
 
+// ---------- tracing ----------
+
+const spanCtx = new AsyncLocalStorage();
+const TRACES = [];
+let otlpTimer = null;
+
+function startSpan(name, attrs) {
+  const parent = spanCtx.getStore();
+  return {
+    name: name,
+    attrs: attrs || {},
+    traceId: parent && parent.traceId ? parent.traceId : randomUUID(),
+    spanId: randomUUID(),
+    parentId: parent ? parent.spanId : null,
+    startMs: Date.now(),
+    status: 'ok',
+  };
+}
+
+function endSpan(span, status) {
+  if (span.done) return;
+  span.done = true;
+  span.endMs = Date.now();
+  span.status = status || 'ok';
+  TRACES.push(span);
+  if (TRACES.length > 4096) TRACES.shift();
+  if (process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT && !otlpTimer) {
+    otlpTimer = setInterval(flushOtlp, 5000);
+    if (otlpTimer.unref) otlpTimer.unref();
+  }
+}
+
+async function withSpan(name, attrs, fn) {
+  const span = startSpan(name, attrs);
+  try {
+    return await spanCtx.run(span, fn);
+  } catch (err) {
+    endSpan(span, 'error');
+    throw err;
+  } finally {
+    endSpan(span, 'ok');
+  }
+}
+
+function otlpHex(hex) {
+  const h = String(hex || '').replace(/-/g, '').slice(0, 32).padEnd(32, '0');
+  return Buffer.from(h, 'hex').toString('base64');
+}
+
+function flushOtlp() {
+  if (TRACES.length === 0) return;
+  const endpoint = String(process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || '');
+  if (!endpoint) return;
+  const batch = TRACES.splice(0, TRACES.length);
+  const spans = batch.map((span) => ({
+    traceId: otlpHex(span.traceId),
+    spanId: otlpHex(span.spanId),
+    parentSpanId: span.parentId ? otlpHex(span.parentId) : '',
+    name: span.name,
+    kind: 1,
+    startTimeUnixNano: String(span.startMs) + '000000',
+    endTimeUnixNano: String(span.endMs) + '000000',
+    status: { code: span.status === 'error' ? 2 : 1 },
+    attributes: Object.keys(span.attrs).map((key) => ({ key: key, value: { stringValue: String(span.attrs[key]) } })),
+  }));
+  const payload = JSON.stringify({
+    resourceSpans: [{
+      resource: { attributes: [{ key: 'service.name', value: { stringValue: CONFIG.service } }] },
+      scopeSpans: [{ scope: { name: 'arcod' }, spans: spans }],
+    }],
+  });
+  const url = endpoint + (endpoint.endsWith('/') ? 'v1/traces' : '/v1/traces');
+  fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: payload }).catch(() => {});
+}
+
+
 function prometheusMetrics() {
   const out = [];
   out.push('# HELP arcod_requests_total Total HTTP requests by method, route and status.');
@@ -679,7 +755,7 @@ async function handleRequest(req, res, start) {
       return;
     }
 
-    await handler(req, res, route.params);
+    await withSpan(opName || routeName, { route: route.path, method: req.method || 'GET' }, () => handler(req, res, route.params));
     finish(route.path, opName, res.statusCode, start, req);
   } catch (err) {
     console.error('request failed:', err && err.message ? err.message : err);
@@ -1516,7 +1592,7 @@ async function remoteCall(service, op, input) {
   if (route.method !== 'GET' && route.method !== 'DELETE') init.body = JSON.stringify(body);
 
   metricCapability('remote.' + service + '.' + op);
-  const response = await fetch(url, init);
+  const response = await withSpan('remote.' + service + '.' + op, { method: route.method, path: route.path }, () => fetch(url, init));
   const raw = await response.text();
   let data = null;
   try { data = raw ? JSON.parse(raw) : null; } catch (error) { data = raw; }
