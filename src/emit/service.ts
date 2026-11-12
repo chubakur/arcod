@@ -9,6 +9,7 @@ import { STREAM_SOURCE } from './stream.ts';
 import { QUEUE_SOURCE, QUEUE_SHUTDOWN, consumerSource } from './queue.ts';
 import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
+import { migrationPlan } from '../migrate.ts';
 
 export interface EmitOptions {
   port?: number;
@@ -26,6 +27,7 @@ CONFIG.timeoutMs = Number(process.env.ARCod_TIMEOUT_MS || CONFIG.timeoutMs || 30
 const ROUTES = __ROUTES__;
 const ERRORS = __ERRORS__;
 const STORES = __STORES__;
+const MIGRATIONS = __MIGRATIONS__;
 
 let inFlight = 0;
 
@@ -839,6 +841,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
   return header + template
     .replace('__CONFIG__', () => JSON.stringify(config, null, 2))
     .replace('__STORES__', () => JSON.stringify(stores, null, 2))
+    .replace('__MIGRATIONS__', () => JSON.stringify(migrationPlan(mod, svc).migrations))
     .replace('__ROUTES__', () => JSON.stringify(routes, null, 2))
     .replace('__ERRORS__', () => JSON.stringify(errors, null, 2))
     .replace('__ATOMIC__', () => String(atomicRead))

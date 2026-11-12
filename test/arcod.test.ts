@@ -5,7 +5,8 @@ import { spawn } from 'node:child_process';
 import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { buildPlan } from '../src/plan.ts';
-import { emitService, routeOf, statusForError } from '../src/emit/service.ts';
+import { emitService, pickService, routeOf, statusForError } from '../src/emit/service.ts';
+import { checksumOf, migrationPlan } from '../src/migrate.ts';
 import { emitOpenapi } from '../src/emit/openapi.ts';
 import { emitWeb } from '../src/emit/web.ts';
 import { composeYaml, nginxConf } from '../src/emit/compose.ts';
@@ -1939,5 +1940,41 @@ test('the service exposes /metrics, request ids and a structured access log', as
   } finally {
     service.child.kill('SIGTERM');
   }
+});
+
+test('migrations are deterministic, checksummed and typed', () => {
+  const svc = pickService(tasksAst)!;
+  const a = migrationPlan(tasksAst, svc);
+  const b = migrationPlan(tasksAst, svc);
+  assert.deepEqual(a, b, 'the plan is deterministic');
+
+  const kv = a.migrations.find((m) => m.name === 'arcod_kv');
+  assert.ok(kv, 'the base blob store is a migration');
+  assert.equal(kv!.version, '0001');
+  assert.match(kv!.checksum, /^[0-9a-f]{64}$/, 'checksum is sha256 hex');
+
+  const task = a.migrations.find((m) => m.name === 'task');
+  assert.ok(task, 'the record type becomes a table');
+  assert.ok(task!.up.includes('CREATE TABLE IF NOT EXISTS'), 'apply is idempotent');
+  assert.ok(task!.up.includes('PRIMARY KEY (`id`)'), 'id is the primary key');
+  assert.ok(task!.up.includes('`title` VARCHAR(191) NOT NULL'), 'unique string is indexed');
+  assert.ok(task!.up.includes('UNIQUE KEY `uq_task_title` (`title`)'), 'unique rule becomes a UNIQUE KEY');
+  assert.ok(task!.up.includes('`dueAt` DATETIME(3)'), 'optional datetime is nullable');
+  assert.ok(task!.down.includes('DROP TABLE'), 'down is generated');
+
+  const tampered = { ...task!, up: task!.up + ' ' };
+  assert.notEqual(checksumOf(tampered.up, task!.down), task!.checksum, 'editing changes the checksum');
+});
+
+test('the sql service embeds and applies migrations', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-mig-'));
+  const sqlUrl = new URL('../examples/tasks-sql/main.arc', import.meta.url);
+  const sqlAst = parse(await readFile(sqlUrl, 'utf8'), 'main.arc');
+  const implDir = fileURLToPath(new URL('../examples/tasks/impl', import.meta.url));
+  const built = await buildExample(sqlAst, dir, { implDir });
+  const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(code.includes('const MIGRATIONS = '), 'the changelog is embedded');
+  assert.ok(code.includes('arcod_migrations'), 'the bookkeeping table exists');
+  assert.ok(code.includes('was edited after it was applied'), 'a checksum mismatch refuses to start');
 });
 

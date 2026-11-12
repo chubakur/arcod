@@ -14,6 +14,8 @@ import { DEFAULT_IMPL, formatImplReport, runImpl } from './impl.ts';
 import { PROVIDERS, providerNames } from './providers.ts';
 import { deployManifest, deployNames, deployProvider, formatDeploy } from './deploy.ts';
 import { emitOpenapi } from './emit/openapi.ts';
+import { pickService } from './emit/service.ts';
+import { migrationPlan, formatMigrations } from './migrate.ts';
 
 const VERSION = '0.1.0';
 
@@ -51,6 +53,9 @@ export async function main(argv: string[]): Promise<void> {
         return;
       case 'openapi':
         await runOpenapi(flags);
+        return;
+      case 'migrate':
+        await runMigrate(flags);
         return;
       case 'build':
         await runBuild(flags);
@@ -162,6 +167,36 @@ async function runPlan(flags: Flags): Promise<void> {
     return;
   }
   console.log(formatPlan(plan));
+}
+
+async function runMigrate(flags: Flags): Promise<void> {
+  const loaded = await load(flags.spec);
+  const errors = check(loaded.mod).filter((d) => d.severity === 'error');
+  if (errors.length > 0) {
+    printDiagnostics(errors, loaded.specPath);
+    process.exitCode = 1;
+    return;
+  }
+  const svc = pickService(loaded.mod);
+  if (!svc) throw new Error('no service to migrate');
+  const plan = migrationPlan(loaded.mod, svc);
+
+  const dir = join(loaded.dir, '.arcod', 'build', 'migrations');
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'changelog.json'), JSON.stringify(plan.migrations, null, 2));
+  for (const migration of plan.migrations) {
+    await writeFile(join(dir, migration.version + '_' + migration.name + '.up.sql'), migration.up);
+    await writeFile(join(dir, migration.version + '_' + migration.name + '.down.sql'), migration.down);
+  }
+
+  if (flags.json) {
+    console.log(JSON.stringify(plan, null, 2));
+  } else {
+    console.log(formatMigrations(plan));
+    console.log('');
+    console.log('artifact: .arcod/build/migrations/ — changelog.json + up/down .sql');
+    console.log('the generated service applies them on boot (sql driver)');
+  }
 }
 
 async function runOpenapi(flags: Flags): Promise<void> {
@@ -575,6 +610,7 @@ usage:
   arcod ast   [dir|spec.arc] [--check]
   arcod plan  [dir|spec.arc] [--json]
   arcod openapi [dir|spec.arc] [--service name]
+  arcod migrate [dir|spec.arc] [--json]
   arcod providers [--json]
   arcod deploy [dir|spec.arc] [--env name] [--json]
   arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]

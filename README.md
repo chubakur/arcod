@@ -107,6 +107,7 @@ defaults (`limit: number = 20`). Durations (`999s`, `24h`) are values in clauses
 | `arcod ast [dir]` | print the canonical AST; `--check` also runs the checks |
 | `arcod plan [dir]` | deterministic task DAG: files, dependencies, acceptance criteria |
 | `arcod openapi [dir]` | OpenAPI 3.1 on stdout: paths from `route`, schemas from `types`, errors mapped as in the runtime, examples from the `examples` block; `--service <name>` picks one service |
+| `arcod migrate [dir]` | generate migrations from the data model into `.arcod/build/migrations/` (changelog + up/down `.sql`); `--json`; the service applies them on boot |
 | `arcod build [dir]` | scaffold: routes, adapters, tests, infrastructure in `.arcod/build`; bodies are TODO |
 | `arcod build --impl` | bodies from `impl/*.mjs`, the `io` adapter, nothing invented |
 | `arcod build --reference` | the same plus built-in demo bodies for `create`/`read` |
@@ -744,6 +745,33 @@ curl -s localhost:8091/metrics | head
 # arcod_requests_total{method="POST",route="/v1/tasks",status="201"} 1
 # arcod_capability_calls_total{capability="store.insert"} 1
 ```
+
+## Migrations
+
+`arcod migrate [dir]` turns the data model into an ordered, checksummed
+changelog in `.arcod/build/migrations/`. A record type becomes a real table:
+scalar fields get typed columns (`uuid` → `CHAR(36)`, `datetime` →
+`DATETIME(3)`, `int` → `BIGINT`, `decimal` → `DECIMAL(30,6)`, strings →
+`TEXT`, unique strings → `VARCHAR(191)`), `id` is the primary key and each
+`rules { unique ... }` becomes a `UNIQUE KEY`. Inline records, unions and
+`list`/`map` land in `JSON` columns.
+
+Each migration carries a `version`, a `checksum` (sha256 of up+down) and
+`up`/`down` SQL. The generated service applies them on boot (sql driver):
+it records applied versions in `arcod_migrations`, a re-run is a no-op, and a
+migration that was edited after being applied refuses to start the service.
+
+```bash
+arcod migrate examples/tasks
+# migrations for TaskBoard (2):
+#   0001 arcod_kv   checksum 46ec9741e862
+#   0002 task       checksum b2d653261189
+# artifact: .arcod/build/migrations/ — changelog.json + up/down .sql
+```
+
+The typed tables are the schema of record. The v0.1 runtime still writes records
+as blobs in `arcod_kv`; moving the runtime onto the typed tables is the
+remaining piece of the data-model work.
 
 ## Checks
 

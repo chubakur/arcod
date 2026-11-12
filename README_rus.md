@@ -103,6 +103,7 @@ enum Visibility { draft, published, archived }
 | `arcod ast [dir]` | печатает канонический AST |
 | `arcod plan [dir]` | детерминированный DAG задач: файлы, зависимости, критерии приёмки |
 | `arcod openapi [dir]` | документ OpenAPI 3.1 в stdout: пути из `route`, схемы из `types`, ошибки как в рантайме, примеры из блока `examples`; `--service <имя>` выбирает сервис |
+| `arcod migrate [dir]` | генерирует миграции из модели данных в `.arcod/build/migrations/` (changelog + up/down `.sql`); `--json`; сервис применяет их при старте |
 | `arcod build [dir]` | scaffold: маршруты, адаптеры, тесты, инфраструктура в `.arcod/build`; тела — TODO |
 | `arcod build --impl` | тела из `impl/*.mjs`, адаптер `io`, ничего не додумывает |
 | `arcod build --reference` | то же плюс встроенные демо-тела `create`/`read` |
@@ -756,6 +757,33 @@ curl -s localhost:8091/metrics | head
 # arcod_requests_total{method="POST",route="/v1/tasks",status="201"} 1
 # arcod_capability_calls_total{capability="store.insert"} 1
 ```
+
+## Миграции
+
+`arcod migrate [dir]` превращает модель данных в упорядоченный changelog с
+checksum в `.arcod/build/migrations/`. Тип-запись становится настоящей таблицей:
+скалярные поля — типизированные колонки (`uuid` → `CHAR(36)`, `datetime` →
+`DATETIME(3)`, `int` → `BIGINT`, `decimal` → `DECIMAL(30,6)`, строки →
+`TEXT`, уникальные строки → `VARCHAR(191)`), `id` — первичный ключ, каждое
+`rules { unique ... }` — `UNIQUE KEY`. Вложенные записи, объединения и
+`list`/`map` ложатся в колонки `JSON`.
+
+У каждой миграции есть `version`, `checksum` (sha256 от up+down) и SQL
+`up`/`down`. Сгенерированный сервис применяет их при старте (sql-драйвер):
+ведёт `arcod_migrations`, повторный запуск — no-op, изменённая после применения
+миграция отказывается стартовать.
+
+```bash
+arcod migrate examples/tasks
+# migrations for TaskBoard (2):
+#   0001 arcod_kv   checksum 46ec9741e862
+#   0002 task       checksum b2d653261189
+# artifact: .arcod/build/migrations/ — changelog.json + up/down .sql
+```
+
+Типизированные таблицы — это схема по существу. Рантайм v0.1 пока пишет записи
+блобами в `arcod_kv`; перевод рантайма на типизированные таблицы — оставшаяся
+часть работы над моделью данных.
 
 ## Проверки
 

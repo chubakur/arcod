@@ -3,7 +3,32 @@
 // nothing from a request is ever concatenated into SQL unescaped.
 export const SQL_STORE_SOURCE = `// ---------- mysql ----------
 
-const SQL_SCHEMA = 'CREATE TABLE IF NOT EXISTS arcod_kv (k VARBINARY(255) NOT NULL PRIMARY KEY, v LONGBLOB NOT NULL, expires_at BIGINT NOT NULL, KEY arcod_kv_expires (expires_at)) ENGINE=InnoDB';
+const MIGRATIONS_TABLE = 'CREATE TABLE IF NOT EXISTS arcod_migrations (version VARCHAR(16) NOT NULL PRIMARY KEY, checksum VARCHAR(64) NOT NULL, applied_at BIGINT NOT NULL) ENGINE=InnoDB';
+
+// Applies the generated changelog deterministically. A fresh database ends in
+// exactly the state the service expects; a re-run is a no-op; and a migration
+// that was edited after it was applied refuses to start the service.
+async function applyMigrations(connection) {
+  await connection.run(MIGRATIONS_TABLE);
+  for (const migration of MIGRATIONS) {
+    const found = await connection.run(
+      'SELECT checksum FROM arcod_migrations WHERE version = ' + literal(hexOf(migration.version)) + ' LIMIT 1'
+    );
+    if (found.rows.length > 0) {
+      const applied = utf8Of(found.rows[0][0]);
+      if (applied !== migration.checksum) {
+        throw new Error('migration ' + migration.version + ' (' + migration.name + ') was edited after it was applied: checksum mismatch');
+      }
+      continue;
+    }
+    await connection.run(migration.up);
+    await connection.run(
+      'INSERT INTO arcod_migrations (version, checksum, applied_at) VALUES (' + literal(hexOf(migration.version)) + ', ' + literal(hexOf(migration.checksum)) + ', ' + Date.now() + ')'
+    );
+    console.log('migration applied: ' + migration.version + ' ' + migration.name);
+  }
+}
+
 const CLIENT_FLAGS = 0x00000001 | 0x00000004 | 0x00000008 | 0x00000200 | 0x00002000 | 0x00008000 | 0x00080000;
 
 function hexOf(value) {
@@ -285,7 +310,7 @@ class SqlStore {
       for (let attempt = 0; attempt < 10; attempt += 1) {
         try {
           await this.connection.ensure();
-          await this.connection.run(SQL_SCHEMA);
+          await applyMigrations(this.connection);
           return;
         } catch (error) {
           lastError = error;
