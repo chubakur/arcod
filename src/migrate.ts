@@ -110,6 +110,14 @@ export function checksumOf(up: string, down: string): string {
   return createHash('sha256').update(up + '\n' + down).digest('hex');
 }
 
+function usesSql(svc: ServiceNode): boolean {
+  return svc.uses.some((use) => use.capability === 'sql' || use.capability.endsWith('.sql'));
+}
+
+function usesQueue(svc: ServiceNode): boolean {
+  return svc.uses.some((use) => use.capability === 'queue' || use.capability.endsWith('.queue'));
+}
+
 export function migrationPlan(mod: ModuleNode, svc: ServiceNode): MigrationPlan {
   const migrations: Migration[] = [];
 
@@ -144,6 +152,29 @@ export function migrationPlan(mod: ModuleNode, svc: ServiceNode): MigrationPlan 
       checksum: checksumOf(up, down),
       up,
       down,
+    });
+  }
+
+  // The outbox holds events an operation published together with a fact write:
+  // the two commit in one transaction, and a dispatcher relays the row to the
+  // real queue. Only exists on the sql driver with a queue capability.
+  if (usesSql(svc) && usesQueue(svc)) {
+    const up = [
+      'CREATE TABLE IF NOT EXISTS arcod_outbox (',
+      '  id CHAR(36) NOT NULL PRIMARY KEY,',
+      '  topic TEXT NOT NULL,',
+      '  payload TEXT NOT NULL,',
+      '  created_at BIGINT NOT NULL,',
+      '  published_at BIGINT NULL,',
+      '  KEY arcod_outbox_pending (published_at)',
+      ') ENGINE=InnoDB',
+    ].join('\n');
+    migrations.push({
+      version: String(migrations.length + 1).padStart(4, '0'),
+      name: 'arcod_outbox',
+      checksum: checksumOf(up, 'DROP TABLE IF EXISTS arcod_outbox'),
+      up,
+      down: 'DROP TABLE IF EXISTS arcod_outbox',
     });
   }
 

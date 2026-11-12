@@ -91,6 +91,13 @@ function rowToObject(columns, row) {
   return obj;
 }
 
+// Model identifiers are safe, but they can collide with MySQL reserved words
+// (a record type named Order becomes table "order"). Quote every identifier;
+// String.fromCharCode keeps the backtick out of the template literal source.
+function q(name) {
+  return String.fromCharCode(96) + String(name) + String.fromCharCode(96);
+}
+
 
 function xorBytes(left, right) {
   const out = Buffer.alloc(left.length);
@@ -405,17 +412,17 @@ class SqlStore {
   // ---------- typed entity operations ----------
 
   async entityFetch(table, columns, id) {
-    const names = columns.map((c) => c.name).join(', ');
-    const found = await this.query('SELECT ' + names + ' FROM ' + table + ' WHERE id = ' + literal(hexOf(String(id))) + ' LIMIT 1');
+    const names = columns.map((c) => q(c.name)).join(', ');
+    const found = await this.query('SELECT ' + names + ' FROM ' + q(table) + ' WHERE ' + q('id') + ' = ' + literal(hexOf(String(id))) + ' LIMIT 1');
     if (found.rows.length === 0) return null;
     return rowToObject(columns, found.rows[0]);
   }
 
   async entityInsert(table, columns, record) {
-    const names = columns.map((c) => c.name).join(', ');
+    const names = columns.map((c) => q(c.name)).join(', ');
     const values = columns.map((c) => sqlLiteral(c.base, record[c.name])).join(', ');
     try {
-      await this.query('INSERT INTO ' + table + ' (' + names + ') VALUES (' + values + ')');
+      await this.query('INSERT INTO ' + q(table) + ' (' + names + ') VALUES (' + values + ')');
     } catch (error) {
       if (String(error && error.message).includes('mysql 1062')) throw new ArcodError('Conflict');
       throw error;
@@ -426,9 +433,9 @@ class SqlStore {
     const current = await this.entityFetch(table, columns, id);
     if (current == null) throw new ArcodError('NotFound');
     const next = Object.assign({}, current, patch || {});
-    const set = columns.map((c) => c.name + ' = ' + sqlLiteral(c.base, next[c.name])).join(', ');
+    const set = columns.map((c) => q(c.name) + ' = ' + sqlLiteral(c.base, next[c.name])).join(', ');
     try {
-      await this.query('UPDATE ' + table + ' SET ' + set + ' WHERE id = ' + literal(hexOf(String(id))));
+      await this.query('UPDATE ' + q(table) + ' SET ' + set + ' WHERE ' + q('id') + ' = ' + literal(hexOf(String(id))));
     } catch (error) {
       if (String(error && error.message).includes('mysql 1062')) throw new ArcodError('Conflict');
       throw error;
@@ -437,7 +444,7 @@ class SqlStore {
   }
 
   async entityRemove(table, columns, id) {
-    await this.query('DELETE FROM ' + table + ' WHERE id = ' + literal(hexOf(String(id))));
+    await this.query('DELETE FROM ' + q(table) + ' WHERE ' + q('id') + ' = ' + literal(hexOf(String(id))));
   }
 
   async entityFind(table, columns, query) {
@@ -459,10 +466,10 @@ class SqlStore {
     }
 
     const whereSql = where.length > 0 ? ' WHERE ' + where.join(' AND ') : '';
-    const orderSql = order.map((r) => r.field + ' ' + (r.dir < 0 ? 'DESC' : 'ASC')).join(', ') + ', id ASC';
-    const names = columns.map((c) => c.name).join(', ');
+    const orderSql = order.map((r) => q(r.field) + ' ' + (r.dir < 0 ? 'DESC' : 'ASC')).join(', ') + ', ' + q('id') + ' ASC';
+    const names = columns.map((c) => q(c.name)).join(', ');
 
-    const found = await this.query('SELECT ' + names + ' FROM ' + table + whereSql + ' ORDER BY ' + orderSql + ' LIMIT ' + (limit + 1));
+    const found = await this.query('SELECT ' + names + ' FROM ' + q(table) + whereSql + ' ORDER BY ' + orderSql + ' LIMIT ' + (limit + 1));
     const items = found.rows.map((row) => rowToObject(columns, row));
     const hasMore = items.length > limit;
     const page = hasMore ? items.slice(0, limit) : items;
@@ -479,7 +486,7 @@ class SqlStore {
     const clauses = [];
     const ops = (typeof cond === 'object' && cond !== null && !Array.isArray(cond)) ? cond : { eq: cond };
     for (const [op, value] of Object.entries(ops)) {
-      const colSql = col.name;
+      const colSql = q(col.name);
       if (op === 'eq') clauses.push(colSql + ' = ' + sqlLiteral(col.base, value));
       else if (op === 'ne') clauses.push(colSql + ' <> ' + sqlLiteral(col.base, value));
       else if (op === 'in' && Array.isArray(value)) clauses.push(colSql + ' IN (' + value.map((v) => sqlLiteral(col.base, v)).join(', ') + ')');
@@ -498,13 +505,13 @@ class SqlStore {
     for (let index = 0; index < order.length; index += 1) {
       const col = columns.find((c) => c.name === order[index].field);
       if (!col) continue;
-      const colSql = order[index].field;
+      const colSql = q(order[index].field);
       const cmp = order[index].dir < 0 ? '<' : '>';
       const literalValue = sqlLiteral(col.base, values[index]);
       terms.push((eqs.length > 0 ? eqs.join(' AND ') + ' AND ' : '') + colSql + ' ' + cmp + ' ' + literalValue);
       eqs.push(colSql + ' <=> ' + literalValue);
     }
-    terms.push((eqs.length > 0 ? eqs.join(' AND ') + ' AND ' : '') + 'id > ' + literal(hexOf(String(id))));
+    terms.push((eqs.length > 0 ? eqs.join(' AND ') + ' AND ' : '') + q('id') + ' > ' + literal(hexOf(String(id))));
     return '(' + terms.join(' OR ') + ')';
   }
 
@@ -599,6 +606,37 @@ class SqlStore {
     try {
       await this.query('ROLLBACK');
     } catch (ignored) {}
+  }
+
+  async begin() {
+    await this.query('START TRANSACTION');
+  }
+
+  async commit() {
+    await this.query('COMMIT');
+  }
+
+  // Outbox: the body appends the event here (inside the ambient transaction, if
+  // any), and the dispatcher relays it to the queue broker once the row is
+  // committed. published_at is the delivery mark.
+  async outboxAppend(id, topic, payload) {
+    await this.query(
+      'INSERT INTO arcod_outbox (id, topic, payload, created_at) VALUES (' +
+      literal(hexOf(String(id))) + ', ' + literal(hexOf(String(topic))) + ', ' + literal(hexOf(String(payload))) + ', ' + Date.now() + ')'
+    );
+    return true;
+  }
+
+  async outboxPending(limit) {
+    const found = await this.query(
+      'SELECT id, topic, payload FROM arcod_outbox WHERE published_at IS NULL ORDER BY created_at LIMIT ' + Number(limit || 100)
+    );
+    return found.rows.map((row) => ({ id: utf8Of(row[0]), topic: utf8Of(row[1]), payload: utf8Of(row[2]) }));
+  }
+
+  async outboxMark(id) {
+    await this.query('UPDATE arcod_outbox SET published_at = ' + Date.now() + ' WHERE id = ' + literal(hexOf(String(id))));
+    return true;
   }
 
   async ping() {

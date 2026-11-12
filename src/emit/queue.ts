@@ -158,7 +158,16 @@ const queueDriver = QUEUE_REDIS_URL ? createRedisQueueDriver(QUEUE_REDIS_URL) : 
 // are module-scope functions, so the table binds them directly (globalThis
 // does not see module declarations).
 export function consumerSource(consumers: Array<{ topic: string; handler: string; params: string[]; retry: number }>): string {
-  if (consumers.length === 0) return '';
+  if (consumers.length === 0) {
+    // No queue-backed jobs, but a service may still use queue for publishing
+    // (the outbox). Emit the lifecycle scaffolding so startConsumers and the
+    // shutdown hooks always exist.
+    return String.raw`
+let consumersStopped = false;
+let consumersDrained = Promise.resolve();
+function startConsumers() {}
+`;
+  }
   const table = consumers
     .map((item) => [
       '  {',
@@ -240,3 +249,61 @@ export const QUEUE_SHUTDOWN = String.raw`for (const signal of ['SIGINT', 'SIGTER
     });
   });
 }`;
+
+// The sql+queue variant also drains the outbox dispatcher.
+export const OUTBOX_SHUTDOWN = String.raw`for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    consumersStopped = true;
+    outboxStopped = true;
+    server.close(() => {
+      Promise.all([Promise.resolve(consumersDrained), Promise.resolve(outboxDrained)]).finally(() => process.exit(0));
+    });
+  });
+}`;
+
+// Outbox dispatcher, emitted only on the sql driver with a queue capability.
+// The body writes the event into arcod_outbox inside its transaction; this
+// loop relays committed rows to the broker and marks them published. Runs
+// alongside consumers, so a replica that dies between commit and publish
+// finds the row still pending on restart.
+export const OUTBOX_SOURCE = String.raw`// ---------- outbox dispatcher ----------
+
+let outboxStopped = false;
+let outboxDrained = Promise.resolve();
+
+// The dispatcher owns its own connection: the request path and the relay must
+// not interleave on the single store socket, or the RESP stream corrupts.
+const outboxStore = process.env.SQL_DRIVER === 'memory'
+  ? store
+  : new SqlStore(process.env.DATABASE_URL || 'mysql://arcod:arcod@mysql:3306/arcod');
+
+async function runOutboxDispatcher() {
+  while (!outboxStopped) {
+    let rows = [];
+    try {
+      rows = await outboxStore.outboxPending(20);
+    } catch (error) {
+      console.error('outbox poll failed:', error && error.message ? error.message : error);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      continue;
+    }
+    if (rows.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      continue;
+    }
+    for (const row of rows) {
+      try {
+        await queuePublishDriver(String(row.topic), String(row.payload));
+        await outboxStore.outboxMark(String(row.id));
+      } catch (error) {
+        // Leave the row pending; the next sweep retries it (at-least-once).
+        console.error('outbox publish failed:', error && error.message ? error.message : error);
+      }
+    }
+  }
+}
+
+function startOutboxDispatcher() {
+  outboxDrained = runOutboxDispatcher();
+}
+`;

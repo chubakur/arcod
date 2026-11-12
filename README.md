@@ -530,6 +530,15 @@ Semantics, enforced by the generated runtime rather than written in bodies:
   consume them. The adapter speaks Redis lists — `rabbitmq` and `kafka` are
   provisioned, but there is no zero-dependency client for them yet.
 
+When a service uses `queue` on the `sql` driver, a publish in an operation that
+also writes a fact goes through the **outbox**: the body runs in a transaction,
+the event is appended to `arcod_outbox` in the same transaction, and a
+dispatcher relays the committed rows to the broker on its own connection. A
+crash between the fact write and the hand-off cannot lose the event, and a
+replica that dies mid-relay finds the row still pending on restart. See
+`examples/orders`. Identifiers are always quoted (`q()`), so a record type
+named `Order` (table `order`) is safe.
+
 Checked by the compiler: `on:` is a job-only clause (`A051`), the source must
 be a declared `queue` alias (`A052`), `retry` without `on:` is an error
 (`A053`), and a queue-backed job is executed — so the `W017` "jobs are not
@@ -944,6 +953,7 @@ examples/
   quiz/                a presentation and an event stream
   tasks/               a record store: unique, filter, keyset pages (kv)
   tasks-sql/           the same bodies on sql
+  orders/              sql + queue: an atomic publish+fact via the outbox
 test/             node --test
 ```
 

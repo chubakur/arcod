@@ -160,9 +160,8 @@ namespace), constrained-типы (`email`, `url`, `enum`) и вторая реа
 Проверено на MySQL 8.4: свежая БД получает `arcod_kv`+`task`+`arcod_migrations`,
 повторный запуск ничего не делает, дубль title — 409.
 
-Осталось: транзакционные сценарии (multi-step `tx`, saga/outbox) и — из M0.4 —
-перевод runtime на осознанные таблицы (пока записи лежат блобами в `arcod_kv`,
-типизированная таблица уже создаётся миграцией).
+Транзакционный publish+fact через outbox закрыт (см. раздел 5); runtime на
+осознанных таблицах тоже (M0.4). Осталось: multi-step `tx`/saga.
 
 **Проблема (на момент аудита):** Liquibase поднимается как контейнер, но changelog не генерируется. Транзакционность есть только в виде специализированного atomic read.
 
@@ -185,7 +184,7 @@ namespace), constrained-типы (`email`, `url`, `enum`) и вторая реа
 
 ### 5. Асинхронность и события
 
-**Статус: частично (2026-11-11) — M0.3 закрыт, outbox и runner остались.** Stream: `bind stream -> redis(...)` переключает транспорт на pub/sub — реплики делят подписчиков, событие приходит ровно один раз (собственный echo приходит через брокер, локальная доставка не дублируется), reconnect переподписывается; memory-драйвер без бинда. Queue: capability с эффектами `publish`/`dead`; консьюмеры объявляются в модели — `job ... { on: alias.topic, retry: n }` — runtime владеет lifecycle (старт до http, graceful shutdown с дообработкой текущего сообщения, ack-by-completion, requeue, dead letter после retry-бюджета); драйверы memory и redis (lists, zero-dep RESP-клиент); проверки A051–A053, W017 не действует на queue-backed job'ы. Redis теперь реализует `kv` + `stream` + `queue` (extraCapabilities). e2e-тесты на fake-RESP-брокере: две реплики видят одни события, retry/dead-letter на обоих драйверах. Осталось: outbox (atomic publish+fact, вместе с миграциями M0.5), saga, `given` в `arcod test`, workflow runner — помечен как external-runner contract.
+**Статус: частично (2026-11-12) — M0.3 закрыт, outbox закрыт, runner остался.** Stream: `bind stream -> redis(...)` переключает транспорт на pub/sub — реплики делят подписчиков, событие приходит ровно один раз (собственный echo приходит через брокер, локальная доставка не дублируется), reconnect переподписывается; memory-драйвер без бинда. Queue: capability с эффектами `publish`/`dead`; консьюмеры объявляются в модели — `job ... { on: alias.topic, retry: n }` — runtime владеет lifecycle (старт до http, graceful shutdown с дообработкой текущего сообщения, ack-by-completion, requeue, dead letter после retry-бюджета); драйверы memory и redis (lists, zero-dep RESP-клиент); проверки A051–A053, W017 не действует на queue-backed job'ы. Redis теперь реализует `kv` + `stream` + `queue` (extraCapabilities). e2e-тесты на fake-RESP-брокере: две реплики видят одни события, retry/dead-letter на обоих драйверах. Осталось: outbox (atomic publish+fact, вместе с миграциями M0.5), saga, `given` в `arcod test`, workflow runner — помечен как external-runner contract.
 
 **Проблема:** `stream` in-memory и однонаправленный; `queue`, `workflow`, `job` декларативны; `given` не исполняется.
 
@@ -197,7 +196,11 @@ namespace), constrained-типы (`email`, `url`, `enum`) и вторая реа
   - `subscribe`/`consume`;
   - `retry`, `dead letter`.
 - Минимальный consumer lifecycle в runtime: start, stop, graceful shutdown, ack/nack.
-- Outbox для надёжных исходящих событий/webhooks.
+- Outbox для надёжных исходящих событий/webhooks — ✅ на sql-драйвере: операция,
+  которая пишет факт и публикует событие, работает в транзакции; publish кладётся
+  в таблицу `arcod_outbox` (миграция `0003`), диспетчер на своей connection
+  ретранслирует в брокер и помечает published. Идентификаторы SQL всегда
+  бэктикаются (`q()`), так что reserved-слова (`order`) безопасны. Пример `examples/orders`.
 - Минимальный исполняемый `job`/`workflow` runner:
   - либо собственный `journal` + scheduler;
   - либо честно отдать граф внешнему runner, но тогда закрыть promise в docs и убрать из “рабочих” фич.
@@ -360,7 +363,8 @@ trace-hooks (span/OTEL export) — это следующий срез.
 5. **M0.5 — migrations + observability**  
    Prod baseline: миграции, метрики, логи, request-id, timeouts.
    ✅ structured access log, request-id (in → ответ → external), `/metrics`
-   Prometheus (RPS/histogram/errors/in-flight/capability calls), `ARCod_TIMEOUT_MS`;
-   ⏳ миграции и trace-hooks.
+   Prometheus (RPS/histogram/errors/in-flight/capability calls), `ARCod_TIMEOUT_MS`,
+   миграции (`arcod migrate`, checksum, идемпотентность), outbox (атомарный
+   publish+fact); ⏳ trace-hooks (span/OTEL).
 
 После этих пяти можно честно говорить, что Arcod подходит не только для demo-сервисов, а для большинства типовых backend-сервисов.

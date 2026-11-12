@@ -1997,3 +1997,35 @@ test('the sql service writes records to typed tables, not blobs', async () => {
   assert.ok(!kvCode.includes('async entityFind('), 'the kv driver keeps the blob store');
 });
 
+test('the outbox makes publish and fact write atomic on sql', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-outbox-'));
+  const ordersUrl = new URL('../examples/orders/main.arc', import.meta.url);
+  const ordersAst = parse(await readFile(ordersUrl, 'utf8'), 'main.arc');
+  const implDir = fileURLToPath(new URL('../examples/orders/impl', import.meta.url));
+  const built = await buildExample(ordersAst, dir, { implDir });
+  const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(code.includes('const OUTBOX_OPS = new Set(["create"])'), 'the atomic op is marked');
+  assert.ok(code.includes('store.outboxAppend('), 'publish routes through the outbox table');
+  assert.ok(code.includes('startOutboxDispatcher()'), 'the dispatcher is wired');
+  assert.ok(code.includes('async outboxPending('), 'the store polls pending rows');
+  assert.ok(code.includes('if (tx) await store.begin()'), 'the body runs in a transaction');
+  assert.ok(code.includes('if (tx) await store.commit()'), 'the transaction commits on success');
+  assert.ok(code.includes('if (tx) await store.rollback()'), 'the transaction rolls back on error');
+
+  const plan = migrationPlan(ordersAst, ordersAst.services.find((svc) => !svc.external)!);
+  assert.ok(plan.migrations.some((m) => m.name === 'arcod_outbox'), 'the outbox table is migrated');
+});
+
+test('sql identifiers are quoted so reserved words are safe table names', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-qident-'));
+  const ordersUrl = new URL('../examples/orders/main.arc', import.meta.url);
+  const ordersAst = parse(await readFile(ordersUrl, 'utf8'), 'main.arc');
+  const implDir = fileURLToPath(new URL('../examples/orders/impl', import.meta.url));
+  const built = await buildExample(ordersAst, dir, { implDir });
+  const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(code.includes('String.fromCharCode(96)'), 'an identifier quoting helper exists');
+  assert.ok(code.includes("q('id')"), 'the id column is quoted');
+  assert.ok(code.includes('q(table)'), 'the table name is quoted');
+});
+
+
