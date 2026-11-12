@@ -23,6 +23,7 @@ import { randomUUID, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 const CONFIG = __CONFIG__;
 const ROUTES = __ROUTES__;
 const ERRORS = __ERRORS__;
+const STORES = __STORES__;
 
 let inFlight = 0;
 
@@ -179,6 +180,11 @@ class RedisStore {
     return Number(n) === 1;
   }
 
+  async claim(key) {
+    const value = await this.command('SET', key, '1', 'NX');
+    return value != null;
+  }
+
   async takeIf(messageKey, goneKey, ttlMs, expected) {
     const reply = await this.command('EVAL', LUA_TAKE_IF, '2', messageKey, goneKey, String(expected), String(ttlMs));
     return String(reply) === 'ok';
@@ -231,6 +237,13 @@ class MemoryStore {
 
   async del(key) {
     return this.map.delete(key) ? 1 : 0;
+  }
+
+  async claim(key) {
+    const entry = this.map.get(key);
+    if (entry && entry.expires > Date.now()) return false;
+    this.map.set(key, { value: '1', expires: Infinity });
+    return true;
   }
 
   async scan(prefix) {
@@ -286,6 +299,105 @@ class MemoryStore {
 
 __SQL_STORE__
 __STORE_SELECT__
+
+// ---------- entity store ----------
+
+// A body never names a provider; it names an entity. The adapter owns the key
+// layout, the unique index and the ordering, so the same body runs on kv or sql.
+class ArcodError extends Error {
+  constructor(name) {
+    super(name);
+    this.name = name;
+    this.error = name;
+  }
+}
+
+function recordOf(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && 'b' in parsed) return parsed.b;
+    return parsed;
+  } catch {
+    return raw;
+  }
+}
+
+function uniqueKey(entity, field, value) {
+  return 'unique:' + entity + ':' + field + ':' + String(value);
+}
+
+function sortValue(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  const text = String(value);
+  if (/^\\d{4}-\\d{2}-\\d{2}/.test(text)) {
+    const time = Date.parse(text);
+    if (!Number.isNaN(time)) return time;
+  }
+  return text;
+}
+
+function compareValues(a, b) {
+  if (a === b) return 0;
+  if (a === null || a === undefined) return 1;
+  if (b === null || b === undefined) return -1;
+  if (typeof a === 'number' && typeof b === 'number') return a < b ? -1 : 1;
+  return String(a) < String(b) ? -1 : 1;
+}
+
+function parseOrder(order) {
+  const list = Array.isArray(order) ? order : String(order || 'id').split(',');
+  return list.map((entry) => {
+    const parts = String(entry).trim().split(/\\s+/);
+    return { field: parts[0], dir: (parts[1] || 'asc').toLowerCase() === 'desc' ? -1 : 1 };
+  });
+}
+
+function encodeCursor(values, id) {
+  return Buffer.from(JSON.stringify({ v: values, id })).toString('base64url');
+}
+
+function decodeCursor(cursor) {
+  try {
+    return JSON.parse(Buffer.from(String(cursor), 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function scalarOf(cond) {
+  return cond === null || typeof cond !== 'object' || Array.isArray(cond);
+}
+
+function matchesWhere(value, where) {
+  for (const field of Object.keys(where || {})) {
+    const cond = where[field];
+    const actual = value && typeof value === 'object' ? value[field] : null;
+    if (scalarOf(cond)) {
+      if (actual != cond) return false;
+      continue;
+    }
+    for (const op of Object.keys(cond)) {
+      const expected = cond[op];
+      if (op === 'eq' && actual != expected) return false;
+      if (op === 'ne' && actual == expected) return false;
+      if (op === 'in' && !(Array.isArray(expected) && expected.some((item) => item == actual))) return false;
+      if (op === 'contains' && !String(actual == null ? '' : actual).includes(String(expected))) return false;
+      if (op === 'gt' && !(compareValues(sortValue(actual), sortValue(expected)) > 0)) return false;
+      if (op === 'gte' && !(compareValues(sortValue(actual), sortValue(expected)) >= 0)) return false;
+      if (op === 'lt' && !(compareValues(sortValue(actual), sortValue(expected)) < 0)) return false;
+      if (op === 'lte' && !(compareValues(sortValue(actual), sortValue(expected)) <= 0)) return false;
+    }
+  }
+  return true;
+}
+
+function requestEntity(entity) {
+  const meta = STORES[entity];
+  if (!meta) throw new ArcodError('Internal');
+  return meta;
+}
 
 __STREAM_SOURCE__
 
@@ -582,8 +694,11 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
     '',
   ].join('\n');
 
+  const stores = entityStores(mod, svc);
+
   return header + template
     .replace('__CONFIG__', () => JSON.stringify(config, null, 2))
+    .replace('__STORES__', () => JSON.stringify(stores, null, 2))
     .replace('__ROUTES__', () => JSON.stringify(routes, null, 2))
     .replace('__ERRORS__', () => JSON.stringify(errors, null, 2))
     .replace('__ATOMIC__', () => String(atomicRead))
@@ -802,6 +917,116 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     '        return { id, b: body };',
     '      });',
     '    },',
+    '    async fetch(entity, id) {',
+    '      const meta = requestEntity(entity);',
+    "      const raw = await store.get(meta.prefix + String(id));",
+    '      return raw == null ? null : recordOf(raw);',
+    '    },',
+    '    async insert(entity, record) {',
+    '      const meta = requestEntity(entity);',
+    '      const value = Object.assign({}, record || {});',
+    "      if (value.id == null || value.id === '') throw new ArcodError('Invalid');",
+    "      const key = meta.prefix + String(value.id);",
+    "      if (await store.exists(key)) throw new ArcodError('Conflict');",
+    '      const claimed = [];',
+    '      for (const field of meta.unique) {',
+    '        const fieldValue = value[field];',
+    '        if (fieldValue == null) continue;',
+    '        const claim = uniqueKey(entity, field, fieldValue);',
+    '        if (!(await store.claim(claim))) {',
+    '          for (const item of claimed) await store.del(item);',
+    "          throw new ArcodError('Conflict');",
+    '        }',
+    '        claimed.push(claim);',
+    '      }',
+    '      await store.set(key, JSON.stringify({ b: value, h: null }), CONFIG.ttlMs);',
+    '      return value;',
+    '    },',
+    '    async update(entity, id, patch) {',
+    '      const meta = requestEntity(entity);',
+    '      const key = meta.prefix + String(id);',
+    '      const raw = await store.get(key);',
+    "      if (raw == null) throw new ArcodError('NotFound');",
+    '      const current = recordOf(raw);',
+    '      const base = current && typeof current === "object" ? current : {};',
+    '      const value = Object.assign({}, base, patch || {});',
+    '      if (value.id == null) value.id = id;',
+    '      const claimed = [];',
+    '      const released = [];',
+    '      for (const field of meta.unique) {',
+    '        const before = base[field];',
+    '        const after = value[field];',
+    '        if (String(before) === String(after)) continue;',
+    '        if (after != null) {',
+    '          const claim = uniqueKey(entity, field, after);',
+    '          if (!(await store.claim(claim))) {',
+    '            for (const item of claimed) await store.del(item);',
+    "            throw new ArcodError('Conflict');",
+    '          }',
+    '          claimed.push(claim);',
+    '        }',
+    '        if (before != null) released.push(uniqueKey(entity, field, before));',
+    '      }',
+    '      await store.set(key, JSON.stringify({ b: value, h: null }), CONFIG.ttlMs);',
+    '      for (const item of released) await store.del(item);',
+    '      return value;',
+    '    },',
+    '    async remove(entity, id) {',
+    '      const meta = requestEntity(entity);',
+    '      const key = meta.prefix + String(id);',
+    '      const raw = await store.get(key);',
+    '      if (raw == null) return false;',
+    '      const current = recordOf(raw);',
+    '      await store.del(key);',
+    '      for (const field of meta.unique) {',
+    '        const fieldValue = current && current[field];',
+    '        if (fieldValue != null) await store.del(uniqueKey(entity, field, fieldValue));',
+    '      }',
+    '      return true;',
+    '    },',
+    '    async find(entity, query) {',
+    '      const meta = requestEntity(entity);',
+    '      const q = query || {};',
+    '      const requested = Number(q.limit);',
+    '      const limit = Number.isFinite(requested) && requested > 0 ? Math.min(500, Math.floor(requested)) : 50;',
+    '      const order = parseOrder(q.order);',
+    '      const rows = await store.scan(meta.prefix);',
+    '      let items = rows.map((row) => ({ id: row.key.slice(meta.prefix.length), value: recordOf(row.value) }));',
+    '      if (q.where) items = items.filter((item) => matchesWhere(item.value, q.where));',
+    '      items.sort((left, right) => {',
+    '        for (const rule of order) {',
+    '          const a = left.value && typeof left.value === "object" ? sortValue(left.value[rule.field]) : null;',
+    '          const b = right.value && typeof right.value === "object" ? sortValue(right.value[rule.field]) : null;',
+    '          const diff = compareValues(a, b);',
+    '          if (diff !== 0) return diff * rule.dir;',
+    '        }',
+    '        return compareValues(left.id, right.id);',
+    '      });',
+    '      if (q.cursor) {',
+    '        const at = decodeCursor(q.cursor);',
+    '        if (at && Array.isArray(at.v)) {',
+    '          const after = (item) => {',
+    '            for (let index = 0; index < order.length; index++) {',
+    '              const rule = order[index];',
+    '              const value = item.value && typeof item.value === "object" ? sortValue(item.value[rule.field]) : null;',
+    '              const diff = compareValues(value, at.v[index]);',
+    '              if (diff !== 0) return diff * rule.dir;',
+    '            }',
+    '            return compareValues(item.id, at.id);',
+    '          };',
+    '          items = items.filter((item) => after(item) > 0);',
+    '        }',
+    '      }',
+    '      const page = items.slice(0, limit);',
+    '      const tail = page[page.length - 1];',
+    '      const next = items.length > limit && tail',
+    '        ? encodeCursor(order.map((rule) => (tail.value && typeof tail.value === "object" ? sortValue(tail.value[rule.field]) : null)), tail.id)',
+    '        : null;',
+    '      return {',
+    '        items: page.map((item) => (item.value && typeof item.value === "object" && !Array.isArray(item.value) ? Object.assign({ id: item.id }, item.value) : item.value)),',
+    '        next,',
+    '      };',
+    '    },',
   );
 
   if (hasIdentity) {
@@ -951,7 +1176,16 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     '  const io = makeIo(req);',
     '  const denied = await authorize(AUTHZ[opName], io, input);',
     '  if (denied) return sendError(res, denied);',
-    '  const out = await implFn(input, io);',
+    '  let out;',
+    '  try {',
+    '    out = await implFn(input, io);',
+    '  } catch (error) {',
+    '    // The adapter raises named errors (Conflict from a unique index,',
+    '    // Invalid from a missing key); they travel as the declared error.',
+    '    if (error && error.error) return sendError(res, String(error.error));',
+    '    console.error(error);',
+    "    return sendError(res, 'Internal');",
+    '  }',
     '  if (out && out.error) return sendError(res, out.error);',
     "  if (!out) return sendError(res, 'Internal');",
     '  const result = out.result;',
@@ -1084,6 +1318,25 @@ export function maxBodyBytes(mod: ModuleNode): number {
   const create = svc?.contract.find((op) => op.name === 'create');
   if (!create) return 64 * 1024;
   return bodyLimits(mod, create).max;
+}
+
+function entityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { prefix: string; unique: string[] }> {
+  const table: Record<string, { prefix: string; unique: string[] }> = {};
+  const uniques: Array<[string, string]> = [];
+  for (const rule of svc.rules) {
+    if (rule.kind !== 'unique') continue;
+    const parts = rule.path.split('.');
+    if (parts.length === 2) uniques.push([parts[0], parts[1]]);
+  }
+  for (const decl of mod.types) {
+    // Only record shapes are storable; aliases point at one.
+    if (decl.type.kind !== 'record') continue;
+    table[decl.name] = {
+      prefix: decl.name.toLowerCase() + ':',
+      unique: uniques.filter(([entity]) => entity === decl.name).map(([, field]) => field),
+    };
+  }
+  return table;
 }
 
 export function pickService(mod: ModuleNode): ServiceNode | null {

@@ -120,6 +120,35 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       seen.add(use.alias);
     }
 
+    // A054 — unique names a field of a record type; A055 — a violation has a
+    // declared error to return; A056 — uniqueness needs a store to hold the
+    // claim, otherwise the rule would be decoration.
+    for (const rule of svc.rules) {
+      if (rule.kind !== 'unique') continue;
+      const parts = rule.path.split('.');
+      const decl = parts.length === 2 ? mod.types.find((type) => type.name === parts[0]) : undefined;
+      const field = decl && decl.type.kind === 'record'
+        ? decl.type.fields.find((item) => item.name === parts[1])
+        : undefined;
+      if (!decl || decl.type.kind !== 'record' || !field) {
+        diags.push(diag('A054', 'error', mod.file, rule.loc, `services.${svc.name}.rules.unique`,
+          `unique ${rule.path} does not name a field of a record type`,
+          'declare type Task = { … } and write unique Task.title'));
+        continue;
+      }
+      if (!mod.errors.some((item) => item.name === 'Conflict')) {
+        diags.push(diag('A055', 'error', mod.file, rule.loc, `services.${svc.name}.rules.unique`,
+          `unique ${rule.path} has no declared error for a violation`,
+          'add error Conflict; a second record with the same value returns 409'));
+      }
+      const storage = svc.uses.find((use) => ['kv', 'sql'].some((name) => use.capability === name || use.capability.endsWith('.' + name)));
+      if (!storage) {
+        diags.push(diag('A056', 'error', mod.file, rule.loc, `services.${svc.name}.rules.unique`,
+          `unique ${rule.path} needs a store to keep the claim`,
+          'add uses store: kv(…) or uses store: sql(…)'));
+      }
+    }
+
     // Collect capability calls from every expression in the service
     const uses = collectCapabilityUses(svc, aliases);
 
@@ -721,6 +750,10 @@ function requiredEffects(svc: ServiceNode, op: OpNode): Array<{ alias: string; o
   const kv = storageUse(svc)?.alias;
   const ids = svc.uses.find((use) => use.capability === 'ids' || use.capability.endsWith('.ids'))?.alias;
   const out: Array<{ alias: string; op: string }> = [];
+  // An explicit effects list is the author's answer; guessing on top of it only
+  // produced phantom requirements (create demanded store.set even when the body
+  // used store.insert).
+  if (op.clauses.some((clause) => clause.kind === 'effects')) return out;
 
   if (op.name === 'create') {
     if (kv) out.push({ alias: kv, op: 'set' });

@@ -328,6 +328,15 @@ class SqlStore {
     return result.affected;
   }
 
+  // Claiming a unique value must not race: INSERT IGNORE reports zero affected
+  // rows when the key already exists, and the primary key decides the winner.
+  async claim(key) {
+    const result = await this.query(
+      "INSERT IGNORE INTO arcod_kv (k, v, expires_at) VALUES (" + literal(hexOf(key)) + ", " + literal(hexOf('1')) + ", 9007199254740991)"
+    );
+    return result.affected === 1;
+  }
+
   async exists(key) {
     const found = await this.query(
       "SELECT 1 FROM arcod_kv WHERE k = " + literal(hexOf(key)) + " AND expires_at > " + Date.now() + " LIMIT 1"

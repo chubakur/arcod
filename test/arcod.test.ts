@@ -1831,3 +1831,79 @@ test('stream: two replicas see the same websocket events through redis pub/sub',
     await stopRedis();
   }
 });
+
+const tasksUrl = new URL('../examples/tasks/main.arc', import.meta.url);
+const tasksSource = await readFile(tasksUrl, 'utf8');
+const tasksAst = parse(tasksSource, 'main.arc');
+
+test('unique names a record field, a declared error and a store (A054-A056)', () => {
+  assert.deepEqual(check(tasksAst).filter((item) => item.severity === 'error'), []);
+
+  const missingField = parse(tasksSource.replace('unique Task.title', 'unique Task.subject'), 'main.arc');
+  assert.ok(check(missingField).some((item) => item.code === 'A054'));
+
+  const noConflict = parse(tasksSource.replace('error Conflict\n', ''), 'main.arc');
+  assert.ok(check(noConflict).some((item) => item.code === 'A055'));
+
+  const noStore = parse(tasksSource.replace('  uses store: kv(ttl: 604800s)\n', ''), 'main.arc');
+  assert.ok(check(noStore).some((item) => item.code === 'A056'));
+});
+
+test('an explicit effects list is not second-guessed by create/read conventions', () => {
+  const codes = check(tasksAst).map((item) => item.code);
+  assert.ok(!codes.includes('A004'), 'store.insert does not drag in a phantom store.set');
+});
+
+test('the entity store enforces unique, filters, sorts and pages by cursor', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-tasks-'));
+  const implDir = fileURLToPath(new URL('../examples/tasks/impl', import.meta.url));
+  const built = await buildExample(tasksAst, dir, { implDir });
+  const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(code.includes('"prefix": "task:"'), 'the entity owns a key namespace');
+  assert.ok(code.includes('"title"'), 'the unique field is part of the generated store table');
+
+  const port = 19900 + Math.floor(Math.random() * 400);
+  const service = await spawnService(built.dir, port, {});
+  const post = async (path: string, body: unknown) => {
+    const res = await fetch(service.base + path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  };
+  const get = async (path: string) => {
+    const res = await fetch(service.base + path);
+    return { status: res.status, body: (await res.json()) as { items: Array<Record<string, unknown>>; next: string | null } };
+  };
+
+  try {
+    const first = await post('/v1/tasks', { title: 'ship the store', priority: 3 });
+    assert.equal(first.status, 201);
+    const duplicate = await post('/v1/tasks', { title: 'ship the store', priority: 9 });
+    assert.equal(duplicate.status, 409, 'a claimed title is a declared Conflict, not a 500');
+    await post('/v1/tasks', { title: 'write the docs', priority: 2 });
+    await post('/v1/tasks', { title: 'review the docs', priority: 1 });
+
+    const page = await get('/v1/tasks?limit=2&sort=priority%20desc');
+    assert.deepEqual(page.body.items.map((item) => item.priority), [3, 2]);
+    assert.ok(page.body.next, 'a full page carries a cursor');
+
+    const rest = await get('/v1/tasks?limit=2&sort=priority%20desc&cursor=' + encodeURIComponent(page.body.next));
+    assert.deepEqual(rest.body.items.map((item) => item.priority), [1]);
+    assert.equal(rest.body.next, null);
+
+    const moved = await post('/v1/tasks/' + String(first.body.id) + '/move', { status: 'done' });
+    assert.equal(moved.status, 201);
+    assert.equal(moved.body.status, 'done');
+    assert.ok(moved.body.doneAt);
+
+    const done = await get('/v1/tasks?status=done');
+    assert.equal(done.body.items.length, 1);
+
+    const missing = await post('/v1/tasks/00000000-0000-4000-8000-000000000000/move', { status: 'done' });
+    assert.equal(missing.status, 404);
+  } finally {
+    service.child.kill('SIGTERM');
+  }
+});

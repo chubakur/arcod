@@ -94,9 +94,10 @@ type Password = string?                // optional
 enum Visibility { draft, published, archived }
 ```
 
-Records `{ ... }`, `list<T>`, `bytes`, `uuid`, unions, optional via `?` and
-parameter defaults (`limit: number = 20`). Durations (`999s`, `24h`) are values
-in clauses (`ttl: 999s`, `timeout: 30s`), not a type.
+Records `{ ... }`, `list<T>`, `bytes`, `uuid`, `datetime` (ISO-8601, rendered
+as `format: date-time`), `decimal`, unions, optional via `?` and parameter
+defaults (`limit: number = 20`). Durations (`999s`, `24h`) are values in clauses
+(`ttl: 999s`, `timeout: 30s`), not a type.
 
 ## Commands
 
@@ -559,6 +560,49 @@ operation lists its `401`/`403` responses, but the bearer scheme itself is
 documented only in this README. Read the document as shapes and statuses, not as
 authentication.
 
+### Records, not blobs: unique, filter, keyset pages
+
+A record type is also a store. `rules { unique Task.title }` is enforced by the
+adapter, so a second task with the same title is the declared `Conflict` (409),
+not a 500:
+
+```arcod
+type Task = {
+  id: TaskId, title: string, status: Status,
+  priority: int, createdAt: datetime, dueAt: datetime?
+}
+
+service TaskBoard : http {
+  uses store: kv(ttl: 604800s)
+  rules { unique Task.title }
+}
+```
+
+Bodies ask for a page instead of scanning and slicing themselves:
+
+```js
+const page = await io.find('Task', {
+  where: { status: 'open', priority: { gte: 2 } },
+  order: 'priority desc, createdAt asc',
+  limit: 20,
+  cursor: input.cursor,
+});
+// { items: [ …records… ], next: 'eyJ2Ijpb…' | null }
+```
+
+`io.insert`, `io.fetch`, `io.update` and `io.remove` keep the unique claim in
+step with the record (claiming the new value before releasing the old one).
+`io.find` filters (`eq`, `ne`, `in`, `gt`/`gte`/`lt`/`lte`, `contains`), sorts,
+and pages by a keyset cursor — the last row's sort values and id, base64url
+encoded — so a page does not shift when rows are inserted above it.
+
+`examples/tasks` (Redis, with `KV_DRIVER=memory` for tests) and
+`examples/tasks-sql` (MySQL) share the same bodies and both pass
+`arcod test --impl`. What is not there yet: the filter runs in the adapter over
+one entity namespace (`scan` plus in-memory match), which is honest for
+thousands of rows, not millions. Schema-aware SQL tables, declared indexes and
+query pushdown are the next step.
+
 ### One model, different providers
 
 `kv` and `sql` are the same record by id over different providers. Operation
@@ -717,7 +761,10 @@ Errors:
 - `A050` a `public` operation has no `route`;
 - `A051` `on: alias.topic` on something that is not a `job`;
 - `A052` a consumer source that is not a declared `queue` alias;
-- `A053` `retry` without an `on:` consumer.
+- `A053` `retry` without an `on:` consumer;
+- `A054` `unique` does not name a field of a record type;
+- `A055` `unique` without a declared `Conflict` error to return;
+- `A056` `unique` without a `kv`/`sql` store to keep the claim.
 
 Warnings:
 
@@ -837,6 +884,8 @@ examples/
   chat/                dialogue with a model, `layout: chat`
   payments/            somebody else's service: contract and address
   quiz/                a presentation and an event stream
+  tasks/               a record store: unique, filter, keyset pages (kv)
+  tasks-sql/           the same bodies on sql
 test/             node --test
 ```
 
@@ -868,6 +917,14 @@ This is a vertical slice, not a finished language.
 - a `job` without an `on:` consumer is still parsed but not executed
   (`W017`): there is no state model or selection condition yet. Queue-backed
   consumers do run, with retry and dead letters.
+- **`find` is a scan with a filter**, not a query planner: the adapter reads
+  one entity namespace and matches in memory, which is fine for thousands of
+  rows and wrong for millions. Schema-aware SQL tables, declared indexes and
+  pushdown are the next step.
+- **A unique claim outlives the record**: the claim key has no TTL of its own,
+  so a record that expires still holds its value until `io.remove`/`io.update`
+  releases it. Update and delete keep the index in step; TTL cleanup is not
+  there yet.
 - **There are no operation bodies in the spec** (`W018`): `build` gives a
   scaffold with TODO, `--impl` takes bodies from `impl/`, `--reference`
   substitutes a built-in demo template.

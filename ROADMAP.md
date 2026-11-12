@@ -78,7 +78,24 @@
 
 ### 3. Настоящая модель данных
 
-**Проблема:** `kv` и `sql` сейчас — запись `{b,h}` по id. Это не хватает для реальных доменов.
+**Статус: частично (2026-11-12) — запись, unique, find и курсор есть; схема БД и индексы — нет.**
+Тип-запись теперь и есть хранилище: `io.insert/fetch/update/remove` держат запись и
+unique-claim вместе, `io.find(entity, { where, order, limit, cursor })` фильтрует
+(`eq`, `ne`, `in`, `gt/gte/lt/lte`, `contains`), сортирует по нескольким полям и
+листает keyset-курсором. `rules { unique Task.title }` проверяется компилятором
+(`A054`–`A056`) и исполняется адаптером: дубль — объявленный `Conflict` (409), а
+не 500. Claim атомарный на всех трёх драйверах: `SET NX` в Redis, проверка в
+памяти, `INSERT IGNORE` в MySQL. Типы `datetime` и `decimal` доехали до OpenAPI
+(`date-time`, `number/decimal`). Примеры: `examples/tasks` (kv) и
+`examples/tasks-sql` (sql) делят одни тела; оба проходят `arcod test --impl`,
+одинаково ведут себя на Redis, памяти и MySQL.
+
+Осталось: значения по умолчанию на уровне схемы, индексы и осознанная SQL-таблица
+на запись вместо `arcod_kv`, pushdown фильтра/сортировки (сейчас `find` сканирует
+namespace), constrained-типы (`email`, `url`, `enum`) и вторая реализация SQL
+(postgres-провайдер пока провижинится, но адаптер говорит по MySQL-протоколу).
+
+**Проблема (на момент аудита):** `kv` и `sql` сейчас — запись `{b,h}` по id. Это не хватает для реальных доменов.
 
 **Сделать:**
 
@@ -274,6 +291,9 @@
 
 4. **M0.4 — data model v2**  
    Типизированные записи, query, pagination, unique, indexes.
+   ✅ запись как хранилище, `insert/fetch/update/remove/find`, keyset-курсор,
+   unique с атомарным claim, `datetime`/`decimal` в OpenAPI; ⏳ индексы,
+   SQL-схема на запись и pushdown.
 
 5. **M0.5 — migrations + observability**  
    Prod baseline: миграции, метрики, логи, request-id, timeouts.

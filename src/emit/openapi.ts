@@ -36,6 +36,8 @@ const BUILTINS = new Set([
   'boolean',
   'uuid',
   'json',
+  'datetime',
+  'decimal',
   'list',
   'map',
   'void',
@@ -84,6 +86,8 @@ function builtinSchema(name: string, args: TypeArg[]): Schema {
   if (name === 'float' || name === 'number') return { type: 'number' };
   if (name === 'bool' || name === 'boolean') return { type: 'boolean' };
   if (name === 'uuid') return { type: 'string', format: 'uuid' };
+  if (name === 'datetime') return { type: 'string', format: 'date-time' };
+  if (name === 'decimal') return { type: 'number', format: 'decimal' };
   if (name === 'json') return {};
   if (name === 'void' || name === 'null') return { type: 'null' };
   if (name === 'list') {
