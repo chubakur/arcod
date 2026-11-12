@@ -119,13 +119,16 @@ defaults (`limit: number = 20`). Durations (`999s`, `24h`) are values in clauses
 | `arcod deploy [dir]` | deployment target and `deploy.<env>.json` manifest; `--env`, `--json` |
 | `arcod prompts [dir]` | prompts only: `--max-tokens`, `--full` (no budget cut), `--json` |
 | `arcod impl [dir]` | generate operation bodies with a local model: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote` |
-| `arcod fmt [dir]` | v0.1 stub: prints that there is no formatter |
+| `arcod fmt [dir]` | canonical AST formatter on stdout; `--check` fails if not formatted; `--write` rewrites the spec; `--to <version>` migrates first. Comments are re-attached to the declaration they precede |
+| `arcod diff <a> <b>` | structural diff of two specs (both canonicalized first), `-`/`+` hunks |
+| `arcod adopt <openapi.json>` | reverse of `openapi`: reads an OpenAPI 3.x JSON doc and emits an `.arc` spec (schemas→types/enums, paths→ops) |
+| `arcod upgrade [dir]` | language-version migration: `--to <version>`, `--write`; v0.1.0 is the only version today, so it reports identity or rejects unknown targets |
 
 Flags: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`,
 `--remove-orphans`. For `make`: `--force` (regenerate bodies), `--skip-impl`,
 `--no-test`, `--model`, `--endpoint`, `--reference`, `--port`. `ast` takes
 `--check`, `test` takes `--impl`, `run` takes `--impl` or `--scaffold`, `check`
-takes `--strict`.
+takes `--strict`. `fmt`/`upgrade` take `--check`, `--write`, `--to <version>`.
 
 ```bash
 arcod make .            # first build from scratch

@@ -16,6 +16,10 @@ import { deployManifest, deployNames, deployProvider, formatDeploy } from './dep
 import { emitOpenapi } from './emit/openapi.ts';
 import { pickService } from './emit/service.ts';
 import { migrationPlan, formatMigrations } from './migrate.ts';
+import { formatSource } from './fmt.ts';
+import { diffSpecs } from './diff.ts';
+import { adoptOpenapi } from './adopt.ts';
+import { LANG_VERSION, declaredVersion, migrateSpec, VersionError } from './versions.ts';
 
 const VERSION = '0.1.0';
 
@@ -82,8 +86,16 @@ export async function main(argv: string[]): Promise<void> {
         await runMake(flags);
         return;
       case 'fmt':
-        console.error('arcod fmt: not implemented in v0.1 (use the source formatter of your editor)');
-        process.exitCode = 2;
+        await runFmt(flags);
+        return;
+      case 'diff':
+        await runDiff(rest);
+        return;
+      case 'adopt':
+        await runAdopt(rest);
+        return;
+      case 'upgrade':
+        await runUpgrade(flags);
         return;
       default:
         console.error('unknown command: ' + command);
@@ -127,6 +139,94 @@ async function runAst(flags: Flags): Promise<void> {
   }
   const { source, ...ast } = loaded.mod;
   console.log(JSON.stringify(ast, null, 2));
+}
+
+async function runFmt(flags: Flags): Promise<void> {
+  const loaded = await load(flags.spec);
+  let source = loaded.mod.source;
+  if (flags.to) {
+    try {
+      source = migrateSpec(source, declaredVersion(source, basename(loaded.specPath)), flags.to, basename(loaded.specPath));
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+      return;
+    }
+  }
+  const formatted = formatSource(source, basename(loaded.specPath));
+  if (flags.check) {
+    const current = source;
+    if (current === formatted) {
+      console.log(loaded.specPath + ': ok');
+    } else {
+      console.log(loaded.specPath + ': not formatted');
+      process.exitCode = 1;
+    }
+    return;
+  }
+  if (flags.write) {
+    await writeFile(loaded.specPath, formatted, 'utf8');
+    console.log('formatted ' + loaded.specPath);
+    return;
+  }
+  process.stdout.write(formatted);
+}
+
+async function runDiff(args: string[]): Promise<void> {
+  const [a, b] = args.filter((x) => !x.startsWith('-'));
+  if (!a || !b) {
+    console.error('usage: arcod diff <a.arc|dir> <b.arc|dir>');
+    process.exitCode = 2;
+    return;
+  }
+  const left = await load(a);
+  const right = await load(b);
+  process.stdout.write(diffSpecs(left.mod.source, left.specPath, right.mod.source, right.specPath));
+}
+
+async function runAdopt(args: string[]): Promise<void> {
+  const file = args.find((x) => !x.startsWith('-'));
+  if (!file) {
+    console.error('usage: arcod adopt <openapi.json>');
+    process.exitCode = 2;
+    return;
+  }
+  const source = await readFile(file, 'utf8');
+  let doc: any;
+  try {
+    doc = JSON.parse(source);
+  } catch {
+    console.error('arcod adopt: only JSON OpenAPI documents are supported (convert YAML first)');
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(adoptOpenapi(doc));
+}
+
+async function runUpgrade(flags: Flags): Promise<void> {
+  const loaded = await load(flags.spec);
+  const from = declaredVersion(loaded.mod.source, basename(loaded.specPath));
+  const to = flags.to ?? LANG_VERSION;
+  if (from === to) {
+    console.log(loaded.specPath + ': already at ' + from);
+    return;
+  }
+  try {
+    const migrated = migrateSpec(loaded.mod.source, from, to, basename(loaded.specPath));
+    if (flags.write) {
+      await writeFile(loaded.specPath, migrated, 'utf8');
+      console.log('upgraded ' + loaded.specPath + ' ' + from + ' -> ' + to);
+    } else {
+      process.stdout.write(migrated);
+    }
+  } catch (err) {
+    if (err instanceof VersionError) {
+      console.error(err.message);
+      process.exitCode = 1;
+      return;
+    }
+    throw err;
+  }
 }
 
 async function runDeploy(flags: Flags): Promise<void> {
@@ -512,6 +612,8 @@ interface Flags {
   force: boolean;
   skipImpl: boolean;
   noTest: boolean;
+  write: boolean;
+  to?: string;
 }
 
 function parseFlags(args: string[]): Flags {
@@ -535,6 +637,7 @@ function parseFlags(args: string[]): Flags {
     force: false,
     skipImpl: false,
     noTest: false,
+    write: false,
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -559,6 +662,8 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--force') flags.force = true;
     else if (arg === '--skip-impl') flags.skipImpl = true;
     else if (arg === '--no-test') flags.noTest = true;
+    else if (arg === '--write' || arg === '-w') flags.write = true;
+    else if (arg === '--to') flags.to = args[++i];
     else if (!arg.startsWith('-')) flags.spec = arg;
     else throw new Error('unknown flag: ' + arg);
   }
@@ -611,6 +716,10 @@ usage:
   arcod plan  [dir|spec.arc] [--json]
   arcod openapi [dir|spec.arc] [--service name]
   arcod migrate [dir|spec.arc] [--json]
+  arcod fmt  [dir|spec.arc] [--check] [--write] [--to version]
+  arcod diff <a.arc|dir> <b.arc|dir>
+  arcod adopt <openapi.json>
+  arcod upgrade [dir|spec.arc] [--to version] [--write]
   arcod providers [--json]
   arcod deploy [dir|spec.arc] [--env name] [--json]
   arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]
@@ -625,6 +734,10 @@ usage:
 make runs the whole loop: check, prompts, bodies, build, test. It stops at the
 first failing step; --skip-impl and --no-test cut it short, --force regenerates
 bodies even when impl/ is populated.
+
+fmt prints the canonical AST form; diff structural-diffs two specs (canonicalized
+first); adopt turns an OpenAPI 3.x JSON doc into a spec; upgrade migrates a spec
+across language versions (--to, --write). fmt/upgrade share --check and --write.
 
 build defaults to a scaffold: contracts, routes, adapters and infra, with TODO handlers.
 --reference additionally emits the built-in demo bodies (create/read over kv).

@@ -115,13 +115,17 @@ enum Visibility { draft, published, archived }
 | `arcod deploy [dir]` | target развёртывания и манифест `deploy.<env>.json`; `--env`, `--json` |
 | `arcod prompts [dir]` | только промпты: `--max-tokens`, `--full` (не урезать), `--json` |
 | `arcod impl [dir]` | тела операций локальной моделью: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote` |
-| `arcod fmt [dir]` | заглушка v0.1: печатает, что форматтера нет |
+| `arcod fmt [dir]` | канонический AST-форматтер в stdout; `--check` падает, если не отформатировано; `--write` перезаписывает спеку; `--to <version>` сперва мигрирует. Комментарии перевешиваются на декларацию, которую они предваряют |
+| `arcod diff <a> <b>` | структурный diff двух спек (обе канонизируются), хунки `-`/`+` |
+| `arcod adopt <openapi.json>` | обратная к `openapi`: читает OpenAPI 3.x JSON и выдаёт `.arc` (schemas→types/enums, paths→ops) |
+| `arcod upgrade [dir]` | миграция версии языка: `--to <version>`, `--write`; сегодня версия одна (0.1.0), так что это identity или отказ на неизвестную цель |
 
 Флаги: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`,
 `--remove-orphans`. У `make`: `--force` (перегенерировать тела), `--skip-impl`,
 `--no-test`, `--model`, `--endpoint`, `--reference`, `--port`.
 У `ast` — `--check` (разобрать и прогнать проверки), у `test` — `--impl`,
 у `run` — `--impl` или `--scaffold`, у `check` — `--strict`.
+У `fmt`/`upgrade` — `--check`, `--write`, `--to <version>`.
 
 ```bash
 arcod make .            # первая сборка с нуля
