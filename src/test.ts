@@ -66,7 +66,7 @@ export async function runExamples(mod: ModuleNode, buildDir: string): Promise<Te
     const examples: ExampleResult[] = [];
     for (const example of service.examples) {
       try {
-        const steps = await runExample(example.when, example.then, ctx);
+        const steps = await runExample(example.given, example.when, example.then, ctx);
         examples.push({ example: example.name, ok: true, steps });
       } catch (error) {
         examples.push({
@@ -162,11 +162,14 @@ async function probeId(ctx: Context): Promise<string> {
   return id;
 }
 
-async function runExample(when: any[], then: any[], ctx: Context): Promise<number> {
+async function runExample(given: any[], when: any[], then: any[], ctx: Context): Promise<number> {
   const env = new Map<string, Value>();
   let steps = 0;
 
-  for (const stmt of when) {
+  // 'given' is state setup: it runs like 'when', binding lets, but its
+  // results are not asserted. Both sections share the same env, so a later
+  // given/when step may reference a value bound earlier.
+  for (const stmt of [...given, ...when]) {
     const value = await evalExpr(stmt.expr, env, ctx);
     steps++;
     if (stmt.kind === 'let') env.set(stmt.name, value);

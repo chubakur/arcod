@@ -184,9 +184,9 @@ namespace), constrained-типы (`email`, `url`, `enum`) и вторая реа
 
 ### 5. Асинхронность и события
 
-**Статус: частично (2026-11-12) — M0.3 закрыт, outbox закрыт, runner остался.** Stream: `bind stream -> redis(...)` переключает транспорт на pub/sub — реплики делят подписчиков, событие приходит ровно один раз (собственный echo приходит через брокер, локальная доставка не дублируется), reconnect переподписывается; memory-драйвер без бинда. Queue: capability с эффектами `publish`/`dead`; консьюмеры объявляются в модели — `job ... { on: alias.topic, retry: n }` — runtime владеет lifecycle (старт до http, graceful shutdown с дообработкой текущего сообщения, ack-by-completion, requeue, dead letter после retry-бюджета); драйверы memory и redis (lists, zero-dep RESP-клиент); проверки A051–A053, W017 не действует на queue-backed job'ы. Redis теперь реализует `kv` + `stream` + `queue` (extraCapabilities). e2e-тесты на fake-RESP-брокере: две реплики видят одни события, retry/dead-letter на обоих драйверах. Осталось: outbox (atomic publish+fact, вместе с миграциями M0.5), saga, `given` в `arcod test`, workflow runner — помечен как external-runner contract.
+**Статус: частично (2026-11-12) — M0.3 закрыт, outbox закрыт, runner остался.** Stream: `bind stream -> redis(...)` переключает транспорт на pub/sub — реплики делят подписчиков, событие приходит ровно один раз (собственный echo приходит через брокер, локальная доставка не дублируется), reconnect переподписывается; memory-драйвер без бинда. Queue: capability с эффектами `publish`/`dead`; консьюмеры объявляются в модели — `job ... { on: alias.topic, retry: n }` — runtime владеет lifecycle (старт до http, graceful shutdown с дообработкой текущего сообщения, ack-by-completion, requeue, dead letter после retry-бюджета); драйверы memory и redis (lists, zero-dep RESP-клиент); проверки A051–A053, W017 не действует на queue-backed job'ы. Redis теперь реализует `kv` + `stream` + `queue` (extraCapabilities). e2e-тесты на fake-RESP-брокере: две реплики видят одни события, retry/dead-letter на обоих драйверах. Осталось: saga, workflow runner — помечен как external-runner contract.
 
-**Проблема:** `stream` in-memory и однонаправленный; `queue`, `workflow`, `job` декларативны; `given` не исполняется.
+**Проблема:** `stream` in-memory и однонаправленный; `queue`, `workflow`, `job` декларативны.
 
 **Сделать:**
 
@@ -204,7 +204,9 @@ namespace), constrained-типы (`email`, `url`, `enum`) и вторая реа
 - Минимальный исполняемый `job`/`workflow` runner:
   - либо собственный `journal` + scheduler;
   - либо честно отдать граф внешнему runner, но тогда закрыть promise в docs и убрать из “рабочих” фич.
-- Включить `given` в `arcod test`.
+- Включить `given` в `arcod test` — ✅: секция исполняется до `when` и делится
+  связываниями (`let`), результат доступен в `when`/`then`; пример `seeded_read`
+  в `examples/project1` покрывает это в тестах.
 
 **Готово, когда:**
 

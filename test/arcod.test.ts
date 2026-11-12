@@ -2028,4 +2028,17 @@ test('sql identifiers are quoted so reserved words are safe table names', async 
   assert.ok(code.includes('q(table)'), 'the table name is quoted');
 });
 
+test('arcod test executes the given section as state setup', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-given-'));
+  const project1Url = new URL('../examples/project1/main.arc', import.meta.url);
+  const project1Ast = parse(await readFile(project1Url, 'utf8'), 'main.arc');
+  const implDir = fileURLToPath(new URL('../examples/project1/impl', import.meta.url));
+  const built = await buildExample(project1Ast, dir, { implDir });
+  const report = await runExamples(project1Ast, built.dir);
+  const seeded = report.examples.find((e) => e.example === 'seeded_read');
+  assert.ok(seeded, 'the seeded_read example ran');
+  assert.ok(seeded.ok, 'given setup produced a readable message: ' + (seeded.error ?? ''));
+});
+
+
 

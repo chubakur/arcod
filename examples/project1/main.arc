@@ -67,6 +67,20 @@ service OneTimeMessage : http {
       }
     }
 
+    example seeded_read {
+      given {
+        let id = create("andy", "seeded")
+      }
+      when {
+        let msg = read(id)
+      }
+      then {
+        msg.author == "andy"
+        msg.body == "seeded"
+        read(id) is Gone
+      }
+    }
+
     example rejects_empty {
       when {
         let e = create("")

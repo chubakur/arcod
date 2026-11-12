@@ -878,10 +878,11 @@ service OneTimeMessage : http {
 }
 ```
 
-`when` calls operations and binds results with `let`; `then` asserts a
-comparison, `is <Error>`, `&&`, `||`, `!`. `given` (state setup) is not executed
-in v0.1. An operation without an example is `W012`; a declared error that is
-neither handled nor covered by an example is `A007`.
+`given` (state setup) and `when` call operations and bind results with `let`;
+`then` asserts a comparison, `is <Error>`, `&&`, `||`, `!`. `given` runs before
+`when` and shares its bindings, so a seeded value can be read in `when`/`then`.
+An operation without an example is `W012`; a declared error that is neither
+handled nor covered by an example is `A007`.
 
 ## Editor — VS Code
 
@@ -974,8 +975,7 @@ This is a vertical slice, not a finished language.
 - `kv` in a real environment is Redis; the in-memory driver exists only for
   `arcod test`.
 - `arcod fmt` is a stub; `arcod diff` and `arcod adopt` are not implemented.
-- `arcod test` does not execute `given`; of the predicates it supports only
-  `once`.
+- of the rule predicates `arcod test` supports only `once`.
 - `unique` and `ordering` are not checked beyond syntax and cycles.
 - Generation targets JavaScript/Node only. PHP, Go and Python would be separate
   emitters.
