@@ -20,6 +20,7 @@ import { formatSource } from './fmt.ts';
 import { diffSpecs } from './diff.ts';
 import { adoptOpenapi } from './adopt.ts';
 import { LANG_VERSION, declaredVersion, migrateSpec, VersionError } from './versions.ts';
+import { scaffold, isValidName } from './new.ts';
 
 const VERSION = '0.1.0';
 
@@ -96,6 +97,9 @@ export async function main(argv: string[]): Promise<void> {
         return;
       case 'upgrade':
         await runUpgrade(flags);
+        return;
+      case 'new':
+        await runNew(rest);
         return;
       default:
         console.error('unknown command: ' + command);
@@ -201,6 +205,30 @@ async function runAdopt(args: string[]): Promise<void> {
     return;
   }
   process.stdout.write(adoptOpenapi(doc));
+}
+
+async function runNew(args: string[]): Promise<void> {
+  const name = args.find((x) => !x.startsWith('-'));
+  if (!name) {
+    console.error('usage: arcod new <name>');
+    process.exitCode = 2;
+    return;
+  }
+  if (!isValidName(name)) {
+    console.error('arcod new: name must match [a-z][a-z0-9_-]* (got ' + JSON.stringify(name) + ')');
+    process.exitCode = 1;
+    return;
+  }
+  try {
+    const result = await scaffold(name, process.cwd());
+    console.log('created ' + result.dir);
+    for (const f of result.files) console.log('  ' + f);
+    console.log('');
+    console.log('next: cd ' + name + ' && arcod check . && arcod make .');
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+  }
 }
 
 async function runUpgrade(flags: Flags): Promise<void> {
@@ -720,6 +748,7 @@ usage:
   arcod diff <a.arc|dir> <b.arc|dir>
   arcod adopt <openapi.json>
   arcod upgrade [dir|spec.arc] [--to version] [--write]
+  arcod new <name>
   arcod providers [--json]
   arcod deploy [dir|spec.arc] [--env name] [--json]
   arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]

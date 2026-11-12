@@ -123,6 +123,7 @@ defaults (`limit: number = 20`). Durations (`999s`, `24h`) are values in clauses
 | `arcod diff <a> <b>` | structural diff of two specs (both canonicalized first), `-`/`+` hunks |
 | `arcod adopt <openapi.json>` | reverse of `openapi`: reads an OpenAPI 3.x JSON doc and emits an `.arc` spec (schemas→types/enums, paths→ops) |
 | `arcod upgrade [dir]` | language-version migration: `--to <version>`, `--write`; v0.1.0 is the only version today, so it reports identity or rejects unknown targets |
+| `arcod new <name>` | scaffold a minimal, valid service: `<name>/main.arc`, `.gitignore`, `impl/README.md` (the generated spec parses and checks clean) |
 
 Flags: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`,
 `--remove-orphans`. For `make`: `--force` (regenerate bodies), `--skip-impl`,
@@ -1044,6 +1045,21 @@ This is a vertical slice, not a finished language.
 - **There are no operation bodies in the spec** (`W018`): `build` gives a
   scaffold with TODO, `--impl` takes bodies from `impl/`, `--reference`
   substitutes a built-in demo template.
+
+## Versioning and releases
+
+Two things carry a version:
+
+- **The CLI** (`arcod --version`, `package.json`). Semantic versioning; while
+the project is 0.x, a minor bump may break the command surface.
+- **The language** (the module's `@x.y.z`). A language-version bump is a
+migration: `arcod upgrade` rewrites a spec across versions through the registry
+in `src/versions.ts`. Today only `0.1.0` exists, so the migration engine is
+identity plus rejection of unknown or downgrade targets.
+
+Publishing: `npm pack` ships `bin` + `src` + README + LICENSE (TypeScript source,
+Node >= 24 runs it natively). Pushing a `v*` tag runs `.github/workflows/release.yml`
+— tests, `npm publish` (secret `NPM_TOKEN`), and a GitHub release.
 
 ## License
 

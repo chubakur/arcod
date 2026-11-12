@@ -119,6 +119,7 @@ enum Visibility { draft, published, archived }
 | `arcod diff <a> <b>` | структурный diff двух спек (обе канонизируются), хунки `-`/`+` |
 | `arcod adopt <openapi.json>` | обратная к `openapi`: читает OpenAPI 3.x JSON и выдаёт `.arc` (schemas→types/enums, paths→ops) |
 | `arcod upgrade [dir]` | миграция версии языка: `--to <version>`, `--write`; сегодня версия одна (0.1.0), так что это identity или отказ на неизвестную цель |
+| `arcod new <name>` | скаффолдит минимальный валидный сервис: `<name>/main.arc`, `.gitignore`, `impl/README.md` (сгенерённая спека парсится и проходит check) |
 
 Флаги: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`,
 `--remove-orphans`. У `make`: `--force` (перегенерировать тела), `--skip-impl`,
@@ -1039,6 +1040,15 @@ npm test
 - **`find` на `kv` — это сканирование с фильтром**, а не планировщик запросов: адаптер читает один namespace и сравнивает в памяти. Для тысяч строк нормально, для миллионов — нет. На `sql` тот же `find` уходит в `WHERE`/`ORDER BY`/`LIMIT`; объявленные индексы за пределами `unique` пока не генерируются.
 - **Unique-claim переживает запись**: у ключа claim нет своего TTL, поэтому истёкшая запись держит значение, пока `io.remove`/`io.update` его не освободят. Обновление и удаление индекс поддерживают, очистки по TTL пока нет.
 - **В спеке нет тел операций** (`W018`): `build` по умолчанию даёт scaffold с TODO, `--impl` берёт тела из `impl/`, `--reference` подставляет встроенный демо-шаблон.
+
+## Версии и релизы
+
+Версию несут две вещи:
+
+- **CLI** (`arcod --version`, `package.json`) — semver; пока проект 0.x, минорный бамп может ломать командную поверхность.
+- **Язык** (`@x.y.z` у модуля) — смена версии языка это миграция: `arcod upgrade` переписывает спеку через реестр `src/versions.ts`. Сегодня есть только `0.1.0`, поэтому движок — identity плюс отказ на неизвестную версию и downgrade.
+
+Публикация: `npm pack` кладёт `bin` + `src` + README + LICENSE (исходники TypeScript, Node >= 24 исполняет их нативно). Пуш `v*`-тега запускает `.github/workflows/release.yml` — тесты, `npm publish` (секрет `NPM_TOKEN`) и GitHub release.
 
 ## Лицензия
 

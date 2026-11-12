@@ -5,7 +5,11 @@ import { parse } from '../src/parser.ts';
 import { printModule, formatSource } from '../src/fmt.ts';
 import { diffSpecs } from '../src/diff.ts';
 import { adoptOpenapi } from '../src/adopt.ts';
-import { LANG_VERSION, migrateSpec, VersionError } from '../src/versions.ts';
+import { LANG_VERSION, migrateSpec, VersionError, compareVersions } from '../src/versions.ts';
+import { scaffold, isValidName, serviceName, moduleName } from '../src/new.ts';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 function strip(x: unknown): unknown {
   return JSON.parse(JSON.stringify(x, (k, v) => (k === 'loc' || k === 'source' || k === 'file' ? undefined : v)));
@@ -115,4 +119,40 @@ test('spec migration rejects unknown versions', () => {
   assert.throws(() => migrateSpec('x', '9.9.9', LANG_VERSION), VersionError);
   assert.throws(() => migrateSpec('x', '0.1.0', '9.9.9'), VersionError);
   assert.throws(() => migrateSpec('x', '0.1.0', '0.0.0'), VersionError);
+});
+
+
+test('semver comparison orders versions', () => {
+  assert.equal(compareVersions('0.1.0', '0.1.0'), 0);
+  assert.ok(compareVersions('0.1.0', '0.2.0') < 0);
+  assert.ok(compareVersions('0.10.0', '0.9.0') > 0);
+  assert.ok(compareVersions('1.0.0', '0.9.0') > 0);
+  assert.ok(compareVersions('0.1.0', '0.1.1') < 0);
+});
+
+test('arcod new names map slugs to valid identifiers', () => {
+  assert.equal(isValidName('todo-list'), true);
+  assert.equal(isValidName('Todo'), false);
+  assert.equal(isValidName('-bad'), false);
+  assert.equal(serviceName('todo-list'), 'TodoList');
+  assert.equal(serviceName('my_app'), 'MyApp');
+  assert.equal(moduleName('todo-list'), 'todo_list');
+});
+
+test('arcod new scaffolds a spec that parses and checks clean', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-new-'));
+  try {
+    const result = await scaffold('todo-list', dir);
+    assert.deepEqual(result.files, ['main.arc', '.gitignore', 'impl/README.md']);
+    const src = await readFile(join(dir, 'todo-list', 'main.arc'), 'utf8');
+    assert.match(src, /module todo_list @0.1.0/);
+    assert.match(src, /service TodoList : http/);
+    const mod = parse(src, 'main.arc');
+    assert.equal(mod.name, 'todo_list');
+    const { check } = await import('../src/check.ts');
+    const errors = check(mod).filter((d) => d.severity === 'error');
+    assert.equal(errors.length, 0, errors.map((e) => e.code + ' ' + e.message).join('; '));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

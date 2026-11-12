@@ -331,12 +331,28 @@ layout без явного флага; комментарии между сте�
 
 ### 9. Пакетирование и релизы
 
-**Сделать:**
+**Статус: готово (2026-11-12) — пакет публикуется как есть (.ts-исходники под Node >=24), `arcod new` скаффолдит сервис, релиз автоматизирован, semver-политика зафиксирована.**
 
-- `package.json`: `files`, `repository`, exports, publish script.
-- GitHub release + npm publish.
-- `arcod new` для скелета сервиса.
-- Semver policy для CLI и language.
+- `package.json` — ✅. `files` (bin/src/README/LICENSE), `repository`, `homepage`, `bugs`,
+  `exports` (`.`, `./parser`, `./check`, `./fmt`, `./versions`), `publishConfig.access: public`,
+  `prepublishOnly: npm test`, `engines: node >=24` (родной type-stripping; сборки нет, публикуются .ts).
+  `npm pack --dry-run` кладёт в тарбол ровно bin + src + README + LICENSE.
+- GitHub release + npm publish — ✅ (инфра). `.github/workflows/release.yml`: на пуш `v*`-тега —
+  тесты, `npm publish` (секрет `NPM_TOKEN`), GitHub release с авто-notes
+  (`softprops/action-gh-release`). Инертен, пока нет тега и секрета.
+- `arcod new <name>` — ✅. `src/new.ts`: создаёт `<name>/{main.arc,.gitignore,impl/README.md}`.
+  Слаг с дефисом (`todo-list`) → module `todo_list`, service `TodoList`. Шаблон самопроверяется
+  (parse + check, 0 ошибок), так что дрейф шаблона ловится в тесте, а не у пользователя.
+- Semver policy для CLI и language — ✅. Зафиксирована в README:
+  - **CLI** (`arcod --version`, package.json) — semver; 0.x: minor = breaking.
+  - **Language** (module `@x.y.z`) — semver; смена версии языка = миграция через `arcod upgrade`
+    (реестр `src/versions.ts`); `compareVersions` + `assertVersionOrder` держат порядок цепочки.
+
+**Готово, когда:** пакет собирается в корректный тарбол, `arcod new` даёт валидный скелет, а
+каждая смена версии языка имеет один протестированный путь. ✅
+
+Ограничение v0.1: публикуются исходники на TypeScript (нужен Node >=24); реального `npm publish`
+не было — релизный воркфлоу лежит и сработает на первый `v*`-тег с `NPM_TOKEN`.
 
 ### 10. LSP и редакторы
 

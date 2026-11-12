@@ -20,6 +20,18 @@ export function supportedVersions(): string[] {
 
 export class VersionError extends Error {}
 
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map((n) => Number(n) || 0);
+  const pb = b.split('.').map((n) => Number(n) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const x = pa[i] ?? 0;
+    const y = pb[i] ?? 0;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
 export function declaredVersion(source: string, file = 'main.arc'): string {
   return parse(source, file).version;
 }
@@ -51,4 +63,14 @@ export function migrateSpec(source: string, from: string, to: string, file = 'ma
     fromIdx++;
   }
   return out;
+}
+
+// Keep VERSIONS ordered by semver so that the migration chain stays correct as
+// versions accumulate.
+export function assertVersionOrder(): void {
+  for (let i = 1; i < VERSIONS.length; i++) {
+    if (compareVersions(VERSIONS[i - 1], VERSIONS[i]) >= 0) {
+      throw new VersionError('VERSIONS is not ascending: ' + VERSIONS.join(', '));
+    }
+  }
 }
