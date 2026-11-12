@@ -21,6 +21,7 @@ import { diffSpecs } from './diff.ts';
 import { adoptOpenapi } from './adopt.ts';
 import { LANG_VERSION, declaredVersion, migrateSpec, VersionError } from './versions.ts';
 import { scaffold, isValidName } from './new.ts';
+import { serve as serveLsp } from './lsp-server.ts';
 
 const VERSION = '0.1.0';
 
@@ -100,6 +101,9 @@ export async function main(argv: string[]): Promise<void> {
         return;
       case 'new':
         await runNew(rest);
+        return;
+      case 'lsp':
+        serveLsp();
         return;
       default:
         console.error('unknown command: ' + command);
@@ -749,6 +753,7 @@ usage:
   arcod adopt <openapi.json>
   arcod upgrade [dir|spec.arc] [--to version] [--write]
   arcod new <name>
+  arcod lsp
   arcod providers [--json]
   arcod deploy [dir|spec.arc] [--env name] [--json]
   arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]

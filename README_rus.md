@@ -120,6 +120,7 @@ enum Visibility { draft, published, archived }
 | `arcod adopt <openapi.json>` | обратная к `openapi`: читает OpenAPI 3.x JSON и выдаёт `.arc` (schemas→types/enums, paths→ops) |
 | `arcod upgrade [dir]` | миграция версии языка: `--to <version>`, `--write`; сегодня версия одна (0.1.0), так что это identity или отказ на неизвестную цель |
 | `arcod new <name>` | скаффолдит минимальный валидный сервис: `<name>/main.arc`, `.gitignore`, `impl/README.md` (сгенерённая спека парсится и проходит check) |
+| `arcod lsp` | языковой сервер (LSP) по stdio для редакторов (VS Code, Neovim, JetBrains) |
 
 Флаги: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`,
 `--remove-orphans`. У `make`: `--force` (перегенерировать тела), `--skip-impl`,
@@ -933,32 +934,44 @@ service OneTimeMessage : http {
 значение можно читать в `when`/`then`. Операция без примера — предупреждение
 `W012`; объявленная ошибка, которую не обработали и не покрыли примером, — `A007`.
 
-## Редактор — VS Code
+## Редакторы и LSP
 
-Расширение `*.arc` живёт в `editors/vscode`:
+Расширение `*.arc` живёт в `editors/vscode`, а `arcod lsp` — это обычный
+языковой сервер (LSP) по stdio, собранный из тех же lexer/parser/check, что и
+компилятор: редактор видит ровно то, что видит `arcod check`.
+
+VS Code (`editors/vscode`):
 
 - подсветка TextMate: объявления, операции, клаузы, эффекты, типы и длительности;
-- провайдеры и возможности различаются цветом — это разные оси;
-- дополнение по контексту: после `uses store:` — возможности, после
-  `bind x ->` — провайдеры, после `deploy` — провайдеры развёртывания,
-  значения `layout`, `overlap`, `catchup`, `onFail`, `trigger`;
-- `arcod check --json` на открытии и сохранении: Problems, счётчик в
-  статус-баре, ошибки разбора с позицией;
-- навигация: Cmd/Ctrl+Click и F12 ведут к объявлению, Shift+F12 — использования,
-  hover показывает подпись, одинаковые имена подсвечиваются в файле;
-- outline модуля и команды `arcod.check|plan|build|make|deploy|providers`.
+  провайдеры и возможности различаются цветом;
+- живая диагностика по мере ввода + счётчик в статус-баре;
+- дополнение: ключевые слова, типы, сервисы, операции, ошибки, enum'ы и алиасы
+  `uses`; мёртвые ключевые слова v0.1 не предлагаются;
+- outline, переход к определению, поиск использований, hover и форматирование
+  (`arcod fmt`).
 
 ```bash
-cd editors/vscode
-npm install && npm run compile
-npx @vscode/vsce package --no-dependencies
-code --install-extension arcod-0.1.0.vsix
+cd editors/vscode && npm install && npm run package
+code --install-extension arcod-0.1.0.vsix --no-dependencies
 ```
 
+Neovim (lspconfig) и любой другой LSP-клиент:
+
+```lua
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'arcod',
+  callback = function()
+    vim.lsp.start({ name = 'arcod', cmd = { 'arcod', 'lsp' } })
+  end,
+})
+```
+
+JetBrains: подключите LSP-клиент (например, плагин LSP API) к команде
+`arcod lsp` для файлов `*.arc`.
+
 Проверки расширения: `node --test test/*.test.mjs` (грамматика через
-vscode-textmate, дополнения, отображение диагностик) и
-`node test/runTest.cjs` — запускает настоящий extension host VS Code и
-проверяет активацию, распознавание `.arc` и `A002` в Problems.
+vscode-textmate и LSP-клиент против настоящего сервера) и
+`node test/runTest.cjs` — запускает настоящий extension host VS Code.
 
 ## Структура
 

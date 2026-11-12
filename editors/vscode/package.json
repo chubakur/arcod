@@ -104,7 +104,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
-    "test": "node --test test/grammar.test.mjs",
+    "test": "node --test test/grammar.test.mjs test/lsp-client.test.mjs",
     "package": "vsce package --no-dependencies"
   },
   "devDependencies": {

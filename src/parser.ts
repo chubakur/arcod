@@ -46,6 +46,7 @@ class Parser {
     const meta: Record<string, string> = {};
     this.expect('{');
     while (!this.is('}')) {
+      if (this.peek().kind === 'eof') this.error('unexpected end of file: missing closing `}` for the module header');
       if (this.accept('meta')) {
         Object.assign(meta, this.parseMeta());
       } else {

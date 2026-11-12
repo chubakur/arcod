@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
-import { parse } from '../src/parser.ts';
+import { parse, ParseError } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { buildPlan } from '../src/plan.ts';
 import { emitService, pickService, routeOf, statusForError } from '../src/emit/service.ts';
@@ -2189,6 +2189,25 @@ test('build emits an impl-manifest with body hashes', async () => {
   assert.match(manifest.bodies.mark.sha256, /^[0-9a-f]{64}$/);
   assert.ok(manifest.bodies.mark.bytes > 0);
   assert.equal(manifest.bodies.mark.source, 'impl');
+});
+
+test('malformed specs throw instead of hanging the parser', () => {
+  // The LSP feeds every keystroke to the parser, so an unclosed brace or a
+  // stray token must throw a ParseError, never spin forever.
+  const cases = [
+    'module demo @0.1.0 {\n  type = =\n',
+    'module demo @0.1.0 {',
+    'module demo @0.1.0 { meta {',
+    'module demo @0.1.0 {\n',
+    'service X : http {',
+    'type = =',
+    'module',
+    '',
+    'module demo @0.1.0 { } service',
+  ];
+  for (const source of cases) {
+    assert.throws(() => parse(source, 'broken.arc'), ParseError, 'input: ' + JSON.stringify(source));
+  }
 });
 
 

@@ -18,8 +18,8 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: compile
         run: npm run compile
-      - name: grammar and model tests
-        run: node --test test/grammar.test.mjs test/model.test.mjs test/diagnostics.test.mjs
+      - name: grammar and LSP client tests
+        run: node --test test/grammar.test.mjs test/lsp-client.test.mjs
 
   test:
     runs-on: ubuntu-latest

@@ -124,6 +124,7 @@ defaults (`limit: number = 20`). Durations (`999s`, `24h`) are values in clauses
 | `arcod adopt <openapi.json>` | reverse of `openapi`: reads an OpenAPI 3.x JSON doc and emits an `.arc` spec (schemas→types/enums, paths→ops) |
 | `arcod upgrade [dir]` | language-version migration: `--to <version>`, `--write`; v0.1.0 is the only version today, so it reports identity or rejects unknown targets |
 | `arcod new <name>` | scaffold a minimal, valid service: `<name>/main.arc`, `.gitignore`, `impl/README.md` (the generated spec parses and checks clean) |
+| `arcod lsp` | run the Language Server over stdio for editors (VS Code, Neovim, JetBrains) |
 
 Flags: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`,
 `--remove-orphans`. For `make`: `--force` (regenerate bodies), `--skip-impl`,
@@ -930,30 +931,44 @@ service OneTimeMessage : http {
 An operation without an example is `W012`; a declared error that is neither
 handled nor covered by an example is `A007`.
 
-## Editor — VS Code
+## Editors and LSP
 
-The `*.arc` extension lives in `editors/vscode`:
+The `*.arc` extension lives in `editors/vscode`, and `arcod lsp` is a
+standard Language Server Protocol server over stdio — built from the same
+lexer/parser/check as the compiler, so the editor sees exactly what
+`arcod check` sees.
+
+VS Code (`editors/vscode`):
 
 - TextMate highlighting: declarations, operations, clauses, effects, types and
-  durations;
-- providers and capabilities are coloured differently — they are different axes;
-- context-aware completion: after `uses store:` — capabilities, after
-  `bind x ->` — providers, after `deploy` — deployment providers, values of
-  `layout`, `overlap`, `catchup`, `onFail`, `trigger`;
-- `arcod check --json` on open and save: Problems, a status bar counter, parse
-  errors with positions;
-- navigation: Cmd/Ctrl+Click and F12 go to a declaration, Shift+F12 — to
-  references.
+  durations; providers and capabilities are coloured differently.
+- Live diagnostics while you type, plus a status-bar counter.
+- Completion: keywords, types, services, operations, errors, enums and `uses`
+  aliases. Dead v0.1 keywords are never offered.
+- Outline, go-to-definition, find-references, hover and formatting (`arcod fmt`).
 
 ```bash
 cd editors/vscode && npm install && npm run package
 code --install-extension arcod-0.1.0.vsix --no-dependencies
 ```
 
-Extension tests: `node --test test/*.test.mjs` (grammar via vscode-textmate,
-completions, diagnostics rendering) and `node test/runTest.cjs` — starts a real
-VS Code extension host and checks activation, `.arc` recognition and `A002` in
-Problems.
+Neovim (lspconfig) and any other LSP client:
+
+```lua
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'arcod',
+  callback = function()
+    vim.lsp.start({ name = 'arcod', cmd = { 'arcod', 'lsp' } })
+  end,
+})
+```
+
+JetBrains: point an LSP client (e.g. the LSP API plugin) at the command
+`arcod lsp` for `*.arc` files.
+
+Extension tests: `node --test test/*.test.mjs` (grammar via vscode-textmate and
+the LSP client against the real server) and `node test/runTest.cjs` — starts a
+real VS Code extension host.
 
 ## Structure
 
@@ -975,6 +990,8 @@ src/
   deploy.ts       deployment providers and manifest
   templates.ts    built-in reference bodies
   cli.ts          commands and flags
+  lsp.ts          language features (completion, symbols, navigation, fmt)
+  lsp-server.ts   zero-dependency LSP server over stdio
   emit/service.ts        service, adapters and `io`
   emit/sql-store.ts      MySQL client
   emit/identity.ts       Keycloak/JWKS
