@@ -742,8 +742,8 @@ async function handleRequest(req, res, start) {
 
     const route = matchRoute(req.method || 'GET', url.pathname);
     if (!route) {
-      sendError(res, 'NotFound');
-      finish('not_found', '', res.statusCode, start, req);
+      send(res, 404, JSON.stringify({ error: 'NotFound', message: 'not found' }));
+      finish('not_found', '', 404, start, req);
       return;
     }
     routeName = route.path;

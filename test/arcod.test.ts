@@ -2120,7 +2120,9 @@ test('a failed saga step compensates completed steps in reverse', async () => {
     });
     assert.ok(metrics.includes('saga.compensate.mark'), 'the mark step was compensated');
     assert.ok(metrics.includes('saga.checkout.compensated'), 'the saga reports it was compensated');
-    assert.ok(!metrics.includes('capability=\"saga.checkout\"'), 'the saga did not complete');
+    assert.ok(!metrics.includes('capability="saga.checkout"}'), 'the saga did not complete');
+    const nf = await fetch(base + '/no-such-route');
+    assert.equal(nf.status, 404, 'an unmatched route is 404, not 500');
   } finally {
     child.kill('SIGTERM');
   }
