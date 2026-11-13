@@ -502,10 +502,15 @@ async function runTest(flags: Flags): Promise<void> {
     return;
   }
 
+  // `arcod test` runs real bodies when impl/ has them (same as `arcod make`);
+  // it falls back to the built-in reference handlers only when there is no impl.
+  // `--impl` forces impl, `--reference` forces the demo handlers.
+  const hasBodies = (await readdir(join(loaded.dir, 'impl')).catch(() => [] as string[])).some((name) => name.endsWith('.mjs'));
+  const useImpl = flags.impl || (!flags.reference && hasBodies);
   const result = await buildExample(loaded.mod, loaded.dir, {
     port: flags.port,
-    reference: !flags.impl,
-    implDir: flags.impl ? undefined : null,
+    reference: !useImpl,
+    implDir: useImpl ? undefined : null,
   });
   const report = await runExamples(loaded.mod, result.dir);
 
