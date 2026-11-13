@@ -1,5 +1,5 @@
 import type {
-  Arg, BindNode, BudgetNode, CapUse, Clause, EnumDecl, EnvironmentNode, ErrorDecl,
+  Arg, BindNode, BudgetNode, CapUse, Clause, DeployNode, EnumDecl, EnvironmentNode, ErrorDecl,
   ExampleNode, Expr, EffectsNode, Loc, ModuleNode, OpNode, Param, RuleNode,
   ServiceNode, SagaNode, SagaStepNode, Stmt, TriggerNode, TypeArg, TypeDecl, TypeExpr, UiNode, UiSlide,
   UseNode,
@@ -997,6 +997,6 @@ class Parser {
   }
 
   private locOfList(expr: Expr | Token): Loc {
-    return 'kind' in expr ? expr.loc : locOf(expr);
+    return 'loc' in expr ? expr.loc : locOf(expr);
   }
 }

@@ -111,7 +111,7 @@ test('openapi: error mapping is preserved', async () => {
   assert.ok(responses['410'], 'Gone mapped to 410');
   const notFound = responses['404'] as Record<string, unknown>;
   const schema = (notFound.content as Record<string, Record<string, unknown>>)['application/json'].schema as Record<string, unknown>;
-  assert.equal((schema.properties as Record<string, unknown>).error.const, 'NotFound');
+  assert.equal(((schema.properties as Record<string, unknown>).error as Record<string, unknown>).const, 'NotFound');
 
   // and matches the runtime mapping used by the HTTP emitter
   const files = await loadExample('files');

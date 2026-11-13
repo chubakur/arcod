@@ -48,7 +48,7 @@ async function startFakeRedis(port: number): Promise<() => Promise<void>> {
   const server = createServer((socket) => {
     let buffer = Buffer.alloc(0);
     socket.on('data', (chunk) => {
-      buffer = Buffer.concat([buffer, chunk]);
+      buffer = Buffer.concat([buffer, chunk as Buffer]);
       for (;;) {
         if (buffer.length < 1 || buffer[0] !== 0x2a) break;
         const headEnd = buffer.indexOf('\r\n');
@@ -379,13 +379,14 @@ test('stream: two replicas see the same websocket events through redis pub/sub',
     let socket: WebSocket | null = null;
     try {
       socket = new WebSocket('ws://127.0.0.1:' + portB + '/ws?topic=room');
+      const ws = socket;
       const received: string[] = [];
       await new Promise<void>((resolve, reject) => {
-        socket.onmessage = (event) => {
+        ws.onmessage = (event) => {
           const data = JSON.parse(String(event.data)) as { type: string };
           if (data.type === 'ready') resolve();
         };
-        socket.onerror = () => reject(new Error('websocket failed'));
+        ws.onerror = () => reject(new Error('websocket failed'));
       });
       // let the SUBSCRIBE reach the broker before publishing
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -399,7 +400,7 @@ test('stream: two replicas see the same websocket events through redis pub/sub',
 
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('no event received on replica B: ' + JSON.stringify(received))), 5000);
-        socket.onmessage = (event) => {
+        ws.onmessage = (event) => {
           received.push(String(event.data));
           const data = JSON.parse(String(event.data)) as { type: string };
           if (data.type !== 'ready') { clearTimeout(timer); resolve(); }
@@ -510,7 +511,7 @@ test('the service exposes /metrics, request ids and a structured access log', as
     assert.equal(created.status, 201);
     assert.equal(created.headers.get('x-request-id'), 'trace-abc-123', 'request id is echoed');
 
-    await waitFor(() => (logs.includes('request_id') ? logs : null));
+    await waitFor(async () => (logs.includes('request_id') ? logs : null));
 
     const metrics = await (await fetch(service.base + '/metrics')).text();
     assert.ok(metrics.includes('arcod_requests_total{method="POST",route="/v1/tasks",status="201"}'), 'counts the create');

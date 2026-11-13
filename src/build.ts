@@ -1,6 +1,6 @@
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { ModuleNode } from '../ast.ts';
+import type { ModuleNode } from './ast.ts';
 import { emitService, maxBodyBytes } from './emit/service.ts';
 import { emitWeb } from './emit/web.ts';
 import { composeYaml, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';

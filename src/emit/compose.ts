@@ -150,7 +150,7 @@ function renderProvider(bind: BindNode): RenderedProvider | null {
   const volume = spec.volumes && spec.volumes.length > 0 ? spec.volumes[0].split(':')[0] : null;
   const args: Record<string, string | number | boolean> = {};
   for (const [key, expr] of Object.entries(bind.args)) {
-    if (expr.kind === 'literal') args[key] = expr.value;
+    if (expr.kind === 'literal' && expr.value != null) args[key] = expr.value;
   }
   return {
     alias: bind.alias,

@@ -3,7 +3,6 @@ import type { Expr, ModuleNode, OpNode, ServiceNode, TypeExpr } from './ast.ts';
 import { buildPlan } from './plan.ts';
 import { isGuarded, pickService, routeOf } from './emit/service.ts';
 import { signatureFor, shortFor, storageUse } from './capabilities.ts';
-import type { ModuleNode } from './ast.ts';
 import { opEffects, payloadOf, planBody, planText } from './plan-body.ts';
 
 export interface PromptTask {

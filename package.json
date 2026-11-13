@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "Arcod — a specification language for agent-built services",
   "type": "module",
-  "bin": { "arcod": "./bin/arcod.mjs" },
+  "bin": {
+    "arcod": "./bin/arcod.mjs"
+  },
   "files": [
     "bin",
     "src",
@@ -26,13 +28,27 @@
   "bugs": {
     "url": "https://github.com/chubakur/arcod/issues"
   },
-  "engines": { "node": ">=24" },
-  "publishConfig": { "access": "public" },
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
     "arcod": "node ./bin/arcod.mjs",
     "prepublishOnly": "npm test"
   },
-  "keywords": ["specification", "codegen", "agents", "dsl"],
-  "license": "MIT"
+  "keywords": [
+    "specification",
+    "codegen",
+    "agents",
+    "dsl"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
 }

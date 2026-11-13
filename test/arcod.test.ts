@@ -484,7 +484,7 @@ test('sql binds to mysql without touching the model', () => {
   assert.ok(!service.includes('class RedisStore'), 'no Redis client in a sql service');
   assert.match(service, /import \{ [^}]*createHash[^}]* \} from 'node:crypto'/);
 
-  const compose = composeYaml(mysqlAst, { port: 8080 });
+  const compose = composeYaml(mysqlAst, 8080);
   assert.ok(compose.includes('image: mysql:8.4'));
   assert.ok(!compose.includes('redis:7-alpine'));
   assert.ok(compose.includes('DATABASE_URL: "mysql://arcod:arcod@store:3306/arcod"'));
@@ -596,7 +596,7 @@ test('the quiz example builds a working page and keeps its bodies', async () => 
   const dir = await mkdtemp(join(tmpdir(), 'arcod-quiz-'));
   const built = await buildExample(quizAst, dir, { implDir: quizImplDir });
   const html = await readFile(join(built.dir, 'web', 'index.html'), 'utf8');
-  assert.ok(html.includes(quizAst.uis[0].title));
+  assert.ok(html.includes(quizAst.uis[0].title ?? ''));
   assert.ok(html.includes(quizAst.uis[0].slides[0].title));
   assert.equal(built.impl.length, 7);
 });
@@ -633,7 +633,7 @@ test('a presentation without stream still builds but says what it costs', () => 
   assert.ok(codes.includes('W028'), 'W028: the page will poll');
   assert.equal(codes.filter((code) => code.startsWith('A')).length, 0, 'still no errors');
 
-  const html = emitWeb(parse(plain, 'main.arc'), {});
+  const html = emitWeb(parse(plain, 'main.arc'), { maxBytes: 65536 });
   assert.ok(html.includes('"stream":false'), 'the page knows there is no socket');
   assert.ok(!nginxConf(parse(plain, 'main.arc')).includes('location /ws'), 'nothing to proxy');
 });
@@ -652,7 +652,7 @@ test('the emitted service carries a websocket server, not a dependency', () => {
 });
 
 test('the page subscribes to the room and falls back to polling', () => {
-  const html = emitWeb(quizAst, {});
+  const html = emitWeb(quizAst, { maxBytes: 65536 });
   assert.ok(html.includes('"stream":true'), 'the deck carries the flag');
   assert.ok(html.includes("location.host + '/ws?topic='"), 'one socket per room');
   assert.ok(html.includes('reconnectTimer'), 'a dropped socket is retried');

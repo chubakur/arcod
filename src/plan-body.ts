@@ -78,7 +78,7 @@ export function opEffects(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded
   const atomic = svc.rules.some((rule) => rule.kind === 'atomic' && rule.name === op.name);
   const once = svc.rules
     .map((rule) => (rule.kind === 'invariant' ? asOnce(rule.expr) : null))
-    .find((item) => item && item.op === op.name) ?? null;
+    .find((item) => item && item.target === op.name) ?? null;
 
   // An operation that takes an identifier reads a stored record; one without
   // it produces a new record. This is shape, not naming.
@@ -139,7 +139,7 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
 
   const once = svc.rules
     .map((rule) => (rule.kind === 'invariant' ? asOnce(rule.expr) : null))
-    .find((item) => item && item.op === op.name) ?? null;
+    .find((item) => item && item.target === op.name) ?? null;
   const onceError = once && once.elseName ? once.elseName : null;
 
   const kindOf = (alias: string): string => {

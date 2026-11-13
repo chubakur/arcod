@@ -28,6 +28,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: install
+        run: npm ci --no-audit --no-fund
+      - name: typecheck
+        run: npx tsc --noEmit
       - name: tests
         run: node --test test/*.test.ts
       - name: check example

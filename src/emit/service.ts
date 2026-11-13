@@ -1,4 +1,4 @@
-import type { ModuleNode, OpNode, ServiceNode, TypeExpr } from './ast.ts';
+import type { ModuleNode, OpNode, ServiceNode, TypeExpr } from '../ast.ts';
 import { asOnce } from '../check.ts';
 import { HANDLER_TEMPLATES, templateFor } from '../templates.ts';
 import { SQL_STORE_SOURCE } from './sql-store.ts';
@@ -1972,8 +1972,9 @@ function resolveType(mod: ModuleNode, type: TypeExpr): TypeExpr {
   let current = type;
   for (let depth = 0; depth < 8; depth++) {
     if (current.kind !== 'named') return current;
-    const decl = mod.types.find((item) => item.name === current.name);
-    if (!decl) return current;
+    const named = current;
+    const decl = mod.types.find((item) => item.name === named.name);
+    if (!decl) return named;
     current = decl.type;
   }
   return current;

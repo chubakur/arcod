@@ -129,7 +129,7 @@ export async function runPipeline(
     });
     const failed = results.filter((item) => !item.ok);
     if (failed.length > 0) {
-      return { detail: failed.length + ' failed', ok: false, error: failed.map((item) => item.op + ': ' + item.error).join('; ') };
+      return { detail: failed.length + ' failed', ok: false, error: failed.map((item) => item.id + ': ' + item.error).join('; ') };
     }
     const cached = results.filter((item) => item.cached).length;
     return {
@@ -158,7 +158,7 @@ export async function runPipeline(
     const failed = all.filter((item) => !item.ok);
     const detail = all.length - failed.length + ' passed' + (failed.length > 0 ? ', ' + failed.length + ' failed' : '');
     if (failed.length > 0) {
-      return { detail, ok: false, error: failed.map((item) => (item.example ?? item.rule) + ': ' + item.error).join('; ') };
+      return { detail, ok: false, error: failed.map((item) => ('example' in item ? item.example + ': ' + item.error : item.rule + ': ' + (item.detail ?? 'failed'))).join('; ') };
     }
     return { detail };
   });

@@ -1,4 +1,4 @@
-import type { ModuleNode, OpNode, Param, ServiceNode, TypeExpr, UiNode } from './ast.ts';
+import type { ModuleNode, OpNode, Param, ServiceNode, TypeExpr, UiNode } from '../ast.ts';
 import { isGuarded, pickService } from './service.ts';
 import { CHAT_PAGE } from './chat-page.ts';
 import { PRESENTATION_PAGE } from './presentation-page.ts';

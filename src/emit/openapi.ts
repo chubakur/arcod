@@ -66,8 +66,9 @@ function resolveDecl(mod: ModuleNode, type: TypeExpr): TypeExpr {
   let current = type;
   for (let depth = 0; depth < 8; depth++) {
     if (current.kind !== 'named') return current;
-    const decl = mod.types.find((item) => item.name === current.name);
-    if (!decl) return current;
+    const named = current;
+    const decl = mod.types.find((item) => item.name === named.name);
+    if (!decl) return named;
     current = decl.type;
   }
   return current;
@@ -236,8 +237,10 @@ function interpretExamples(svc: ServiceNode): { calls: ExampleCall[]; errors: Ex
 
     for (const stmt of example.when) {
       const expr = stmt.expr;
-      if (expr.kind !== 'call' || expr.callee.kind !== 'ident') continue;
-      const target = svc.contract.find((item) => item.name === expr.callee.name && item.kind === 'op');
+      if (expr.kind !== 'call') continue;
+      const callee = expr.callee;
+      if (callee.kind !== 'ident') continue;
+      const target = svc.contract.find((item) => item.name === callee.name && item.kind === 'op');
       if (!target) continue;
       if (stmt.kind === 'let') bound.set(stmt.name, target.name);
 
