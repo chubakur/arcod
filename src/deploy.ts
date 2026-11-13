@@ -10,7 +10,7 @@ export interface DeploySpec {
   name: string;
   kind: DeployKind;
   summary: string;
-  artifacts: 'compose' | 'manifest';
+  artifacts: 'compose' | 'manifest' | 'k8s' | 'helm';
   args: Record<string, string>;
 }
 
@@ -52,12 +52,27 @@ export const DEPLOY_PROVIDERS: Record<string, DeploySpec> = {
   kubernetes: {
     name: 'kubernetes',
     kind: 'cloud',
-    summary: 'Kubernetes cluster (abstraction: manifest only, no API calls)',
-    artifacts: 'manifest',
+    summary: 'Kubernetes manifests: Deployment, Service, ConfigMap, Ingress (no API calls)',
+    artifacts: 'k8s',
     args: {
-      context: 'kubeconfig context',
-      namespace: 'namespace',
-      image: 'image to be pushed',
+      image: 'container image for the service',
+      namespace: 'namespace (default: arcod-<module>)',
+      replicas: 'replica count (default: 1)',
+      host: 'ingress host; omit to skip the Ingress',
+      ingressClass: 'ingress class (default: nginx)',
+    },
+  },
+  helm: {
+    name: 'helm',
+    kind: 'cloud',
+    summary: 'a Helm chart wrapping the same Kubernetes objects (no API calls)',
+    artifacts: 'helm',
+    args: {
+      image: 'container image for the service',
+      namespace: 'namespace (default: release namespace)',
+      replicas: 'default replica count',
+      host: 'ingress host; sets ingress.enabled',
+      ingressClass: 'ingress class (default: nginx)',
     },
   },
 };

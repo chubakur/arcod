@@ -113,6 +113,7 @@ enum Visibility { draft, published, archived }
 | `arcod run --down` | останавливает окружение (`down --remove-orphans`) |
 | `arcod providers` | таблица возможностей, провайдеров и их портов; `--json` |
 | `arcod deploy [dir]` | target развёртывания и манифест `deploy.<env>.json`; `--env`, `--json` |
+| `arcod k8s [dir]` | объекты Kubernetes для compose-топологии (namespace, configmap, деплойменты провайдеров, сервис, ingress); `--helm` — чарт, `--out dir` — записать файлы |
 | `arcod prompts [dir]` | только промпты: `--max-tokens`, `--full` (не урезать), `--json` |
 | `arcod impl [dir]` | тела операций локальной моделью: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote` |
 | `arcod fmt [dir]` | канонический AST-форматтер в stdout; `--check` падает, если не отформатировано; `--write` перезаписывает спеку; `--to <version>` сперва мигрирует. Комментарии перевешиваются на декларацию, которую они предваряют |
@@ -299,8 +300,9 @@ environment dev  { ... deploy docker }
 environment prod { ... deploy yandex(region: "ru-central1", folder: "arcod-prod") }
 ```
 
-`docker` даёт локальный `docker-compose.yml`; `aws`, `yandex` и
-`kubernetes` — декларативный манифест `deploy.<env>.json`
+`docker` даёт локальный `docker-compose.yml`; `kubernetes` и `helm` —
+те же объекты, но для кластера (`k8s/` или `helm/` рядом с compose-файлом);
+`aws` и `yandex` — декларативный манифест `deploy.<env>.json`
 (`"executed": false`: ни кредов, ни вызовов API). Неизвестный провайдер —
 `A028`, неизвестный аргумент — `W019`. Compose собирается из локального
 окружения, prod-привязки в него не протекают.
@@ -772,6 +774,10 @@ arcod run --impl examples/onetimemessage-pwd
   объявленных маршрутов (`/api`, `/v1`) и `/ws` при потоке `stream` (только при
   объявленном `ui`);
 - `.arcod/build/docker-compose.yml` — провайдеры + сервис + фронтенд;
+- `.arcod/build/k8s/` (или `helm/`) — та же топология объектами Kubernetes:
+  Namespace, ConfigMap с env сервиса, Deployment+Service на каждый провайдер,
+  сервис с пробами `/healthz`, веб-слой и Ingress; пишется, когда окружение
+  объявляет `deploy kubernetes` или `deploy helm`;
 - `.arcod/build/prompts/` — по промпту на операцию и `manifest.json` с хешем
   модели и бюджетом токенов;
 - `.arcod/build/deploy.<env>.json` — манифест на каждое окружение с `deploy`.

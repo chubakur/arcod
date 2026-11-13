@@ -414,7 +414,15 @@ layout без явного флага; комментарии между сте�
 
 ## P2 — расширение охвата
 
-- Реальные cloud deploy targets: Kubernetes manifests/Helm, Terraform, secrets из Vault, image publish.
+- Реальные cloud deploy targets: **Kubernetes manifests и Helm — готово (2026-11-13)**.
+  `src/emit/k8s.ts` рисует ту же топологию, что и compose: Namespace, ConfigMap
+  с env сервиса, Deployment+Service на каждый привязанный провайдер (порты,
+  healthcheck → readinessProbe, stateful → PVC), сам сервис с пробами
+  `/healthz`, web-слой и Ingress; `--helm` заворачивает те же объекты в чарт.
+  Топология берётся из `composeModel()`, поэтому локальный и кластерный вид не
+  расходятся. Команда `arcod k8s`, а также `deploy kubernetes` / `deploy helm`
+  в спеке → `.arcod/build/k8s/` или `helm/`. Осталось: Terraform, секреты из
+  Vault, публикация образов.
 - GraphQL/gRPC emitters.
 - Python/Go/PHP emitters после стабилизации IR.
 - Более богатый UI: design system, i18n, a11y, SSR; интерактивные виджеты —

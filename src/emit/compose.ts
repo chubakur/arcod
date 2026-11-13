@@ -130,7 +130,7 @@ function quote(value: string): string {
   return '"' + value.replace(/"/g, '\\"') + '"';
 }
 
-interface RenderedProvider {
+export interface RenderedProvider {
   alias: string;
   host: string;
   spec: ProviderSpec;
@@ -167,8 +167,8 @@ function renderProvider(bind: BindNode): RenderedProvider | null {
 
 function providerLines(item: RenderedProvider): string[] {
   const { spec, host, port } = item;
-  if (spec.external || !spec.image) return [];
-  const image = typeof item.args.image === 'string' ? item.args.image : spec.image;
+  const image = providerImage(item);
+  if (!image) return [];
   const lines = ['  ' + host + ':', '    image: ' + image];
 
   if (spec.command) {
@@ -212,7 +212,22 @@ function providerLines(item: RenderedProvider): string[] {
   return lines;
 }
 
-export function composeYaml(mod: ModuleNode, port: number, hasUi = true): string {
+export function providerImage(item: RenderedProvider): string | null {
+  if (item.spec.external || !item.spec.image) return null;
+  return typeof item.args.image === 'string' ? item.args.image : item.spec.image;
+}
+
+export interface ComposeModel {
+  name: string;
+  providers: RenderedProvider[];
+  appEnv: Record<string, string>;
+  hasUi: boolean;
+}
+
+// One shared description of the topology: compose renders it as yaml and the
+// kubernetes emitter renders the same services as manifests, so the local and
+// the cluster view of a module cannot drift apart.
+export function composeModel(mod: ModuleNode, port: number, hasUi = true): ComposeModel {
   const name = 'arcod-' + kebab(mod.name);
   // Compose is the local view: prefer the environment that runs on docker.
   const environment = mod.environments.find((env) => !env.deploy || env.deploy.provider === 'docker')
@@ -238,9 +253,6 @@ export function composeYaml(mod: ModuleNode, port: number, hasUi = true): string
     });
   }
 
-  const lines = ['name: ' + name, 'services:'];
-  for (const item of bound) lines.push(...providerLines(item));
-
   const appEnv: Record<string, string> = {};
   for (const item of bound) {
     for (const [key, value] of Object.entries(item.appEnv)) {
@@ -256,6 +268,14 @@ export function composeYaml(mod: ModuleNode, port: number, hasUi = true): string
       if (providerImplements(item.spec, 'queue') && !appEnv.QUEUE_REDIS_URL) appEnv.QUEUE_REDIS_URL = url;
     }
   }
+
+  return { name, providers: bound, appEnv, hasUi };
+}
+
+export function composeYaml(mod: ModuleNode, port: number, hasUi = true): string {
+  const { name, providers: bound, appEnv } = composeModel(mod, port, hasUi);
+  const lines = ['name: ' + name, 'services:'];
+  for (const item of bound) lines.push(...providerLines(item));
 
   lines.push('  service:', '    build:', '      context: ./service');
 

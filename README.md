@@ -117,6 +117,7 @@ defaults (`limit: number = 20`). Durations (`999s`, `24h`) are values in clauses
 | `arcod run --down` | stop the environment (`down --remove-orphans`) |
 | `arcod providers` | capability and provider table with ports; `--json` |
 | `arcod deploy [dir]` | deployment target and `deploy.<env>.json` manifest; `--env`, `--json` |
+| `arcod k8s [dir]` | Kubernetes objects for the compose topology (namespace, configmap, provider deployments, app, ingress); `--helm` for a chart, `--out dir` to write files |
 | `arcod prompts [dir]` | prompts only: `--max-tokens`, `--full` (no budget cut), `--json` |
 | `arcod impl [dir]` | generate operation bodies with a local model: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote` |
 | `arcod fmt [dir]` | canonical AST formatter on stdout; `--check` fails if not formatted; `--write` rewrites the spec; `--to <version>` migrates first. Comments are re-attached to the declaration they precede |
@@ -302,10 +303,11 @@ environment dev  { ... deploy docker }
 environment prod { ... deploy yandex(region: "ru-central1", folder: "arcod-prod") }
 ```
 
-`docker` produces a local `docker-compose.yml`; `aws`, `yandex` and
-`kubernetes` produce a declarative `deploy.<env>.json` manifest
-(`"executed": false`: no credentials, no API calls). Unknown provider is
-`A028`, unknown argument is `W019`. Compose is built from the local
+`docker` produces a local `docker-compose.yml`; `kubernetes` and `helm`
+render the same topology as cluster objects (`k8s/` or `helm/` next to the
+compose file); `aws` and `yandex` produce a declarative `deploy.<env>.json`
+manifest (`"executed": false`: no credentials, no API calls). Unknown provider
+is `A028`, unknown argument is `W019`. Compose is built from the local
 environment; prod bindings never leak into it.
 
 ```bash
@@ -755,6 +757,10 @@ Routes, TTL, limits and infrastructure are identical.
   declared routes (`/api`, `/v1`) and `/ws` when `stream` is used (only when a
   `ui` block is declared);
 - `.arcod/build/docker-compose.yml` — providers + service + frontend;
+- `.arcod/build/k8s/` (or `helm/`) — the same topology as Kubernetes objects:
+  a Namespace, a ConfigMap for the service env, a Deployment+Service per bound
+  provider, the service with `/healthz` probes, the web tier and an Ingress;
+  written when an environment says `deploy kubernetes` or `deploy helm`;
 - `.arcod/build/prompts/` — one prompt per operation and a `manifest.json` with
   the model hash and token budget;
 - `.arcod/build/deploy.<env>.json` — a manifest per environment with `deploy`.

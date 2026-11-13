@@ -1,11 +1,12 @@
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { ModuleNode } from './ast.ts';
 import { emitService, maxBodyBytes } from './emit/service.ts';
 import { emitWeb } from './emit/web.ts';
 import { composeYaml, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
 import { buildPrompts } from './prompts.ts';
-import { deployManifest, deployProvider } from './deploy.ts';
+import { deployManifest, deployProvider, literalMap } from './deploy.ts';
+import { helmChart, k8sManifests, type K8sOptions } from './emit/k8s.ts';
 import { sandboxViolation } from './impl.ts';
 import { createHash } from 'node:crypto';
 
@@ -147,12 +148,35 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     const deploy = environment.deploy;
     if (!deploy) continue;
     const spec = deployProvider(deploy.provider);
-    if (!spec || spec.artifacts !== 'manifest') continue;
-    await writeFile(
-      join(dir, 'deploy.' + environment.name + '.json'),
-      JSON.stringify(deployManifest(mod, environment), null, 2) + '\n',
-      { encoding: 'utf8', mode: 0o644 },
-    );
+    if (!spec) continue;
+    if (spec.artifacts === 'manifest') {
+      await writeFile(
+        join(dir, 'deploy.' + environment.name + '.json'),
+        JSON.stringify(deployManifest(mod, environment), null, 2) + '\n',
+        { encoding: 'utf8', mode: 0o644 },
+      );
+      continue;
+    }
+    if (spec.artifacts === 'k8s' || spec.artifacts === 'helm') {
+      const args = literalMap(deploy.args);
+      const options: K8sOptions = {
+        image: args.image,
+        namespace: args.namespace,
+        replicas: args.replicas !== undefined ? Number(args.replicas) : undefined,
+        host: args.host,
+        ingressClass: args.ingressClass,
+      };
+      const emitted = spec.artifacts === 'helm' ? helmChart(mod, options) : k8sManifests(mod, options);
+      // One environment keeps the plain directory; several get a suffix so
+      // their manifests never overwrite each other.
+      const base = join(dir, spec.artifacts + (mod.environments.length > 1 ? '-' + environment.name : ''));
+      for (const file of emitted) {
+        const path = join(base, file.path);
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, file.content, { encoding: 'utf8', mode: 0o644 });
+        files.push([path, file.content]);
+      }
+    }
   }
 
   // Files a provider imports (a Keycloak realm, for instance) travel with the

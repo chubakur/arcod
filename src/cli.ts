@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { basename, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse, ParseError } from './parser.ts';
 import { check } from './check.ts';
@@ -19,6 +19,7 @@ import { migrationPlan, formatMigrations } from './migrate.ts';
 import { formatSource } from './fmt.ts';
 import { diffSpecs } from './diff.ts';
 import { adoptOpenapi } from './adopt.ts';
+import { helmChart, k8sManifests } from './emit/k8s.ts';
 import { LANG_VERSION, declaredVersion, migrateSpec, VersionError } from './versions.ts';
 import { scaffold, isValidName } from './new.ts';
 import { serve as serveLsp } from './lsp-server.ts';
@@ -77,6 +78,9 @@ export async function main(argv: string[]): Promise<void> {
         return;
       case 'deploy':
         await runDeploy(flags);
+        return;
+      case 'k8s':
+        await runK8s(flags);
         return;
       case 'prompts':
         await runPrompts(flags);
@@ -287,8 +291,42 @@ async function runDeploy(flags: Flags): Promise<void> {
     console.log('run: arcod run ' + (flags.spec ?? '.'));
     return;
   }
+  if (spec.artifacts === 'k8s' || spec.artifacts === 'helm') {
+    console.log('artifact: ' + spec.artifacts + '/ — manifests written by arcod build');
+    console.log('preview: arcod k8s ' + (flags.spec ?? '.') + (spec.artifacts === 'helm' ? ' --helm' : ''));
+    console.log('provider is declarative for now: no credentials, no API calls');
+    return;
+  }
   console.log('artifact: deploy.' + env.name + '.json — manifest, written by arcod build');
   console.log('provider is declarative for now: no credentials, no API calls');
+}
+
+async function runK8s(flags: Flags): Promise<void> {
+  const loaded = await load(flags.spec);
+  const errors = check(loaded.mod).filter((d) => d.severity === 'error');
+  if (errors.length > 0) {
+    printDiagnostics(errors, loaded.specPath);
+    process.exitCode = 1;
+    return;
+  }
+  const options = {
+    image: flags.image,
+    namespace: flags.namespace,
+    replicas: flags.replicas,
+    host: flags.host,
+    ingressClass: flags.ingressClass,
+  };
+  const emitted = flags.helm ? helmChart(loaded.mod, options) : k8sManifests(loaded.mod, options);
+  if (flags.out) {
+    for (const file of emitted) {
+      const path = join(flags.out, file.path);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, file.content, { encoding: 'utf8', mode: 0o644 });
+    }
+    console.log('wrote ' + emitted.length + ' file(s) to ' + flags.out);
+    return;
+  }
+  console.log(emitted.map((file) => '# ' + file.path + '\n' + file.content).join('\n---\n'));
 }
 
 async function runPlan(flags: Flags): Promise<void> {
@@ -651,6 +689,13 @@ interface Flags {
   noTest: boolean;
   write: boolean;
   to?: string;
+  helm: boolean;
+  image?: string;
+  host?: string;
+  namespace?: string;
+  replicas?: number;
+  ingressClass?: string;
+  out?: string;
 }
 
 function parseFlags(args: string[]): Flags {
@@ -675,6 +720,7 @@ function parseFlags(args: string[]): Flags {
     skipImpl: false,
     noTest: false,
     write: false,
+    helm: false,
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -701,6 +747,13 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--no-test') flags.noTest = true;
     else if (arg === '--write' || arg === '-w') flags.write = true;
     else if (arg === '--to') flags.to = args[++i];
+    else if (arg === '--helm') flags.helm = true;
+    else if (arg === '--image') flags.image = args[++i];
+    else if (arg === '--host') flags.host = args[++i];
+    else if (arg === '--namespace') flags.namespace = args[++i];
+    else if (arg === '--replicas') flags.replicas = Number(args[++i]);
+    else if (arg === '--ingress-class') flags.ingressClass = args[++i];
+    else if (arg === '--out') flags.out = args[++i];
     else if (!arg.startsWith('-')) flags.spec = arg;
     else throw new Error('unknown flag: ' + arg);
   }
@@ -761,6 +814,8 @@ usage:
   arcod lsp
   arcod providers [--json]
   arcod deploy [dir|spec.arc] [--env name] [--json]
+  arcod k8s   [dir|spec.arc] [--helm] [--image ref] [--host host]
+                              [--namespace ns] [--replicas n] [--ingress-class c] [--out dir]
   arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]
   arcod impl  [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
                               [--dry-run] [--no-cache] [--allow-remote]
@@ -787,6 +842,13 @@ operation contract, the allowed capability signatures and the storage format.
 impl sends those prompts to an Ollama-compatible endpoint and validates the
 returned body (no imports, no HTTP, syntax check). Only a local endpoint is
 allowed unless --allow-remote is passed: the tool never needs paid tokens.
+
+k8s draws the same topology compose runs locally as Kubernetes objects:
+a Namespace, a ConfigMap for the service env, one Deployment+Service per
+bound provider (redis, postgres, ...), the service itself with /healthz
+probes, the web Deployment behind an Ingress, and a PVC for providers that
+keep state. --helm wraps the identical objects in a chart; --out writes files
+instead of printing them. Nothing is applied: the output is text only.
 
 examples:
   cd examples/onetimemessage && arcod run
