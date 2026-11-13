@@ -1,4 +1,4 @@
-import type { Expr, ModuleNode, OpNode, Param, ServiceNode } from './ast.ts';
+import type { Expr, ModuleNode, OpNode, Param, ServiceNode, TypeExpr } from './ast.ts';
 import { asOnce } from './check.ts';
 import { storageUse } from './capabilities.ts';
 
@@ -129,6 +129,48 @@ export function payloadOf(mod: ModuleNode, op: OpNode): Param[] {
   );
 }
 
+function unwrapOptional(type: TypeExpr): TypeExpr {
+  return type.kind === 'optional' ? unwrapOptional(type.inner) : type;
+}
+
+// The record type behind an operation's return: Card, or the element of
+// list<Card>. Null for scalars and inline records — those have their own
+// branches below.
+function returnedRecord(mod: ModuleNode, op: OpNode): { fields: Param[] } | null {
+  if (!op.returns) return null;
+  let candidate = unwrapOptional(op.returns);
+  if (candidate.kind === 'named' && candidate.name === 'list') {
+    const element = candidate.args[0];
+    if (!element || !element.isType) return null;
+    candidate = unwrapOptional(element.value as TypeExpr);
+  }
+  if (candidate.kind === 'named') {
+    const name = candidate.name;
+    const decl = mod.types.find((item) => item.name === name);
+    if (!decl) return null;
+    candidate = unwrapOptional(decl.type);
+  }
+  return candidate.kind === 'record' ? { fields: candidate.fields } : null;
+}
+
+// The literal for the record a create stores. Fields come from parameters by
+// name; the id from io.new(); the owner from the actor — the runtime's owner
+// guard reads rec.b.owner back on every owner: operation, so a record stored
+// without it is unreachable. A field named <bytes>Id points at the blob the
+// operation just wrote; required datetime fields start as now; the rest as
+// null.
+function entityLiteral(mod: ModuleNode, op: OpNode, fields: Param[], hasActor: boolean, bytesParam?: Param): string {
+  const parts = fields.map((field) => {
+    if (op.params.some((param) => param.name === field.name)) return field.name + ': ' + field.name;
+    if (field.name === 'id') return 'id: id';
+    if (hasActor && field.name === 'owner') return 'owner: actor.id';
+    if (bytesParam && field.name === bytesParam.name + 'Id') return field.name + ': ' + bytesParam.name + ' ? id : null';
+    if (field.type.kind !== 'optional' && resolveType(mod, field.type) === 'datetime') return field.name + ': new Date().toISOString()';
+    return field.name + ': null';
+  });
+  return '{ ' + parts.join(', ') + ' }';
+}
+
 export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPlan {
   const guarded = svc.uses.some((use) => use.capability === 'hash' || use.capability.endsWith('.hash'));
   const effects = opEffects(mod, svc, op, guarded);
@@ -165,6 +207,10 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
     ?? bytesParams[bytesParams.length - 1];
   const returns = op.returns ? resolveType(mod, op.returns) : null;
   const listReturn = Boolean(op.returns && op.returns.kind === 'named' && op.returns.name === 'list');
+  // The entity behind the return type. Sibling operations and the runtime's
+  // owner guard read the stored record back field by field, so a create
+  // persists the whole entity, not just the payload parameters.
+  const record = returnedRecord(mod, op);
 
   const intents: string[] = [];
   const steps: string[] = [];
@@ -233,7 +279,12 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
       ? password.name + ' ? await io.hash(' + password.name + ') : null'
       : 'null';
     if (names.has('new') || !idParam) {
-      steps.push('await io.save(id, { b: { ' + fields + ' }, h: ' + hash + ' })');
+      if (record) {
+        steps.push('record = ' + entityLiteral(mod, op, record.fields, names.has('actor'), blobPut ? bytesParam : undefined));
+        steps.push('await io.save(id, { b: record, h: ' + hash + ' })');
+      } else {
+        steps.push('await io.save(id, { b: { ' + fields + ' }, h: ' + hash + ' })');
+      }
     } else {
       steps.push('rec.b = { ...rec.b, ' + fields + ' }');
       steps.push('await io.save(' + idParam.name + ', { b: rec.b, h: rec.h })');
@@ -249,6 +300,20 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
   if (storageScan) {
     intents.push('scan');
     steps.push('items = await io.scan()');
+    if (record) {
+      // scan yields { id, b } wrappers; the entity lives in b. An entity
+      // with an owner field read by an auth operation is actor-scoped: the
+      // body filters by actor, never by client input.
+      if (names.has('actor') && record.fields.some((field) => field.name === 'owner')) {
+        steps.push('items = items.filter(item => item.b && item.b.owner === actor.id)');
+      }
+      for (const param of op.params) {
+        if (resolveType(mod, param.type) === 'uuid') continue;
+        if (!record.fields.some((field) => field.name === param.name)) continue;
+        steps.push('if (' + param.name + ') items = items.filter(item => item.b.' + param.name + ' === ' + param.name + ')');
+      }
+      steps.push('items = items.map(item => item.b)');
+    }
   }
 
   if (names.has('del') && idParam) {
@@ -273,6 +338,10 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
       return field.name + ': ' + value;
     });
     steps.push('return { result: { ' + fields.join(', ') + ' } }');
+  } else if (record && storageGet && idParam) {
+    steps.push('return { result: rec.b }');
+  } else if (record && storageSet && (names.has('new') || !idParam)) {
+    steps.push('return { result: record }');
   } else if (returns) {
     steps.push('return { result: ... }');
   }

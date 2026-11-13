@@ -299,7 +299,10 @@ async function invoke(op: OpNode, args: Value[], ctx: Context): Promise<Value> {
 
   const response = await fetch(ctx.baseUrl + path, {
     method,
-    headers: body ? { 'content-type': 'application/json' } : undefined,
+    // Examples run against the memory identity driver: authenticate as a
+    // fixed actor so `auth op`s are exercisable (a missing actor is already
+    // covered by the static checks and the on-error clauses).
+    headers: { 'x-actor': 'u-andrey', ...(body ? { 'content-type': 'application/json' } : {}) },
     body,
   });
 

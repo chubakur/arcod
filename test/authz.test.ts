@@ -78,6 +78,7 @@ const IMPL = {
     'export async function remove(input, io) {',
     '  // The runtime guard already rejected anonymous (401) and non-owner (403)',
     '  // callers; the body is only reached for the owner (or an admin).',
+    '  await io.del(String(input.id));',
     '  return { result: String(input.id) };',
     '}',
   ].join('\n'),
@@ -123,6 +124,10 @@ test('auth ops reject anonymous callers with 401, owner mismatch with 403', asyn
       headers: as('alice'),
     });
     assert.equal(ownerRemove.status, 201, 'owner remove succeeds');
+
+    // the record is really gone: io.del removed it from the store
+    const readAfter = await fetch(svc.base + '/v1/docs/d1');
+    assert.equal(readAfter.status, 404, 'the record is gone after remove');
   } finally {
     await svc.stop();
   }

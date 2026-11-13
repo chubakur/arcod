@@ -86,6 +86,46 @@ test('build defaults to scaffold, reference is opt-in', async () => {
   assert.ok(referenceCode.includes('randomUUID()'));
 });
 
+test('scaffold emits TODO stubs for any operations; only reference mode needs templates', () => {
+  const mod = parse(
+    [
+      'module board @0.1.0 {',
+      '}',
+      '',
+      'use capability arcod.std.kv @1',
+      '',
+      'service Board : http {',
+      '  uses store: kv',
+      '',
+      '  contract {',
+      '    op create(text: string) -> string {',
+      '      route: "POST /v1/cards"',
+      '    }',
+      '    op list() -> list<string> {',
+      '      route: "GET /v1/cards"',
+      '    }',
+      '    op move(id: string, status: string) -> string {',
+      '      route: "POST /v1/cards/:id/move"',
+      '    }',
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
+    'main.arc',
+  );
+
+  // Scaffold mode ships no operation bodies, so the create/read template
+  // restriction must not apply: every op becomes a TODO stub answering 501.
+  const scaffold = emitService(mod);
+  assert.ok(scaffold.includes('Mode: scaffold'));
+  assert.ok(scaffold.includes('const HANDLERS = {};'));
+  assert.ok(scaffold.includes('// TODO: implement move'));
+
+  // Reference mode splices in the built-in create/read body, so it still
+  // refuses operations the templates do not cover.
+  assert.throws(() => emitService(mod, { reference: true }), /templates only for create, read/);
+});
+
 test('once else must be a declared error', () => {
   const broken = parse(source.replace('else: Gone', 'else: Bogus'), 'main.arc');
   const codes = check(broken).map((item) => item.code);
@@ -915,6 +955,80 @@ test('the planner derives procedures for arbitrary operations', () => {
   assert.ok(plan('list').steps.join(' ').includes('io.scan'));
   assert.ok(plan('users').steps.join(' ').includes('io.users'));
   assert.ok(plan('setVisibility').steps.join(' ').includes('io.save(id'), 'update keeps the loaded record');
+});
+
+test('a create returning an entity stores it whole, owner included', () => {
+  const mod = parse(
+    [
+      'module board @0.1.0 {',
+      '}',
+      '',
+      'use capability arcod.std.sql @1',
+      'use capability arcod.std.ids @1',
+      'use capability arcod.std.identity @1',
+      '',
+      'type Card = {',
+      '  id: uuid,',
+      '  owner: string,',
+      '  text: string,',
+      '  status: string,',
+      '  createdAt: datetime,',
+      '  imageId: uuid?',
+      '}',
+      '',
+      'error Unauthorized',
+      'error Invalid',
+      '',
+      'service Board : http {',
+      '  uses store: sql',
+      '  uses uuid: ids',
+      '  uses auth: identity',
+      '',
+      '  effects {',
+      '    allow store.set, store.scan, uuid.new, auth.actor',
+      '  }',
+      '',
+      '  contract {',
+      '    auth op create(text: string) -> Card {',
+      '      route: "POST /v1/cards"',
+      '      effects: store.set, uuid.new, auth.actor',
+      '      errors: Unauthorized, Invalid',
+      '    }',
+      '',
+      '    auth op list(status: string?) -> list<Card> {',
+      '      route: "GET /v1/cards"',
+      '      effects: store.scan, auth.actor',
+      '      errors: Unauthorized',
+      '    }',
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
+    'main.arc',
+  );
+  const svc = mod.services[0];
+  const plan = (name: string) => planBody(mod, svc, svc.contract.find((op) => op.kind === 'op' && op.name === name)!);
+
+  // The runtime owner guard reads rec.b.owner back, and sibling operations
+  // read the other fields: the stored record is the whole entity, not just
+  // the payload parameters.
+  const create = plan('create').steps.join(' ');
+  assert.ok(create.includes('owner: actor.id'), create);
+  assert.ok(create.includes('createdAt: new Date().toISOString()'), create);
+  assert.ok(create.includes('io.save(id, { b: record, h: null })'), create);
+  assert.ok(create.includes('return { result: record }'), create);
+
+  // An actor-scoped board: scan is filtered by owner, then by the matching
+  // parameter, then unwrapped from { id, b } to the entity.
+  const list = plan('list').steps.join(' ');
+  assert.ok(list.includes('item.b.owner === actor.id'), list);
+  assert.ok(list.includes('item.b.status === status'), list);
+  assert.ok(list.includes('items.map(item => item.b)'), list);
+
+  // The prompt tells the model the guards already ran, so it does not invent
+  // its own (broken) ownership check inside the body.
+  const prompt = buildPrompts(mod).tasks.find((task) => task.op === 'create')!.prompt;
+  assert.match(prompt, /do not re-check auth or ownership/);
 });
 
 test('the page is built from the contract, one form per operation', () => {

@@ -230,11 +230,17 @@ function taskFor(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean
   const storage = storageLines(svc, guarded);
   if (storage.length > 0) lines.push('## Storage', ...storage.map((item) => '- ' + item), '');
 
-  lines.push(
-    '## Constraints',
+  const constraints = [
     '- Do not write HTTP, statuses or headers: the compiler owns them.',
     '- Return { error: "Name" } for declared errors; return { result } on success.',
     '- Keep the body under 40 lines. No comments except a one-line summary.',
+  ];
+  if (op.auth || op.clauses.some((clause) => clause.kind === 'owner')) {
+    constraints.push('- The runtime enforces auth and owner: guards before the body runs: do not re-check them.');
+  }
+  lines.push(
+    '## Constraints',
+    ...constraints,
     '',
     '## Output',
     'Reply with exactly one ' + fence + 'js block containing the whole file, and nothing else.',
@@ -368,6 +374,10 @@ function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boo
   // The procedure is derived from the model by the planner, not written per
   // operation name: effects, rules (once/atomic) and error clauses decide it.
   if (bodyPlan.steps.length > 0) lines.push('steps: ' + planText(bodyPlan));
+
+  if (op.auth || op.clauses.some((clause) => clause.kind === 'owner')) {
+    lines.push('guards: the runtime already rejected anonymous (401) and non-owner (403) callers; do not re-check auth or ownership in the body');
+  }
 
   const prompt = lines.join('\n') + '\n';
   return {

@@ -1119,9 +1119,12 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
   const svc = pickService(mod);
   if (!svc) throw new Error('no service to emit');
   const opNames = svc.contract.filter((op) => op.kind === 'op').map((op) => op.name);
+  // The built-in template body covers exactly create/read and is spliced in
+  // only in reference mode. Impl bodies come from the caller and the scaffold
+  // emits TODO stubs, so neither mode needs a template.
+  const reference = options.reference === true && !options.impl;
   const missing = opNames.filter((name) => !templateFor(name, isGuarded(svc)));
-  // Bodies supplied by the caller do not need a built-in template.
-  if (!options.impl && (!opNames.includes('create') || !opNames.includes('read') || missing.length > 0)) {
+  if (reference && (!opNames.includes('create') || !opNames.includes('read') || missing.length > 0)) {
     throw new Error('emitter v0 has templates only for ' + Object.keys(HANDLER_TEMPLATES).join(', ') + '; got: ' + opNames.join(', '));
   }
 
@@ -1171,7 +1174,6 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
   });
 }`;
 
-  const reference = options.reference === true && !options.impl;
   const externals = mod.services.filter((item) => item.external);
   const template = withHandlers(serviceTemplate(svc), reference, svc, options.impl, externals)
     .replace(CRYPTO_IMPORT, () => cryptoImportFor(svc, reference || Boolean(options.impl)))
@@ -1429,6 +1431,9 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     '    async save(id, record) {',
     "      const rec = { b: record ? record.b : null, h: record && record.h ? String(record.h) : null };",
     "      await store.set('msg:' + id, JSON.stringify(rec), CONFIG.ttlMs);",
+    '    },',
+    '    async del(id) {',
+    "      await store.del('msg:' + id);",
     '    },',
     '    async has(id) {',
     "      return (await store.get('msg:' + id)) != null;",
