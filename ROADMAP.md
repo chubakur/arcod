@@ -429,7 +429,15 @@ layout без явного флага; комментарии между сте�
   заменяется на `ExternalSecret` (external-secrets.io) с путём из
   `vault(path: ...)` — значения кредов не попадают в вывод вообще.
   Осталось: Terraform, публикация образов.
-- GraphQL/gRPC emitters.
+- **GraphQL — готово (2026-11-13).** `src/emit/graphql.ts`, CLI `arcod graphql`
+  (`--service`, `--out`). SDL из того же контракта: `GET` → Query, остальные
+  методы → Mutation, аргументы из параметров операции (uuid → `ID`, datetime →
+  `DateTime`, optional → nullable), близнецы `<Name>Input` для входных позиций
+  (GraphQL запрещает выходной тип в аргументе), HTTP-маршрут и коды ошибок — в
+  описании поля. Рантайм остаётся HTTP: схема — клиентский контракт, как и
+  OpenAPI. Валидация не «на глаз»: `buildSchema` из пакета `graphql` проверяет
+  схему каждого примера в тестах.
+- gRPC emitters (нужен .proto и кодогенерация — после Terraform).
 - Python/Go/PHP emitters после стабилизации IR.
 - Более богатый UI: design system, i18n, a11y, SSR; интерактивные виджеты —
   отдельным пакетом поверх языка.

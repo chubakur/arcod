@@ -14,6 +14,7 @@ import { DEFAULT_IMPL, formatImplReport, runImpl } from './impl.ts';
 import { PROVIDERS, providerNames } from './providers.ts';
 import { deployManifest, deployNames, deployProvider, formatDeploy } from './deploy.ts';
 import { emitOpenapi } from './emit/openapi.ts';
+import { graphqlSchema } from './emit/graphql.ts';
 import { pickService } from './emit/service.ts';
 import { migrationPlan, formatMigrations } from './migrate.ts';
 import { formatSource } from './fmt.ts';
@@ -60,6 +61,9 @@ export async function main(argv: string[]): Promise<void> {
         return;
       case 'openapi':
         await runOpenapi(flags);
+        return;
+      case 'graphql':
+        await runGraphql(flags);
         return;
       case 'migrate':
         await runMigrate(flags);
@@ -379,6 +383,25 @@ async function runOpenapi(flags: Flags): Promise<void> {
   }
   const doc = emitOpenapi(loaded.mod, { service: flags.service });
   console.log(JSON.stringify(doc, null, 2));
+}
+
+async function runGraphql(flags: Flags): Promise<void> {
+  const loaded = await load(flags.spec);
+  const errors = check(loaded.mod).filter((d) => d.severity === 'error');
+  if (errors.length > 0) {
+    printDiagnostics(errors, loaded.specPath);
+    process.exitCode = 1;
+    return;
+  }
+  const sdl = graphqlSchema(loaded.mod, { service: flags.service });
+  const target = flags.out;
+  if (!target) {
+    console.log(sdl);
+    return;
+  }
+  const path = isAbsolute(target) ? target : join(loaded.dir, target);
+  await writeFile(path, sdl);
+  console.log('wrote ' + path);
 }
 
 function runProviders(flags: Flags): void {
@@ -805,6 +828,7 @@ usage:
   arcod ast   [dir|spec.arc] [--check]
   arcod plan  [dir|spec.arc] [--json]
   arcod openapi [dir|spec.arc] [--service name]
+  arcod graphql [dir|spec.arc] [--service name] [--out file]
   arcod migrate [dir|spec.arc] [--json]
   arcod fmt  [dir|spec.arc] [--check] [--write] [--to version]
   arcod diff <a.arc|dir> <b.arc|dir>

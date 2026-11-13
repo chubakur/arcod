@@ -122,6 +122,7 @@ defaults (`limit: number = 20`). Durations (`999s`, `24h`) are values in clauses
 | `arcod impl [dir]` | generate operation bodies with a local model: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote` |
 | `arcod fmt [dir]` | canonical AST formatter on stdout; `--check` fails if not formatted; `--write` rewrites the spec; `--to <version>` migrates first. Comments are re-attached to the declaration they precede |
 | `arcod diff <a> <b>` | structural diff of two specs (both canonicalized first), `-`/`+` hunks |
+| `arcod graphql [dir]` | GraphQL SDL for the same contract: `GET` → Query, other methods → Mutation, `<Name>Input` twins for arguments, the HTTP route and error statuses in each field description; `--service <name>`, `--out <file>` |
 | `arcod adopt <openapi.json>` | reverse of `openapi`: reads an OpenAPI 3.x JSON doc and emits an `.arc` spec (schemas→types/enums, paths→ops) |
 | `arcod upgrade [dir]` | language-version migration: `--to <version>`, `--write`; v0.1.0 is the only version today, so it reports identity or rejects unknown targets |
 | `arcod new <name>` | scaffold a minimal, valid service: `<name>/main.arc`, `.gitignore`, `impl/README.md` (the generated spec parses and checks clean) |
@@ -628,6 +629,44 @@ operation lists its `401`/`403` responses, but the bearer scheme itself is
 documented only in this README. Read the document as shapes and statuses, not as
 authentication.
 
+### The contract as GraphQL
+
+`arcod graphql` renders the same contract as GraphQL SDL. The runtime still
+speaks HTTP — the schema is the client-side view, so codegen (Apollo,
+graphql-codegen, `graphql` itself) has something real to read:
+
+```bash
+arcod graphql examples/tasks-sql                    # SDL on stdout
+arcod graphql . --service TaskBoard --out schema.graphql
+```
+
+The split follows the REST method the spec already declares, never a naming
+convention: a `GET` route becomes a **Query** field, any other method a
+**Mutation**. Arguments come from operation params (`uuid` → `ID`, `int` →
+`Int`, `datetime` → `DateTime`, optional → nullable), return types from
+`-> Type`. GraphQL cannot use an output type as input, so each type that appears
+as an argument also gets an `<Name>Input` twin; a body param carries it, scalar
+params stay plain arguments:
+
+```graphql
+type Query {
+  """
+  HTTP: GET /v1/tasks
+  Errors: Invalid (400)
+  """
+  list(status: String, sort: String, limit: Int, cursor: String): ListResult!
+}
+
+type Mutation {
+  create(task: TaskInput!): Task!
+}
+```
+
+Each field's description carries the HTTP route and the error codes mapped by
+the same table the runtime uses, so REST and GraphQL cannot drift apart. The
+emitted SDL is validated with `buildSchema` from the `graphql` package in the
+test suite — for every example, not just a fixture.
+
 ### Records, not blobs: unique, filter, keyset pages
 
 A record type is also a store. `rules { unique Task.title }` is enforced by the
@@ -1023,6 +1062,7 @@ src/
   emit/stream.ts         websocket server (RFC 6455) and redis pub/sub
   emit/queue.ts          queue drivers (memory, redis) and consumers
   emit/openapi.ts        OpenAPI 3.1 from the same model
+  emit/graphql.ts        GraphQL SDL from the same model
   emit/web.ts            frontend: forms
   emit/chat-page.ts      `layout: chat`
   emit/presentation-page.ts `layout: presentation`

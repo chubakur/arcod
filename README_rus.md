@@ -118,6 +118,7 @@ enum Visibility { draft, published, archived }
 | `arcod impl [dir]` | тела операций локальной моделью: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote` |
 | `arcod fmt [dir]` | канонический AST-форматтер в stdout; `--check` падает, если не отформатировано; `--write` перезаписывает спеку; `--to <version>` сперва мигрирует. Комментарии перевешиваются на декларацию, которую они предваряют |
 | `arcod diff <a> <b>` | структурный diff двух спек (обе канонизируются), хунки `-`/`+` |
+| `arcod graphql [dir]` | GraphQL SDL того же контракта: `GET` → Query, остальные методы → Mutation, близнецы `<Name>Input` для аргументов, HTTP-маршрут и коды ошибок в описании поля; `--service <имя>`, `--out <файл>` |
 | `arcod adopt <openapi.json>` | обратная к `openapi`: читает OpenAPI 3.x JSON и выдаёт `.arc` (schemas→types/enums, paths→ops) |
 | `arcod upgrade [dir]` | миграция версии языка: `--to <version>`, `--write`; сегодня версия одна (0.1.0), так что это identity или отказ на неизвестную цель |
 | `arcod new <name>` | скаффолдит минимальный валидный сервис: `<name>/main.arc`, `.gitignore`, `impl/README.md` (сгенерённая спека парсится и проходит check) |
@@ -608,6 +609,44 @@ arcod openapi . --service FileShare   # спека из нескольких с�
 `securitySchemes`. Защищённая операция перечисляет `401`/`403`, но сама
 bearer-схема описана только в этом README.
 
+### Контракт как GraphQL
+
+`arcod graphql` рисует тот же контракт как GraphQL SDL. Рантайм по-прежнему
+говорит по HTTP — схема это клиентский взгляд, чтобы кодогенерация (Apollo,
+graphql-codegen, сам `graphql`) читала настоящую схему, а не догадывалась:
+
+```bash
+arcod graphql examples/tasks-sql                    # SDL в stdout
+arcod graphql . --service TaskBoard --out schema.graphql
+```
+
+Разделение следует методу REST, который спека уже объявила, а не соглашению об
+именах: маршрут `GET` становится полем **Query**, любой другой метод — полем
+**Mutation**. Аргументы берутся из параметров операции (`uuid` → `ID`, `int` →
+`Int`, `datetime` → `DateTime`, optional → nullable), тип возврата — из
+`-> Type`. GraphQL не позволяет использовать выходной тип как входной, поэтому
+каждый тип, встречающийся в аргументах, получает близнеца `<Name>Input`: его
+несёт параметр тела, а скалярные параметры остаются обычными аргументами:
+
+```graphql
+type Query {
+  """
+  HTTP: GET /v1/tasks
+  Errors: Invalid (400)
+  """
+  list(status: String, sort: String, limit: Int, cursor: String): ListResult!
+}
+
+type Mutation {
+  create(task: TaskInput!): Task!
+}
+```
+
+Описание каждого поля несёт HTTP-маршрут и коды ошибок по той же таблице, что
+использует рантайм, — REST и GraphQL не могут разъехаться. Сгенерированный SDL
+проверяется `buildSchema` из пакета `graphql` в тестах: по всем примерам, не
+только по фикстуре.
+
 ### Записи, а не блобы: unique, фильтр, страницы по курсору
 
 Тип-запись — это ещё и хранилище. `rules { unique Task.title }` проверяет
@@ -1022,6 +1061,7 @@ src/
   emit/stream.ts         websocket-сервер (RFC 6455) и redis pub/sub
   emit/queue.ts          драйверы очереди (memory, redis) и консьюмеры
   emit/openapi.ts        OpenAPI 3.1 из той же модели
+  emit/graphql.ts        GraphQL SDL из той же модели
   emit/web.ts            фронтенд: формы
   emit/chat-page.ts      `layout: chat`
   emit/presentation-page.ts `layout: presentation`
