@@ -230,8 +230,10 @@ export function composeYaml(mod: ModuleNode, port: number, hasUi = true): string
       host: 'kv',
       spec: { ...providerFor('redis')!, name: 'redis' },
       port: 6379,
+      importFile: null,
+      args: {},
       expose: false,
-      appEnv: providerFor('redis')!.appEnv!('kv', 6379),
+      appEnv: providerFor('redis')!.appEnv!({ host: 'kv', port: 6379, alias: 'store', args: {} }),
       volume: null,
     });
   }

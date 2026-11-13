@@ -382,13 +382,33 @@ layout без явного флага; комментарии между сте�
 
 ### 11. Тестовая матрица
 
-**Сделать:**
+**Статус: готово (2026-11-13).**
 
-- Contract tests для external services.
-- Property/fuzz tests из инвариантов.
-- AuthZ negative tests.
-- Load/soak smoke для concurrency и latency budgets.
-- Разделить монолитный тестовый файл на тематические suites.
+- **Contract tests для external services** — ✅ `test/contract.test.ts`: внешний
+  сервис `Ledger` мокается (`mockHttp`), спека с `external service` + `bind ->
+  endpoint` поднимается с `LEDGER_URL` на мок; проверяется метод/путь/тело вызова
+  и что внешний сбой всплывает как заявленная ошибка (`Unavailable` → 503).
+- **Property/fuzz tests** — ✅ `test/property.test.ts`: детерминированный PRNG
+  гоняет произвольные входы через поднятый сервис; инвариант «никакой вход не
+  даёт 500 — только успех или заявленная ошибка». (Сам инвариант `once`
+  исполняется `arcod test`/`runRules`, а не фаззингом — v0.1-ограничение.)
+- **AuthZ negative tests** — ✅ `test/authz.test.ts`: аноним на `auth`-опе — 401,
+  не-владелец на `owner`-опе — 403, владелец — успех, админ — bypass.
+- **Load/soak smoke** — ✅ `test/soak.test.ts`: 60 конкурентных запросов, все 200,
+  p95 и общее время в бюджете.
+- **Разделение монолитного теста** — ✅: `test/arcod.test.ts` разбит на
+  `emit-openapi` / `emit-authz` / `emit-async` / `impl` + общий харнесс
+  `test/harness.ts` (build → старт на свободном порту → fetch → teardown).
+- **Бонус-фиксы** (вскрыты матрицей): `compose.ts` падал на сервисе без `bind` —
+  дефолтный kv-bind не проставлял `args` и звал `appEnv` с неверной сигнатурой.
+
+**Готово, когда:** сервис без привязок собирается, а каждая размерность матрицы
+имеет свою suite с зелёными тестами. ✅
+
+Ограничение v0.1: property-тест — это входной фаззинг на границу сервиса, а не
+генерация из `invariant` (единственный предикат v0.1 — `once` — уже покрыт
+`arcod test`); kv-эффект `del` заявлен в capabilities, но не эмитится (тело не
+может удалить запись).
 
 ---
 

@@ -1028,6 +1028,15 @@ Running the tests:
 npm test
 ```
 
+The test matrix is split into thematic suites: `arcod.test.ts` (parser, checker,
+planner, core emitter), `emit-openapi` / `emit-authz` / `emit-async` (emitters),
+`impl.test.ts` (bodies and the sandbox), `tooling.test.ts` (fmt/diff/adopt/
+versions), `lsp.test.ts` (language server), and the integration suites —
+`authz.test.ts` (401/403), `contract.test.ts` (external services against a mock),
+`soak.test.ts` (concurrency + latency) and `property.test.ts` (input fuzzing —
+no input may cause a 500). `test/harness.ts` builds a spec and runs the generated
+service on a free port for the integration suites.
+
 ## v0.1 limitations
 
 This is a vertical slice, not a finished language.

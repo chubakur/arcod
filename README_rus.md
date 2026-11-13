@@ -1029,6 +1029,15 @@ test/             node --test
 npm test
 ```
 
+Тестовая матрица разбита на тематические suites: `arcod.test.ts` (парсер, чекер,
+планировщик, ядро эмиттера), `emit-openapi` / `emit-authz` / `emit-async`
+(эмиттеры), `impl.test.ts` (тела и sandbox), `tooling.test.ts` (fmt/diff/adopt/
+versions), `lsp.test.ts` (языковой сервер) и интеграционные — `authz.test.ts`
+(401/403), `contract.test.ts` (внешние сервисы против мока), `soak.test.ts`
+(конкурентность + латентность) и `property.test.ts` (входной фаззинг: никакой
+вход не даёт 500). `test/harness.ts` собирает спеку и поднимает сервис на
+свободном порту для интеграционных suites.
+
 ## Ограничения v0.1
 
 Это вертикальный срез, а не готовый язык.
