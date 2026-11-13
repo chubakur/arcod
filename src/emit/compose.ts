@@ -1,5 +1,5 @@
 import { kebab } from '../plan.ts';
-import type { BindNode, ModuleNode } from '../ast.ts';
+import type { BindNode, EnvironmentNode, ModuleNode } from '../ast.ts';
 import { providerFor, providerImplements, type ProviderSpec } from '../providers.ts';
 
 export function serviceDockerfile(): string {
@@ -227,11 +227,15 @@ export interface ComposeModel {
 // One shared description of the topology: compose renders it as yaml and the
 // kubernetes emitter renders the same services as manifests, so the local and
 // the cluster view of a module cannot drift apart.
+// Compose is the local view: prefer the environment that runs on docker.
+// The kubernetes emitter needs the same choice, so it is shared here.
+export function localEnvironment(mod: ModuleNode): EnvironmentNode | undefined {
+  return mod.environments.find((env) => !env.deploy || env.deploy.provider === 'docker') ?? mod.environments[0];
+}
+
 export function composeModel(mod: ModuleNode, port: number, hasUi = true): ComposeModel {
   const name = 'arcod-' + kebab(mod.name);
-  // Compose is the local view: prefer the environment that runs on docker.
-  const environment = mod.environments.find((env) => !env.deploy || env.deploy.provider === 'docker')
-    ?? mod.environments[0];
+  const environment = localEnvironment(mod);
   const bound = (environment?.binds ?? [])
     .filter((bind) => providerFor(bind.provider) !== null)
     .map(renderProvider)

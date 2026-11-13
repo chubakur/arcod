@@ -1,6 +1,7 @@
 import type { ModuleNode } from '../ast.ts';
 import { kebab } from '../plan.ts';
-import { composeModel, providerImage, type RenderedProvider } from './compose.ts';
+import { providerFor } from '../providers.ts';
+import { composeModel, localEnvironment, providerImage, type RenderedProvider } from './compose.ts';
 
 // The kubernetes target is a second view of the same topology compose emits:
 // composeModel() decides which providers exist, their images and the app env,
@@ -114,6 +115,7 @@ interface Workload {
   command?: string[] | null;
   env?: Record<string, string> | null;
   envFromConfigMap?: string | null;
+  envFromSecret?: string | null;
   mounts?: Array<{ path: string; claim: string }>;
   probe?: string[];
   resources?: boolean;
@@ -156,12 +158,14 @@ function workloadYaml(w: Workload): string {
     for (const key of Object.keys(w.env).sort()) {
       lines.push('            - name: ' + key, '              value: ' + JSON.stringify(w.env[key]));
     }
-  } else if (w.envFromConfigMap) {
-    lines.push(
-      '          envFrom:',
-      '            - configMapRef:',
-      '                name: ' + w.envFromConfigMap,
-    );
+  }
+
+  const refs: string[] = [];
+  if (w.envFromConfigMap) refs.push('            - configMapRef:\n                name: ' + w.envFromConfigMap);
+  if (w.envFromSecret) refs.push('            - secretRef:\n                name: ' + w.envFromSecret);
+  if (refs.length > 0) {
+    lines.push('          envFrom:');
+    for (const ref of refs) lines.push(ref);
   }
 
   if (w.mounts && w.mounts.length > 0) {
@@ -249,6 +253,64 @@ function configMapYaml(name: string, namespace: string, env: Record<string, stri
   return lines.join('\n');
 }
 
+// Values from the development defaults are fine for a laptop; a cluster wants
+// them to come from a secret store. The annotation says which one this is.
+function secretYaml(name: string, namespace: string, partOf: string, values: Record<string, string>): string {
+  const lines = [
+    'apiVersion: v1',
+    'kind: Secret',
+    'metadata:',
+    '  name: ' + name,
+    '  namespace: ' + namespace,
+    '  labels:',
+    ...labelPairs(partOf, name, 'secret', '    '),
+    '  annotations:',
+    '    arcod.dev/note: "development defaults; replace with an ExternalSecret or a sealed secret before production"',
+    'type: Opaque',
+    'stringData:',
+  ];
+  for (const key of Object.keys(values).sort()) lines.push('  ' + key + ': ' + JSON.stringify(values[key]));
+  return lines.join('\n');
+}
+
+// When a secrets capability is bound, the same Secret name is produced by the
+// External Secrets operator from Vault: no credential is written to disk.
+function externalSecretYaml(
+  name: string,
+  namespace: string,
+  partOf: string,
+  keys: string[],
+  vault: { path: string; store: string },
+): string {
+  const lines = [
+    'apiVersion: external-secrets.io/v1beta1',
+    'kind: ExternalSecret',
+    'metadata:',
+    '  name: ' + name,
+    '  namespace: ' + namespace,
+    '  labels:',
+    ...labelPairs(partOf, name, 'secret', '    '),
+    'spec:',
+    '  refreshInterval: 1h',
+    '  secretStoreRef:',
+    '    name: ' + vault.store,
+    '    kind: ClusterSecretStore',
+    '  target:',
+    '    name: ' + name,
+    '    creationPolicy: Owner',
+    '  data:',
+  ];
+  for (const key of keys.sort()) {
+    lines.push(
+      '    - secretKey: ' + key,
+      '      remoteRef:',
+      '        key: ' + vault.path,
+      '        property: ' + key,
+    );
+  }
+  return lines.join('\n');
+}
+
 function pvcYaml(partOf: string, claim: string, namespace: string): string {
   return [
     'apiVersion: v1',
@@ -278,7 +340,9 @@ interface Ctx {
   hasUi: boolean;
   appPort: number;
   providers: RenderedProvider[];
-  appEnv: Record<string, string>;
+  plainEnv: Record<string, string>;
+  hiddenEnv: Record<string, string>;
+  vault: { path: string; store: string } | null;
   tpl: boolean;
 }
 
@@ -289,11 +353,49 @@ function splitImage(image: string): { repository: string; tag: string } {
   return { repository: image, tag: 'latest' };
 }
 
+function isSecretKey(key: string, declared: readonly string[]): boolean {
+  return declared.some((name) => key === name || key.startsWith(name + '_'));
+}
+
+function splitEnv(
+  env: Record<string, string>,
+  declared: readonly string[],
+): { plain: Record<string, string>; hidden: Record<string, string> } {
+  const plain: Record<string, string> = {};
+  const hidden: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (isSecretKey(key, declared)) hidden[key] = value;
+    else plain[key] = value;
+  }
+  return { plain, hidden };
+}
+
+function literalArg(bind: { args: Record<string, unknown> }, key: string): string | null {
+  const expr = bind.args[key] as { kind?: string; value?: unknown } | undefined;
+  if (!expr || expr.kind !== 'literal' || typeof expr.value !== 'string') return null;
+  return expr.value;
+}
+
 function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
   const model = composeModel(mod, 0, mod.uis.length > 0);
   const name = baseName(mod);
   const appImage = options.image && options.image.length > 0 ? options.image : name + ':latest';
   const webImage = options.webImage && options.webImage.length > 0 ? options.webImage : name + '-web:latest';
+
+  // Credentials are whatever the bound providers call sensitive; nothing is
+  // guessed from names. A secrets-capability bind switches the same Secret to
+  // an ExternalSecret sourced from Vault.
+  const declared = new Set<string>();
+  for (const item of model.providers) for (const key of item.spec.secrets ?? []) declared.add(key);
+  const keys = [...declared];
+  const env = splitEnv(model.appEnv, keys);
+
+  const environment = localEnvironment(mod);
+  const vaultBind = (environment?.binds ?? []).find((bind) => providerFor(bind.provider)?.capability === 'secrets');
+  const path = vaultBind ? literalArg(vaultBind as unknown as { args: Record<string, unknown> }, 'path') : null;
+  const store = vaultBind ? literalArg(vaultBind as unknown as { args: Record<string, unknown> }, 'store') : null;
+  const vault = path ? { path, store: store ?? 'vault-backend' } : null;
+
   return {
     name,
     namespace: tpl ? '{{ .Release.Namespace }}' : options.namespace ?? name,
@@ -305,7 +407,9 @@ function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
     hasUi: model.hasUi,
     appPort: options.servicePort ?? APP_PORT,
     providers: model.providers,
-    appEnv: model.appEnv,
+    plainEnv: env.plain,
+    hiddenEnv: env.hidden,
+    vault,
     tpl,
   };
 }
@@ -318,6 +422,16 @@ function providerFiles(ctx: Ctx): EmittedFile[] {
     const mountPath = item.spec.volumes?.[0]?.split(':')[1] ?? null;
     const claim = mountPath ? item.host + '-data' : null;
     if (claim) files.push({ path: item.host + '-data.yaml', content: pvcYaml(ctx.name, claim, ctx.namespace) });
+
+    // Provider passwords bootstrap the deployed dependency itself, so they stay
+    // with the dependency rather than in the app's secret.
+    const env = splitEnv(item.spec.env ?? {}, item.spec.secrets ?? []);
+    if (Object.keys(env.hidden).length > 0) {
+      files.push({
+        path: item.host + '-secret.yaml',
+        content: secretYaml(item.host + '-env', ctx.namespace, ctx.name, env.hidden),
+      });
+    }
 
     const ports = item.port > 0 ? [item.port, ...(item.spec.extraPorts ?? [])] : [];
     const deployment = workloadYaml({
@@ -332,7 +446,8 @@ function providerFiles(ctx: Ctx): EmittedFile[] {
       // keycloak's --import-realm needs a mounted file, which is a deliberate
       // gap on this target: the realm travels with compose, not with k8s.
       command: item.spec.command ?? null,
-      env: item.spec.env ?? null,
+      env: env.plain,
+      envFromSecret: Object.keys(env.hidden).length > 0 ? item.host + '-env' : null,
       mounts: claim && mountPath ? [{ path: mountPath, claim }] : [],
       probe: probeLines(item.port, execProbe(item.spec.healthcheck?.test), '          '),
     });
@@ -340,6 +455,20 @@ function providerFiles(ctx: Ctx): EmittedFile[] {
     files.push({ path: item.host + '.yaml', content: deployment + service });
   }
   return files;
+}
+
+function appSecretFiles(ctx: Ctx): EmittedFile[] {
+  const keys = Object.keys(ctx.hiddenEnv);
+  if (keys.length === 0) return [];
+  if (ctx.vault) {
+    return [
+      {
+        path: 'externalsecret.yaml',
+        content: externalSecretYaml(ctx.name + '-env', ctx.namespace, ctx.name, keys, ctx.vault),
+      },
+    ];
+  }
+  return [{ path: 'secret.yaml', content: secretYaml(ctx.name + '-env', ctx.namespace, ctx.name, ctx.hiddenEnv) }];
 }
 
 function appFiles(ctx: Ctx): EmittedFile[] {
@@ -351,7 +480,8 @@ function appFiles(ctx: Ctx): EmittedFile[] {
     replicas: ctx.replicas,
     image: ctx.appImage,
     port: ctx.appPort,
-    envFromConfigMap: ctx.name + '-env',
+    envFromConfigMap: Object.keys(ctx.plainEnv).length > 0 ? ctx.name + '-env' : null,
+    envFromSecret: Object.keys(ctx.hiddenEnv).length > 0 ? ctx.name + '-env' : null,
     probe: httpProbeLines('/healthz', ctx.appPort, '          '),
     resources: true,
   });
@@ -413,7 +543,11 @@ export function k8sManifests(mod: ModuleNode, options: K8sOptions = {}): Emitted
   const ctx = contextOf(mod, options, false);
   const files: EmittedFile[] = [
     { path: '00-namespace.yaml', content: namespaceYaml(ctx.name, ctx.namespace) },
-    { path: 'configmap.yaml', content: configMapYaml(ctx.name + '-env', ctx.namespace, ctx.appEnv) },
+    // A module whose whole app env is secret keeps no ConfigMap at all.
+    ...(Object.keys(ctx.plainEnv).length > 0
+      ? [{ path: 'configmap.yaml', content: configMapYaml(ctx.name + '-env', ctx.namespace, ctx.plainEnv) }]
+      : []),
+    ...appSecretFiles(ctx),
     ...providerFiles(ctx),
     ...appFiles(ctx),
     ...webFiles(ctx),
@@ -474,8 +608,11 @@ export function helmChart(mod: ModuleNode, options: K8sOptions = {}): EmittedFil
   const files: EmittedFile[] = [
     { path: 'Chart.yaml', content: chartYaml(mod, ctx) },
     { path: 'values.yaml', content: valuesYaml(ctx, appImage, webImage, host, options.ingressClass ?? 'nginx') },
-    { path: 'templates/configmap.yaml', content: configMapYaml(ctx.name + '-env', ctx.namespace, ctx.appEnv) },
+    ...(Object.keys(ctx.plainEnv).length > 0
+      ? [{ path: 'templates/configmap.yaml', content: configMapYaml(ctx.name + '-env', ctx.namespace, ctx.plainEnv) }]
+      : []),
   ];
+  for (const file of appSecretFiles(ctx)) files.push({ path: 'templates/' + file.path, content: file.content });
   for (const file of providerFiles(ctx)) files.push({ path: 'templates/' + file.path, content: file.content });
   for (const file of appFiles(ctx)) files.push({ path: 'templates/' + file.path, content: file.content });
   for (const file of webFiles(ctx)) files.push({ path: 'templates/' + file.path, content: file.content });

@@ -315,6 +315,21 @@ arcod deploy . --env prod          # target and artifact
 arcod deploy . --env prod --json   # the manifest
 ```
 
+**Secrets** are declared by the providers, not guessed from names: `postgres`
+marks `POSTGRES_PASSWORD` and `DATABASE_URL` sensitive, `s3` marks
+`MINIO_ROOT_PASSWORD`/`S3_SECRET_KEY`, `vault` marks `VAULT_TOKEN`, and so on.
+The Kubernetes target writes them to a `Secret`, never to the `ConfigMap`.
+Bind a `secrets` capability to replace that Secret with an `ExternalSecret`
+(external-secrets.io) sourced from Vault, so no credential is written to disk:
+
+```arcod
+environment prod {
+  bind db   -> postgres()
+  bind keys -> vault(path: "secret/data/shop", store: "vault-backend")
+  deploy kubernetes(image: "ghcr.io/acme/shop:1.0.0", host: "shop.example.com")
+}
+```
+
 ### Background work and its dependencies
 
 A single scheduled task is a `job` inside a service contract. Several tasks with
@@ -758,9 +773,11 @@ Routes, TTL, limits and infrastructure are identical.
   `ui` block is declared);
 - `.arcod/build/docker-compose.yml` — providers + service + frontend;
 - `.arcod/build/k8s/` (or `helm/`) — the same topology as Kubernetes objects:
-  a Namespace, a ConfigMap for the service env, a Deployment+Service per bound
-  provider, the service with `/healthz` probes, the web tier and an Ingress;
-  written when an environment says `deploy kubernetes` or `deploy helm`;
+  a Namespace, a ConfigMap for the non-secret env, a `Secret` for credentials
+  (an `ExternalSecret` when a `secrets` capability is bound), a
+  Deployment+Service per bound provider, the service with `/healthz` probes,
+  the web tier and an Ingress; written when an environment says
+  `deploy kubernetes` or `deploy helm`;
 - `.arcod/build/prompts/` — one prompt per operation and a `manifest.json` with
   the model hash and token budget;
 - `.arcod/build/deploy.<env>.json` — a manifest per environment with `deploy`.

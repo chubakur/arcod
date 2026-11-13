@@ -421,8 +421,14 @@ layout без явного флага; комментарии между сте�
   `/healthz`, web-слой и Ingress; `--helm` заворачивает те же объекты в чарт.
   Топология берётся из `composeModel()`, поэтому локальный и кластерный вид не
   расходятся. Команда `arcod k8s`, а также `deploy kubernetes` / `deploy helm`
-  в спеке → `.arcod/build/k8s/` или `helm/`. Осталось: Terraform, секреты из
-  Vault, публикация образов.
+  в спеке → `.arcod/build/k8s/` или `helm/`.
+  **Секреты — готово (2026-11-13).** Креды объявляет провайдер (`ProviderSpec.secrets`:
+  `POSTGRES_PASSWORD`, `DATABASE_URL`, `S3_SECRET_KEY`, `VAULT_TOKEN`, …), а не
+  эвристика по именам. Kubernetes-таргет выносит их в `Secret`, ConfigMap остаётся
+  только с несекретным env; при привязке возможности `secrets` тот же Secret
+  заменяется на `ExternalSecret` (external-secrets.io) с путём из
+  `vault(path: ...)` — значения кредов не попадают в вывод вообще.
+  Осталось: Terraform, публикация образов.
 - GraphQL/gRPC emitters.
 - Python/Go/PHP emitters после стабилизации IR.
 - Более богатый UI: design system, i18n, a11y, SSR; интерактивные виджеты —

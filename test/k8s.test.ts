@@ -174,3 +174,65 @@ test('build: a kubernetes environment writes the manifests next to the compose f
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+const vaultSpec = `module shopsvc @0.1.0 {
+}
+use capability arcod.std.sql @1
+use capability arcod.std.secrets @1
+service Shop : http {
+  uses db: sql
+  uses keys: secrets
+  contract {
+    public op list() -> string {
+      route: "GET /api/items"
+    }
+  }
+}
+environment prod {
+  bind db -> postgres()
+  bind keys -> vault(path: "secret/data/shop", store: "vault-prod")
+  deploy kubernetes(image: "acme/shop:1")
+}
+`;
+
+test('secrets: credentials go to a Secret, never to the ConfigMap', () => {
+  const files = k8sManifests(parse(stateless, 'main.arc'), { image: 'acme/kvonly:1' });
+  // The whole app env here is secret: no ConfigMap is emitted at all.
+  assert.equal(files.find((file) => file.path === 'configmap.yaml'), undefined);
+
+  const secret = need(files, 'secret.yaml');
+  assert.ok(secret.includes('kind: Secret'));
+  assert.ok(secret.includes('DATABASE_URL: "postgres://arcod:arcod@postgres:5432/arcod"'));
+
+  const service = need(files, 'service.yaml');
+  assert.equal(service.includes('configMapRef:'), false);
+  assert.ok(service.includes('secretRef:'));
+  assert.ok(service.includes('name: arcod-kvonly-env'));
+});
+
+test('secrets: a provider bootstrap password gets its own Secret', () => {
+  const files = k8sManifests(parse(stateless, 'main.arc'), { image: 'acme/kvonly:1' });
+  const secret = need(files, 'postgres-secret.yaml');
+  assert.ok(secret.includes('POSTGRES_PASSWORD: "arcod"'));
+
+  const postgres = need(files, 'postgres.yaml');
+  assert.equal(postgres.includes('POSTGRES_PASSWORD'), false);
+  assert.ok(postgres.includes('envFrom:'));
+  assert.ok(postgres.includes('name: postgres-env'));
+});
+
+test('secrets: a secrets capability turns the Secret into an ExternalSecret', () => {
+  const files = k8sManifests(parse(vaultSpec, 'main.arc'), { image: 'acme/shop:1' });
+  assert.equal(files.find((file) => file.path === 'secret.yaml'), undefined);
+
+  const external = need(files, 'externalsecret.yaml');
+  assert.ok(external.includes('kind: ExternalSecret'));
+  assert.ok(external.includes('name: vault-prod'));
+  assert.ok(external.includes('key: secret/data/shop'));
+  assert.ok(external.includes('secretKey: DATABASE_URL'));
+  assert.ok(external.includes('creationPolicy: Owner'));
+
+  // No development credential may survive anywhere in the output.
+  const everything = files.map((file) => file.content).join('\n');
+  assert.equal(everything.includes('postgres://arcod:arcod'), false);
+});

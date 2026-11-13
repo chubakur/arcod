@@ -37,6 +37,9 @@ export interface ProviderSpec {
   };
   volumes?: string[];
   oneShot?: boolean;
+  // Env keys (container env or app env) that carry credentials. Generators put
+  // them in a Secret instead of a ConfigMap; --- marks no heuristic guessing.
+  secrets?: string[];
   appEnv?: (ctx: ProviderContext) => Record<string, string>;
 }
 
@@ -55,6 +58,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   postgres: {
     name: 'postgres',
+    secrets: ['POSTGRES_PASSWORD', 'DATABASE_URL'],
     capability: 'sql',
     image: 'postgres:16-alpine',
     port: 5432,
@@ -65,6 +69,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   mysql: {
     name: 'mysql',
+    secrets: ['MYSQL_ROOT_PASSWORD', 'MYSQL_PASSWORD', 'DATABASE_URL'],
     capability: 'sql',
     image: 'mysql:8.4',
     port: 3306,
@@ -75,6 +80,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   mariadb: {
     name: 'mariadb',
+    secrets: ['MARIADB_ROOT_PASSWORD', 'MARIADB_PASSWORD', 'DATABASE_URL'],
     capability: 'sql',
     image: 'mariadb:11',
     port: 3306,
@@ -85,6 +91,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   mongodb: {
     name: 'mongodb',
+    secrets: ['MONGO_URL'],
     capability: 'document',
     image: 'mongo:7',
     port: 27017,
@@ -94,6 +101,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   keycloak: {
     name: 'keycloak',
+    secrets: ['KC_BOOTSTRAP_ADMIN_PASSWORD'],
     capability: 'identity',
     image: 'quay.io/keycloak/keycloak:26.0',
     port: 8080,
@@ -146,6 +154,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   openai: {
     name: 'openai',
+    secrets: ['LLM_API_KEY'],
     capability: 'llm',
     external: true,
     port: 443,
@@ -159,6 +168,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   s3: {
     name: 's3',
+    secrets: ['MINIO_ROOT_PASSWORD', 'S3_SECRET_KEY'],
     capability: 'blob',
     image: 'minio/minio:latest',
     port: 9000,
@@ -171,6 +181,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   rabbitmq: {
     name: 'rabbitmq',
+    secrets: ['RABBITMQ_DEFAULT_PASS', 'AMQP_URL'],
     capability: 'queue',
     image: 'rabbitmq:3.13-management-alpine',
     port: 5672,
@@ -220,6 +231,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   clickhouse: {
     name: 'clickhouse',
+    secrets: ['CLICKHOUSE_PASSWORD'],
     capability: 'olap',
     image: 'clickhouse/clickhouse-server:24.8-alpine',
     port: 8123,
@@ -241,6 +253,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
 
   sentry: {
     name: 'sentry',
+    secrets: ['SENTRY_DSN'],
     capability: 'errors',
     external: true,
     requires: ['dsn'],
@@ -283,6 +296,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   vault: {
     name: 'vault',
+    secrets: ['VAULT_TOKEN'],
     capability: 'secrets',
     image: 'hashicorp/vault:1.18',
     port: 8200,

@@ -312,6 +312,20 @@ arcod deploy . --env prod          # target и артефакт
 arcod deploy . --env prod --json   # манифест
 ```
 
+**Секреты** объявляет сам провайдер, а не догадка по имени: `postgres` помечает
+`POSTGRES_PASSWORD` и `DATABASE_URL`, `s3` — `MINIO_ROOT_PASSWORD`/`S3_SECRET_KEY`,
+`vault` — `VAULT_TOKEN` и т.д. Kubernetes-таргет кладёт их в `Secret`, а не в
+`ConfigMap`. Если привязать возможность `secrets`, тот же Secret заменяется на
+`ExternalSecret` (external-secrets.io) из Vault — ни один кред не пишется на диск:
+
+```arcod
+environment prod {
+  bind db   -> postgres()
+  bind keys -> vault(path: "secret/data/shop", store: "vault-backend")
+  deploy kubernetes(image: "ghcr.io/acme/shop:1.0.0", host: "shop.example.com")
+}
+```
+
 ### Фоновые задачи и их зависимости
 
 Одиночная задача с расписанием — это `job` внутри контракта сервиса.
@@ -775,7 +789,8 @@ arcod run --impl examples/onetimemessage-pwd
   объявленном `ui`);
 - `.arcod/build/docker-compose.yml` — провайдеры + сервис + фронтенд;
 - `.arcod/build/k8s/` (или `helm/`) — та же топология объектами Kubernetes:
-  Namespace, ConfigMap с env сервиса, Deployment+Service на каждый провайдер,
+  Namespace, ConfigMap с несекретным env, `Secret` под креды (при привязке
+  `secrets` — `ExternalSecret`), Deployment+Service на каждый провайдер,
   сервис с пробами `/healthz`, веб-слой и Ingress; пишется, когда окружение
   объявляет `deploy kubernetes` или `deploy helm`;
 - `.arcod/build/prompts/` — по промпту на операцию и `manifest.json` с хешем

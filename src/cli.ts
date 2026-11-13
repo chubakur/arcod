@@ -847,8 +847,10 @@ k8s draws the same topology compose runs locally as Kubernetes objects:
 a Namespace, a ConfigMap for the service env, one Deployment+Service per
 bound provider (redis, postgres, ...), the service itself with /healthz
 probes, the web Deployment behind an Ingress, and a PVC for providers that
-keep state. --helm wraps the identical objects in a chart; --out writes files
-instead of printing them. Nothing is applied: the output is text only.
+keep state. Provider credentials land in a Secret, never in the ConfigMap; bind
+a secrets capability and the Secret becomes an ExternalSecret from Vault.
+--helm wraps the identical objects in a chart; --out writes files instead of
+printing them. Nothing is applied: the output is text only.
 
 examples:
   cd examples/onetimemessage && arcod run
