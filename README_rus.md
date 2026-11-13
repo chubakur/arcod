@@ -119,6 +119,7 @@ enum Visibility { draft, published, archived }
 | `arcod fmt [dir]` | канонический AST-форматтер в stdout; `--check` падает, если не отформатировано; `--write` перезаписывает спеку; `--to <version>` сперва мигрирует. Комментарии перевешиваются на декларацию, которую они предваряют |
 | `arcod diff <a> <b>` | структурный diff двух спек (обе канонизируются), хунки `-`/`+` |
 | `arcod graphql [dir]` | GraphQL SDL того же контракта: `GET` → Query, остальные методы → Mutation, близнецы `<Name>Input` для аргументов, HTTP-маршрут и коды ошибок в описании поля; `--service <имя>`, `--out <файл>` |
+| `arcod grpc [dir]` | proto3 того же контракта: один rpc на операцию с маршрутом, `<Op>Request`/`<Op>Response`, типы без молчаливого расширения, HTTP-маршрут и gRPC-коды ошибок в комментариях; `--service <имя>`, `--out <файл>` |
 | `arcod adopt <openapi.json>` | обратная к `openapi`: читает OpenAPI 3.x JSON и выдаёт `.arc` (schemas→types/enums, paths→ops) |
 | `arcod upgrade [dir]` | миграция версии языка: `--to <version>`, `--write`; сегодня версия одна (0.1.0), так что это identity или отказ на неизвестную цель |
 | `arcod new <name>` | скаффолдит минимальный валидный сервис: `<name>/main.arc`, `.gitignore`, `impl/README.md` (сгенерённая спека парсится и проходит check) |
@@ -647,6 +648,64 @@ type Mutation {
 проверяется `buildSchema` из пакета `graphql` в тестах: по всем примерам, не
 только по фикстуре.
 
+### Контракт как gRPC
+
+`arcod grpc` рисует тот же контракт как proto3-файл. Это единственный вид, где
+HTTP вообще не участвует, поэтому механика важна: каждый тип должен попасть в
+proto-тип с тем же смыслом, иначе клиенты наследуют ложь.
+
+```bash
+arcod grpc examples/tasks-sql                       # proto3 в stdout
+arcod grpc . --service TaskBoard --out proto/tasks.proto
+```
+
+| arcod | proto3 |
+|---|---|
+| `string`, `uuid` | `string` |
+| `bytes` | `bytes` |
+| `int` | `int64` (язык его не ограничивает) |
+| `float`, `number` | `double` |
+| `decimal` | `string` — `double` округлил бы деньги |
+| `bool` | `bool` |
+| `datetime` | `google.protobuf.Timestamp` |
+| `json` | `google.protobuf.Value` |
+| `map<K,V>` | `map<K,V>` для скалярных ключей и значений, иначе `Struct` |
+| `list<T>` | `repeated T` |
+| `T?` | `optional T` (presence в proto3) |
+| `enum` | `enum` с членом `<NAME>_UNSPECIFIED = 0` |
+| record | `message` |
+
+proto3 требует, чтобы первый член enum был нулём, а в arcod у enum нет чисел,
+поэтому эмиттер добавляет `<NAME>_UNSPECIFIED = 0` и нумерует объявленные
+значения с 1, с именем enum в префиксе: проводу нужен ноль, контракт сохраняет
+каждое объявленное значение.
+
+Каждая операция с маршрутом становится одним rpc с её именем; все параметры
+(path, query и body — в gRPC нет URL) попадают в `<Op>Request`, возвращаемое
+значение — в `<Op>Response.result`; операция `-> void` получает пустой response.
+HTTP-маршрут и gRPC-коды ошибок (из той же таблицы статусов, что у рантайма)
+остаются в комментариях, так что ни один транспорт не уезжает молча:
+
+```proto
+service TaskBoard {
+  // HTTP: POST /v1/tasks
+  // Errors: Invalid (INVALID_ARGUMENT), Conflict (ABORTED)
+  rpc Create(CreateRequest) returns (CreateResponse);
+}
+
+message CreateRequest {
+  Task item = 1;
+}
+
+message CreateResponse {
+  Task result = 1;
+}
+```
+
+Один файл — один сервис: `package` и имена сообщений должны оставаться
+уникальными; `--service` выбирает сервис, модуль с несколькими сервисами даёт
+файл на каждый.
+
 ### Записи, а не блобы: unique, фильтр, страницы по курсору
 
 Тип-запись — это ещё и хранилище. `rules { unique Task.title }` проверяет
@@ -1062,6 +1121,7 @@ src/
   emit/queue.ts          драйверы очереди (memory, redis) и консьюмеры
   emit/openapi.ts        OpenAPI 3.1 из той же модели
   emit/graphql.ts        GraphQL SDL из той же модели
+  emit/grpc.ts           proto3 из той же модели
   emit/web.ts            фронтенд: формы
   emit/chat-page.ts      `layout: chat`
   emit/presentation-page.ts `layout: presentation`

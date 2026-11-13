@@ -437,7 +437,17 @@ layout без явного флага; комментарии между сте�
   описании поля. Рантайм остаётся HTTP: схема — клиентский контракт, как и
   OpenAPI. Валидация не «на глаз»: `buildSchema` из пакета `graphql` проверяет
   схему каждого примера в тестах.
-- gRPC emitters (нужен .proto и кодогенерация — после Terraform).
+- **gRPC — готово (2026-11-13).** `src/emit/grpc.ts`, CLI `arcod grpc`
+  (`--service`, `--out`). proto3 из того же контракта: один rpc на операцию с
+  маршрутом, `<Op>Request` со всеми параметрами (в gRPC нет URL) и
+  `<Op>Response.result`; `-> void` — пустой response. Типы без молчаливого
+  расширения: `int` → `int64`, `decimal` → `string` (double округлил бы деньги),
+  `datetime` → `google.protobuf.Timestamp`, `json` → `Value`, `map` → `map<K,V>`
+  или `Struct`, `optional` → `optional` (presence). proto3 требует нулевой член
+  enum — добавляется `<NAME>_UNSPECIFIED = 0`, объявленные значения идут с 1.
+  HTTP-маршрут и gRPC-коды ошибок — в комментариях. Валидация: `protobufjs`
+  парсит и резолвит каждую схему примера в тестах.
+  Публикация образов и Terraform — по-прежнему открыты.
 - Python/Go/PHP emitters после стабилизации IR.
 - Более богатый UI: design system, i18n, a11y, SSR; интерактивные виджеты —
   отдельным пакетом поверх языка.

@@ -123,6 +123,7 @@ defaults (`limit: number = 20`). Durations (`999s`, `24h`) are values in clauses
 | `arcod fmt [dir]` | canonical AST formatter on stdout; `--check` fails if not formatted; `--write` rewrites the spec; `--to <version>` migrates first. Comments are re-attached to the declaration they precede |
 | `arcod diff <a> <b>` | structural diff of two specs (both canonicalized first), `-`/`+` hunks |
 | `arcod graphql [dir]` | GraphQL SDL for the same contract: `GET` → Query, other methods → Mutation, `<Name>Input` twins for arguments, the HTTP route and error statuses in each field description; `--service <name>`, `--out <file>` |
+| `arcod grpc [dir]` | proto3 for the same contract: one rpc per routed op, `<Op>Request`/`<Op>Response`, types mapped without silent widening, HTTP route and gRPC error codes in comments; `--service <name>`, `--out <file>` |
 | `arcod adopt <openapi.json>` | reverse of `openapi`: reads an OpenAPI 3.x JSON doc and emits an `.arc` spec (schemas→types/enums, paths→ops) |
 | `arcod upgrade [dir]` | language-version migration: `--to <version>`, `--write`; v0.1.0 is the only version today, so it reports identity or rejects unknown targets |
 | `arcod new <name>` | scaffold a minimal, valid service: `<name>/main.arc`, `.gitignore`, `impl/README.md` (the generated spec parses and checks clean) |
@@ -667,6 +668,64 @@ the same table the runtime uses, so REST and GraphQL cannot drift apart. The
 emitted SDL is validated with `buildSchema` from the `graphql` package in the
 test suite — for every example, not just a fixture.
 
+### The contract as gRPC
+
+`arcod grpc` renders the same contract as a proto3 file. This is the one view
+that does not speak HTTP at all, so the mechanical part matters: every type has
+to land on a proto type that means the same thing, or clients inherit a lie.
+
+```bash
+arcod grpc examples/tasks-sql                       # proto3 on stdout
+arcod grpc . --service TaskBoard --out proto/tasks.proto
+```
+
+| arcod | proto3 |
+|---|---|
+| `string`, `uuid` | `string` |
+| `bytes` | `bytes` |
+| `int` | `int64` (the language does not bound it) |
+| `float`, `number` | `double` |
+| `decimal` | `string` — a `double` would round money away |
+| `bool` | `bool` |
+| `datetime` | `google.protobuf.Timestamp` |
+| `json` | `google.protobuf.Value` |
+| `map<K,V>` | `map<K,V>` for scalar keys and values, `Struct` otherwise |
+| `list<T>` | `repeated T` |
+| `T?` | `optional T` (proto3 field presence) |
+| `enum` | `enum` with a `<NAME>_UNSPECIFIED = 0` member |
+| record | `message` |
+
+proto3 requires the first enum member to be zero and arcod enums carry no
+numbers, so the emitter adds `<NAME>_UNSPECIFIED = 0` and numbers the declared
+values from 1 with the enum name as a prefix — the wire needs a zero, the
+contract keeps every declared value.
+
+Each routed operation becomes one rpc named after it; every parameter (path,
+query and body alike — gRPC has no URL) lands in `<Op>Request`, and the return
+value in `<Op>Response.result`; a `-> void` operation gets an empty response.
+The HTTP route and the gRPC error codes (mapped from the same status table the
+runtime uses) stay in comments, so neither transport drifts:
+
+```proto
+service TaskBoard {
+  // HTTP: POST /v1/tasks
+  // Errors: Invalid (INVALID_ARGUMENT), Conflict (ABORTED)
+  rpc Create(CreateRequest) returns (CreateResponse);
+}
+
+message CreateRequest {
+  Task item = 1;
+}
+
+message CreateResponse {
+  Task result = 1;
+}
+```
+
+One file covers one service, because `package` and message names have to stay
+unique; `--service` picks it, and a module with several services emits one file
+per service.
+
 ### Records, not blobs: unique, filter, keyset pages
 
 A record type is also a store. `rules { unique Task.title }` is enforced by the
@@ -1063,6 +1122,7 @@ src/
   emit/queue.ts          queue drivers (memory, redis) and consumers
   emit/openapi.ts        OpenAPI 3.1 from the same model
   emit/graphql.ts        GraphQL SDL from the same model
+  emit/grpc.ts           proto3 from the same model
   emit/web.ts            frontend: forms
   emit/chat-page.ts      `layout: chat`
   emit/presentation-page.ts `layout: presentation`

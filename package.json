@@ -50,6 +50,7 @@
   "devDependencies": {
     "@types/node": "^26.6.6",
     "graphql": "^17.1.0",
+    "protobufjs": "^8.8.1",
     "typescript": "^7.0.2"
   }
 }
