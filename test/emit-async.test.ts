@@ -566,8 +566,8 @@ test('the sql service writes records to typed tables, not blobs', async () => {
   const implDir = fileURLToPath(new URL('../examples/tasks/impl', import.meta.url));
   const built = await buildExample(sqlAst, dir, { implDir });
   const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
-  assert.ok(code.includes('async entityFind('), 'the sql store has typed find');
-  assert.ok(code.includes('async entityInsert('), 'the sql store has typed insert');
+  assert.ok(code.includes('store.entityFind('), 'the sql store has typed find');
+  assert.ok(code.includes('store.entityInsert('), 'the sql store has typed insert');
   assert.ok(code.includes('"table": "task"'), 'the entity is wired to a typed table');
   assert.ok(code.includes('function sqlLiteral('), 'the value codec is emitted');
   assert.ok(code.includes('mysql 1062'), 'a duplicate key surfaces as Conflict');
@@ -575,7 +575,7 @@ test('the sql service writes records to typed tables, not blobs', async () => {
   const kvDir = await mkdtemp(join(tmpdir(), 'arcod-kv-')); 
   const kvBuilt = await buildExample(tasksAst, kvDir, { implDir });
   const kvCode = await readFile(join(kvBuilt.dir, 'service', 'index.mjs'), 'utf8');
-  assert.ok(!kvCode.includes('async entityFind('), 'the kv driver keeps the blob store');
+  assert.ok(!kvCode.includes('store.entityFind('), 'the kv driver keeps the blob store');
 });
 
 test('the outbox makes publish and fact write atomic on sql', async () => {

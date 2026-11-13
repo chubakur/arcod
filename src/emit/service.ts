@@ -495,6 +495,140 @@ class MemoryStore {
     if (row) row.publishedAt = Date.now();
     return true;
   }
+
+  // Entity table methods: the sql driver's in-memory store implements the
+  // typed record surface (fetch/insert/update/remove/find) so arcod test runs
+  // sql examples without a live MySQL. Same key layout as the kv adapter: a
+  // record lives under tbl:<table>:<id>, unique fields claim a unique key.
+  entityKey(table, id) {
+    return 'tbl:' + table + ':' + String(id);
+  }
+
+  async entityFetch(table, columns, id) {
+    const raw = await this.get(this.entityKey(table, id));
+    if (raw == null) return null;
+    const rec = recordOf(raw);
+    return rec && typeof rec === 'object' ? rec : null;
+  }
+
+  async entityInsert(table, columns, record) {
+    const value = Object.assign({}, record || {});
+    if (value.id == null || value.id === '') throw new ArcodError('Invalid');
+    const key = this.entityKey(table, value.id);
+    if (await this.exists(key)) throw new ArcodError('Conflict');
+    const claimed = [];
+    for (const col of columns) {
+      if (!col.unique) continue;
+      const fieldValue = value[col.name];
+      if (fieldValue == null) continue;
+      const claim = uniqueKey(table, col.name, fieldValue);
+      if (!(await this.claim(claim))) {
+        for (const item of claimed) await this.del(item);
+        throw new ArcodError('Conflict');
+      }
+      claimed.push(claim);
+    }
+    await this.set(key, JSON.stringify({ b: value, h: null }), Infinity);
+    return value;
+  }
+
+  async entityUpdate(table, columns, id, patch) {
+    const key = this.entityKey(table, id);
+    const raw = await this.get(key);
+    if (raw == null) throw new ArcodError('NotFound');
+    const current = recordOf(raw);
+    const base = current && typeof current === 'object' ? current : {};
+    const value = Object.assign({}, base, patch || {}, { id: String(id) });
+    const claimed = [];
+    const released = [];
+    for (const col of columns) {
+      if (!col.unique) continue;
+      const before = base[col.name];
+      const after = value[col.name];
+      if (String(before) === String(after)) continue;
+      if (before != null) {
+        await this.del(uniqueKey(table, col.name, before));
+        released.push({ col, before });
+      }
+    }
+    for (const col of columns) {
+      if (!col.unique) continue;
+      const before = base[col.name];
+      const after = value[col.name];
+      if (String(before) === String(after)) continue;
+      if (after != null) {
+        const claim = uniqueKey(table, col.name, after);
+        if (!(await this.claim(claim))) {
+          for (const item of claimed) await this.del(item);
+          for (const rel of released) await this.claim(uniqueKey(table, rel.col.name, rel.before));
+          throw new ArcodError('Conflict');
+        }
+        claimed.push(claim);
+      }
+    }
+    await this.set(key, JSON.stringify({ b: value, h: null }), Infinity);
+    return value;
+  }
+
+  async entityRemove(table, columns, id) {
+    const key = this.entityKey(table, id);
+    const raw = await this.get(key);
+    if (raw == null) return false;
+    const current = recordOf(raw);
+    await this.del(key);
+    for (const col of columns) {
+      if (!col.unique) continue;
+      const fieldValue = current && current[col.name];
+      if (fieldValue != null) await this.del(uniqueKey(table, col.name, fieldValue));
+    }
+    return true;
+  }
+
+  async entityFind(table, columns, query) {
+    const q = query || {};
+    const requested = Number(q.limit);
+    const limit = Number.isFinite(requested) && requested > 0 ? Math.min(500, Math.floor(requested)) : 50;
+    const order = parseOrder(q.order);
+    const prefix = 'tbl:' + table + ':';
+    const rows = await this.scan(prefix);
+    let items = rows.map((row) => ({ id: row.key.slice(prefix.length), value: recordOf(row.value) }));
+    if (q.where) items = items.filter((item) => matchesWhere(item.value, q.where));
+    items.sort((left, right) => {
+      for (const rule of order) {
+        const a = left.value && typeof left.value === 'object' ? sortValue(left.value[rule.field]) : null;
+        const b = right.value && typeof right.value === 'object' ? sortValue(right.value[rule.field]) : null;
+        const diff = compareValues(a, b);
+        if (diff !== 0) return diff * rule.dir;
+      }
+      return compareValues(left.id, right.id);
+    });
+    if (q.cursor) {
+      const at = decodeCursor(q.cursor);
+      if (at && Array.isArray(at.v)) {
+        const after = (item) => {
+          for (let index = 0; index < order.length; index++) {
+            const rule = order[index];
+            const value = item.value && typeof item.value === 'object' ? sortValue(item.value[rule.field]) : null;
+            const diff = compareValues(value, at.v[index]);
+            if (diff !== 0) return diff * rule.dir;
+          }
+          return compareValues(item.id, at.id);
+        };
+        items = items.filter((item) => after(item) > 0);
+      }
+    }
+    const hasMore = items.length > limit;
+    const page = hasMore ? items.slice(0, limit) : items;
+    let next = null;
+    if (hasMore && page.length > 0) {
+      const tail = page[page.length - 1];
+      next = encodeCursor(order.map((rule) => (tail.value && typeof tail.value === 'object' ? sortValue(tail.value[rule.field]) : null)), tail.id);
+    }
+    return {
+      items: page.map((item) => (item.value && typeof item.value === 'object' && !Array.isArray(item.value) ? Object.assign({ id: item.id }, item.value) : item.value)),
+      next,
+    };
+  }
 }
 
 __SQL_STORE__
