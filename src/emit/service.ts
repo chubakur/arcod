@@ -11,11 +11,132 @@ import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
 import { fieldDefault, migrationPlan, recordColumns, type DefaultValue } from '../migrate.ts';
 import { constraintTable } from '../constraints.ts';
+import type { ProviderRegistry } from '../registry.ts';
 
 export interface EmitOptions {
   port?: number;
   reference?: boolean;
   impl?: Record<string, string>;
+  // Providers a plugin declares carry a runtime adapter; the registry is what
+  // says which bindings need one and which methods it answers.
+  registry?: ProviderRegistry;
+}
+
+// ---------- plugin runtime adapters ----------
+// A plugin provider can ship createAdapter(io): the build copies that file next
+// to the service (plugins/<provider>.mjs), so the generated service stays
+// dependency-free and the plugin package is not needed at runtime. The method
+// names come from the capability's manifest signatures — the compiler never
+// guesses what a capability means.
+
+export interface PluginBinding {
+  provider: string;
+  package: string;
+  target: string;
+  exportName: string;
+  capability: string;
+  methods: Array<{ name: string; params: string[] }>;
+}
+
+// "publish(topic, message) -> Receipt" -> { name: 'publish', params: [...] }.
+// A signature the compiler cannot read is skipped: the emitter never writes a
+// method it does not understand.
+function pluginMethod(signature: string): { name: string; params: string[] } | null {
+  const open = signature.indexOf('(');
+  const close = signature.lastIndexOf(')');
+  if (open <= 0 || close < open) return null;
+  const name = signature.slice(0, open).trim();
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return null;
+  const inner = signature.slice(open + 1, close).trim();
+  const params = inner === ''
+    ? []
+    : inner.split(',').map((part) => part.trim().split(':')[0].trim()).filter((part) => part.length > 0);
+  if (params.some((param) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(param))) return null;
+  return { name, params };
+}
+
+function pluginCapabilityName(capability: string): string {
+  return capability.includes('.') ? capability.split('.').pop()! : capability;
+}
+
+// io methods the runtime already owns. A capability signature with one of these
+// names would shadow the store/blob/queue contract inside every body, so the
+// build refuses it instead of emitting an object with a duplicate key.
+const RESERVED_IO_METHODS = new Set([
+  'load', 'save', 'scan', 'del', 'seen', 'takeIf', 'new', 'actor', 'users', 'chat', 'model',
+  'publish', 'queuePublish', 'queueDead', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify',
+]);
+
+export function pluginBindings(mod: ModuleNode, registry?: ProviderRegistry): PluginBinding[] {
+  const out: PluginBinding[] = [];
+  for (const environment of mod.environments) for (const bind of environment.binds) {
+    const spec = registry?.get(bind.provider);
+    const runtime = spec?.runtime;
+    if (!spec || !runtime) continue;
+    if (out.some((entry) => entry.provider === spec.name)) continue;
+    const methods = (registry?.signaturesFor(spec.capability) ?? [])
+      .map(pluginMethod)
+      .filter((method): method is { name: string; params: string[] } => method !== null);
+    for (const method of methods) {
+      if (RESERVED_IO_METHODS.has(method.name)) {
+        throw new Error(
+          'plugin capability ' + spec.capability + ' declares ' + method.name + '(), which collides with a built-in io method; rename the signature',
+        );
+      }
+    }
+    out.push({
+      provider: spec.name,
+      package: registry?.origin[spec.name] ?? '',
+      target: 'plugins/' + spec.name + '.mjs',
+      exportName: runtime.export ?? 'createAdapter',
+      capability: spec.capability,
+      methods,
+    });
+  }
+  return out;
+}
+
+function pluginWireSource(bindings: PluginBinding[]): string {
+  if (bindings.length === 0) return '';
+  const manifest = bindings.map((binding) => ({
+    provider: binding.provider,
+    package: binding.package,
+    target: binding.target,
+    export: binding.exportName,
+  }));
+  return [
+    '// ---------- plugin adapters ----------',
+    '// Each entry was copied here by the build from the package that declared it.',
+    '// The factory runs once, before the server listens: a broken adapter stops the',
+    '// service with the provider named, instead of failing the first request.',
+    'const PLUGIN_MANIFEST = ' + JSON.stringify(manifest, null, 2) + ';',
+    'const PLUGIN_IO = {',
+    '  env: process.env,',
+    '  fetch: (input, init) => fetch(input, init),',
+    '  log: (...args) => console.log(...args),',
+    '};',
+    'const PLUGIN_ADAPTERS = new Map();',
+    'for (const entry of PLUGIN_MANIFEST) {',
+    "  const loaded = await import(new URL(entry.target.slice('plugins/'.length), new URL('../plugins/', import.meta.url)));",
+    '  const factory = loaded[entry.export];',
+    '  if (typeof factory !== "function") {',
+    '    throw new Error("plugin " + entry.package + " adapter " + entry.target + " exports no " + entry.export);',
+    '  }',
+    '  const adapter = await factory(PLUGIN_IO);',
+    '  if (!adapter || typeof adapter !== "object") {',
+    '    throw new Error("plugin " + entry.package + " adapter " + entry.target + " returned no adapter object");',
+    '  }',
+    '  PLUGIN_ADAPTERS.set(entry.provider, adapter);',
+    '}',
+    '// A body names a capability, never a package: the binding decides which',
+    '// adapter answers, and a missing one is a startup error, not a 500 later.',
+    'function pluginAdapter(provider) {',
+    '  const adapter = PLUGIN_ADAPTERS.get(provider);',
+    '  if (!adapter) throw new Error("no runtime adapter for plugin provider " + provider);',
+    '  return adapter;',
+    '}',
+    '',
+  ].join('\n');
 }
 
 const SERVICE_TEMPLATE = `import http from 'node:http';
@@ -653,6 +774,7 @@ class MemoryStore {
 
 __SQL_STORE__
 __STORE_SELECT__
+__PLUGIN_WIRE__
 
 // ---------- entity store ----------
 
@@ -1207,7 +1329,8 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
 }`;
 
   const externals = mod.services.filter((item) => item.external);
-  const template = withHandlers(serviceTemplate(svc), reference, svc, options.impl, externals, mod)
+  const plugins = pluginBindings(mod, options.registry);
+  const template = withHandlers(serviceTemplate(svc), reference, svc, options.impl, externals, mod, plugins)
     .replace(CRYPTO_IMPORT, () => cryptoImportFor(svc, reference || Boolean(options.impl)))
     .replace('__QUEUE_SOURCE__\n', () => queueSourceFor(svc, options.impl) + (outboxActive(svc) && options.impl ? OUTBOX_SOURCE + '\n' : ''))
     .replace('__QUEUE_WIRE__', () => (hasQueue(svc) && options.impl ? (outboxActive(svc) ? 'startOutboxDispatcher();\n' : '') + 'startConsumers();\n' : ''))
@@ -1234,10 +1357,11 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
     .replace('__ATOMIC__', () => String(atomicRead))
     .replace('__STREAM_WIRE__', hasStream(svc)
       ? "server.on('upgrade', (req, socket, head) => wsUpgrade(req, socket, head));"
-      : '');
+      : '')
+    .replace('__PLUGIN_WIRE__', () => pluginWireSource(plugins));
 }
 
-function withHandlers(template: string, reference: boolean, svc: ServiceNode, impl: Record<string, string> | undefined, externals: ServiceNode[], mod: ModuleNode): string {
+function withHandlers(template: string, reference: boolean, svc: ServiceNode, impl: Record<string, string> | undefined, externals: ServiceNode[], mod: ModuleNode, plugins: PluginBinding[] = []): string {
   const startMarker = '// __HANDLERS_START__';
   const endMarker = '// __HANDLERS_END__';
   const start = template.indexOf(startMarker);
@@ -1251,7 +1375,7 @@ function withHandlers(template: string, reference: boolean, svc: ServiceNode, im
   const hashing = isGuarded(svc);
 
   if (impl) {
-    const handlers = implHandlers(svc, impl, hashing, externals, mod);
+    const handlers = implHandlers(svc, impl, hashing, externals, mod, plugins);
     return before + handlers + after;
   }
 
@@ -1427,6 +1551,7 @@ function implHandlers(
   guarded: boolean,
   externals: ServiceNode[],
   mod: ModuleNode,
+  plugins: PluginBinding[],
 ): string {
   const bodies = svc.contract.filter((op) => impl[op.name]);
   const ops = bodies.filter((op) => op.kind === 'op');
@@ -1681,6 +1806,23 @@ function implHandlers(
       outboxPublish,
       '    async queueDead(topic) { const items = await queueDeadDriver(String(topic)); return items.map((item) => { try { return JSON.parse(item); } catch { return item; } }); },',
     );
+  }
+
+  // A plugin capability has no built-in driver: each declared signature is
+  // answered by the adapter the binding selected. The method name belongs to
+  // the capability, never to the provider, so a body stays provider-agnostic.
+  for (const binding of plugins) {
+    const use = svc.uses.find((item) => pluginCapabilityName(item.capability) === pluginCapabilityName(binding.capability));
+    if (!use) continue;
+    for (const method of binding.methods) {
+      const args = method.params.join(', ');
+      parts.push(
+        '    async ' + method.name + '(' + args + ') {',
+        '      metricCapability(' + JSON.stringify(binding.capability + '.' + method.name) + ');',
+        '      return await pluginAdapter(' + JSON.stringify(binding.provider) + ').' + method.name + '(' + args + ');',
+        '    },',
+      );
+    }
   }
 
   if (externals.length > 0) {

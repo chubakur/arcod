@@ -192,10 +192,13 @@ incompatible, `A025` double bind).
 Capabilities and providers can also come from a package: a plugin manifest
 declares them and `arcod providers --plugins` shows what was found, where it
 came from and what is wrong with it (unknown `pluginApi`, shadowing a built-in,
-a provider naming an undeclared capability). Nothing is installed or executed —
-reading a manifest is the first, read-only step of the design in
-`docs/plugin-registry.md`; wiring the lookup into `check` and the emitters is
-the next one.
+a provider naming an undeclared capability). The registry feeds `check`, the
+compose/k8s/terraform emitters and `arcod build`: a provider with
+`runtime.adapter` has its file copied to `plugins/<provider>.mjs`, and the
+generated service loads it at boot and routes the capability's declared
+signatures (`send(to)`) to the adapter's methods. A body names `io.send(...)`,
+never the package. The manifest is data; plugin code runs only inside the
+generated service. See `docs/plugin-registry.md`.
 
 ```arcod
 environment dev {
@@ -985,8 +988,10 @@ Routes, TTL, limits and infrastructure are identical.
   `ui` block is declared);
 - `.arcod/build/plugins/<provider>.mjs` — runtime adapters copied from plugin
   packages that declare `runtime.adapter`, with `plugins.json` recording
-  `{provider, package, source, target, export}` (the service does not import
-  them yet — dispatch wiring is B11.3b);
+  `{provider, package, source, target, export}`; the service imports each one
+  at boot, calls `createAdapter(io)` once and answers the capability's declared
+  signatures through it, so a broken adapter fails startup with the provider
+  named;
 - `.arcod/build/docker-compose.yml` — providers + service + frontend;
 - `.arcod/build/k8s/` (or `helm/`) — the same topology as Kubernetes objects:
   a Namespace, a ConfigMap for the non-secret env, a `Secret` for credentials

@@ -12,22 +12,36 @@ export interface ProviderRegistry {
   origin: Record<string, string>;
   // Capabilities a plugin declares that the compiler does not know.
   extraCapabilities: string[];
+  // Plugin capability -> its declared signature strings ("send(to) -> string").
+  // The generated service needs the method names to dispatch an adapter; the
+  // compiler never guesses them.
+  signatures: Record<string, string[]>;
   get(name: string): ProviderSpec | null;
   names(): string[];
   forCapability(capability: string): string[];
+  signaturesFor(capability: string): string[];
 }
 
 function shortCapability(capability: string): string {
   return capability.includes('.') ? capability.split('.').pop()! : capability;
 }
 
-function makeRegistry(specs: Record<string, ProviderSpec>, origin: Record<string, string>, extraCapabilities: string[]): ProviderRegistry {
+function makeRegistry(
+  specs: Record<string, ProviderSpec>,
+  origin: Record<string, string>,
+  extraCapabilities: string[],
+  signatures: Record<string, string[]> = {},
+): ProviderRegistry {
   return {
     specs,
     origin,
     extraCapabilities,
+    signatures,
     get(name) {
       return specs[name] ?? null;
+    },
+    signaturesFor(capability) {
+      return signatures[shortCapability(capability)] ?? [];
     },
     names() {
       return Object.keys(specs).sort();
@@ -72,9 +86,15 @@ export function registryFromScan(scan: PluginScan): ProviderRegistry {
   const specs: Record<string, ProviderSpec> = { ...PROVIDERS };
   const origin: Record<string, string> = {};
   const extraCapabilities: string[] = [];
+  const signatures: Record<string, string[]> = {};
   for (const plugin of scan.plugins) {
     for (const capability of plugin.capabilities) {
       if (!extraCapabilities.includes(capability.name)) extraCapabilities.push(capability.name);
+      // First declaration wins: two packages cannot silently redefine the
+      // methods of one capability name.
+      if (capability.signatures && capability.signatures.length > 0 && !signatures[capability.name]) {
+        signatures[capability.name] = [...capability.signatures];
+      }
     }
     for (const provider of plugin.providers) {
       // Collisions are reported by checkCollisions() and leave the built-in in
@@ -84,7 +104,7 @@ export function registryFromScan(scan: PluginScan): ProviderRegistry {
       origin[provider.name] = plugin.package;
     }
   }
-  return makeRegistry(specs, origin, extraCapabilities.sort());
+  return makeRegistry(specs, origin, extraCapabilities.sort(), signatures);
 }
 
 export interface ProviderRow {

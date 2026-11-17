@@ -129,11 +129,23 @@ so two machines can be compared.
    already rejects it.
 3. Copy `runtime.adapter` into the generated service and document the module
    contract (`createAdapter(io) -> { publish, consume }`).
-   First slice done (B11.3a): `arcod build` copies each used plugin provider's
-   adapter to `plugins/<provider>.mjs` and writes `plugins.json
-   ({provider, package, source, target, export})` next to the build. The
-   generated service does not import it yet — dispatch wiring is the rest of
-   this step.
+   Done (B11.3a): `arcod build` copies each used plugin provider's adapter to
+   `plugins/<provider>.mjs` and writes `plugins.json
+   ({provider, package, source, target, export})` next to the build.
+   Done (B11.3b): the generated service imports every adapter listed in that
+   manifest before it listens, calls the declared export once with
+   `io = { env, fetch, log }`, and answers the capability's manifest
+   `signatures` through the returned object: `send(to)` becomes
+   `io.send(to)` in a body and `adapter.send(to)` at runtime. Consequences:
+   - `signatures` is the runtime contract, not documentation. A signature the
+     compiler cannot parse is skipped (no invented method); a signature whose
+     name collides with a built-in io method (`load`, `save`, `publish`, …)
+     fails the build, because it would shadow the store/dispatch contract.
+   - A missing file, a missing export, a factory that returns no object, or a
+     missing adapter at boot stops the service with the provider and package
+     named — never a 500 on the first request.
+   - The adapter sees `io.env` for `appEnv`-provided configuration; it never
+     receives a request-scoped io, so it must not assume an actor or a body.
 4. One reference plugin in the repository's test fixtures (a fake queue) that
    proves the seam end to end without a network dependency.
 

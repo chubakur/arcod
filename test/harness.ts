@@ -10,6 +10,7 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildExample } from '../src/build.ts';
+import type { ProviderRegistry } from '../src/registry.ts';
 import { parse } from '../src/parser.ts';
 
 export interface ServiceInstance {
@@ -22,6 +23,8 @@ export interface StartOptions {
   impl?: Record<string, string>;
   env?: Record<string, string>;
   reference?: boolean;
+  // Plugin providers reach the build the same way check sees them.
+  registry?: ProviderRegistry;
 }
 
 const MEMORY_DRIVERS = {
@@ -43,7 +46,7 @@ export async function startService(source: string, options: StartOptions = {}): 
     }
     implDir = implRoot;
   }
-  const built = await buildExample(mod, dir, { implDir, reference: options.reference });
+  const built = await buildExample(mod, dir, { implDir, reference: options.reference, registry: options.registry });
   const port = 18000 + Math.floor(Math.random() * 2000);
   const child = spawn(process.execPath, [join(built.dir, 'service', 'index.mjs')], {
     env: { ...process.env, ...MEMORY_DRIVERS, PORT: String(port), ...options.env },

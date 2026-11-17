@@ -7,6 +7,7 @@ import { parse } from '../src/parser.ts';
 import { buildExample } from '../src/build.ts';
 import { PLUGIN_API } from '../src/plugins.ts';
 import { registryFromScan } from '../src/registry.ts';
+import { startService } from './harness.ts';
 
 // B11.3a: a plugin provider may ship a runtime adapter. The build copies that
 // file into the generated service instead of importing the package, and records
@@ -94,4 +95,84 @@ test('without the registry nothing is copied and no manifest appears', async () 
   const result = await buildExample(mod, exampleDir, { implDir: null });
   assert.deepEqual(result.plugins, []);
   await assert.rejects(readFile(join(result.dir, 'plugins.json'), 'utf8'), /ENOENT/);
+});
+
+// B11.3b: the copied adapter is actually dispatched. The body names the
+// capability method; the generated io method calls the adapter the binding
+// selected, so no package name appears in a body or a spec.
+
+function faxRegistry(dir: string, signatures: string[]) {
+  return registryFromScan({
+    plugins: [{
+      package: 'arcod-plugin-fax',
+      version: '0.1.0',
+      path: dir,
+      pluginApi: PLUGIN_API,
+      capabilities: [{ name: 'fax', signatures }],
+      providers: [{
+        name: 'faxapi',
+        capability: 'fax',
+        runtime: { adapter: 'dist/fax.mjs' },
+      }],
+    }],
+    issues: [],
+  });
+}
+
+const IMPL = {
+  send: 'export async function send(input, io) {\n  return { result: await io.send(input.to) };\n}\n',
+};
+
+test('a plugin capability answers through its copied adapter', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'arcod-dispatch-'));
+  await mkdir(join(root, 'dist'), { recursive: true });
+  await writeFile(join(root, 'dist', 'fax.mjs'), [
+    'export function createAdapter(io) {',
+    '  return {',
+    "    async send(to) { return 'sent:' + to; },",
+    '  };',
+    '}',
+  ].join('\n'), 'utf8');
+  const registry = faxRegistry(root, ['send(to: string) -> string']);
+  const svc = await startService(SPEC, { impl: IMPL, registry });
+  try {
+    const res = await fetch(svc.base + '/v1/send', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ to: '+123' }),
+    });
+    assert.equal(res.status, 201);
+    const body = await res.json();
+    assert.equal(body.id, 'sent:+123', 'the adapter answered, not a stub');
+  } finally {
+    await svc.stop();
+  }
+});
+
+test('a signature that shadows a built-in io method fails the build', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'arcod-collide-'));
+  await mkdir(join(root, 'dist'), { recursive: true });
+  await writeFile(join(root, 'dist', 'fax.mjs'), 'export function createAdapter() { return {}; }\n', 'utf8');
+  const registry = faxRegistry(root, ['load(id: string) -> string']);
+  const exampleDir = join(root, 'example');
+  await mkdir(exampleDir, { recursive: true });
+  await writeFile(join(exampleDir, 'main.arc'), SPEC, 'utf8');
+  await assert.rejects(
+    () => buildExample(parse(SPEC, 'main.arc'), exampleDir, { registry, implDir: null }),
+    /load\(\), which collides with a built-in io method/,
+  );
+});
+
+test('a plugin without signatures wires no method, so the build stays honest', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'arcod-nosig-'));
+  await mkdir(join(root, 'dist'), { recursive: true });
+  await writeFile(join(root, 'dist', 'fax.mjs'), 'export function createAdapter() { return {}; }\n', 'utf8');
+  const registry = faxRegistry(root, []);
+  const exampleDir = join(root, 'example');
+  await mkdir(exampleDir, { recursive: true });
+  await writeFile(join(exampleDir, 'main.arc'), SPEC, 'utf8');
+  const result = await buildExample(parse(SPEC, 'main.arc'), exampleDir, { registry, implDir: null });
+  const source = await readFile(join(result.dir, 'service', 'index.mjs'), 'utf8');
+  assert.match(source, /PLUGIN_ADAPTERS/, 'the adapter is still loaded at boot');
+  assert.doesNotMatch(source, /pluginAdapter\("faxapi"\)\.send/, 'no invented method');
 });

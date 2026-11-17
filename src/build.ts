@@ -80,7 +80,7 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     }
   }
 
-  const service = emitService(mod, { reference, impl });
+  const service = emitService(mod, { reference, impl, registry: options.registry });
 
   const files: Array<[string, string]> = [
     [join(serviceDir, 'index.mjs'), service],
