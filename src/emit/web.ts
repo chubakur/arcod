@@ -91,6 +91,45 @@ export function pageStrings(locale: string | null): Record<string, string> {
   const base = (locale ?? 'en').split('-')[0].toLowerCase();
   return { ...UI_STRINGS.en, ...(UI_STRINGS[base] ?? {}), lang: locale ?? 'en' };
 }
+// Shared by every layout: the catalogs are data, the picker is a <select>
+// created here, and a change reloads the page with ?lang=<tag>.
+const LANG_RUNTIME = String.raw`
+// Every declared catalog is embedded once; ?lang=<tag> chooses one on load and
+// an unknown tag falls back to the declared default. The page stays static, so
+// switching reloads it.
+var CATALOGS = __CATALOGS__;
+var LOCALES = __LOCALES__;
+var BASE_LANG = '__LANG__';
+
+function chosenLang() {
+  if (!CATALOGS || !LOCALES) return BASE_LANG;
+  var wanted = null;
+  try { wanted = new URLSearchParams(location.search).get('lang'); } catch (error) { wanted = null; }
+  return wanted && CATALOGS[wanted] ? wanted : BASE_LANG;
+}
+
+function applyLang() {
+  var chosen = chosenLang();
+  if (CATALOGS && CATALOGS[chosen]) T = CATALOGS[chosen];
+  document.documentElement.lang = chosen;
+  var select = document.getElementById('lang');
+  if (!select || !LOCALES) return;
+  LOCALES.forEach(function (tag) {
+    var option = document.createElement('option');
+    option.value = tag;
+    option.textContent = tag;
+    select.appendChild(option);
+  });
+  select.value = chosen;
+  select.hidden = false;
+  select.addEventListener('change', function () {
+    var next = new URL(location.href);
+    next.searchParams.set('lang', select.value);
+    location.href = next.toString();
+  });
+}
+applyLang();
+`;
 
 const PAGE = String.raw`<!doctype html>
 <html lang="__LANG__" data-theme="__THEME__">
@@ -173,56 +212,12 @@ const PAGE = String.raw`<!doctype html>
 var OPS = __OPS__;
 var HAS_AUTH = __HAS_AUTH__;
 var T = __STRINGS__;
-var CATALOGS = __CATALOGS__;
-var LOCALES = __LOCALES__;
-var BASE_LANG = '__LANG__';
+__LANG_RUNTIME__
 var TOKEN_KEY = 'arcod.token';
 
 function byId(id) { return document.getElementById(id); }
 
 function t(key, fallback) { return (T && T[key]) || fallback; }
-
-// A static page switches locale by reloading with ?lang=<tag>: every declared
-// catalog is already embedded, so no request ever sees a missing translation.
-// An unknown or absent tag falls back to the declared default.
-function chosenLang() {
-  if (!CATALOGS || !LOCALES) return BASE_LANG;
-  var wanted = null;
-  try { wanted = new URLSearchParams(location.search).get('lang'); } catch (error) { wanted = null; }
-  return wanted && CATALOGS[wanted] ? wanted : BASE_LANG;
-}
-
-function applyLang() {
-  var chosen = chosenLang();
-  if (CATALOGS && CATALOGS[chosen]) T = CATALOGS[chosen];
-  document.documentElement.lang = chosen;
-  var select = byId('lang');
-  if (!select || !LOCALES) return;
-  LOCALES.forEach(function (tag) {
-    var option = document.createElement('option');
-    option.value = tag;
-    option.textContent = tag;
-    select.appendChild(option);
-  });
-  select.value = chosen;
-  select.hidden = false;
-  select.addEventListener('change', function () {
-    var next = new URL(location.href);
-    next.searchParams.set('lang', select.value);
-    location.href = next.toString();
-  });
-}
-
-// Labels live in the markup as the English default; the catalog replaces them
-// once, before any operation is rendered.
-function localize() {
-  Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function (node) {
-    node.textContent = t(node.getAttribute('data-i18n'), node.textContent);
-  });
-  Array.prototype.forEach.call(document.querySelectorAll('[data-i18n-placeholder]'), function (node) {
-    node.placeholder = t(node.getAttribute('data-i18n-placeholder'), node.placeholder);
-  });
-}
 
 function saveToken() {
   var value = byId('token').value.trim();
@@ -463,7 +458,6 @@ function build() {
   });
 }
 
-applyLang();
 localize();
 if (HAS_AUTH) {
   byId('auth').hidden = false;
@@ -594,6 +588,10 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
   const locale = ui.locale ?? ui.locales?.[0] ?? 'en';
   const theme = ui.theme ?? 'auto';
   const catalogs = ui.locales ? Object.fromEntries(ui.locales.map((tag) => [tag, pageStrings(tag)])) : null;
+  const withLang = (html: string) => html
+    .replaceAll('__LANG_RUNTIME__', LANG_RUNTIME)
+    .replaceAll('__CATALOGS__', jsonForScript(catalogs))
+    .replaceAll('__LOCALES__', jsonForScript(ui.locales ?? null));
 
   if (ui.layout === 'presentation') {
     const live = presentationOps(mod, svc, ui);
@@ -605,7 +603,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
         body: slide.body,
       })),
     };
-    return PRESENTATION_PAGE
+    return withLang(PRESENTATION_PAGE)
       .replaceAll('__LANG__', escapeHtml(locale))
       .replaceAll('__STRINGS__', jsonForScript(pageStrings(locale)))
       .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
@@ -619,7 +617,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
 
   if (ui.layout === 'chat') {
     const chat = chatOps(mod, svc, ui);
-    return CHAT_PAGE
+    return withLang(CHAT_PAGE)
       .replaceAll('__LANG__', escapeHtml(locale))
       .replaceAll('__STRINGS__', jsonForScript(pageStrings(locale)))
       .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
@@ -628,7 +626,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
       .replaceAll('__HAS_AUTH__', hasAuth || guarded ? 'true' : 'false');
   }
 
-  return PAGE
+  return withLang(PAGE)
     .replaceAll('__LANG__', escapeHtml(locale))
     .replaceAll('__THEME__', escapeHtml(theme))
     .replaceAll('__STRINGS__', jsonForScript(pageStrings(locale)))

@@ -59,10 +59,14 @@ export const PRESENTATION_PAGE = String.raw`<!doctype html>
     background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; opacity: 0;
     transition: opacity .2s; pointer-events: none; }
   .toast.show { opacity: .95; }
+  .lang { position: fixed; top: 12px; right: 12px; z-index: 10; font: inherit; font-size: 13px;
+    padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink); }
 </style>
 </head>
 <body>
 <div class="wrap" id="app"></div>
+<select id="lang" class="lang" hidden aria-label="Language"></select>
 <div class="toast" id="toast"></div>
 <script>
 __QR__
@@ -73,6 +77,7 @@ var OPS = __OPS__;
 var TITLE = DECK.title;
 var HAS_AUTH = __HAS_AUTH__;
 var T = __STRINGS__;
+__LANG_RUNTIME__
 // Static UI labels come from the same catalog as the other layouts; slide
 // titles and bodies are authored in the spec and are never translated here.
 function t(key) { return T[key] || ''; }

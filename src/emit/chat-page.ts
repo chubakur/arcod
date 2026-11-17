@@ -40,6 +40,7 @@ export const CHAT_PAGE = String.raw`<!doctype html>
   <header>
     <h1>__TITLE__</h1>
     <span class="status" id="status"></span>
+    <select id="lang" hidden aria-label="Language"></select>
   </header>
   <p class="lead">__LEAD__</p>
   <section class="auth" id="auth" hidden>
@@ -62,6 +63,7 @@ export const CHAT_PAGE = String.raw`<!doctype html>
 var OPS = __CHAT_OPS__;
 var HAS_AUTH = __HAS_AUTH__;
 var T = __STRINGS__;
+__LANG_RUNTIME__
 // The page ships English in the markup (so it reads without JS) and the
 // locale's catalog replaces the static labels once the script runs.
 document.querySelectorAll('[data-i18n]').forEach(function (node) {

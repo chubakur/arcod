@@ -310,7 +310,8 @@ A list of locales turns the form page into a switcher: `locales: "en, ru"`
 embeds every declared catalog once and adds a `<select>` to the header;
 `?lang=ru` chooses a catalog on load and an unknown tag falls back to
 `locale` (or the first declared tag). The page is static, so switching
-reloads it. Chat/presentation switchers and SSR are separate items (B12).
+reloads it. The chat and presentation layouts carry the same picker in their
+header; SSR is a separate item (B12).
 
 ```arcod
 ui TasksUi {

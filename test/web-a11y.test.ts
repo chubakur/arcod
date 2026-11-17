@@ -96,6 +96,20 @@ test('the chat layout localizes its static labels', async () => {
   assert.ok(html.includes('New conversation'), 'English stays as the no-JS fallback');
 });
 
+test('chat and presentation pages expose the declared locale picker', async () => {
+  for (const file of [chatUrl, quizUrl]) {
+    const mod = parse(await readFile(file, 'utf8'), 'main.arc');
+    mod.uis[0].locale = 'ru';
+    mod.uis[0].locales = ['en', 'ru'];
+    const html = emitWeb(mod, { maxBytes: 2_000_000 });
+    assert.match(html, /var LOCALES = \["en","ru"\];/);
+    assert.match(html, /id="lang"/);
+    assert.match(html, /CATALOGS\[wanted\]/);
+    assert.ok(!html.includes('__LANG_RUNTIME__'), 'the runtime is expanded');
+    assert.ok(html.includes('"token":"Токен доступа"'), 'the Russian catalog is embedded');
+  }
+});
+
 test('the presentation layout localizes its chrome, not the slides', async () => {
   const mod = parse(await readFile(quizUrl, 'utf8'), 'main.arc');
   mod.uis[0].locale = 'ru';
