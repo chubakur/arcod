@@ -11,6 +11,17 @@ import { PG_STORE_SOURCE } from '../src/emit/pg-store.ts';
 // The Postgres client is emitted source, not an imported module: load it the
 // way the generated service will see it, then drive it with a fake server.
 
+test('postgres connect times out and closes the socket', async () => {
+  const mod = await pg();
+  const server = createServer(() => { /* accept, never answer */ });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as { port: number }).port;
+  try {
+    const db = new mod.PgConnection('postgres://arcod:s3cret@127.0.0.1:' + port + '/arcod');
+    await assert.rejects(() => db.connect(80), /connect timeout/);
+  } finally { server.close(); }
+});
+
 // ---------- password auth ----------
 function authBackend(ask: (socket: import('node:net').Socket) => void) {
   const seen: { password: string | null } = { password: null };

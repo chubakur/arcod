@@ -141,7 +141,10 @@ export class PgConnection {
     return await new Promise((resolve, reject) => {
       const socket = pgConnect({ host: options.host, port: options.port });
       this.socket = socket;
-      const timer = setTimeout(() => reject(new Error('postgres: connect timeout')), timeoutMs || 5000);
+      const timer = setTimeout(() => {
+        socket.destroy();
+        reject(new Error('postgres: connect timeout'));
+      }, timeoutMs || 5000);
       const fail = (error) => { clearTimeout(timer); reject(error); };
       this.ready = { resolve, reject: fail, timer };
       socket.on('error', (error) => {
