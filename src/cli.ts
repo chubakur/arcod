@@ -560,6 +560,7 @@ async function runMake(flags: Flags): Promise<void> {
     noTest: flags.noTest,
     reference: flags.reference,
     port: flags.port,
+    dialect: flags.dialect === 'postgres' ? 'postgres' : undefined,
     allowRemote: flags.allowRemote,
     budget: flags.maxTokens,
   });

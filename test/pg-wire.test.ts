@@ -292,8 +292,9 @@ test('PgStore issues postgres SQL and reads the command tag for affected rows', 
   const server = storeBackend(seen, sockets);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = (server.address() as { port: number }).port;
+  let store: any = null;
   try {
-    const store = new mod.PgStore('postgres://arcod:arcod@127.0.0.1:' + port + '/arcod');
+    store = new mod.PgStore('postgres://arcod:arcod@127.0.0.1:' + port + '/arcod');
     await store.prepare();
     const columns = [
       { name: 'id', base: 'string' },
@@ -316,7 +317,7 @@ test('PgStore issues postgres SQL and reads the command tag for affected rows', 
     assert.match(page, /"id" > 'a'/);
     assert.match(page, /ORDER BY "done" ASC, "id" ASC LIMIT 3/);
   } finally {
-    try { await store.connection.end(); } catch (ignored) {}
+    try { if (store) await store.connection.end(); } catch (ignored) {}
     server.close();
     for (const socket of sockets) socket.destroy();
   }

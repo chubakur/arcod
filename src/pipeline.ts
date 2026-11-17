@@ -14,6 +14,7 @@ export interface PipelineOptions {
   skipImpl?: boolean;
   noTest?: boolean;
   reference?: boolean;
+  dialect?: 'mysql' | 'postgres';
   port?: number;
   allowRemote?: boolean;
   budget?: number;
@@ -144,6 +145,7 @@ export async function runPipeline(
       port: options.port,
       reference: options.reference === true,
       implDir: options.reference || !hasBodies ? null : undefined,
+      dialect: options.dialect,
     });
     const mode = result.impl.length > 0 ? 'impl' : result.reference ? 'reference' : 'scaffold';
     return { detail: mode + ' · ' + result.files.length + ' files' };
