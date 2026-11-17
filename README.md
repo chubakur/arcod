@@ -303,10 +303,9 @@ reader's OS through `prefers-color-scheme`. Nothing in the markup hard-codes a
 colour.
 
 `render: static|ssr` declares where the page is produced. `static` (the
-default) emits the HTML at build; `ssr` is the target for service-side
-rendering and currently parses with a W030 warning — the emitter still writes
-the static page, so a draft cannot silently depend on a runtime that does not
-exist yet.
+default) emits the HTML at build; `ssr` also embeds it in the service, which
+serves it at the ui route — no separate web container is required. The page is
+still the build-time HTML: W030 warns that per-request data is not rendered yet.
 
 The chat and presentation pages take the same `lang` and the same catalog:
 their static chrome (send button, composer placeholder, join form, deck
@@ -1187,7 +1186,7 @@ Warnings:
 - `W026` an external service is called but no address is configured;
 - `W028` a presentation without `stream`: the page will poll state;
 - `W029` a plugin provider ships a runtime adapter but its capability declares no signatures (the service cannot dispatch it).
-- `W030` `ui { render: ssr }` is declared but the service-side renderer is not built yet: the page is emitted static.
+- `W030` `ui { render: ssr }` serves the build-time page from the service; per-request data is not rendered yet.
 
 ### Examples are tests
 

@@ -83,17 +83,21 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     }
   }
 
-  const service = emitService(mod, { reference, impl, registry: options.registry, dialect: options.dialect });
+  const webHtml = hasUi ? emitWeb(mod, { maxBytes: maxBodyBytes(mod) }) : null;
+  // render: ssr means the service serves the page; build still writes the web
+  // container so a deployment can pick either front door.
+  const firstUi = mod.uis[0];
+  const pages = webHtml && firstUi && firstUi.render === 'ssr' ? [{ route: firstUi.route, html: webHtml }] : [];
+  const service = emitService(mod, { reference, impl, registry: options.registry, dialect: options.dialect, pages });
 
   const files: Array<[string, string]> = [
     [join(serviceDir, 'index.mjs'), service],
     [join(serviceDir, 'Dockerfile'), serviceDockerfile()],
   ];
 
-  if (hasUi) {
-    const web = emitWeb(mod, { maxBytes: maxBodyBytes(mod) });
+  if (hasUi && webHtml) {
     files.push(
-      [join(webDir, 'index.html'), web],
+      [join(webDir, 'index.html'), webHtml],
       [join(webDir, 'nginx.conf'), nginxConf(mod)],
       [join(webDir, 'Dockerfile'), webDockerfile()],
     );

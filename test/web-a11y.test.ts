@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parse } from '../src/parser.ts';
 import { emitWeb, pageStrings } from '../src/emit/web.ts';
+import { emitService } from '../src/emit/service.ts';
 import { printModule } from '../src/fmt.ts';
 import { check } from '../src/check.ts';
 
@@ -177,4 +178,16 @@ test('render: ssr parses, survives fmt and warns until the service renders', () 
 test('render rejects a value that is neither static nor ssr', () => {
   const source = LOCALIZED.split('  locale: "ru"').join('  render: ssg\n  locale: "ru"');
   assert.throws(() => parse(source, 'main.arc'), /render must be static or ssr/);
+});
+
+test('render: ssr makes the service serve the page itself', async () => {
+  const mod = parse(LOCALIZED.split('  locale: "ru"').join('  render: ssr\n  locale: "ru"'), 'main.arc');
+  const html = '<!doctype html><html lang="ru"><body>Notes</body></html>';
+  const code = emitService(mod, { pages: [{ route: '/', html }] });
+  assert.match(code, /const PAGES = \[\{"route":"\/","html":"/);
+  assert.match(code, /'text\/html; charset=utf-8'/);
+  assert.match(code, /PAGES\.find/);
+  // Without pages the service is unchanged: no page is served.
+  const plain = emitService(mod);
+  assert.match(plain, /const PAGES = \[\];/);
 });

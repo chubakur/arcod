@@ -478,8 +478,8 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     // the spec can declare intent, but the emitter still writes a static page.
     if (ui.render === 'ssr') {
       diags.push(diag('W030', 'warning', mod.file, ui.loc, 'ui.' + ui.name,
-        'render: ssr is not implemented yet: the page is emitted static',
-        'leave render: static until the service renders pages'));
+        'render: ssr serves the page from the service, but per-request data is not rendered yet',
+        'the page is the build-time HTML until B12.6c renders it with request data'));
     }
     if (ui.impl !== 'spa') {
       diags.push(diag('A019', 'error', mod.file, ui.loc, 'ui.' + ui.name, 'ui kind ' + ui.impl + ' is not supported in v0.1', 'use kind: spa'));

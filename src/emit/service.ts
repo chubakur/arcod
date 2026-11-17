@@ -25,6 +25,8 @@ export interface EmitOptions {
   // Providers a plugin declares carry a runtime adapter; the registry is what
   // says which bindings need one and which methods it answers.
   registry?: ProviderRegistry;
+  // Pages the service itself serves (ui render: ssr): route and final HTML.
+  pages?: Array<{ route: string; html: string }>;
 }
 
 // ---------- plugin runtime adapters ----------
@@ -152,6 +154,10 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 const CONFIG = __CONFIG__;
 CONFIG.timeoutMs = Number(process.env.ARCod_TIMEOUT_MS || CONFIG.timeoutMs || 30000);
 const ROUTES = __ROUTES__;
+
+// Pages rendered at build time and delivered by the service itself; the web
+// container is then optional.
+const PAGES = __PAGES__;
 const ERRORS = __ERRORS__;
 const STORES = __STORES__;
 const MIGRATIONS = __MIGRATIONS__;
@@ -1015,6 +1021,15 @@ async function handleRequest(req, res, start) {
   let opName = '';
   try {
     const url = new URL(req.url || '/', 'http://localhost');
+    const page = PAGES.find((item) => item.route === url.pathname);
+    if (page && (req.method === 'GET' || req.method === 'HEAD')) {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'text/html; charset=utf-8');
+      res.setHeader('content-length', Buffer.byteLength(page.html));
+      res.end(req.method === 'HEAD' ? undefined : page.html);
+      finish(page.route, '', 200, start, req);
+      return;
+    }
     if (url.pathname === '/healthz') {
       try {
         await store.ping();
@@ -1382,6 +1397,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
     .replace('__STORES__', () => JSON.stringify(stores, null, 2))
     .replace('__MIGRATIONS__', () => JSON.stringify(migrationPlan(mod, svc, { dialect: dialectNamed(options.dialect) }).migrations))
     .replace('__ROUTES__', () => JSON.stringify(routes, null, 2))
+    .replace('__PAGES__', () => JSON.stringify(options.pages ?? []))
     .replace('__ERRORS__', () => JSON.stringify(errors, null, 2))
     .replace('__ATOMIC__', () => String(atomicRead))
     .replace('__STREAM_WIRE__', hasStream(svc)
