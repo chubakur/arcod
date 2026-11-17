@@ -227,8 +227,10 @@ test('postgres literals and cells are typed, not string-concatenated', async () 
 // The store, not just the client: entity SQL is quoting/literal-shaped for
 // Postgres and the command tag is where claim/del get their affected count.
 
-function storeBackend(seen: string[]) {
+function storeBackend(seen: string[], sockets: Set<any> = new Set()) {
   const server = createServer((socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
     let buffer = Buffer.alloc(0);
     let started = false;
     socket.on('data', (chunk) => {
@@ -271,9 +273,9 @@ async function pgStore() {
   const stubs = [
     'class ArcodError extends Error { constructor(name) { super(name); this.name = name; } }',
     'const MIGRATIONS = [];',
-    'function parseOrder() { return []; }',
+    'function parseOrder(order) { return Array.isArray(order) ? order : []; }',
     'function encodeCursor() { return null; }',
-    'function decodeCursor() { return null; }',
+    'function decodeCursor() { return { v: [false], id: "a" }; }',
     '',
   ].join('\n');
   const dir = await mkdtemp(join(tmpdir(), 'arcod-pgstore-'));
@@ -286,7 +288,8 @@ async function pgStore() {
 test('PgStore issues postgres SQL and reads the command tag for affected rows', async () => {
   const mod = await pgStore();
   const seen: string[] = [];
-  const server = storeBackend(seen);
+  const sockets = new Set<any>();
+  const server = storeBackend(seen, sockets);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = (server.address() as { port: number }).port;
   try {
@@ -306,8 +309,15 @@ test('PgStore issues postgres SQL and reads the command tag for affected rows', 
     await store.set('k', 'v', 1000);
     assert.match(seen[seen.length - 1], /ON CONFLICT \(k\) DO UPDATE SET v = EXCLUDED\.v/);
     assert.ok(seen.some((sql) => /CREATE TABLE IF NOT EXISTS arcod_migrations/.test(sql)));
-    await store.connection.end();
+    await store.entityFind('task', [{ name: 'id', base: 'string' }, { name: 'done', base: 'bool' }], { limit: 2, order: [{ field: 'done', dir: 1 }], where: { done: true }, cursor: 'cur' });
+    const page = seen[seen.length - 1];
+    assert.match(page, /WHERE "done" = TRUE AND \(/);
+    assert.match(page, /IS NOT DISTINCT FROM FALSE/);
+    assert.match(page, /"id" > 'a'/);
+    assert.match(page, /ORDER BY "done" ASC, "id" ASC LIMIT 3/);
   } finally {
+    try { await store.connection.end(); } catch (ignored) {}
     server.close();
+    for (const socket of sockets) socket.destroy();
   }
 });
