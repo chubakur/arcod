@@ -273,6 +273,10 @@ function fieldControl(p) {
     if (p.max && p.kind !== 'number') input.maxLength = p.max;
   }
   input.name = p.name;
+  // Screen readers get the same contract the API does: a required field is
+  // required, and a browser's autofill must not guess at API parameters.
+  input.autocomplete = 'off';
+  if (!p.optional) input.setAttribute('aria-required', 'true');
   return input;
 }
 
@@ -306,6 +310,9 @@ function build() {
     var out = document.createElement('div');
     out.className = 'result';
     out.hidden = true;
+    // A result arrives after an async call: announce it, do not move focus.
+    out.setAttribute('role', 'status');
+    out.setAttribute('aria-live', 'polite');
 
     form.addEventListener('submit', function (event) {
       event.preventDefault();

@@ -270,6 +270,16 @@ The local model must be reachable from containers. On macOS Docker Desktop,
 setup. On Linux a container cannot reach the host loopback: start Ollama on
 `0.0.0.0` (`OLLAMA_HOST=0.0.0.0 ollama serve`) or bind another host.
 
+### The generated page and accessibility
+
+Every `ui` block produces a dependency-free form page. It is also the only UI
+most specs will have, so the a11y baseline is part of the emitter: `<html
+lang="en">`, a wrapping `<label>` per control, `aria-required` for required
+parameters, `autocomplete="off"` so a password manager does not fill API
+parameters, and results in a `role="status"` region with `aria-live="polite"`
+— an async answer is announced without stealing focus. i18n beyond `lang` and
+SSR are separate items (B12).
+
 ### The chat page
 
 `layout: chat` is a message feed instead of a form per operation. It needs two
