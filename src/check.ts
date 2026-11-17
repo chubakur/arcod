@@ -1,7 +1,8 @@
 import type { Diagnostic } from './diagnostics.ts';
 import type { Expr, Loc, ModuleNode, OpNode, Param, ServiceNode, UiNode } from './ast.ts';
 import { templateFor } from './templates.ts';
-import { providerFor, providerImplements, providerNames, providersForCapability } from './providers.ts';
+import { providerImplements } from './providers.ts';
+import { builtinRegistry, type ProviderRegistry } from './registry.ts';
 import { storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
 import { defaultValue } from './migrate.ts';
@@ -15,10 +16,14 @@ export interface CheckOptions {
   // Budgets are a design decision, not a prerequisite: a draft may not know
   // its latency or cost yet. Strict mode asks for them explicitly.
   strict?: boolean;
+  // Built-ins by default; the CLI passes a registry that also knows plugin
+  // manifests, so bindings resolve the same way check and emitters see them.
+  registry?: ProviderRegistry;
 }
 
 export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[] {
   const diags: Diagnostic[] = [];
+  const registry = options.registry ?? builtinRegistry();
   const env = options.environment
     ? mod.environments.find((e) => e.name === options.environment)
     : mod.environments[0];
@@ -122,12 +127,12 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       if (bind.provider === 'local') continue;
       const use = svc.uses.find((item) => item.alias === bind.alias);
       if (!use) continue;
-      const spec = providerFor(bind.provider);
+      const spec = registry.get(bind.provider);
       if (!spec) {
         diags.push(
           diag('A023', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
             `unknown provider ${bind.provider}`,
-            'available: ' + providerNames().join(', ')),
+            'available: ' + registry.names().join(', ')),
         );
         continue;
       }
@@ -143,7 +148,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
 
       const capability = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
       if (!providerImplements(spec, capability)) {
-        const alternatives = providersForCapability(capability);
+        const alternatives = registry.forCapability(capability);
         diags.push(
           diag('A024', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
             `${bind.provider} does not implement ${use.capability}`,

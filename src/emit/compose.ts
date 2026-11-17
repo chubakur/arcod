@@ -1,6 +1,7 @@
 import { kebab } from '../plan.ts';
 import type { BindNode, EnvironmentNode, ModuleNode } from '../ast.ts';
 import { providerFor, providerImplements, type ProviderSpec } from '../providers.ts';
+import { loadRegistry, type ProviderRegistry } from '../registry.ts';
 
 export function serviceDockerfile(): string {
   return [
@@ -142,8 +143,8 @@ export interface RenderedProvider {
   args: Record<string, string | number | boolean>;
 }
 
-function renderProvider(bind: BindNode): RenderedProvider | null {
-  const spec = providerFor(bind.provider);
+function renderProvider(bind: BindNode, registry: ProviderRegistry): RenderedProvider | null {
+  const spec = registry.get(bind.provider);
   if (!spec) return null;
   const host = stringArg(bind, 'host') ?? spec.name;
   const port = numberArg(bind, 'port') ?? spec.port ?? 0;
@@ -233,12 +234,12 @@ export function localEnvironment(mod: ModuleNode): EnvironmentNode | undefined {
   return mod.environments.find((env) => !env.deploy || env.deploy.provider === 'docker') ?? mod.environments[0];
 }
 
-export function composeModel(mod: ModuleNode, port: number, hasUi = true): ComposeModel {
+export function composeModel(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry()): ComposeModel {
   const name = 'arcod-' + kebab(mod.name);
   const environment = localEnvironment(mod);
   const bound = (environment?.binds ?? [])
-    .filter((bind) => providerFor(bind.provider) !== null)
-    .map(renderProvider)
+    .filter((bind) => registry.get(bind.provider) !== null)
+    .map((bind) => renderProvider(bind, registry))
     .filter((item): item is RenderedProvider => item !== null);
 
   // A service with no explicit infra binding keeps a private kv so the demo
@@ -276,8 +277,8 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true): Compo
   return { name, providers: bound, appEnv, hasUi };
 }
 
-export function composeYaml(mod: ModuleNode, port: number, hasUi = true): string {
-  const { name, providers: bound, appEnv } = composeModel(mod, port, hasUi);
+export function composeYaml(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry()): string {
+  const { name, providers: bound, appEnv } = composeModel(mod, port, hasUi, registry);
   const lines = ['name: ' + name, 'services:'];
   for (const item of bound) lines.push(...providerLines(item));
 

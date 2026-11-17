@@ -25,6 +25,7 @@ import { adoptOpenapi } from './adopt.ts';
 import { helmChart, k8sManifests } from './emit/k8s.ts';
 import { terraformFiles, formatTerraform } from './emit/terraform.ts';
 import { scanPlugins } from './plugins.ts';
+import { loadRegistry, resetRegistryCache } from './registry.ts';
 import { LANG_VERSION, declaredVersion, migrateSpec, VersionError } from './versions.ts';
 import { scaffold, isValidName } from './new.ts';
 import { serve as serveLsp } from './lsp-server.ts';
@@ -142,7 +143,7 @@ export async function main(argv: string[]): Promise<void> {
 
 async function runCheck(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  const diags = check(loaded.mod, { environment: flags.env, strict: flags.strict });
+  const diags = check(loaded.mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(loaded.dir) });
   if (flags.json) {
     console.log(JSON.stringify(diags, null, 2));
   } else {
@@ -155,7 +156,7 @@ async function runCheck(flags: Flags): Promise<void> {
 async function runAst(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   if (!flags.json && flags.check) {
-    const diags = check(loaded.mod);
+    const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
     const errors = diags.filter((d) => d.severity === 'error');
     if (errors.length > 0) {
       printDiagnostics(errors, loaded.specPath);
@@ -317,7 +318,7 @@ async function runDeploy(flags: Flags): Promise<void> {
 
 async function runK8s(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  const errors = check(loaded.mod).filter((d) => d.severity === 'error');
+  const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     printDiagnostics(errors, loaded.specPath);
     process.exitCode = 1;
@@ -346,7 +347,7 @@ async function runK8s(flags: Flags): Promise<void> {
 
 async function runTerraform(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  const errors = check(loaded.mod).filter((d) => d.severity === 'error');
+  const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     printDiagnostics(errors, loaded.specPath);
     process.exitCode = 1;
@@ -377,7 +378,7 @@ async function runPlan(flags: Flags): Promise<void> {
 
 async function runMigrate(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  const errors = check(loaded.mod).filter((d) => d.severity === 'error');
+  const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     printDiagnostics(errors, loaded.specPath);
     process.exitCode = 1;
@@ -407,7 +408,7 @@ async function runMigrate(flags: Flags): Promise<void> {
 
 async function runOpenapi(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  const errors = check(loaded.mod).filter((d) => d.severity === 'error');
+  const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     printDiagnostics(errors, loaded.specPath);
     process.exitCode = 1;
@@ -419,7 +420,7 @@ async function runOpenapi(flags: Flags): Promise<void> {
 
 async function runGraphql(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  const errors = check(loaded.mod).filter((d) => d.severity === 'error');
+  const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     printDiagnostics(errors, loaded.specPath);
     process.exitCode = 1;
@@ -438,7 +439,7 @@ async function runGraphql(flags: Flags): Promise<void> {
 
 async function runGrpc(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  const errors = check(loaded.mod).filter((d) => d.severity === 'error');
+  const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     printDiagnostics(errors, loaded.specPath);
     process.exitCode = 1;
@@ -510,7 +511,7 @@ function runProviders(flags: Flags): void {
 
 async function runPrompts(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  const errors = check(loaded.mod).filter((item) => item.severity === 'error');
+  const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((item) => item.severity === 'error');
   if (errors.length > 0) {
     printDiagnostics(errors, loaded.specPath);
     process.exitCode = 1;
@@ -581,7 +582,7 @@ async function runMake(flags: Flags): Promise<void> {
 
 async function runImplCmd(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  const errors = check(loaded.mod).filter((item) => item.severity === 'error');
+  const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((item) => item.severity === 'error');
   if (errors.length > 0) {
     printDiagnostics(errors, loaded.specPath);
     process.exitCode = 1;
@@ -606,7 +607,7 @@ async function runImplCmd(flags: Flags): Promise<void> {
 
 async function runBuild(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  const diags = check(loaded.mod);
+  const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
   const errors = diags.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     printDiagnostics(errors, loaded.specPath);
@@ -628,7 +629,7 @@ async function runBuild(flags: Flags): Promise<void> {
 
 async function runTest(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  const diags = check(loaded.mod);
+  const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
   const errors = diags.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     printDiagnostics(errors, loaded.specPath);
@@ -681,7 +682,7 @@ async function runTest(flags: Flags): Promise<void> {
 
 async function runRun(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  const diags = check(loaded.mod);
+  const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
   const errors = diags.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     printDiagnostics(errors, loaded.specPath);
