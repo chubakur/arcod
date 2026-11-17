@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../src/cli.ts';
@@ -244,4 +244,78 @@ test('providers lists the built-in capabilities as rows', async () => {
   assert.equal(r.code, 0);
   assert.match(r.out, /kv/);
   assert.match(r.out, /sql/);
+});
+
+test('every emitter is reachable through the CLI', async () => {
+  const dir = await tempDir('arcod-cli-emit-');
+  await cp(new URL('../examples/tasks-sql', import.meta.url), dir, { recursive: true });
+  const spec = join(dir, 'main.arc');
+  const migrations = join(dir, '.arcod', 'build', 'migrations');
+
+  const plan = await run(['plan', spec]);
+  assert.equal(plan.code, 0, JSON.stringify(plan.err));
+  assert.ok(plan.out.length > 0, 'plan prints the work ahead');
+
+  const migrated = await run(['migrate', spec]);
+  assert.equal(migrated.code, 0, JSON.stringify(migrated.err));
+  assert.match(migrated.out, /artifact: \.arcod\/build\/migrations\//);
+  const mysqlMigrations = JSON.parse(await readFile(join(migrations, 'changelog.json'), 'utf8')) as Array<{ up: string }>;
+  assert.ok(mysqlMigrations.some((m) => m.up.includes('CREATE TABLE IF NOT EXISTS `')), 'mysql backticks identifiers');
+
+  const postgres = await run(['migrate', spec, '--dialect', 'postgres']);
+  assert.equal(postgres.code, 0, JSON.stringify(postgres.err));
+  const postgresMigrations = JSON.parse(await readFile(join(migrations, 'changelog.json'), 'utf8')) as Array<{ up: string }>;
+  assert.ok(postgresMigrations.some((m) => m.up.includes('CREATE TABLE IF NOT EXISTS "')), 'postgres quotes identifiers');
+  assert.ok((await readdir(migrations)).some((name) => name.endsWith('.up.sql')), 'up/down files land on disk');
+
+  const openapi = await run(['openapi', spec]);
+  assert.equal(openapi.code, 0, JSON.stringify(openapi.err));
+  assert.match(JSON.parse(openapi.out).openapi, /^3\./);
+
+  const graphql = await run(['graphql', spec, '--out', 'schema.graphql']);
+  assert.equal(graphql.code, 0, JSON.stringify(graphql.err));
+  assert.match(await readFile(join(dir, 'schema.graphql'), 'utf8'), /type Query/);
+
+  const grpc = await run(['grpc', spec, '--out', 'service.proto']);
+  assert.equal(grpc.code, 0, JSON.stringify(grpc.err));
+  assert.match(await readFile(join(dir, 'service.proto'), 'utf8'), /syntax = "proto3"/);
+
+  const deploy = await run(['deploy', spec, '--env', 'prod', '--json']);
+  assert.equal(deploy.code, 0, JSON.stringify(deploy.err));
+  const manifest = JSON.parse(deploy.out);
+  assert.ok(Object.keys(manifest.images).length > 0, 'the manifest carries the image contract');
+
+  const k8s = await run(['k8s', spec, '--out', join(dir, 'out', 'k8s')]);
+  assert.equal(k8s.code, 0, JSON.stringify(k8s.err));
+  assert.match(k8s.out, /wrote \d+ file\(s\)/);
+  assert.ok((await readdir(join(dir, 'out', 'k8s'))).length > 0);
+
+  const terraform = await run(['terraform', spec, '--env', 'prod', '--out', join(dir, 'out', 'tf')]);
+  assert.equal(terraform.code, 0, JSON.stringify(terraform.err));
+  assert.match(await readFile(join(dir, 'out', 'tf', 'main.tf'), 'utf8'), /provider "yandex"/);
+});
+
+test('an emitter refuses a spec that does not check', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'main.arc');
+  // Parses, but names an error nobody declared: check owns that verdict, and
+  // every emitter has to inherit it instead of rendering half a model.
+  await writeFile(file, `module bad @0.1.0 {
+  meta { owner: "@you" }
+}
+
+service Bad : http {
+  contract {
+    public op go() -> string {
+      route: "GET /v1/go"
+      errors: Missing
+    }
+  }
+}
+`, 'utf8');
+  const checked = await run(['check', file]);
+  assert.equal(checked.code, 1, 'the spec really is broken');
+  const r = await run(['k8s', file]);
+  assert.equal(r.code, 1);
+  assert.match(r.out + r.err, /error/);
 });
