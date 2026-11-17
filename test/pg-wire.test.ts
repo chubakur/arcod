@@ -298,6 +298,8 @@ test('PgStore issues postgres SQL and reads the command tag for affected rows', 
     ];
     await store.entityInsert('task', columns, { id: 't1', done: true });
     assert.match(seen[seen.length - 1], /INSERT INTO "task" \("id", "done"\) VALUES \('t1', TRUE\)/);
+    await store.entityInsert('task', [{ name: 'id', base: 'string' }, { name: 'title', base: 'string' }], { id: 'x', title: "O'Brien; DROP TABLE task" });
+    assert.match(seen[seen.length - 1], /'O''Brien; DROP TABLE task'/);
     assert.equal(await store.claim('lock-1'), true);
     assert.match(seen[seen.length - 1], /ON CONFLICT \(k\) DO NOTHING/);
     assert.equal(await store.del('lock-1'), 1);
