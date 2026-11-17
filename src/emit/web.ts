@@ -29,8 +29,37 @@ interface UiOp {
   returns: string;
 }
 
+// The pages are generated, so their static labels are a catalog, not prose
+// buried in markup. 'en' is the base; a locale merges over it, and an unknown
+// locale still renders (with English) instead of failing the build.
+const UI_STRINGS: Record<string, Record<string, string>> = {
+  en: {
+    token: 'Access token',
+    tokenPlaceholder: 'Bearer token',
+    saved: 'token saved',
+    save: 'Save',
+    run: 'Run',
+    json: 'JSON',
+    optional: 'optional',
+  },
+  ru: {
+    token: 'Токен доступа',
+    tokenPlaceholder: 'Bearer-токен',
+    saved: 'токен сохранён',
+    save: 'Сохранить',
+    run: 'Выполнить',
+    json: 'JSON',
+    optional: 'необязательно',
+  },
+};
+
+export function pageStrings(locale: string | null): Record<string, string> {
+  const base = (locale ?? 'en').split('-')[0].toLowerCase();
+  return { ...UI_STRINGS.en, ...(UI_STRINGS[base] ?? {}), lang: locale ?? 'en' };
+}
+
 const PAGE = String.raw`<!doctype html>
-<html lang="en">
+<html lang="__LANG__">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -72,26 +101,40 @@ const PAGE = String.raw`<!doctype html>
   <h1>__TITLE__</h1>
   <p class="lead">__LEAD__</p>
   <section class="auth" id="auth" hidden>
-    <label style="flex:1">Access token
-      <input id="token" type="password" autocomplete="off" placeholder="Bearer token">
+    <label style="flex:1"><span data-i18n="token">Access token</span>
+      <input id="token" type="password" autocomplete="off" placeholder="Bearer token" data-i18n-placeholder="tokenPlaceholder">
     </label>
-    <button type="button" id="save-token" style="align-self:end">Save</button>
+    <button type="button" id="save-token" style="align-self:end" data-i18n="save">Save</button>
   </section>
   <div id="ops"></div>
 </main>
 <script>
 var OPS = __OPS__;
 var HAS_AUTH = __HAS_AUTH__;
+var T = __STRINGS__;
 var TOKEN_KEY = 'arcod.token';
 
 function byId(id) { return document.getElementById(id); }
+
+function t(key, fallback) { return (T && T[key]) || fallback; }
+
+// Labels live in the markup as the English default; the catalog replaces them
+// once, before any operation is rendered.
+function localize() {
+  Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function (node) {
+    node.textContent = t(node.getAttribute('data-i18n'), node.textContent);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-i18n-placeholder]'), function (node) {
+    node.placeholder = t(node.getAttribute('data-i18n-placeholder'), node.placeholder);
+  });
+}
 
 function saveToken() {
   var value = byId('token').value.trim();
   if (value) localStorage.setItem(TOKEN_KEY, value);
   else localStorage.removeItem(TOKEN_KEY);
   byId('token').value = '';
-  byId('token').placeholder = value ? 'token saved' : 'Bearer token';
+  byId('token').placeholder = value ? t('saved', 'token saved') : t('tokenPlaceholder', 'Bearer token');
 }
 
 function showError(out, text) {
@@ -297,14 +340,14 @@ function build() {
     var form = document.createElement('form');
     op.params.forEach(function (p) {
       var label = document.createElement('label');
-      label.textContent = p.name + (p.kind === 'json' ? ' (JSON)' : '') + (p.optional ? ' — optional' : '');
+      label.textContent = p.name + (p.kind === 'json' ? ' (' + t('json', 'JSON') + ')' : '') + (p.optional ? ' — ' + t('optional', 'optional') : '');
       label.appendChild(fieldControl(p));
       form.appendChild(label);
     });
 
     var button = document.createElement('button');
     button.type = 'submit';
-    button.textContent = 'Run';
+    button.textContent = t('run', 'Run');
     form.appendChild(button);
 
     var out = document.createElement('div');
@@ -325,6 +368,7 @@ function build() {
   });
 }
 
+localize();
 if (HAS_AUTH) {
   byId('auth').hidden = false;
   byId('save-token').addEventListener('click', saveToken);
@@ -451,6 +495,8 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
   const hasAuth = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'));
   const guarded = isGuarded(svc);
 
+  const locale = ui.locale ?? 'en';
+
   if (ui.layout === 'presentation') {
     const live = presentationOps(mod, svc, ui);
     const deck = {
@@ -462,6 +508,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
       })),
     };
     return PRESENTATION_PAGE
+      .replaceAll('__LANG__', escapeHtml(locale))
       .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
       .replaceAll('__DECK__', jsonForScript(deck))
       .replaceAll('__OPS__', jsonForScript(live))
@@ -474,6 +521,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
   if (ui.layout === 'chat') {
     const chat = chatOps(mod, svc, ui);
     return CHAT_PAGE
+      .replaceAll('__LANG__', escapeHtml(locale))
       .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
       .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · chat with the model'))
       .replaceAll('__CHAT_OPS__', JSON.stringify(chat))
@@ -481,6 +529,8 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
   }
 
   return PAGE
+    .replaceAll('__LANG__', escapeHtml(locale))
+    .replaceAll('__STRINGS__', jsonForScript(pageStrings(locale)))
     .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
     .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · operations: ' + ops.length))
     .replaceAll('__OPS__', JSON.stringify(ops))

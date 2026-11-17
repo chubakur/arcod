@@ -277,8 +277,23 @@ most specs will have, so the a11y baseline is part of the emitter: `<html
 lang="en">`, a wrapping `<label>` per control, `aria-required` for required
 parameters, `autocomplete="off"` so a password manager does not fill API
 parameters, and results in a `role="status"` region with `aria-live="polite"`
-— an async answer is announced without stealing focus. i18n beyond `lang` and
-SSR are separate items (B12).
+— an async answer is announced without stealing focus.
+
+The language is a property of the `ui` block, not a build flag: `locale: "ru"`
+(or any BCP-47 tag) sets `<html lang>` and swaps the page's label catalog —
+`en` and `ru` ship today, an unshipped tag keeps its `lang` and falls back to
+English labels instead of failing the build. A malformed tag is a parse error.
+
+```arcod
+ui TasksUi {
+  title:  "Tasks"
+  locale: "ru"
+  uses   Tasks.create, Tasks.list
+}
+```
+
+The chat and presentation pages take the same `lang`; translated catalogs for
+them, a locale switcher and design tokens are separate items (B12).
 
 ### The chat page
 

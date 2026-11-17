@@ -528,7 +528,7 @@ class Parser {
     const ui: UiNode = {
       kind: 'ui', name, impl: 'spa', route: '/', title: null, uses: [],
       layout: null, history: null, send: null, start: null,
-      join: null, state: null, advance: null,
+      join: null, state: null, advance: null, locale: null,
       slides: [], loc: locOf(start),
     };
     this.expect('{');
@@ -554,6 +554,13 @@ class Parser {
         ui.route = this.next().value;
       } else if (key === 'title') {
         ui.title = this.next().value;
+      } else if (key === 'locale') {
+        const value = this.next();
+        if (value.kind !== 'string') this.error('locale requires a quoted tag like "en" or "ru-RU"');
+        if (!/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(String(value.value))) {
+          this.error('locale must be a BCP-47 tag: en, ru, pt-BR');
+        }
+        ui.locale = String(value.value);
       } else if (key === 'layout') {
         const value = this.expectIdent('ui layout').value;
         if (value !== 'forms' && value !== 'chat' && value !== 'presentation') {

@@ -2,7 +2,7 @@
 // spec (layout: chat) and told which operation reads history and which sends,
 // so nothing here depends on operation names.
 export const CHAT_PAGE = String.raw`<!doctype html>
-<html lang="en">
+<html lang="__LANG__">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

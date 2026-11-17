@@ -3,7 +3,7 @@
 // Slides are declared in the spec, so the page never guesses what is on a
 // slide; the service only stores the position.
 export const PRESENTATION_PAGE = String.raw`<!doctype html>
-<html lang="en">
+<html lang="__LANG__">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

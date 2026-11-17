@@ -278,6 +278,9 @@ export interface UiNode {
   state: string | null;
   advance: string | null;
   slides: UiSlide[];
+  // BCP-47 tag for the generated pages; null means the 'en' default. It drives
+  // the html lang attribute and the page's message catalog.
+  locale: string | null;
   loc: Loc;
 }
 
