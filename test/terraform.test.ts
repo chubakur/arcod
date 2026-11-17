@@ -158,6 +158,54 @@ test('two binds to one external provider declare its input once', () => {
   assert.ok(bracesBalanced(main));
 });
 
+function registryWith(providers: Array<{ name: string; capability: string; secrets?: string[] }>) {
+  return registryFromScan({
+    plugins: [{
+      package: 'arcod-plugin-edge',
+      version: '0.1.0',
+      path: '/plugins/edge',
+      pluginApi: PLUGIN_API,
+      capabilities: providers.map((provider) => ({ name: provider.capability })),
+      providers: providers.map((provider) => ({ ...provider, capability: provider.capability })),
+    }],
+    issues: [],
+  });
+}
+
+test('two provider secrets that map to one variable are refused', () => {
+  const source = [
+    'module m @0.1.0 {}',
+    'use capability arcod.std.a @1',
+    'use capability arcod.std.b @1',
+    'service S : http {',
+    '  uses one: a',
+    '  uses two: b',
+    '  contract { public op ping() -> string { route: "GET /v1/p" } }',
+    '}',
+    'environment prod {',
+    '  bind one -> a_b',
+    '  bind two -> a(c: "x", b_c: "y")',
+    '  deploy yandex(region: "ru-central1", folder: "f", service: "s")',
+    '}',
+  ].join('\n');
+  const registry = registryWith([
+    { name: 'a_b', capability: 'a', secrets: ['C'] },
+    { name: 'a', capability: 'b', secrets: ['B_C'] },
+  ]);
+  assert.throws(
+    () => terraformFiles(parse(source, 'main.arc'), { environment: 'prod', registry }),
+    /both need terraform variable a_b_c/,
+  );
+  const builtin = registryWith([{ name: 'db', capability: 'a', secrets: ['PASSWORD'] }]);
+  const single = source
+    .replace('  bind one -> a_b\n  bind two -> a(c: "x", b_c: "y")', '  bind one -> db')
+    .replace('  uses two: b\n', '');
+  assert.throws(
+    () => terraformFiles(parse(single, 'main.arc'), { environment: 'prod', registry: builtin }),
+    /collides with the built-in variable db_password/,
+  );
+});
+
 test('every var.* reference in the plan is declared', async () => {
   const { files } = await tasksFiles();
   const main = files.find((f) => f.path === 'main.tf')!.content;

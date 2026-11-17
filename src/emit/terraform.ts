@@ -146,6 +146,31 @@ function secretVariable(provider: string, secret: string): string {
   return (provider + '_' + secret).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }
 
+// Variables declared by the emitter itself. A provider secret that maps onto
+// one of them would be a duplicate block, which terraform rejects.
+const BUILTIN_VARIABLES = ['folder_id', 'zone', 'db_password', 'redis_password', 's3_access_key', 's3_secret_key'];
+
+function externalVariables(items: ExternalProvider[]): Array<{ name: string; provider: string; secret: string }> {
+  const out: Array<{ name: string; provider: string; secret: string }> = [];
+  for (const item of items) {
+    for (const secret of item.secrets) {
+      const name = secretVariable(item.name, secret);
+      const clash = out.find((entry) => entry.name === name);
+      if (clash) {
+        throw new Error(
+          'providers ' + clash.provider + ' and ' + item.name + ' both need terraform variable ' + name +
+          ' (secrets ' + clash.secret + ' and ' + secret + '); rename one secret',
+        );
+      }
+      if (BUILTIN_VARIABLES.includes(name)) {
+        throw new Error('provider ' + item.name + ' secret ' + secret + ' collides with the built-in variable ' + name);
+      }
+      out.push({ name, provider: item.name, secret });
+    }
+  }
+  return out;
+}
+
 interface ExternalProvider {
   name: string;
   origin?: string;
@@ -275,14 +300,14 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
     '  sensitive = true',
     '}',
     '',
-    ...external.flatMap((item) => item.secrets.flatMap((secret) => [
-      'variable "' + secretVariable(item.name, secret) + '" {',
+    ...externalVariables(external).flatMap((entry) => [
+      'variable "' + entry.name + '" {',
       '  type        = string',
-      '  description = ' + hclString(item.name + ' credential'),
+      '  description = ' + hclString(entry.provider + ' credential'),
       '  sensitive   = true',
       '}',
       '',
-    ])),
+    ]),
   ].join('\n');
 
   const tfvars = [
@@ -293,7 +318,7 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
     '# redis_password   = "..."',
     '# s3_access_key    = "..."',
     '# s3_secret_key    = "..."',
-    ...external.flatMap((item) => item.secrets.map((secret) => '# ' + secretVariable(item.name, secret) + ' = "..."')),
+    ...externalVariables(external).map((entry) => '# ' + entry.name + ' = "..."'),
     '',
   ].join('\n');
 
