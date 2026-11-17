@@ -1,7 +1,7 @@
 // arcod new: scaffold a minimal, valid service so a new project starts from a
 // spec that parses and checks clean, not from an empty directory.
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parse } from './parser.ts';
 import { check } from './check.ts';
@@ -93,9 +93,20 @@ export interface ScaffoldResult {
   files: string[];
 }
 
-export async function scaffold(name: string, target: string): Promise<ScaffoldResult> {
+export interface ScaffoldOptions {
+  // Overwrite an existing project. Without it `arcod new` refuses to clobber
+  // main.arc: a second run in the same directory is almost always a mistake.
+  force?: boolean;
+}
+
+export async function scaffold(name: string, target: string, options: ScaffoldOptions = {}): Promise<ScaffoldResult> {
   const dir = join(target, name);
   const files: string[] = [];
+
+  const existing = await readdir(dir).catch(() => null);
+  if (existing && existing.length > 0 && !options.force) {
+    throw new Error(dir + ' already exists and is not empty (pass --force to overwrite main.arc)');
+  }
 
   await mkdir(join(dir, 'impl'), { recursive: true });
 

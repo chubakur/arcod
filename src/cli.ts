@@ -38,11 +38,16 @@ interface Loaded {
   dir: string;
 }
 
+// A usage mistake (unknown flag, bad arity) is the caller's fault: print one
+// line and exit 2 instead of a stack trace from an uncaught rejection.
+export class UsageError extends Error {}
+
 export async function main(argv: string[]): Promise<void> {
   const [command, ...rest] = argv;
-  const flags = parseFlags(rest);
+  let flags: Flags | undefined;
 
   try {
+    flags = parseFlags(rest);
     switch (command) {
       case undefined:
       case 'help':
@@ -119,7 +124,7 @@ export async function main(argv: string[]): Promise<void> {
         await runUpgrade(flags);
         return;
       case 'new':
-        await runNew(rest);
+        await runNew(rest, flags);
         return;
       case 'lsp':
         serveLsp();
@@ -132,8 +137,14 @@ export async function main(argv: string[]): Promise<void> {
   } catch (error) {
     if (error instanceof ParseError) {
       const loc = error.loc;
-      console.error(basename(flags.spec ?? 'main.arc') + ':' + loc.line + ':' + loc.col + '  error  parse  ' + error.message);
+      console.error(basename(flags?.spec ?? 'main.arc') + ':' + loc.line + ':' + loc.col + '  error  parse  ' + error.message);
       process.exitCode = 1;
+      return;
+    }
+    if (error instanceof UsageError) {
+      console.error('arcod: ' + error.message);
+      console.error("run 'arcod help' for usage");
+      process.exitCode = 2;
       return;
     }
     console.error(error instanceof Error ? error.message : String(error));
@@ -230,7 +241,7 @@ async function runAdopt(args: string[]): Promise<void> {
   process.stdout.write(adoptOpenapi(doc));
 }
 
-async function runNew(args: string[]): Promise<void> {
+async function runNew(args: string[], flags: Flags): Promise<void> {
   const name = args.find((x) => !x.startsWith('-'));
   if (!name) {
     console.error('usage: arcod new <name>');
@@ -243,7 +254,7 @@ async function runNew(args: string[]): Promise<void> {
     return;
   }
   try {
-    const result = await scaffold(name, process.cwd());
+    const result = await scaffold(name, process.cwd(), { force: flags.force });
     console.log('created ' + result.dir);
     for (const f of result.files) console.log('  ' + f);
     console.log('');
@@ -854,7 +865,7 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--ingress-class') flags.ingressClass = args[++i];
     else if (arg === '--out') flags.out = args[++i];
     else if (!arg.startsWith('-')) flags.spec = arg;
-    else throw new Error('unknown flag: ' + arg);
+    else throw new UsageError('unknown flag: ' + arg);
   }
   return flags;
 }
