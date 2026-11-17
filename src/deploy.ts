@@ -33,7 +33,10 @@ export const DEPLOY_PROVIDERS: Record<string, DeploySpec> = {
       region: 'region, e.g. eu-west-1',
       cluster: 'cluster or service',
       service: 'cloud service name',
-      image: 'image to be pushed',
+      image: 'image to be pushed (wins over registry/repository/tag)',
+      registry: 'container registry; omit for docker hub',
+      repository: 'image repository (default: arcod/<module>-<service>)',
+      tag: 'image tag (default: spec version)',
     },
   },
   yandex: {
@@ -46,7 +49,10 @@ export const DEPLOY_PROVIDERS: Record<string, DeploySpec> = {
       region: 'region, e.g. ru-central1',
       cluster: 'cluster or service',
       service: 'cloud service name',
-      image: 'image to be pushed',
+      image: 'image to be pushed (wins over registry/repository/tag)',
+      registry: 'container registry; omit for docker hub',
+      repository: 'image repository (default: arcod/<module>-<service>)',
+      tag: 'image tag (default: spec version)',
     },
   },
   kubernetes: {
@@ -56,6 +62,9 @@ export const DEPLOY_PROVIDERS: Record<string, DeploySpec> = {
     artifacts: 'k8s',
     args: {
       image: 'container image for the service',
+      registry: 'container registry; omit for docker hub',
+      repository: 'image repository (default: arcod/<module>-<service>)',
+      tag: 'image tag (default: spec version)',
       namespace: 'namespace (default: arcod-<module>)',
       replicas: 'replica count (default: 1)',
       host: 'ingress host; omit to skip the Ingress',
@@ -69,6 +78,9 @@ export const DEPLOY_PROVIDERS: Record<string, DeploySpec> = {
     artifacts: 'helm',
     args: {
       image: 'container image for the service',
+      registry: 'container registry; omit for docker hub',
+      repository: 'image repository (default: arcod/<module>-<service>)',
+      tag: 'image tag (default: spec version)',
       namespace: 'namespace (default: release namespace)',
       replicas: 'default replica count',
       host: 'ingress host; sets ingress.enabled',
@@ -83,6 +95,50 @@ export function deployProvider(name: string): DeploySpec | null {
 
 export function deployNames(): string[] {
   return Object.keys(DEPLOY_PROVIDERS).sort();
+}
+
+// A container image name is a contract between the build and every runner:
+// the mesh, the manifests, the CI job. Derive it once, from the spec version,
+// and publish it in the deploy manifest instead of letting each emitter invent
+// its own default.
+export interface ImageContract {
+  registry: string;
+  repository: string;
+  tag: string;
+  image: string;
+}
+
+// Docker tags allow [A-Za-z0-9_.-]; semver build metadata (0.1.0+build.7)
+// does not, so the same version has one legal spelling.
+function tagOf(version: string): string {
+  return version.replace(/[^A-Za-z0-9_.-]/g, '-');
+}
+
+function splitImage(image: string): { registry: string; repository: string; tag: string } {
+  const slash = image.lastIndexOf('/');
+  const colon = image.lastIndexOf(':');
+  const hasTag = colon > slash;
+  const repository = hasTag ? image.slice(0, colon) : image;
+  const tag = hasTag ? image.slice(colon + 1) : 'latest';
+  const slash2 = repository.indexOf('/');
+  // A first segment with a dot or a port is a registry, not a namespace.
+  const first = slash2 > 0 ? repository.slice(0, slash2) : '';
+  const registry = first.includes('.') || first.includes(':') ? first : '';
+  const path = registry ? repository.slice(registry.length + 1) : repository;
+  return { registry, repository: path, tag };
+}
+
+export function imageContract(mod: ModuleNode, env: EnvironmentNode, service: string): ImageContract {
+  const args = env.deploy ? literalMap(env.deploy.args) : {};
+  const tag = tagOf(args.tag ?? mod.version);
+  if (args.image) {
+    // An explicit image wins verbatim; the contract only splits it into parts.
+    const split = splitImage(args.image);
+    return { registry: split.registry, repository: split.repository, tag: split.tag, image: args.image };
+  }
+  const registry = args.registry ?? '';
+  const repository = args.repository ?? 'arcod/' + mod.name + '-' + service;
+  return { registry, repository, tag, image: (registry ? registry + '/' : '') + repository + ':' + tag };
 }
 
 export function literalMap(args: Record<string, Expr>): Record<string, string> {
@@ -118,11 +174,24 @@ export function deployManifest(mod: ModuleNode, env: EnvironmentNode): Record<st
     },
     services: mod.services
       .filter((svc) => !svc.external)
-      .map((svc) => ({
-        name: svc.name,
-        kind: svc.impl,
-        image: args.image ?? 'arcod/' + mod.name + '-' + svc.name + ':' + mod.version,
-      })),
+      .map((svc) => {
+        const contract = imageContract(mod, env, svc.name);
+        return {
+          name: svc.name,
+          kind: svc.impl,
+          image: contract.image,
+          registry: contract.registry,
+          repository: contract.repository,
+          tag: contract.tag,
+        };
+      }),
+    // One record per image for a CI job: build these and push nothing without
+    // the owner's decision (B7 stays declarative).
+    images: Object.fromEntries(
+      mod.services
+        .filter((svc) => !svc.external)
+        .map((svc) => [svc.name, imageContract(mod, env, svc.name)]),
+    ),
     // Graphs travel with the manifest: a runner elsewhere can read them
     // without re-parsing the spec.
     workflows: mod.workflows.map((wf) => ({

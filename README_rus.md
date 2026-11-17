@@ -343,6 +343,14 @@ arcod deploy . --env prod          # target и артефакт
 arcod deploy . --env prod --json   # манифест
 ```
 
+**Имена образов — контракт.** Каждый сервис получает
+`arcod/<module>-<service>:<версия спеки>`, если окружение не задало
+`registry`, `repository` или явный `image`. Semver-метаданные приводятся к
+легальному тегу (`0.2.0+build.7` → `0.2.0-build.7`). В манифесте есть части
+(`registry`, `repository`, `tag`, `image`) на каждый сервис и карта
+`images`, чтобы CI собирал ровно то имя, которое тянут раннеры; сам arcod
+по-прежнему ничего не пушит.
+
 **Секреты** объявляет сам провайдер, а не догадка по имени: `postgres` помечает
 `POSTGRES_PASSWORD` и `DATABASE_URL`, `s3` — `MINIO_ROOT_PASSWORD`/`S3_SECRET_KEY`,
 `vault` — `VAULT_TOKEN` и т.д. Kubernetes-таргет кладёт их в `Secret`, а не в

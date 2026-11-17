@@ -346,6 +346,12 @@ arcod deploy . --env prod          # target and artifact
 arcod deploy . --env prod --json   # the manifest
 ```
 
+**Image names are a contract.** Every service gets `arcod/<module>-<service>:<spec version>`
+unless the environment names a `registry`, a `repository` or pins `image`. Semver build metadata is sanitized into a legal tag (`0.2.0+build.7` →
+`0.2.0-build.7`). The manifest carries the parts (`registry`, `repository`,
+`tag`, `image`) per service and in an `images` map, so a CI job builds the
+same name the runners pull — arcod still pushes nothing itself.
+
 **Secrets** are declared by the providers, not guessed from names: `postgres`
 marks `POSTGRES_PASSWORD` and `DATABASE_URL` sensitive, `s3` marks
 `MINIO_ROOT_PASSWORD`/`S3_SECRET_KEY`, `vault` marks `VAULT_TOKEN`, and so on.
