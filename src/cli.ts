@@ -18,6 +18,7 @@ import { graphqlSchema } from './emit/graphql.ts';
 import { grpcProto } from './emit/grpc.ts';
 import { pickService } from './emit/service.ts';
 import { migrationPlan, formatMigrations } from './migrate.ts';
+import { dialectNamed } from './dialects.ts';
 import { formatSource } from './fmt.ts';
 import { diffSpecs } from './diff.ts';
 import { adoptOpenapi } from './adopt.ts';
@@ -357,7 +358,7 @@ async function runMigrate(flags: Flags): Promise<void> {
   }
   const svc = pickService(loaded.mod);
   if (!svc) throw new Error('no service to migrate');
-  const plan = migrationPlan(loaded.mod, svc);
+  const plan = migrationPlan(loaded.mod, svc, { dialect: dialectNamed(flags.dialect) });
 
   const dir = join(loaded.dir, '.arcod', 'build', 'migrations');
   await mkdir(dir, { recursive: true });
@@ -736,6 +737,7 @@ interface Flags {
   write: boolean;
   to?: string;
   helm: boolean;
+  dialect?: string;
   image?: string;
   host?: string;
   namespace?: string;
@@ -794,6 +796,7 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--write' || arg === '-w') flags.write = true;
     else if (arg === '--to') flags.to = args[++i];
     else if (arg === '--helm') flags.helm = true;
+    else if (arg === '--dialect') flags.dialect = args[++i];
     else if (arg === '--image') flags.image = args[++i];
     else if (arg === '--host') flags.host = args[++i];
     else if (arg === '--namespace') flags.namespace = args[++i];
@@ -853,7 +856,7 @@ usage:
   arcod openapi [dir|spec.arc] [--service name]
   arcod graphql [dir|spec.arc] [--service name] [--out file]
   arcod grpc  [dir|spec.arc] [--service name] [--out file]
-  arcod migrate [dir|spec.arc] [--json]
+  arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres]
   arcod fmt  [dir|spec.arc] [--check] [--write] [--to version]
   arcod diff <a.arc|dir> <b.arc|dir>
   arcod adopt <openapi.json>

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Expr, ModuleNode, Param, ServiceNode, TypeDecl, TypeExpr } from './ast.ts';
+import { MYSQL, type SqlDialect } from './dialects.ts';
 
 export interface Migration {
   version: string;
@@ -127,7 +128,7 @@ export interface Column {
 // Column metadata shared by the DDL emitter and the sql runtime codec: the
 // same resolution that picks a column type decides how a value is written and
 // read back, so a field can never drift between schema and runtime.
-export function recordColumns(mod: ModuleNode, decl: TypeDecl, uniques: string[]): Column[] {
+export function recordColumns(mod: ModuleNode, decl: TypeDecl, uniques: string[], dialect: SqlDialect = MYSQL): Column[] {
   const fields = decl.type.kind === 'record' ? decl.type.fields : [];
   return fields.map((field) => {
     const base = baseType(mod, field.type);
@@ -137,50 +138,56 @@ export function recordColumns(mod: ModuleNode, decl: TypeDecl, uniques: string[]
       base,
       nullable: field.type.kind === 'optional',
       unique,
-      sql: sqlTypeOf(base, unique),
+      sql: dialect.type(base, unique),
       default: fieldDefault(mod, field),
     };
   });
 }
 
-function sqlDefault(value: DefaultValue): string {
-  if (value === null) return 'NULL';
-  if (typeof value === 'boolean') return value ? '1' : '0';
-  if (typeof value === 'number') return String(value);
-  return "'" + value.replace(/'/g, "''") + "'";
-}
-
-function columnDef(mod: ModuleNode, field: Param, unique: boolean): string {
+function columnDef(mod: ModuleNode, field: Param, unique: boolean, dialect: SqlDialect): string {
   const optional = field.type.kind === 'optional';
   const base = baseType(mod, field.type);
-  let def = '`' + field.name + '` ' + sqlTypeOf(base, unique);
+  let def = dialect.quote(field.name) + ' ' + dialect.type(base, unique);
   if (!optional) def += ' NOT NULL';
   const resolved = field.default ? defaultValue(mod, field.type, field.default) : null;
-  if (resolved && resolved.ok) def += ' DEFAULT ' + sqlDefault(resolved.value);
+  if (resolved && resolved.ok) def += ' DEFAULT ' + dialect.defaultLiteral(resolved.value);
   return def;
 }
 
-function entityTable(mod: ModuleNode, decl: TypeDecl, uniques: string[], indexes: string[] = []): { up: string; down: string } {
+function entityTable(
+  mod: ModuleNode,
+  decl: TypeDecl,
+  uniques: string[],
+  indexes: string[] = [],
+  dialect: SqlDialect = MYSQL,
+): { up: string; down: string } {
   const fields = decl.type.kind === 'record' ? decl.type.fields : [];
   const table = decl.name.toLowerCase();
   const cols: string[] = [];
   for (const field of fields) {
-    cols.push('  ' + columnDef(mod, field, uniques.includes(field.name)));
+    cols.push('  ' + columnDef(mod, field, uniques.includes(field.name), dialect));
   }
-  if (fields.some((f) => f.name === 'id')) cols.push('  PRIMARY KEY (`id`)');
+  if (fields.some((f) => f.name === 'id')) cols.push('  ' + dialect.primaryKey('id'));
   for (const field of uniques) {
     if (!fields.some((f) => f.name === field)) continue;
-    cols.push('  UNIQUE KEY `uq_' + table + '_' + field + '` (`' + field + '`)');
+    cols.push('  ' + dialect.uniqueKey(table, field));
   }
   // A plain index is a query fact: find/order predicates read this column.
-  // Unique fields already carry a b-tree, so they are skipped here.
+  // Unique fields already carry a b-tree, so they are skipped here. MySQL
+  // spells it inside CREATE TABLE, Postgres as a separate statement.
+  const after: string[] = [];
   for (const field of indexes) {
     if (uniques.includes(field)) continue;
     if (!fields.some((f) => f.name === field)) continue;
-    cols.push('  KEY `idx_' + table + '_' + field + '` (`' + field + '`)');
+    const statement = dialect.indexStatement(table, field);
+    if (statement === null) continue;
+    if (dialect.name === 'mysql') cols.push('  ' + statement);
+    else after.push(statement);
   }
-  const up = 'CREATE TABLE IF NOT EXISTS `' + table + '` (\n' + cols.join(',\n') + '\n) ENGINE=InnoDB';
-  return { up, down: 'DROP TABLE IF EXISTS `' + table + '`' };
+  const create =
+    'CREATE TABLE IF NOT EXISTS ' + dialect.quote(table) + ' (\n' + cols.join(',\n') + '\n)' + dialect.tableSuffix;
+  const up = [create, ...after.map((statement) => statement + ';')].join('\n');
+  return { up, down: 'DROP TABLE IF EXISTS ' + dialect.quote(table) };
 }
 
 export function checksumOf(up: string, down: string): string {
@@ -195,7 +202,8 @@ function usesQueue(svc: ServiceNode): boolean {
   return svc.uses.some((use) => use.capability === 'queue' || use.capability.endsWith('.queue'));
 }
 
-export function migrationPlan(mod: ModuleNode, svc: ServiceNode): MigrationPlan {
+export function migrationPlan(mod: ModuleNode, svc: ServiceNode, options: { dialect?: SqlDialect } = {}): MigrationPlan {
+  const dialect = options.dialect ?? MYSQL;
   const migrations: Migration[] = [];
 
   const uniquesByEntity: Record<string, string[]> = {};
@@ -211,20 +219,25 @@ export function migrationPlan(mod: ModuleNode, svc: ServiceNode): MigrationPlan 
   // Base blob store: what the runtime uses today for kv records and unique
   // claims. First migration so a fresh DB always matches what the service
   // expects.
-  const kvUp = 'CREATE TABLE IF NOT EXISTS arcod_kv (k VARBINARY(255) NOT NULL PRIMARY KEY, v LONGBLOB NOT NULL, expires_at BIGINT NOT NULL, KEY arcod_kv_expires (expires_at)) ENGINE=InnoDB';
+  const kvQ = (name: string) => dialect.quote(name);
+  // The MySQL text stays byte-identical: an applied migration is checksummed,
+  // and a rewrite would look like an edited migration on every existing db.
+  const kvUp = dialect.name === 'mysql'
+    ? 'CREATE TABLE IF NOT EXISTS arcod_kv (k VARBINARY(255) NOT NULL PRIMARY KEY, v LONGBLOB NOT NULL, expires_at BIGINT NOT NULL, KEY arcod_kv_expires (expires_at)) ENGINE=InnoDB'
+    : 'CREATE TABLE IF NOT EXISTS ' + kvQ('arcod_kv') + ' (' + kvQ('k') + ' VARCHAR(255) NOT NULL PRIMARY KEY, ' + kvQ('v') + ' BYTEA NOT NULL, ' + kvQ('expires_at') + ' BIGINT NOT NULL);\nCREATE INDEX IF NOT EXISTS arcod_kv_expires ON ' + kvQ('arcod_kv') + ' (expires_at);';
   migrations.push({
     version: '0001',
     name: 'arcod_kv',
     checksum: checksumOf(kvUp, 'DROP TABLE IF EXISTS arcod_kv'),
     up: kvUp,
-    down: 'DROP TABLE IF EXISTS arcod_kv',
+    down: 'DROP TABLE IF EXISTS ' + kvQ('arcod_kv'),
   });
 
   const entities = mod.types.filter((d) => d.type.kind === 'record').sort((a, b) => a.name.localeCompare(b.name));
   for (const decl of entities) {
     const uniques = uniquesByEntity[decl.name] ?? [];
     const indexes = indexesByEntity[decl.name] ?? [];
-    const { up, down } = entityTable(mod, decl, uniques, indexes);
+    const { up, down } = entityTable(mod, decl, uniques, indexes, dialect);
     migrations.push({
       version: String(migrations.length + 1).padStart(4, '0'),
       name: decl.name.toLowerCase(),
@@ -239,21 +252,24 @@ export function migrationPlan(mod: ModuleNode, svc: ServiceNode): MigrationPlan 
   // real queue. Only exists on the sql driver with a queue capability.
   if (usesSql(svc) && usesQueue(svc)) {
     const up = [
-      'CREATE TABLE IF NOT EXISTS arcod_outbox (',
+      dialect.name === 'mysql'
+        ? 'CREATE TABLE IF NOT EXISTS arcod_outbox ('
+        : 'CREATE TABLE IF NOT EXISTS ' + dialect.quote('arcod_outbox') + ' (',
       '  id CHAR(36) NOT NULL PRIMARY KEY,',
       '  topic TEXT NOT NULL,',
       '  payload TEXT NOT NULL,',
       '  created_at BIGINT NOT NULL,',
       '  published_at BIGINT NULL,',
-      '  KEY arcod_outbox_pending (published_at)',
-      ') ENGINE=InnoDB',
+      dialect.name === 'mysql' ? '  KEY arcod_outbox_pending (published_at)' : '',
+      dialect.name === 'mysql' ? ') ENGINE=InnoDB' : ');',
+      dialect.name === 'mysql' ? '' : 'CREATE INDEX IF NOT EXISTS arcod_outbox_pending ON ' + dialect.quote('arcod_outbox') + ' (published_at);',
     ].join('\n');
     migrations.push({
       version: String(migrations.length + 1).padStart(4, '0'),
       name: 'arcod_outbox',
       checksum: checksumOf(up, 'DROP TABLE IF EXISTS arcod_outbox'),
       up,
-      down: 'DROP TABLE IF EXISTS arcod_outbox',
+      down: 'DROP TABLE IF EXISTS ' + dialect.quote('arcod_outbox'),
     });
   }
 
