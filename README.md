@@ -304,7 +304,9 @@ colour.
 
 `render: static|ssr` declares where the page is produced. `static` (the
 default) emits the HTML at build; `ssr` also embeds it in the service, which
-serves it at the ui route — no separate web container is required. The page is
+serves it at the ui route — compose then drops the nginx sidecar and the k8s
+ingress points at the service. The page files are still written, so a
+deployment may keep the static front door instead. The page is
 still the build-time HTML: W030 warns that per-request data is not rendered yet.
 
 The chat and presentation pages take the same `lang` and the same catalog:
