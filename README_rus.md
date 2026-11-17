@@ -140,7 +140,7 @@ type Account = { id: uuid, email: email, website: url?, plan: Plan = "free" }
 | `arcod make [dir]` | весь цикл одной командой: check → prompts → тела → build → test |
 | `arcod run [dir]` | build + `docker compose up --build` |
 | `arcod run --down` | останавливает окружение (`down --remove-orphans`) |
-| `arcod providers` | таблица возможностей, провайдеров и их портов; `--json`; `--plugins` — манифесты на `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
+| `arcod providers` | таблица возможностей, провайдеров, портов и пакета-объявителя (`origin`, `-` для встроенных); `--json`; `--plugins` — манифесты на `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
 | `arcod deploy [dir]` | target развёртывания и манифест `deploy.<env>.json`; `--env`, `--json` |
 | `arcod k8s [dir]` | объекты Kubernetes для compose-топологии (namespace, configmap, деплойменты провайдеров, сервис, ingress); `--helm` — чарт, `--out dir` — записать файлы |
 | `arcod terraform [dir]` | Terraform для облака: сеть, managed-сервисы под привязки, секреты через переменные; `--env`, `--out dir`; Yandex Cloud |

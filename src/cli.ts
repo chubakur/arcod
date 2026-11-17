@@ -502,13 +502,15 @@ function runProviders(flags: Flags): void {
     return;
   }
 
-  const header = ['capability', 'provider', 'image', 'port', 'env'];
-  const width = [12, 10, 32, 5, 46];
+  // origin says who declared a provider: '-' for a built-in, the package for a
+  // plugin. The JSON form carries the same field.
+  const header = ['capability', 'provider', 'image', 'port', 'env', 'origin'];
+  const width = [12, 10, 32, 5, 46, 24];
   const cell = (value: string, size: number) =>
     (value.length > size ? value.slice(0, size - 1) + '…' : value).padEnd(size);
   console.log(header.map((item, index) => cell(item, width[index])).join(' '));
   for (const row of rows) {
-    const cols = [row.capability, row.provider, row.image, String(row.port ?? '-'), row.env.join(', ')];
+    const cols = [row.capability, row.provider, row.image, String(row.port ?? '-'), row.env.join(', '), row.origin ?? '-'];
     console.log(cols.map((item, index) => cell(item, width[index])).join(' '));
   }
 }
