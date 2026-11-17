@@ -86,3 +86,20 @@ test('a sql service with no binding gets the database its build speaks', async (
   assert.match(postgres, /DATABASE_URL: ["']postgres:\/\/arcod:arcod@postgres:5432\/arcod["']/);
   assert.doesNotMatch(postgres, /mysql:8\.4/);
 });
+
+test('a postgres build runs the tasks-sql examples on the memory driver', async () => {
+  const { buildExample } = await import('../src/build.ts');
+  const { runExamples } = await import('../src/test.ts');
+  const { cp, mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const source = await readFile(spec, 'utf8');
+  const mod = parse(source, 'main.arc');
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-pg-run-'));
+  await writeFile(join(dir, 'main.arc'), source, 'utf8');
+  await cp(new URL('../examples/tasks-sql/impl', import.meta.url), join(dir, 'impl'), { recursive: true });
+  const built = await buildExample(mod, dir, { dialect: 'postgres' });
+  const report = await runExamples(mod, built.dir);
+  assert.deepEqual(report.examples.filter((example) => !example.ok), []);
+  assert.ok(report.examples.length >= 2, 'the example file has checks');
+});
