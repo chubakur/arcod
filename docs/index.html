@@ -231,6 +231,7 @@
       Arcod
     </a>
     <nav class="nav-links">
+      <a href="#news">What's new</a>
       <a href="#why">Why</a>
       <a href="#how">How it works</a>
       <a href="#get">What you get</a>
@@ -302,11 +303,47 @@
           <div class="card" style="padding:18px 22px">
             <div style="display:flex; gap:26px; flex-wrap:wrap; font:13px/1.5 var(--mono); color:var(--muted)">
               <span><b style="color:var(--text); font-size:18px">0</b><br>runtime deps</span>
-              <span><b style="color:var(--text); font-size:18px">55</b><br>diagnostics</span>
+              <span><b style="color:var(--text); font-size:18px">61</b><br>diagnostics</span>
               <span><b style="color:var(--text); font-size:18px">9</b><br>capabilities</span>
-              <span><b style="color:var(--text); font-size:18px">100</b><br>tests</span>
+              <span><b style="color:var(--text); font-size:18px">201</b><br>tests</span>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="news">
+    <div class="wrap">
+      <div class="kicker">what shipped this week</div>
+      <h2>Three things a service can now declare.</h2>
+      <p class="sub">All three landed on 2026-11-17 and are covered by tests in the repository.</p>
+      <div class="grid-3">
+        <div class="card">
+          <span class="num">2026-11-17 · DEFAULTS</span>
+          <h3>A default, declared once</h3>
+          <p><code>done: bool = false</code> reaches every layer from that one line:
+          <code>DEFAULT 0</code> in the table, an <code>insert</code> that fills only the
+          missing fields, and <code>default: false</code> in OpenAPI with the field dropped
+          from <code>required</code>. <code>A059</code> rejects a default that contradicts
+          the field type.</p>
+        </div>
+        <div class="card">
+          <span class="num">2026-11-17 · TYPED INPUT</span>
+          <h3>A bad value is a 400, not a 500</h3>
+          <p><code>email</code>, <code>url</code> and declared enums resolve into OpenAPI
+          <code>format: email</code> and <code>format: uri</code>, plus a runtime check that
+          runs before the operation body. A malformed address or a plan outside the enum
+          returns <code>400 Invalid</code> with the field name. New
+          <code>examples/signup</code>.</p>
+        </div>
+        <div class="card">
+          <span class="num">2026-11-17 · INDEXES</span>
+          <h3>Indexes written in the model</h3>
+          <p><code>index Task.dueAt</code> becomes <code>KEY idx_task_dueAt (dueAt)</code> in
+          the generated <code>CREATE TABLE</code>; a field that is already
+          <code>unique</code> is not indexed twice. An index on a missing field fails at
+          check time with <code>A062</code>, not at deploy.</p>
         </div>
       </div>
     </div>
@@ -349,7 +386,7 @@
       <h2>One file in. A running system out.</h2>
       <p class="sub"><code>arcod make</code> runs the same steps the standalone commands do, so the pipeline cannot drift from the CLI.</p>
       <div class="steps">
-        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, access, examples. 55 diagnostics, errors stop the build.</p></div>
+        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, access, examples. 61 diagnostics, errors stop the build.</p></div>
         <div class="step"><h3>Plan</h3><p>A deterministic task DAG: files, dependencies, acceptance criteria, <code>--json</code>.</p></div>
         <div class="step"><h3>Prompts</h3><p>One prompt per operation with a token budget and a hash for caching.</p></div>
         <div class="step"><h3>Build &amp; test</h3><p>Service, UI, compose, manifests — then the model's own examples run against it.</p></div>
@@ -447,6 +484,19 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <code>cursor</code>, so a page does not shift under inserts.</p>
         </div>
         <div class="card">
+          <h3>Defaults that hold everywhere</h3>
+          <p><code>done: bool = false</code> is written once and honoured by the migration
+          (<code>DEFAULT 0</code>), by <code>io.insert</code> (only missing fields are
+          filled, an explicit <code>null</code> wins) and by the OpenAPI schema
+          (<code>default</code>, field no longer <code>required</code>).</p>
+        </div>
+        <div class="card">
+          <h3>Input checked at the boundary</h3>
+          <p><code>email</code>, <code>url</code> and declared enums carry
+          <code>format</code> into OpenAPI and a validator into the generated service:
+          a value that breaks the declaration never reaches the operation body.</p>
+        </div>
+        <div class="card">
           <h3>Migrations from the model</h3>
           <p><code>arcod migrate</code> turns record types into typed tables —
           <code>uuid</code> as <code>CHAR(36)</code>, unique rules as
@@ -511,7 +561,7 @@ deploy.dev.json          deploy manifest per environment</code></pre>
   <section id="examples">
     <div class="wrap">
       <div class="kicker">examples that run</div>
-      <h2>Ten services, all in the repository.</h2>
+      <h2>Eleven services, all in the repository.</h2>
       <p class="sub">Each one is a single <code>.arc</code> file plus bodies generated by a local 7B model and verified by tests.</p>
       <div class="examples">
         <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/onetimemessage">
@@ -572,7 +622,13 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <span class="path">examples/tasks-sql</span>
           <h3>The same bodies on MySQL</h3>
           <p><code>insert</code>, <code>find</code> and a 409 unique claim, without touching a line of the bodies.</p>
-          <div class="tags"><span class="tag">sql</span><span class="tag">providers</span></div>
+          <div class="tags"><span class="tag">sql</span><span class="tag">providers</span><span class="tag">index</span></div>
+        </a>
+        <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/signup">
+          <span class="path">examples/signup</span>
+          <h3>Sign-up, typed end to end</h3>
+          <p>An <code>email</code>, a plan enum and an optional <code>url</code>; a bad value is 400, not 500.</p>
+          <div class="tags"><span class="tag">email</span><span class="tag">enum</span><span class="tag">sql</span></div>
         </a>
       </div>
     </div>
@@ -589,7 +645,7 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <ul>
             <li><b>Scaffold without bodies</b> knows only <code>create</code> and <code>read</code>; with <code>--impl</code> any operation is accepted.</li>
             <li><b>OLAP, metrics, secrets</b> and friends are provisioned in compose but have no effect signatures; <b>Kafka and RabbitMQ</b> provision a queue the adapter cannot speak — bind <code>queue</code> to Redis.</li>
-            <li><b><code>find</code> on <code>kv</code> is a scan with a filter</b>, not a query planner: one entity namespace matched in memory. On <code>sql</code> the same <code>find</code> is pushed into <code>WHERE</code>/<code>ORDER BY</code>/<code>LIMIT</code>. Declared indexes beyond <code>unique</code> are not generated yet.</li>
+            <li><b><code>find</code> on <code>kv</code> is a scan with a filter</b>, not a query planner: one entity namespace matched in memory. On <code>sql</code> the same <code>find</code> is pushed into <code>WHERE</code>/<code>ORDER BY</code>/<code>LIMIT</code>. Indexes are single-field (<code>index Task.dueAt</code>); composite and partial indexes are not generated.</li>
             <li><b>A unique claim on <code>kv</code> outlives the record</b>: the claim key has no TTL, so an expired record holds its value until removed or updated. On <code>sql</code>, uniqueness is the table constraint, so nothing to clean up.</li>
             <li><b>Workflows</b> are parsed, described and validated — no runner is generated (<code>W022</code>); a job runs only when it declares an <code>on:</code> queue consumer (<code>W017</code>).</li>
             <li><b>Streams and queues are in-process</b> until you bind them to Redis; only then do replicas share events. OpenAPI has no <code>securitySchemes</code> yet.</li>
