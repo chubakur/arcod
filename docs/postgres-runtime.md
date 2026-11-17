@@ -51,7 +51,12 @@ DATABASE_URL (or the reverse) refuses to start instead of speaking the wrong
 protocol. The outbox dispatcher builds the same client as the service.
 
 The emitted module is syntax-checked in `test/pg-emit.test.ts`; MySQL output is
-asserted to stay byte-identical in shape. Compose follows the dialect: a sql service with no explicit bind gets the
+asserted to stay byte-identical in shape. `arcod test --dialect postgres` and `arcod make --dialect postgres` build that
+shape and run the examples on the in-memory driver, so the postgres path is
+exercised on every CI run; `test/pg-emit.test.ts` does the same for
+`examples/tasks-sql` (create/move/conflict).
+
+Compose follows the dialect: a sql service with no explicit bind gets the
 database its build speaks (mysql:8.4 or postgres:16-alpine) with the matching
 `DATABASE_URL`; an explicit bind still wins.
 
