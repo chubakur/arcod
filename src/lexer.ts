@@ -18,11 +18,13 @@ const SINGLE = '{}()[]<>,:;.?@=|-+*/%!';
 export class LexError extends Error {
   line: number;
   col: number;
+  offset: number;
 
-  constructor(message: string, line: number, col: number) {
+  constructor(message: string, line: number, col: number, offset = 0) {
     super(message);
     this.line = line;
     this.col = col;
+    this.offset = offset;
   }
 }
 
@@ -80,12 +82,12 @@ export function lex(source: string): Token[] {
           continue;
         }
         if (source[i] === '\n') {
-          throw new LexError('unterminated string', startLine, startCol);
+          throw new LexError('unterminated string', startLine, startCol, startOffset);
         }
         value += source[i];
         advance();
       }
-      if (i >= source.length) throw new LexError('unterminated string', startLine, startCol);
+      if (i >= source.length) throw new LexError('unterminated string', startLine, startCol, startOffset);
       advance();
       tokens.push({ kind: 'string', value, raw: source.slice(startOffset, i), line: startLine, col: startCol, offset: startOffset, end: i });
       continue;
@@ -147,7 +149,7 @@ export function lex(source: string): Token[] {
       continue;
     }
 
-    throw new LexError(`unexpected character ${JSON.stringify(ch)}`, line, col);
+    throw new LexError(`unexpected character ${JSON.stringify(ch)}`, line, col, i);
   }
 
   tokens.push({ kind: 'eof', value: '', raw: '', line, col, offset: i, end: i });

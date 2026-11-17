@@ -5,7 +5,7 @@ import type {
   UseNode,
   WorkflowNode, WorkflowStepNode,
 } from './ast.ts';
-import { lex, locOf, type Token } from './lexer.ts';
+import { LexError, lex, locOf, type Token } from './lexer.ts';
 
 export class ParseError extends Error {
   loc: Loc;
@@ -17,7 +17,24 @@ export class ParseError extends Error {
 }
 
 export function parse(source: string, file = '<input>'): ModuleNode {
-  return new Parser(source, file).parseModule();
+  try {
+    return new Parser(source, file).parseModule();
+  } catch (error) {
+    // A lexer failure is still a parse failure for the caller: one error type,
+    // one location, so the CLI prints file:line:col and the LSP draws a range
+    // instead of a stack trace or an empty diagnostics list.
+    if (error instanceof LexError) {
+      throw new ParseError(error.message, {
+        line: error.line,
+        col: error.col,
+        endLine: error.line,
+        endCol: error.col + 1,
+        offset: error.offset,
+        end: error.offset + 1,
+      });
+    }
+    throw error;
+  }
 }
 
 const CLAUSE_START = new Set([

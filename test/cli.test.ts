@@ -114,6 +114,16 @@ test('check fails a broken spec with file:line:col and a parse hint', async () =
   assert.match(r.err, /broken\.arc:\d+:\d+ +error +parse/);
 });
 
+test('a lexer refusal is reported like a parse error, with a location', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'lex.arc');
+  await writeFile(file, 'module demo @0.1.0 {\n  meta { owner: $ }\n}\n', 'utf8');
+  const r = await run(['check', file]);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /lex\.arc:2:17\s+error\s+parse\s+unexpected character/);
+  assert.match(r.err, /"\$"/, 'the offending character is quoted');
+});
+
 test('check explains a directory that holds no spec', async () => {
   const dir = await tempDir();
   const r = await run(['check', dir]);
