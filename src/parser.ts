@@ -528,7 +528,7 @@ class Parser {
     const ui: UiNode = {
       kind: 'ui', name, impl: 'spa', route: '/', title: null, uses: [],
       layout: null, history: null, send: null, start: null,
-      join: null, state: null, advance: null, locale: null, theme: 'auto',
+      join: null, state: null, advance: null, locale: null, locales: null, theme: 'auto',
       slides: [], loc: locOf(start),
     };
     this.expect('{');
@@ -561,6 +561,16 @@ class Parser {
           this.error('locale must be a BCP-47 tag: en, ru, pt-BR');
         }
         ui.locale = String(value.value);
+      } else if (key === 'locales') {
+        const value = this.next();
+        if (value.kind !== 'string') this.error('locales requires a quoted list like "en, ru"');
+        const tags = String(value.value).split(',').map((tag) => tag.trim()).filter(Boolean);
+        if (tags.length === 0) this.error('locales needs at least one tag');
+        for (const tag of tags) {
+          if (!/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(tag)) this.error('locales must be BCP-47 tags: en, ru, pt-BR');
+        }
+        if (new Set(tags).size !== tags.length) this.error('locales repeats a tag');
+        ui.locales = tags;
       } else if (key === 'layout') {
         const value = this.expectIdent('ui layout').value;
         if (value !== 'forms' && value !== 'chat' && value !== 'presentation') {
@@ -582,6 +592,9 @@ class Parser {
       this.accept(';');
     }
     const end = this.expect('}');
+    if (ui.locales && ui.locale && !ui.locales.includes(ui.locale)) {
+      this.error('locale must be one of the declared locales');
+    }
     ui.loc = this.loc(start, end);
     return ui;
   }

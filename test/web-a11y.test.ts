@@ -9,6 +9,7 @@ import { emitWeb, pageStrings } from '../src/emit/web.ts';
 // label per control, aria-required for required parameters, and a live region
 // for results that arrive after an async call.
 
+
 const url = new URL('../examples/onetimemessage/main.arc', import.meta.url);
 
 test('the generated page carries the a11y baseline', async () => {
@@ -104,4 +105,35 @@ test('the presentation layout localizes its chrome, not the slides', async () =>
   assert.ok(html.includes("t('presNext')"), 'the button reads the catalog');
   assert.ok(html.includes(mod.uis[0].slides[0].title), 'a slide title is not translated');
   assert.ok(!html.includes('__STRINGS__'));
+});
+
+// A declared list of locales turns the static page into a switcher: every
+// catalog is embedded once, and ?lang=<tag> chooses one on load. An unknown tag
+// is not an error, it falls back to the declared default.
+const SWITCHED = LOCALIZED.replace('  locale: "ru"', '  locale: "ru"' + '\n' + '  locales: "en, ru"');
+
+test('declared locales embed every catalog and a picker', () => {
+  const html = emitWeb(parse(SWITCHED, 'main.arc'), { maxBytes: 65536 });
+  assert.match(html, /<html lang="ru"/);
+  assert.match(html, /var LOCALES = \["en","ru"\];/);
+  assert.match(html, /"en":\{/);
+  assert.match(html, /"ru":\{/);
+  assert.match(html, /<select id="lang" hidden aria-label="Language">/);
+  assert.match(html, /new URLSearchParams\(location\.search\)\.get\('lang'\)/, 'the tag comes from the URL');
+  assert.match(html, /wanted && CATALOGS\[wanted\] \? wanted : BASE_LANG/, 'unknown tags fall back');
+});
+
+test('a locale outside the declared list is rejected', () => {
+  const outside = LOCALIZED.replace('  locale: "ru"', '  locale: "ru"' + '\n' + '  locales: "en"');
+  assert.throws(() => parse(outside, 'main.arc'), /locale must be one of the declared locales/);
+  const badTag = LOCALIZED.replace('  locale: "ru"', '  locales: "en, russian"');
+  assert.throws(() => parse(badTag, 'main.arc'), /BCP-47/);
+});
+
+test('declared locales without locale default to the first tag', () => {
+  const first = LOCALIZED
+    .replace('  locale: "ru"\n', '')
+    .replace('  title: "Notes"', '  title: "Notes"' + '\n' + '  locales: "ru, en"');
+  const html = emitWeb(parse(first, 'main.arc'), { maxBytes: 65536 });
+  assert.match(html, /<html lang="ru"/);
 });

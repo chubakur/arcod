@@ -123,6 +123,10 @@ const PAGE = String.raw`<!doctype html>
   main { max-width: 900px; margin: 0 auto; padding: 32px 20px 64px; }
   h1 { font-size: 22px; margin: 0 0 4px; }
   .lead { color: var(--muted); margin: 0 0 24px; }
+  .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+  .head h1 { margin: 0 0 4px; }
+  .head .lead { margin: 0; }
+  .head select { width: auto; padding: 6px 8px; background: var(--surface); }
   .auth { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 24px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
   .auth[hidden] { display: none; }
   .auth input { flex: 1; }
@@ -150,8 +154,13 @@ const PAGE = String.raw`<!doctype html>
 </head>
 <body>
 <main>
-  <h1>__TITLE__</h1>
-  <p class="lead">__LEAD__</p>
+  <header class="head">
+    <div>
+      <h1>__TITLE__</h1>
+      <p class="lead">__LEAD__</p>
+    </div>
+    <select id="lang" hidden aria-label="Language"></select>
+  </header>
   <section class="auth" id="auth" hidden>
     <label style="flex:1"><span data-i18n="token">Access token</span>
       <input id="token" type="password" autocomplete="off" placeholder="Bearer token" data-i18n-placeholder="tokenPlaceholder">
@@ -164,11 +173,45 @@ const PAGE = String.raw`<!doctype html>
 var OPS = __OPS__;
 var HAS_AUTH = __HAS_AUTH__;
 var T = __STRINGS__;
+var CATALOGS = __CATALOGS__;
+var LOCALES = __LOCALES__;
+var BASE_LANG = '__LANG__';
 var TOKEN_KEY = 'arcod.token';
 
 function byId(id) { return document.getElementById(id); }
 
 function t(key, fallback) { return (T && T[key]) || fallback; }
+
+// A static page switches locale by reloading with ?lang=<tag>: every declared
+// catalog is already embedded, so no request ever sees a missing translation.
+// An unknown or absent tag falls back to the declared default.
+function chosenLang() {
+  if (!CATALOGS || !LOCALES) return BASE_LANG;
+  var wanted = null;
+  try { wanted = new URLSearchParams(location.search).get('lang'); } catch (error) { wanted = null; }
+  return wanted && CATALOGS[wanted] ? wanted : BASE_LANG;
+}
+
+function applyLang() {
+  var chosen = chosenLang();
+  if (CATALOGS && CATALOGS[chosen]) T = CATALOGS[chosen];
+  document.documentElement.lang = chosen;
+  var select = byId('lang');
+  if (!select || !LOCALES) return;
+  LOCALES.forEach(function (tag) {
+    var option = document.createElement('option');
+    option.value = tag;
+    option.textContent = tag;
+    select.appendChild(option);
+  });
+  select.value = chosen;
+  select.hidden = false;
+  select.addEventListener('change', function () {
+    var next = new URL(location.href);
+    next.searchParams.set('lang', select.value);
+    location.href = next.toString();
+  });
+}
 
 // Labels live in the markup as the English default; the catalog replaces them
 // once, before any operation is rendered.
@@ -420,6 +463,7 @@ function build() {
   });
 }
 
+applyLang();
 localize();
 if (HAS_AUTH) {
   byId('auth').hidden = false;
@@ -547,8 +591,9 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
   const hasAuth = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'));
   const guarded = isGuarded(svc);
 
-  const locale = ui.locale ?? 'en';
+  const locale = ui.locale ?? ui.locales?.[0] ?? 'en';
   const theme = ui.theme ?? 'auto';
+  const catalogs = ui.locales ? Object.fromEntries(ui.locales.map((tag) => [tag, pageStrings(tag)])) : null;
 
   if (ui.layout === 'presentation') {
     const live = presentationOps(mod, svc, ui);
@@ -587,6 +632,8 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
     .replaceAll('__LANG__', escapeHtml(locale))
     .replaceAll('__THEME__', escapeHtml(theme))
     .replaceAll('__STRINGS__', jsonForScript(pageStrings(locale)))
+    .replaceAll('__CATALOGS__', jsonForScript(catalogs))
+    .replaceAll('__LOCALES__', jsonForScript(ui.locales ?? null))
     .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
     .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · operations: ' + ops.length))
     .replaceAll('__OPS__', JSON.stringify(ops))

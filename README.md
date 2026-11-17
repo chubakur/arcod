@@ -304,7 +304,22 @@ colour.
 The chat and presentation pages take the same `lang` and the same catalog:
 their static chrome (send button, composer placeholder, join form, deck
 navigation, participant count) is labelled from it, while slide titles and
-bodies stay authored text. A locale switcher and SSR are separate items (B12).
+bodies stay authored text.
+
+A list of locales turns the form page into a switcher: `locales: "en, ru"`
+embeds every declared catalog once and adds a `<select>` to the header;
+`?lang=ru` chooses a catalog on load and an unknown tag falls back to
+`locale` (or the first declared tag). The page is static, so switching
+reloads it. Chat/presentation switchers and SSR are separate items (B12).
+
+```arcod
+ui TasksUi {
+  title:   "Tasks"
+  locale:  "ru"
+  locales: "en, ru"
+  uses    Tasks.create, Tasks.list
+}
+```
 
 ### The chat page
 

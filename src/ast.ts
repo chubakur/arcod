@@ -281,6 +281,9 @@ export interface UiNode {
   // BCP-47 tag for the generated pages; null means the 'en' default. It drives
   // the html lang attribute and the page's message catalog.
   locale: string | null;
+  // Declared catalogs for a locale switcher: ui { locales: "en, ru" }.
+  // Null means the page renders just `locale`.
+  locales: string[] | null;
   // Token scheme for the generated pages: 'auto' follows the reader's OS.
   theme: 'auto' | 'light' | 'dark';
   loc: Loc;
