@@ -1235,7 +1235,9 @@ handled nor covered by an example is `A007`.
 The `*.arc` extension lives in `editors/vscode`, and `arcod lsp` is a
 standard Language Server Protocol server over stdio — built from the same
 lexer/parser/check as the compiler, so the editor sees exactly what
-`arcod check` sees.
+`arcod check` sees. Opening or editing a document republishes diagnostics,
+closing it forgets the buffer, and an unknown request is answered with `null`
+rather than silence — a client that waits forever looks like a hung editor.
 
 VS Code (`editors/vscode`):
 
