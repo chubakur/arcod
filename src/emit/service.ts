@@ -1,4 +1,4 @@
-import type { ModuleNode, OpNode, ServiceNode, TypeExpr } from '../ast.ts';
+import type { ModuleNode, OpNode, ServiceNode, TypeDecl, TypeExpr } from '../ast.ts';
 import { asOnce } from '../check.ts';
 import { HANDLER_TEMPLATES, templateFor } from '../templates.ts';
 import { SQL_STORE_SOURCE } from './sql-store.ts';
@@ -9,7 +9,7 @@ import { STREAM_SOURCE } from './stream.ts';
 import { QUEUE_SOURCE, QUEUE_SHUTDOWN, OUTBOX_SHUTDOWN, OUTBOX_SOURCE, consumerSource } from './queue.ts';
 import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
-import { migrationPlan, recordColumns } from '../migrate.ts';
+import { fieldDefault, migrationPlan, recordColumns, type DefaultValue } from '../migrate.ts';
 
 export interface EmitOptions {
   port?: number;
@@ -733,6 +733,18 @@ function requestEntity(entity) {
   return meta;
 }
 
+// Declared schema defaults fill only absent fields: an explicit value (even
+// null) from the body always wins, so a default is never a validator.
+function withDefaults(meta, record) {
+  if (!record || typeof record !== 'object') return record;
+  const value = Object.assign({}, record);
+  const declared = meta.defaults || {};
+  for (const field of Object.keys(declared)) {
+    if (value[field] === undefined) value[field] = declared[field];
+  }
+  return value;
+}
+
 __STREAM_SOURCE__
 
 // ---------- http ----------
@@ -1359,12 +1371,13 @@ function sqlEntityIoLines(): string[] {
     '    async fetch(entity, id) {',
     '      metricCapability("store.fetch");',
     '      const meta = requestEntity(entity);',
-    '      return await store.entityFetch(meta.table, meta.columns, id);',
+    '      const found = await store.entityFetch(meta.table, meta.columns, id);',
+    '      return found == null ? null : withDefaults(meta, found);',
     '    },',
     '    async insert(entity, record) {',
     '      metricCapability("store.insert");',
     '      const meta = requestEntity(entity);',
-    '      const value = Object.assign({}, record || {});',
+    '      const value = withDefaults(meta, record);',
     "      if (value.id == null || value.id === '') throw new ArcodError('Invalid');",
     '      await store.entityInsert(meta.table, meta.columns, value);',
     '      return value;',
@@ -1459,12 +1472,12 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     '      metricCapability("store.fetch");',
     '      const meta = requestEntity(entity);',
     "      const raw = await store.get(meta.prefix + String(id));",
-    '      return raw == null ? null : recordOf(raw);',
+    '      return raw == null ? null : withDefaults(meta, recordOf(raw));',
     '    },',
     '    async insert(entity, record) {',
     '      metricCapability("store.insert");',
     '      const meta = requestEntity(entity);',
-    '      const value = Object.assign({}, record || {});',
+    '      const value = withDefaults(meta, record);',
     "      if (value.id == null || value.id === '') throw new ArcodError('Invalid');",
     "      const key = meta.prefix + String(value.id);",
     "      if (await store.exists(key)) throw new ArcodError('Conflict');",
@@ -1886,8 +1899,20 @@ export function maxBodyBytes(mod: ModuleNode): number {
   return bodyLimits(mod, create).max;
 }
 
-function entityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { prefix: string; unique: string[] }> {
-  const table: Record<string, { prefix: string; unique: string[] }> = {};
+// The declared defaults of one record, resolved once: the runtime insert and
+// fetch apply exactly this map, so a default cannot drift from the DDL.
+function entityDefaults(mod: ModuleNode, decl: TypeDecl): Record<string, DefaultValue> {
+  const defaults: Record<string, DefaultValue> = {};
+  if (decl.type.kind !== 'record') return defaults;
+  for (const field of decl.type.fields) {
+    const value = fieldDefault(mod, field);
+    if (value !== undefined) defaults[field.name] = value;
+  }
+  return defaults;
+}
+
+function entityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { prefix: string; unique: string[]; defaults: Record<string, DefaultValue> }> {
+  const table: Record<string, { prefix: string; unique: string[]; defaults: Record<string, DefaultValue> }> = {};
   const uniques: Array<[string, string]> = [];
   for (const rule of svc.rules) {
     if (rule.kind !== 'unique') continue;
@@ -1900,13 +1925,14 @@ function entityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { prefi
     table[decl.name] = {
       prefix: decl.name.toLowerCase() + ':',
       unique: uniques.filter(([entity]) => entity === decl.name).map(([, field]) => field),
+      defaults: entityDefaults(mod, decl),
     };
   }
   return table;
 }
 
-function sqlEntityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { table: string; columns: unknown[]; unique: string[] }> {
-  const table: Record<string, { table: string; columns: unknown[]; unique: string[] }> = {};
+function sqlEntityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { table: string; columns: unknown[]; unique: string[]; defaults: Record<string, DefaultValue> }> {
+  const table: Record<string, { table: string; columns: unknown[]; unique: string[]; defaults: Record<string, DefaultValue> }> = {};
   const uniquesByEntity: Record<string, string[]> = {};
   for (const rule of svc.rules) {
     if (rule.kind !== 'unique') continue;
@@ -1920,6 +1946,7 @@ function sqlEntityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { ta
       table: decl.name.toLowerCase(),
       columns: recordColumns(mod, decl, unique),
       unique,
+      defaults: entityDefaults(mod, decl),
     };
   }
   return table;

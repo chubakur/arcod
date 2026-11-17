@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ModuleNode, ServiceNode, TypeDecl, TypeExpr } from './ast.ts';
+import type { Expr, ModuleNode, Param, ServiceNode, TypeDecl, TypeExpr } from './ast.ts';
 
 export interface Migration {
   version: string;
@@ -22,7 +22,7 @@ const BUILTINS = new Set([
 // Resolve a field type through aliases to a base category. Anything that is
 // not a scalar column lands in 'json' (inline records, unions, list/map, or a
 // named type we cannot resolve — the conservative, honest default).
-function baseType(mod: ModuleNode, type: TypeExpr, depth = 0): string {
+export function baseType(mod: ModuleNode, type: TypeExpr, depth = 0): string {
   if (depth > 8) return 'json';
   switch (type.kind) {
     case 'optional':
@@ -56,12 +56,64 @@ function sqlTypeOf(base: string, unique: boolean): string {
   }
 }
 
+export type DefaultValue = string | number | boolean | null;
+
+// A field default is a static scalar. The DDL, the runtime insert and the
+// OpenAPI schema all read the same resolved value, so one declaration cannot
+// mean different things in different layers. check() rejects anything that is
+// not a literal of the field's type (A059) before an emitter ever sees it.
+export function defaultValue(
+  mod: ModuleNode,
+  type: TypeExpr,
+  expr: Expr,
+): { ok: true; value: DefaultValue } | { ok: false; reason: string } {
+  if (expr.kind !== 'literal') return { ok: false, reason: 'default must be a literal' };
+  const optional = type.kind === 'optional';
+  const base = baseType(mod, type);
+  const value = expr.value;
+  if (value === null) {
+    return optional ? { ok: true, value: null } : { ok: false, reason: 'default null needs an optional field' };
+  }
+  switch (base) {
+    case 'string':
+    case 'uuid':
+    case 'datetime':
+    case 'enum':
+      return typeof value === 'string'
+        ? { ok: true, value }
+        : { ok: false, reason: base + ' field needs a string default' };
+    case 'int':
+    case 'float':
+    case 'number':
+    case 'decimal':
+      return typeof value === 'number'
+        ? { ok: true, value }
+        : { ok: false, reason: base + ' field needs a numeric default' };
+    case 'bool':
+    case 'boolean':
+      return typeof value === 'boolean'
+        ? { ok: true, value }
+        : { ok: false, reason: base + ' field needs a true/false default' };
+    default:
+      return { ok: false, reason: base + ' field cannot carry a default' };
+  }
+}
+
+export function fieldDefault(mod: ModuleNode, field: Param): DefaultValue | undefined {
+  if (!field.default) return undefined;
+  const resolved = defaultValue(mod, field.type, field.default);
+  return resolved.ok ? resolved.value : undefined;
+}
+
 export interface Column {
   name: string;
   base: string;
   nullable: boolean;
   unique: boolean;
   sql: string;
+  // Declared default, already resolved to a plain value: the sql runtime and
+  // the generated insert path both apply it, and the DDL writes it as DEFAULT.
+  default?: DefaultValue;
 }
 
 // Column metadata shared by the DDL emitter and the sql runtime codec: the
@@ -78,15 +130,25 @@ export function recordColumns(mod: ModuleNode, decl: TypeDecl, uniques: string[]
       nullable: field.type.kind === 'optional',
       unique,
       sql: sqlTypeOf(base, unique),
+      default: fieldDefault(mod, field),
     };
   });
 }
 
-function columnDef(mod: ModuleNode, name: string, type: TypeExpr, unique: boolean): string {
-  const optional = type.kind === 'optional';
-  const base = baseType(mod, type);
-  let def = '`' + name + '` ' + sqlTypeOf(base, unique);
+function sqlDefault(value: DefaultValue): string {
+  if (value === null) return 'NULL';
+  if (typeof value === 'boolean') return value ? '1' : '0';
+  if (typeof value === 'number') return String(value);
+  return "'" + value.replace(/'/g, "''") + "'";
+}
+
+function columnDef(mod: ModuleNode, field: Param, unique: boolean): string {
+  const optional = field.type.kind === 'optional';
+  const base = baseType(mod, field.type);
+  let def = '`' + field.name + '` ' + sqlTypeOf(base, unique);
   if (!optional) def += ' NOT NULL';
+  const resolved = field.default ? defaultValue(mod, field.type, field.default) : null;
+  if (resolved && resolved.ok) def += ' DEFAULT ' + sqlDefault(resolved.value);
   return def;
 }
 
@@ -95,7 +157,7 @@ function entityTable(mod: ModuleNode, decl: TypeDecl, uniques: string[]): { up: 
   const table = decl.name.toLowerCase();
   const cols: string[] = [];
   for (const field of fields) {
-    cols.push('  ' + columnDef(mod, field.name, field.type, uniques.includes(field.name)));
+    cols.push('  ' + columnDef(mod, field, uniques.includes(field.name)));
   }
   if (fields.some((f) => f.name === 'id')) cols.push('  PRIMARY KEY (`id`)');
   for (const field of uniques) {

@@ -102,12 +102,24 @@ function builtinSchema(name: string, args: TypeArg[]): Schema {
   return {};
 }
 
+// A declared default is a contract fact, not only a runtime convenience: the
+// client sees the same value the server would insert. Only literals reach
+// here; check() rejects anything else (A059).
+function literalOf(expr: Expr | undefined): unknown {
+  return expr && expr.kind === 'literal' ? expr.value : undefined;
+}
+
+function withDefault(schema: Schema, field: Param): Schema {
+  const value = literalOf(field.default);
+  return value === undefined ? schema : { ...schema, default: value };
+}
+
 function objectSchema(mod: ModuleNode | null, fields: Param[]): Schema {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
   for (const field of fields) {
     const optional = field.type.kind === 'optional' || field.default !== undefined;
-    properties[field.name] = schemaFor(mod, field.type);
+    properties[field.name] = withDefault(schemaFor(mod, field.type), field);
     if (!optional) required.push(field.name);
   }
   const schema: Schema = { type: 'object', properties };
@@ -306,7 +318,7 @@ function operationFor(mod: ModuleNode, svc: ServiceNode, op: OpNode): Record<str
   let requestBody: Record<string, unknown> | null = null;
   for (const param of op.params) {
     const where = paramLocation(route, param);
-    const schema = schemaFor(mod, param.type);
+    const schema = withDefault(schemaFor(mod, param.type), param);
     const optional = param.type.kind === 'optional' || param.default !== undefined;
     if (where === 'body') {
       requestBody ??= {

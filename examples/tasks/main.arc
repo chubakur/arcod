@@ -16,6 +16,8 @@ type Task = {
   id: TaskId,
   title: string,
   status: Status,
+  // A task is born open; the schema owns that default for every store driver.
+  done: bool = false,
   priority: Priority,
   createdAt: datetime,
   dueAt: datetime?,

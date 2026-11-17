@@ -16,6 +16,9 @@ type Task = {
   id: TaskId,
   title: string,
   status: Status,
+  // A task is born open. The default lives in the schema, so the DDL, the
+  // runtime insert and the OpenAPI schema all agree without repeating it.
+  done: bool = false,
   priority: Priority,
   createdAt: datetime,
   dueAt: datetime?,

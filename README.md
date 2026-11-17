@@ -99,6 +99,18 @@ as `format: date-time`), `decimal`, unions, optional via `?` and parameter
 defaults (`limit: number = 20`). Durations (`999s`, `24h`) are values in clauses
 (`ttl: 999s`, `timeout: 30s`), not a type.
 
+A record field may declare a scalar literal default:
+
+```arcod
+type Task = { id: TaskId, title: string, done: bool = false, dueAt: datetime? }
+```
+
+That one declaration is the whole story: the migration writes `DEFAULT 0`, the
+runtime insert fills `false` only when the body omits the field (an explicit
+value, including `null` on an optional field, wins), and OpenAPI publishes
+`default: false` and drops the field from `required`. `check` rejects anything
+that is not a literal of the field type (`A059`).
+
 ## Commands
 
 | Command | What it does |
@@ -928,8 +940,10 @@ changelog in `.arcod/build/migrations/`. A record type becomes a real table:
 scalar fields get typed columns (`uuid` → `CHAR(36)`, `datetime` →
 `DATETIME(3)`, `int` → `BIGINT`, `decimal` → `DECIMAL(30,6)`, strings →
 `TEXT`, unique strings → `VARCHAR(191)`), `id` is the primary key and each
-`rules { unique ... }` becomes a `UNIQUE KEY`. Inline records, unions and
-`list`/`map` land in `JSON` columns.
+`rules { unique ... }` becomes a `UNIQUE KEY`. A field default becomes the
+column's `DEFAULT` (`done: bool = false` → `DEFAULT 0`), so a row inserted
+outside the generated service still gets the declared value. Inline records,
+unions and `list`/`map` land in `JSON` columns.
 
 Each migration carries a `version`, a `checksum` (sha256 of up+down) and
 `up`/`down` SQL. The generated service applies them on boot (sql driver):
@@ -999,7 +1013,8 @@ Errors:
 - `A055` `unique` without a declared `Conflict` error to return;
 - `A056` `unique` without a `kv`/`sql` store to keep the claim;
 - `A057` a saga step's `call`/`compensate` names an unknown operation;
-- `A058` a job's `saga:` names an undeclared saga.
+- `A058` a job's `saga:` names an undeclared saga;
+- `A059` a field default is not a literal of the field type.
 
 Warnings:
 

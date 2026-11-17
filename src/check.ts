@@ -4,6 +4,7 @@ import { templateFor } from './templates.ts';
 import { providerFor, providerImplements, providerNames, providersForCapability } from './providers.ts';
 import { storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
+import { defaultValue } from './migrate.ts';
 
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
 const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysql', 'mongodb', 'localhost', '127.0.0.1', 'ollama', 'openai', 'anthropic'];
@@ -42,6 +43,22 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
 
   const bound = new Map<string, string>();
   for (const bind of env?.binds ?? []) bound.set(bind.alias, bind.provider);
+
+  // A059 — a schema default is one value shared by the DDL, the runtime insert
+  // and the OpenAPI schema. It must be a static literal of the field's type;
+  // anything computed belongs in the operation body, not in the model.
+  for (const decl of mod.types) {
+    if (decl.type.kind !== 'record') continue;
+    for (const field of decl.type.fields) {
+      if (!field.default) continue;
+      const resolved = defaultValue(mod, field.type, field.default);
+      if (!resolved.ok) {
+        diags.push(diag('A059', 'error', mod.file, field.loc, `types.${decl.name}.${field.name}`,
+          `default of ${field.name} is invalid: ${resolved.reason}`,
+          'use a literal that matches the field type'));
+      }
+    }
+  }
 
   for (const svc of mod.services) {
     if (svc.external) continue;

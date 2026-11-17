@@ -65,7 +65,9 @@ export function typeText(type: TypeExpr): string {
     case 'union':
       return type.variants.map(typeText).join(' | ');
     case 'record':
-      return '{ ' + type.fields.map((field) => field.name + ': ' + typeText(field.type)).join(', ') + ' }';
+      return '{ ' + type.fields
+        .map((field) => field.name + ': ' + typeText(field.type) + (field.default ? ' = ' + exprText(field.default) : ''))
+        .join(', ') + ' }';
     case 'named': {
       if (type.args.length === 0) return type.name;
       const args = type.args.map((arg) =>
