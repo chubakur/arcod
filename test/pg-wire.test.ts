@@ -6,7 +6,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { PG_STORE_SOURCE } from '../src/emit/pg-store.ts';
+import { PG_STORE_SOURCE, PG_SQL_STORE_SOURCE } from '../src/emit/pg-store.ts';
 
 // The Postgres client is emitted source, not an imported module: load it the
 // way the generated service will see it, then drive it with a fake server.
@@ -221,4 +221,91 @@ test('postgres literals and cells are typed, not string-concatenated', async () 
   assert.equal(mod.readPgCell('int', '12'), 12);
   assert.equal(mod.readPgCell('datetime', '2026-11-17 22:30:00+00'), '2026-11-17T22:30:00Z');
   assert.deepEqual(Object.keys(mod.readPgCell('json', '{"a":1}')), ['a']);
+});
+
+// ---------- PgStore over the same fake backend ----------
+// The store, not just the client: entity SQL is quoting/literal-shaped for
+// Postgres and the command tag is where claim/del get their affected count.
+
+function storeBackend(seen: string[]) {
+  const server = createServer((socket) => {
+    let buffer = Buffer.alloc(0);
+    let started = false;
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+      while (buffer.length >= 5) {
+        const tag = String.fromCharCode(buffer[0]);
+        const typed = tag === 'p' || tag === 'Q' || tag === 'X';
+        const length = buffer.readInt32BE(typed ? 1 : 0);
+        const total = typed ? length + 1 : length;
+        if (buffer.length < total) return;
+        const packet = buffer.subarray(typed ? 5 : 4, total);
+        buffer = buffer.subarray(total);
+        if (!started) {
+          started = true;
+          socket.write(Buffer.concat([message('R', int32(0)), message('Z', Buffer.from('I'))]));
+          continue;
+        }
+        if (tag !== 'Q') continue;
+        const sql = packet.toString('utf8').replace(/ $/, '');
+        seen.push(sql);
+        if (/^SELECT checksum FROM arcod_migrations/.test(sql)) {
+          socket.write(Buffer.concat([rowDescription(['checksum']), message('C', cstr('SELECT 0')), message('Z', Buffer.from('I'))]));
+          continue;
+        }
+        const command = /^INSERT/.test(sql) ? 'INSERT 0 1'
+          : /^UPDATE/.test(sql) ? 'UPDATE 1'
+          : /^DELETE/.test(sql) ? 'DELETE 1'
+          : /^SELECT/.test(sql) ? 'SELECT 0'
+          : 'OK';
+        socket.write(Buffer.concat([message('C', cstr(command)), message('Z', Buffer.from('I'))]));
+      }
+    });
+  });
+  return server;
+}
+
+let storeLoaded: any = null;
+async function pgStore() {
+  if (storeLoaded) return storeLoaded;
+  const stubs = [
+    'class ArcodError extends Error { constructor(name) { super(name); this.name = name; } }',
+    'const MIGRATIONS = [];',
+    'function parseOrder() { return []; }',
+    'function encodeCursor() { return null; }',
+    'function decodeCursor() { return null; }',
+    '',
+  ].join('\n');
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-pgstore-'));
+  const file = join(dir, 'store.mjs');
+  await writeFile(file, stubs + PG_STORE_SOURCE + '\n' + PG_SQL_STORE_SOURCE + '\nexport { PgStore };\n', 'utf8');
+  storeLoaded = await import(pathToFileURL(file).href);
+  return storeLoaded;
+}
+
+test('PgStore issues postgres SQL and reads the command tag for affected rows', async () => {
+  const mod = await pgStore();
+  const seen: string[] = [];
+  const server = storeBackend(seen);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as { port: number }).port;
+  try {
+    const store = new mod.PgStore('postgres://arcod:arcod@127.0.0.1:' + port + '/arcod');
+    await store.prepare();
+    const columns = [
+      { name: 'id', base: 'string' },
+      { name: 'done', base: 'bool' },
+    ];
+    await store.entityInsert('task', columns, { id: 't1', done: true });
+    assert.match(seen[seen.length - 1], /INSERT INTO "task" \("id", "done"\) VALUES \('t1', TRUE\)/);
+    assert.equal(await store.claim('lock-1'), true);
+    assert.match(seen[seen.length - 1], /ON CONFLICT \(k\) DO NOTHING/);
+    assert.equal(await store.del('lock-1'), 1);
+    await store.set('k', 'v', 1000);
+    assert.match(seen[seen.length - 1], /ON CONFLICT \(k\) DO UPDATE SET v = EXCLUDED\.v/);
+    assert.ok(seen.some((sql) => /CREATE TABLE IF NOT EXISTS arcod_migrations/.test(sql)));
+    await store.connection.end();
+  } finally {
+    server.close();
+  }
 });

@@ -322,7 +322,7 @@ function pgFields(payload) {
 }
 
 function pgTagCount(payload) {
-  const parts = payload.toString('utf8').trim().split(' ');
+  const parts = payload.toString('utf8').split(String.fromCharCode(0)).join('').trim().split(' ');
   const count = Number(parts[parts.length - 1]);
   return Number.isFinite(count) ? count : 0;
 }
