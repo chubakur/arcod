@@ -115,6 +115,13 @@ so two machines can be compared.
 1. Manifest reader + validation + `arcod providers --plugins` (read-only).
    First slice: no runtime adapter copying.
 2. Wire the capability/provider lookup into `check` and the emitters.
+   Done for `check` and compose (which the k8s renderer consumes):
+   `src/registry.ts` merges the built-in tables with the manifests on the
+   plugin path, `check` judges `A023`/`A024`/`A026` against that registry, and
+   compose renders a plugin provider's `appEnv` (`${arg}` from the bind,
+   `${host}`/`${port}` from the address) without inventing an image — a plugin
+   provider is configured, never provisioned. Terraform and `plan` still read
+   the built-in table only; that is the next slice.
 3. Copy `runtime.adapter` into the generated service and document the module
    contract (`createAdapter(io) -> { publish, consume }`).
 4. One reference plugin in the repository's test fixtures (a fake queue) that
