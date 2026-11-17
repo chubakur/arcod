@@ -145,6 +145,24 @@ test('a provider the registry does not know is reported, not dropped', () => {
   assert.match(main, /Providers unknown to the registry \(check reports them\): mysterydb/);
 });
 
+test('every var.* reference in the plan is declared', async () => {
+  const { files } = await tasksFiles();
+  const main = files.find((f) => f.path === 'main.tf')!.content;
+  const variables = files.find((f) => f.path === 'variables.tf')!.content;
+  const declared = new Set([...variables.matchAll(/variable "([a-z0-9_]+)"/g)].map((m) => m[1]));
+  const referenced = new Set([...main.matchAll(/var\.([a-z0-9_]+)/g)].map((m) => m[1]));
+  const missing = [...referenced].filter((name) => !declared.has(name));
+  assert.deepEqual(missing, [], 'the plan never references an undeclared input');
+  // An external provider's secret is an input too: the plugin case must obey
+  // the same rule as the built-in one.
+  const plugin = terraformFiles(parse(FAX_SPEC, 'main.arc'), { environment: 'prod', registry: faxRegistry() });
+  const pluginMain = plugin.find((f) => f.path === 'main.tf')!.content;
+  const pluginVars = plugin.find((f) => f.path === 'variables.tf')!.content;
+  for (const match of pluginMain.matchAll(/var\.([a-z0-9_]+)/g)) {
+    assert.match(pluginVars, new RegExp('variable "' + match[1] + '"'), 'declared: ' + match[1]);
+  }
+});
+
 test('a non-yandex target is refused instead of half-rendered', () => {
   const source = [
     'module m @0.1.0 {}',

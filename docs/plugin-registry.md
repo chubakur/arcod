@@ -120,8 +120,13 @@ so two machines can be compared.
    plugin path, `check` judges `A023`/`A024`/`A026` against that registry, and
    compose renders a plugin provider's `appEnv` (`${arg}` from the bind,
    `${host}`/`${port}` from the address) without inventing an image — a plugin
-   provider is configured, never provisioned. Terraform and `plan` still read
-   the built-in table only; that is the next slice.
+   provider is configured, never provisioned. `arcod terraform` now resolves
+   binds through the same registry: a plugin provider is not provisioned by
+   the plan but is not dropped either — it becomes an external dependency
+   comment naming the declaring package, and each declared secret becomes a
+   `sensitive` variable (`faxapi` + `FAX_TOKEN` -> `var.faxapi_fax_token`). A
+   provider no registry knows is reported in a comment, because `check`
+   already rejects it.
 3. Copy `runtime.adapter` into the generated service and document the module
    contract (`createAdapter(io) -> { publish, consume }`).
 4. One reference plugin in the repository's test fixtures (a fake queue) that
