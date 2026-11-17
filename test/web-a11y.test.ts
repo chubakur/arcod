@@ -104,6 +104,9 @@ test('chat and presentation pages expose the declared locale picker', async () =
     const html = emitWeb(mod, { maxBytes: 2_000_000 });
     assert.match(html, /var LOCALES = \["en","ru"\];/);
     assert.match(html, /id="lang"/);
+    assert.match(html, /\"langLabel\":\"Language\"/);
+    assert.match(html, /\"langLabel\":\"Язык\"/);
+    assert.match(html, /select\.setAttribute\('aria-label'/, 'the picker is labelled in the chosen catalog');
     assert.match(html, /CATALOGS\[wanted\]/);
     assert.ok(!html.includes('__LANG_RUNTIME__'), 'the runtime is expanded');
     assert.ok(html.includes('"token":"Токен доступа"'), 'the Russian catalog is embedded');

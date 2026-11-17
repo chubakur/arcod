@@ -58,6 +58,7 @@ const UI_STRINGS: Record<string, Record<string, string>> = {
     presBack: '← Back',
     presNext: 'Next →',
     presParticipants: 'Participants',
+    langLabel: 'Language',
   },
   ru: {
     token: 'Токен доступа',
@@ -84,6 +85,7 @@ const UI_STRINGS: Record<string, Record<string, string>> = {
     presBack: '← Назад',
     presNext: 'Далее →',
     presParticipants: 'Участники',
+    langLabel: 'Язык',
   },
 };
 
@@ -120,6 +122,9 @@ function applyLang() {
     option.textContent = tag;
     select.appendChild(option);
   });
+  // The label follows the chosen catalog; the markup keeps an English
+  // fallback for the no-JS case.
+  select.setAttribute('aria-label', (typeof T !== 'undefined' && T && T.langLabel) || 'Language');
   select.value = chosen;
   select.hidden = false;
   select.addEventListener('change', function () {
