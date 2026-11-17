@@ -353,7 +353,7 @@ async function runTerraform(flags: Flags): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const files = terraformFiles(loaded.mod, { environment: flags.env });
+  const files = terraformFiles(loaded.mod, { environment: flags.env, registry: loadRegistry(loaded.dir) });
   if (flags.out) {
     for (const file of files) {
       const path = join(flags.out, file.path);
@@ -479,9 +479,13 @@ function runProviders(flags: Flags): void {
     return;
   }
 
-  const rows = providerNames().map((name) => {
-    const spec = PROVIDERS[name];
+  const registry = loadRegistry(process.cwd());
+  const rows = registry.names().map((name) => {
+    const spec = registry.get(name)!;
     return {
+      // A plugin-declared provider is listed with the package that declared it;
+      // built-ins have no origin.
+      origin: registry.origin[name] ?? null,
       capability: spec.capability,
       provider: spec.name,
       image: spec.image ?? '(external)',

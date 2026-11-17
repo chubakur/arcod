@@ -380,8 +380,12 @@ release action, not something a generator does.
 and subnet, a managed cluster per `postgres`/`redis` bind, a bucket per `s3`,
 and every credential as a `variable` marked `sensitive`, so the plan never
 holds a password. It targets Yandex Cloud (the provider the `deploy` names)
-and refuses any other target instead of half-rendering it. The state backend
-is the owner's choice; no state is generated.
+and refuses any other target instead of half-rendering it. The plan reads the
+same provider registry `check` uses, so a provider declared by a plugin appears
+as an external dependency: the plan states who declared it and turns each of
+its secrets into a `sensitive` input, rather than dropping the bind silently.
+A provider no one declares is reported in a comment. The state backend is the
+owner's choice; no state is generated.
 
 **Secrets** are declared by the providers, not guessed from names: `postgres`
 marks `POSTGRES_PASSWORD` and `DATABASE_URL` sensitive, `s3` marks

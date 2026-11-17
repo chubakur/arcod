@@ -10,10 +10,13 @@
 
 import type { BindNode, EnvironmentNode, ModuleNode } from '../ast.ts';
 import { imageContract } from '../deploy.ts';
-import { providerFor } from '../providers.ts';
+import { builtinRegistry, type ProviderRegistry } from '../registry.ts';
 
 export interface TerraformOptions {
   environment?: string;
+  // The same registry check() and compose use: a provider a plugin declares is
+  // configured outside terraform, never silently dropped from the plan.
+  registry?: ProviderRegistry;
 }
 
 export interface TerraformFile {
@@ -136,6 +139,35 @@ function bucketBlock(bind: BindNode, name: string): string {
 // is reported in a comment instead of guessed.
 const MANAGED = new Set(['postgres', 'mysql', 'mariadb', 'redis', 's3', 'minio']);
 
+// A secret becomes a terraform input named after the provider that needs it:
+// faxapi + FAX_TOKEN -> var.faxapi_fax_token. The value only ever arrives from
+// the environment, never from the spec.
+function secretVariable(provider: string, secret: string): string {
+  return (provider + '_' + secret).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+interface ExternalProvider {
+  name: string;
+  origin?: string;
+  secrets: string[];
+}
+
+// External providers are real parts of the topology (a plugin's payment API, a
+// hosted queue) but terraform does not own them. The plan states what the
+// operator has to configure and which inputs the service will read.
+function externalComment(items: ExternalProvider[]): string {
+  if (items.length === 0) return '';
+  const lines = ['# External providers: configured outside this plan, never provisioned here.'];
+  for (const item of items) {
+    const declared = item.origin ? ' (declared by ' + item.origin + ')' : '';
+    const inputs = item.secrets.length > 0
+      ? ' — inputs: ' + item.secrets.map((secret) => 'var.' + secretVariable(item.name, secret)).join(', ')
+      : '';
+    lines.push('#   ' + item.name + declared + inputs);
+  }
+  return lines.join('\n') + '\n';
+}
+
 export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}): TerraformFile[] {
   const env = pickEnv(mod, options.environment);
   const deploy = env.deploy;
@@ -151,11 +183,21 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
   const service = mod.services.find((item) => !item.external);
   const image = service ? imageContract(mod, env, service.name) : null;
 
+  const registry = options.registry ?? builtinRegistry();
   const resources: string[] = [];
   const unmapped: string[] = [];
+  const unknown: string[] = [];
+  const external: ExternalProvider[] = [];
   for (const bind of env.binds) {
-    const spec = providerFor(bind.provider);
-    if (!spec) continue;
+    const spec = registry.get(bind.provider);
+    if (!spec) {
+      unknown.push(bind.provider);
+      continue;
+    }
+    if (spec.external) {
+      external.push({ name: spec.name, origin: registry.origin[spec.name], secrets: spec.secrets ?? [] });
+      continue;
+    }
     if (bind.provider === 'postgres') resources.push(postgresBlock(bind, name));
     else if (bind.provider === 'redis') resources.push(redisBlock(bind, name));
     else if (bind.provider === 's3' || bind.provider === 'minio') resources.push(bucketBlock(bind, name));
@@ -182,7 +224,8 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
     '}',
     '',
     networkFiles(mod, env),
-    unimplementedComment(unmapped),
+    externalComment(external),
+    unimplementedComment(unmapped, unknown),
     resources.join('\n'),
     'output "network_id" {',
     '  value = yandex_vpc_network.main.id',
@@ -228,6 +271,14 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
     '  sensitive = true',
     '}',
     '',
+    ...external.flatMap((item) => item.secrets.flatMap((secret) => [
+      'variable "' + secretVariable(item.name, secret) + '" {',
+      '  type        = string',
+      '  description = ' + hclString(item.name + ' credential'),
+      '  sensitive   = true',
+      '}',
+      '',
+    ])),
   ].join('\n');
 
   const tfvars = [
@@ -238,6 +289,7 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
     '# redis_password   = "..."',
     '# s3_access_key    = "..."',
     '# s3_secret_key    = "..."',
+    ...external.flatMap((item) => item.secrets.map((secret) => '# ' + secretVariable(item.name, secret) + ' = "..."')),
     '',
   ].join('\n');
 
@@ -248,9 +300,11 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
   ];
 }
 
-function unimplementedComment(binds: string[]): string {
-  if (binds.length === 0) return '';
-  return '# No managed equivalent rendered for: ' + [...new Set(binds)].sort().join(', ') + '\n';
+function unimplementedComment(binds: string[], unknown: string[] = []): string {
+  const parts: string[] = [];
+  if (binds.length > 0) parts.push('# No managed equivalent rendered for: ' + [...new Set(binds)].sort().join(', '));
+  if (unknown.length > 0) parts.push('# Providers unknown to the registry (check reports them): ' + [...new Set(unknown)].sort().join(', '));
+  return parts.length === 0 ? '' : parts.join('\n') + '\n';
 }
 
 export function formatTerraform(files: TerraformFile[]): string {
