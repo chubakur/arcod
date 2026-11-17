@@ -1,10 +1,11 @@
 import type { Diagnostic } from './diagnostics.ts';
-import type { Expr, Loc, ModuleNode, OpNode, ServiceNode, UiNode } from './ast.ts';
+import type { Expr, Loc, ModuleNode, OpNode, Param, ServiceNode, UiNode } from './ast.ts';
 import { templateFor } from './templates.ts';
 import { providerFor, providerImplements, providerNames, providersForCapability } from './providers.ts';
 import { storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
 import { defaultValue } from './migrate.ts';
+import { constraintOf, describeViolation, unknownFormatOf } from './constraints.ts';
 
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
 const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysql', 'mongodb', 'localhost', '127.0.0.1', 'ollama', 'openai', 'anthropic'];
@@ -56,7 +57,32 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         diags.push(diag('A059', 'error', mod.file, field.loc, `types.${decl.name}.${field.name}`,
           `default of ${field.name} is invalid: ${resolved.reason}`,
           'use a literal that matches the field type'));
+        continue;
       }
+      // A060 — the default is the right kind of literal but not a legal value
+      // of the constrained type: an email default that is not an address, an
+      // enum default outside the enum. The runtime would reject the very row
+      // the schema itself inserts, so it is a model error, not a warning.
+      const constraint = constraintOf(mod, field.type);
+      const violation = describeViolation(constraint, resolved.value);
+      if (violation) {
+        diags.push(diag('A060', 'error', mod.file, field.loc, `types.${decl.name}.${field.name}`,
+          `default of ${field.name} violates its type: ${violation}`,
+          'pick a value the constrained type accepts'));
+      }
+    }
+  }
+
+  // A061 — an unknown format name would silently degrade to a plain string,
+  // so the schema would promise nothing and the runtime would check nothing.
+  for (const param of declaredParams(mod)) {
+    const unknown = unknownFormatOf(param.type);
+    if (unknown !== null) {
+      diags.push(diag('A061', 'error', mod.file, param.loc, 'types',
+        unknown === ''
+          ? 'string(format: ...) needs a format name'
+          : `unknown string format ${unknown}`,
+        'known formats: email, url'));
     }
   }
 
@@ -682,6 +708,22 @@ function checkExternalServices(mod: ModuleNode, diags: Diagnostic[]): void {
         'add bind ' + svc.name + ' -> endpoint(url: "...")'));
     }
   }
+}
+
+// Every place a type expression can appear as a field of the model. Used by
+// checks that care about the type itself rather than the layer it sits in.
+function declaredParams(mod: ModuleNode): Param[] {
+  const params: Param[] = [];
+  for (const decl of mod.types) {
+    if (decl.type.kind === 'record') params.push(...decl.type.fields);
+  }
+  for (const err of mod.errors) params.push(...err.fields);
+  for (const svc of mod.services) {
+    for (const op of svc.contract) {
+      if (op.kind === 'op') params.push(...op.params);
+    }
+  }
+  return params;
 }
 
 function namedType(type: { kind: string; name?: string }): string | null {

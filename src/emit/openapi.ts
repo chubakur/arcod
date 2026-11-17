@@ -42,6 +42,9 @@ const BUILTINS = new Set([
   'map',
   'void',
   'null',
+  'email',
+  'url',
+  'uri',
 ]);
 
 function sizeBytes(value: number, unit: string): number {
@@ -74,13 +77,31 @@ function resolveDecl(mod: ModuleNode, type: TypeExpr): TypeExpr {
   return current;
 }
 
+function formatArg(args: TypeArg[]): string | null {
+  for (const arg of args) {
+    if (arg.name !== 'format') continue;
+    const value = arg.value;
+    if (value.kind === 'ident') return value.name;
+    if (value.kind === 'literal' && typeof value.value === 'string') return value.value;
+  }
+  return null;
+}
+
 function builtinSchema(name: string, args: TypeArg[]): Schema {
+  // `email` and `url` are shorthands; `string(format: email)` is the same fact.
+  if (name === 'email') return { type: 'string', format: 'email' };
+  if (name === 'url' || name === 'uri') return { type: 'string', format: 'uri' };
   if (name === 'string' || name === 'bytes') {
     const schema: Schema = { type: 'string' };
     const min = numberArg(args, 'min');
     const max = numberArg(args, 'max');
     if (min !== null) schema.minLength = min;
     if (max !== null) schema.maxLength = max;
+    if (name === 'string') {
+      const format = formatArg(args);
+      if (format === 'email') schema.format = 'email';
+      if (format === 'url' || format === 'uri') schema.format = 'uri';
+    }
     return schema;
   }
   if (name === 'int') return { type: 'integer' };

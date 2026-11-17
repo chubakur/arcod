@@ -111,6 +111,23 @@ value, including `null` on an optional field, wins), and OpenAPI publishes
 `default: false` and drops the field from `required`. `check` rejects anything
 that is not a literal of the field type (`A059`).
 
+A string can carry a constraint. `email` and `url` are shorthands for
+`string(format: email)` and `string(format: uri)`; a declared enum closes a
+set of values:
+
+```arcod
+enum Plan { free, pro, team }
+type Account = { id: uuid, email: email, website: url?, plan: Plan = "free" }
+```
+
+The constraint is published where clients read it (`format: email`,
+`format: uri`, `enum`), stays a plain string column in the migration, and is
+enforced by the generated service before the operation body runs: a malformed
+address, a URL without a scheme or a value outside the enum is `400 Invalid`
+with the offending field named, not a 500 from a body that trusted the client.
+`check` rejects a default that violates its own type (`A060`) and an unknown
+format name (`A061`). Full example: `examples/signup`.
+
 ## Commands
 
 | Command | What it does |
@@ -1014,7 +1031,9 @@ Errors:
 - `A056` `unique` without a `kv`/`sql` store to keep the claim;
 - `A057` a saga step's `call`/`compensate` names an unknown operation;
 - `A058` a job's `saga:` names an undeclared saga;
-- `A059` a field default is not a literal of the field type.
+- `A059` a field default is not a literal of the field type;
+- `A060` a field default violates the constrained type (`email`, `url`, `enum`);
+- `A061` `string(format: ...)` names an unknown format.
 
 Warnings:
 

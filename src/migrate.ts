@@ -17,6 +17,8 @@ export interface MigrationPlan {
 const BUILTINS = new Set([
   'string', 'bytes', 'int', 'float', 'number', 'bool', 'boolean', 'uuid',
   'json', 'datetime', 'decimal', 'list', 'map', 'void', 'null',
+  // Constrained string shorthands: same column, different contract.
+  'email', 'url', 'uri',
 ]);
 
 // Resolve a field type through aliases to a base category. Anything that is
@@ -51,7 +53,10 @@ function sqlTypeOf(base: string, unique: boolean): string {
     case 'datetime': return 'DATETIME(3)';
     case 'bytes': return 'LONGBLOB';
     case 'enum': return 'VARCHAR(64)';
-    case 'string': return unique ? 'VARCHAR(191)' : 'TEXT';
+    case 'string':
+    case 'email':
+    case 'url':
+    case 'uri': return unique ? 'VARCHAR(191)' : 'TEXT';
     default: return 'JSON';
   }
 }
@@ -76,6 +81,9 @@ export function defaultValue(
   }
   switch (base) {
     case 'string':
+    case 'email':
+    case 'url':
+    case 'uri':
     case 'uuid':
     case 'datetime':
     case 'enum':

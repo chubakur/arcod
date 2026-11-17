@@ -10,6 +10,7 @@ import { QUEUE_SOURCE, QUEUE_SHUTDOWN, OUTBOX_SHUTDOWN, OUTBOX_SOURCE, consumerS
 import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
 import { fieldDefault, migrationPlan, recordColumns, type DefaultValue } from '../migrate.ts';
+import { constraintTable } from '../constraints.ts';
 
 export interface EmitOptions {
   port?: number;
@@ -1187,7 +1188,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
 }`;
 
   const externals = mod.services.filter((item) => item.external);
-  const template = withHandlers(serviceTemplate(svc), reference, svc, options.impl, externals)
+  const template = withHandlers(serviceTemplate(svc), reference, svc, options.impl, externals, mod)
     .replace(CRYPTO_IMPORT, () => cryptoImportFor(svc, reference || Boolean(options.impl)))
     .replace('__QUEUE_SOURCE__\n', () => queueSourceFor(svc, options.impl) + (outboxActive(svc) && options.impl ? OUTBOX_SOURCE + '\n' : ''))
     .replace('__QUEUE_WIRE__', () => (hasQueue(svc) && options.impl ? (outboxActive(svc) ? 'startOutboxDispatcher();\n' : '') + 'startConsumers();\n' : ''))
@@ -1217,7 +1218,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
       : '');
 }
 
-function withHandlers(template: string, reference: boolean, svc: ServiceNode, impl?: Record<string, string>, externals: ServiceNode[] = []): string {
+function withHandlers(template: string, reference: boolean, svc: ServiceNode, impl: Record<string, string> | undefined, externals: ServiceNode[], mod: ModuleNode): string {
   const startMarker = '// __HANDLERS_START__';
   const endMarker = '// __HANDLERS_END__';
   const start = template.indexOf(startMarker);
@@ -1231,7 +1232,7 @@ function withHandlers(template: string, reference: boolean, svc: ServiceNode, im
   const hashing = isGuarded(svc);
 
   if (impl) {
-    const handlers = implHandlers(svc, impl, hashing, externals);
+    const handlers = implHandlers(svc, impl, hashing, externals, mod);
     return before + handlers + after;
   }
 
@@ -1401,11 +1402,48 @@ function sqlEntityIoLines(): string[] {
   ];
 }
 
-function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: boolean, externals: ServiceNode[] = []): string {
+function implHandlers(
+  svc: ServiceNode,
+  impl: Record<string, string>,
+  guarded: boolean,
+  externals: ServiceNode[],
+  mod: ModuleNode,
+): string {
   const bodies = svc.contract.filter((op) => impl[op.name]);
   const ops = bodies.filter((op) => op.kind === 'op');
   const names = bodies.map((op) => op.name);
   const parts: string[] = [];
+
+  // Constrained scalars (email/url/enum) are checked at the boundary, before
+  // the body runs: a client mistake is a 400 with the field named, never a
+  // TypeError deep inside an operation that turns into a 500.
+  const constraints: Record<string, Record<string, { format?: string; enum?: string[] }>> = {};
+  for (const op of svc.contract) {
+    if (op.kind !== 'op') continue;
+    const table = constraintTable(mod, op.params);
+    if (Object.keys(table).length > 0) constraints[op.name] = table;
+  }
+  parts.push(
+    'const CONSTRAINTS = ' + JSON.stringify(constraints, null, 2) + ';',
+    '',
+    'function validateInput(op, input) {',
+    '  const spec = CONSTRAINTS[op];',
+    '  if (!spec) return null;',
+    '  for (const name of Object.keys(spec)) {',
+    '    const rule = spec[name];',
+    '    const value = input[name];',
+    '    if (value === null || value === undefined) continue;',
+    '    if (rule.enum) {',
+    '      if (!rule.enum.includes(String(value))) return name + " must be one of " + rule.enum.join(", ");',
+    '      continue;',
+    '    }',
+    '    if (rule.format === "email" && (typeof value !== "string" || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value))) return name + " must be an email";',
+    '    if (rule.format === "uri" && (typeof value !== "string" || !/^[a-z][a-z0-9+.-]*:\\/\\/[^\\s]+$/i.test(value))) return name + " must be a url";',
+    '  }',
+    '  return null;',
+    '}',
+    '',
+  );
 
   for (const name of names) {
     const source = impl[name];
@@ -1744,6 +1782,8 @@ function implHandlers(svc: ServiceNode, impl: Record<string, string>, guarded: b
     'async function callImpl(req, res, params, implFn, names, status, opName) {',
     '  const input = await readInput(req, params, names);',
     '  if (input && input.error) return sendError(res, input.error);',
+    '  const invalid = validateInput(opName, input);',
+    '  if (invalid) return send(res, 400, JSON.stringify({ error: \'Invalid\', message: invalid }));',
     '  const io = makeIo(req);',
     '  const denied = await authorize(AUTHZ[opName], io, input);',
     '  if (denied) return sendError(res, denied);',

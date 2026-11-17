@@ -25,6 +25,9 @@ export interface GrpcOptions {
 
 const SCALARS: Record<string, string> = {
   string: 'string',
+  email: 'string',
+  url: 'string',
+  uri: 'string',
   bytes: 'bytes',
   uuid: 'string',
   int: 'int64',
