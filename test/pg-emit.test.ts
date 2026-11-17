@@ -103,3 +103,25 @@ test('a postgres build runs the tasks-sql examples on the memory driver', async 
   assert.deepEqual(report.examples.filter((example) => !example.ok), []);
   assert.ok(report.examples.length >= 2, 'the example file has checks');
 });
+
+test('k8s manifests carry the same database choice as the build', async () => {
+  const { k8sManifests } = await import('../src/emit/k8s.ts');
+  const mod = parse([
+    'module barens @0.1.0 {}',
+    'use capability arcod.std.sql @1',
+    'type Note = { id: uuid, text: string }',
+    'service Notes : http {',
+    '  uses store: sql(ttl: 1h)',
+    '  effects { allow store.insert }',
+    '  contract {',
+    '    public op create(id: uuid) -> Note { route: "POST /v1/n" effects: store.insert }',
+    '  }',
+    '}',
+  ].join('\n'), 'main.arc');
+  const plain = k8sManifests(mod).map((file) => file.content).join('\n');
+  assert.match(plain, /image: mysql:8\.4/);
+  assert.doesNotMatch(plain, /postgres:16-alpine/);
+  const pg = k8sManifests(mod, { dialect: 'postgres' }).map((file) => file.content).join('\n');
+  assert.match(pg, /postgres:16-alpine/);
+  assert.doesNotMatch(pg, /image: mysql:8\.4/);
+});

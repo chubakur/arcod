@@ -21,6 +21,9 @@ export interface K8sOptions {
   servicePort?: number;
   webImage?: string | null;
   ingressClass?: string;
+  // Which sql database a bind-less sql service gets; the same choice the
+  // build makes, so the manifest and the service cannot disagree.
+  dialect?: 'mysql' | 'postgres';
 }
 
 export interface EmittedFile {
@@ -382,7 +385,7 @@ function literalArg(bind: { args: Record<string, unknown> }, key: string): strin
 }
 
 function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
-  const model = composeModel(mod, 0, mod.uis.length > 0);
+  const model = composeModel(mod, 0, mod.uis.length > 0, undefined, options.dialect);
   const name = baseName(mod);
   // The same contract the deploy manifest publishes: no second spelling of
   // the image name that only differs by ':latest'.

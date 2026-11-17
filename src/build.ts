@@ -168,14 +168,15 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     }
     if (spec.artifacts === 'k8s' || spec.artifacts === 'helm') {
       const args = literalMap(deploy.args);
-      const options: K8sOptions = {
+      const k8sOptions: K8sOptions = {
         image: args.image,
         namespace: args.namespace,
         replicas: args.replicas !== undefined ? Number(args.replicas) : undefined,
         host: args.host,
         ingressClass: args.ingressClass,
+        dialect: options.dialect,
       };
-      const emitted = spec.artifacts === 'helm' ? helmChart(mod, options) : k8sManifests(mod, options);
+      const emitted = spec.artifacts === 'helm' ? helmChart(mod, k8sOptions) : k8sManifests(mod, k8sOptions);
       // One environment keeps the plain directory; several get a suffix so
       // their manifests never overwrite each other.
       const base = join(dir, spec.artifacts + (mod.environments.length > 1 ? '-' + environment.name : ''));
