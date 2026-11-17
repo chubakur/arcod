@@ -937,6 +937,8 @@ across language versions (--to, --write). fmt/upgrade share --check and --write.
 
 build defaults to a scaffold: contracts, routes, adapters and infra, with TODO handlers.
 --reference additionally emits the built-in demo bodies (create/read over kv).
+--dialect postgres emits the postgres wire client and store plus postgres
+migrations instead of the MySQL ones; mysql is the default.
 
 prompts writes one deterministic prompt per operation into .arcod/build/prompts,
 plus prompts.json with sha256 of each prompt. A prompt contains only the
