@@ -215,6 +215,7 @@ const PAGE = String.raw`<!doctype html>
 </main>
 <script>
 var OPS = __OPS__;
+var SSR = __SSR__;
 var HAS_AUTH = __HAS_AUTH__;
 var T = __STRINGS__;
 __LANG_RUNTIME__
@@ -452,6 +453,13 @@ function build() {
     out.setAttribute('role', 'status');
     out.setAttribute('aria-live', 'polite');
 
+    // An ssr page arrives with its first screen already fetched: render that
+    // data instead of issuing a request the server has already answered.
+    if (SSR && SSR.op === op.name && SSR.data !== null) {
+      out.setAttribute('data-ssr', 'hydrated');
+      renderResult(out, 200, SSR.data, null);
+    }
+
     form.addEventListener('submit', function (event) {
       event.preventDefault();
       run(op, form, out, button);
@@ -573,6 +581,24 @@ function describeOp(mod: ModuleNode, op: OpNode): UiOp {
   return { name: op.name, method: route.method, path: route.path, params, returns };
 }
 
+// The first screen is the first public GET operation that needs no path
+// parameter: the service can call it with no input, so an ssr page can ship
+// its result inside the HTML instead of asking the browser to fetch it again.
+export function ssrFirstScreenOp(mod: ModuleNode): string | null {
+  const ui = mod.uis[0];
+  const svc = pickService(mod);
+  if (!ui || !svc) return null;
+  const wanted = new Set(ui.uses.map((entry) => entry.split('.').pop() ?? entry));
+  for (const op of svc.contract) {
+    if (op.kind !== 'op' || (!op.isPublic && !op.auth)) continue;
+    if (wanted.size > 0 && !wanted.has(op.name)) continue;
+    const route = routeOfOp(op);
+    if (route.method !== 'GET' || route.path.includes(':')) continue;
+    return op.name;
+  }
+  return null;
+}
+
 export function emitWeb(mod: ModuleNode, options: WebOptions): string {
   const ui = mod.uis[0];
   if (!ui) throw new Error('no ui block declared; add ui <Name> { ... } to generate a frontend');
@@ -631,6 +657,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
       .replaceAll('__HAS_AUTH__', hasAuth || guarded ? 'true' : 'false');
   }
 
+  const ssrOp = ui.render === 'ssr' ? ssrFirstScreenOp(mod) : null;
   return withLang(PAGE)
     .replaceAll('__LANG__', escapeHtml(locale))
     .replaceAll('__THEME__', escapeHtml(theme))
@@ -640,6 +667,11 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
     .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
     .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · operations: ' + ops.length))
     .replaceAll('__OPS__', JSON.stringify(ops))
+    // The service swaps this marker for the first-screen result; a static page
+    // carries no marker at all, so nothing can be left unsubstituted.
+    .replaceAll('__SSR__', () => (ssrOp
+      ? '{"op":' + JSON.stringify(ssrOp) + ',"data":__ARC_SSR_DATA__}'
+      : '{"op":null,"data":null}'))
     .replaceAll('__HAS_AUTH__', hasAuth || guarded ? 'true' : 'false');
 }
 

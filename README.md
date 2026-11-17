@@ -306,8 +306,13 @@ colour.
 default) emits the HTML at build; `ssr` also embeds it in the service, which
 serves it at the ui route — compose then drops the nginx sidecar and the k8s
 ingress points at the service. The page files are still written, so a
-deployment may keep the static front door instead. The page is
-still the build-time HTML: W030 warns that per-request data is not rendered yet.
+deployment may keep the static front door instead. The first screen is
+rendered in the HTML, not fetched after load: the service calls the first
+public `GET` operation that takes no path parameter in-process (no HTTP round
+trip), embeds its result in the page, and the client script hydrates that slot
+instead of issuing the call again. An operation that needs input cannot be
+the first screen, so a `render: ssr` ui whose operations are all
+parameterised or non-`GET` gets `W030` and serves the page without data.
 
 The chat and presentation pages take the same `lang` and the same catalog:
 their static chrome (send button, composer placeholder, join form, deck
@@ -1188,7 +1193,7 @@ Warnings:
 - `W026` an external service is called but no address is configured;
 - `W028` a presentation without `stream`: the page will poll state;
 - `W029` a plugin provider ships a runtime adapter but its capability declares no signatures (the service cannot dispatch it).
-- `W030` `ui { render: ssr }` serves the build-time page from the service; per-request data is not rendered yet.
+- `W030` `ui { render: ssr }` has no first-screen data: no public `GET` operation without a path parameter can be rendered into the page.
 
 ### Examples are tests
 

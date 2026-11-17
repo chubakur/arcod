@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parse } from '../src/parser.ts';
-import { emitWeb, pageStrings } from '../src/emit/web.ts';
+import { emitWeb, pageStrings, ssrFirstScreenOp } from '../src/emit/web.ts';
 import { emitService } from '../src/emit/service.ts';
 import { printModule } from '../src/fmt.ts';
 import { check } from '../src/check.ts';
@@ -210,6 +210,75 @@ test('the running service answers the ui route with the page', async () => {
     const body = await response.text();
     assert.match(body, /^<!doctype html>/i);
     assert.match(body, /<html lang="ru"/);
+  } finally {
+    await svc.stop();
+  }
+});
+
+test('an ssr page carries a data slot only when a GET can fill it', () => {
+  const ssr = (source: string) => source.split('  locale: "ru"').join('  render: ssr\n  locale: "ru"');
+  // Only POST here: there is nothing a server could fetch before the browser
+  // says anything, so the page must not promise data.
+  const postOnly = parse(ssr(LOCALIZED), 'main.arc');
+  assert.equal(ssrFirstScreenOp(postOnly), null);
+  assert.doesNotMatch(emitWeb(postOnly, { maxBytes: 65536 }), /__ARC_SSR_DATA__/);
+
+  const withList = LOCALIZED.replace(
+    '  contract { public op create(text: string) -> Note { route: "POST /v1/notes" } }',
+    '  contract {\n' +
+    '    public op create(text: string) -> Note { route: "POST /v1/notes" }\n' +
+    '    public op list() -> list<Note> { route: "GET /v1/notes" }\n' +
+    '  }',
+  ).replace('uses Notes.create', 'uses Notes.create, Notes.list');
+  const mod = parse(ssr(withList), 'main.arc');
+  assert.equal(ssrFirstScreenOp(mod), 'list');
+  const html = emitWeb(mod, { maxBytes: 65536 });
+  assert.match(html, /"op":"list","data":__ARC_SSR_DATA__/);
+  // The client hydrates that slot instead of issuing a second request.
+  assert.match(html, /SSR\.op === op\.name && SSR\.data !== null/);
+  // A parameterless GET is what makes the slot legal; a path parameter is not.
+  const parameterized = LOCALIZED.replace(
+    '  contract { public op create(text: string) -> Note { route: "POST /v1/notes" } }',
+    '  contract { public op read(id: uuid) -> Note { route: "GET /v1/notes/:id" } }',
+  ).replace('uses Notes.create', 'uses Notes.read');
+  assert.equal(ssrFirstScreenOp(parse(ssr(parameterized), 'main.arc')), null);
+  // No warning once there is a first screen; W030 still names a page that
+  // claims ssr but can never render anything.
+  assert.equal(check(mod).filter((item) => item.code === 'W030').length, 0);
+  assert.equal(check(parse(ssr(LOCALIZED), 'main.arc')).filter((item) => item.code === 'W030').length, 1);
+});
+
+test('the service ships the first screen inside the html', async () => {
+  const { startService } = await import('./harness.ts');
+  const source = [
+    'module loc @0.1.0 {}',
+    'type Note = { id: uuid, text: string }',
+    'service Notes : http {',
+    '  contract { public op list() -> list<Note> { route: "GET /v1/notes" } }',
+    '}',
+    'ui NotesUi {',
+    '  impl: spa',
+    '  route: "/"',
+    '  title: "Notes"',
+    '  uses Notes.list',
+    '  render: ssr',
+    '  locale: "ru"',
+    '}',
+  ].join('\n');
+  const id = '00000000-0000-4000-8000-000000000001';
+  const list = [
+    'export async function list(input, io) {',
+    '  return { result: [{ id: ' + JSON.stringify(id) + ', text: "first screen" }] };',
+    '}',
+  ].join('\n');
+  const svc = await startService(source, { impl: { list } });
+  try {
+    const response = await fetch(svc.base + '/');
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /<!doctype html>/i);
+    assert.doesNotMatch(body, /__ARC_SSR_DATA__/, 'the marker is always substituted');
+    assert.match(body, new RegExp('"data":\\[\\{"id":"' + id + '","text":"first screen"'));
   } finally {
     await svc.stop();
   }

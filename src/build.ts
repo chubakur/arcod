@@ -2,7 +2,7 @@ import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { ModuleNode } from './ast.ts';
 import { emitService, maxBodyBytes } from './emit/service.ts';
-import { emitWeb } from './emit/web.ts';
+import { emitWeb, ssrFirstScreenOp } from './emit/web.ts';
 import { composeYaml, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
 import { buildPrompts } from './prompts.ts';
 import { deployManifest, deployProvider, literalMap } from './deploy.ts';
@@ -87,7 +87,9 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
   // render: ssr means the service serves the page; build still writes the web
   // container so a deployment can pick either front door.
   const firstUi = mod.uis[0];
-  const pages = webHtml && firstUi && firstUi.render === 'ssr' ? [{ route: firstUi.route, html: webHtml }] : [];
+  const pages = webHtml && firstUi && firstUi.render === 'ssr'
+    ? [{ route: firstUi.route, html: webHtml, dataOp: ssrFirstScreenOp(mod) }]
+    : [];
   const service = emitService(mod, { reference, impl, registry: options.registry, dialect: options.dialect, pages });
 
   const files: Array<[string, string]> = [

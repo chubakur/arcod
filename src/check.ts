@@ -21,6 +21,24 @@ export interface CheckOptions {
   registry?: ProviderRegistry;
 }
 
+// An ssr page is rendered from a parameterless GET: that is the only shape a
+// server can answer before the browser has said anything.
+function ssrDataOp(mod: ModuleNode, ui: UiNode): string | null {
+  const svcName = ui.uses[0]?.split('.')[0];
+  const svc = mod.services.find((item) => item.name === svcName) ?? mod.services[0];
+  if (!svc) return null;
+  const wanted = new Set(ui.uses.map((entry) => entry.split('.').pop() ?? entry));
+  for (const op of svc.contract) {
+    if (op.kind !== 'op' || (!op.isPublic && !op.auth)) continue;
+    if (wanted.size > 0 && !wanted.has(op.name)) continue;
+    const clause = op.clauses.find((item) => item.kind === 'route');
+    const value = clause && clause.kind === 'route' ? clause.value : op.name;
+    if (!/^GET\s+\/[^\s:]*$/i.test(value)) continue;
+    return op.name;
+  }
+  return null;
+}
+
 export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[] {
   const diags: Diagnostic[] = [];
   const registry = options.registry ?? builtinRegistry();
@@ -474,12 +492,12 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
 
   // A018 — ui references an operation that does not exist
   for (const ui of mod.uis) {
-    // W030 — server-side rendering is a B12.6 target; the knob parses now so
-    // the spec can declare intent, but the emitter still writes a static page.
-    if (ui.render === 'ssr') {
+    // W030 — ssr without a first screen to render is a page that only looks
+    // server-rendered: nothing can be fetched without input at request time.
+    if (ui.render === 'ssr' && !ssrDataOp(mod, ui)) {
       diags.push(diag('W030', 'warning', mod.file, ui.loc, 'ui.' + ui.name,
-        'render: ssr serves the page from the service, but per-request data is not rendered yet',
-        'the page is the build-time HTML until B12.6c renders it with request data'));
+        'render: ssr has no first-screen data: no public GET operation takes no path parameter',
+        'add a parameterless GET operation or use render: static'));
     }
     if (ui.impl !== 'spa') {
       diags.push(diag('A019', 'error', mod.file, ui.loc, 'ui.' + ui.name, 'ui kind ' + ui.impl + ' is not supported in v0.1', 'use kind: spa'));

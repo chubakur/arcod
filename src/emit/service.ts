@@ -26,7 +26,8 @@ export interface EmitOptions {
   // says which bindings need one and which methods it answers.
   registry?: ProviderRegistry;
   // Pages the service itself serves (ui render: ssr): route and final HTML.
-  pages?: Array<{ route: string; html: string }>;
+  // dataOp names the parameterless GET whose result is folded into the page
+  pages?: Array<{ route: string; html: string; dataOp?: string | null }>;
 }
 
 // ---------- plugin runtime adapters ----------
@@ -998,6 +999,38 @@ __QUEUE_SOURCE__
 
 // ---------- http ----------
 
+// The first screen is a parameterless GET, so it can be answered in-process:
+// the handler writes into a capturing response and its JSON lands in the page.
+// A failure is not fatal to the page: it ships without data and the client
+// hydrates by fetching, exactly as a static page does.
+async function pageWithData(page) {
+  const marker = '__ARC_SSR_DATA__';
+  if (!page.dataOp || page.html.indexOf(marker) < 0) return page.html;
+  const handler = HANDLERS[page.dataOp];
+  let data = null;
+  if (handler) {
+    try {
+      let body = '';
+      const capture = {
+        statusCode: 200,
+        setHeader() {},
+        getHeader() { return undefined; },
+        writeHead(status) { capture.statusCode = status; return capture; },
+        end(chunk) { if (chunk) body += String(chunk); },
+        on() {},
+        once() {},
+        destroy() {},
+      };
+      const fakeReq = { method: 'GET', url: page.route, headers: {}, on() {}, once() {}, destroy() {} };
+      await handler(fakeReq, capture, {});
+      if (capture.statusCode === 200 && body) data = JSON.parse(body);
+    } catch (err) {
+      console.error('ssr data failed:', err && err.message ? err.message : err);
+    }
+  }
+  return page.html.replace(marker, () => JSON.stringify(data === undefined ? null : data).split('<').join('\\u003c'));
+}
+
 const server = http.createServer((req, res) => {
   const start = Date.now();
   const requestId = String(req.headers['x-request-id'] || '').slice(0, 128) || randomUUID();
@@ -1023,10 +1056,11 @@ async function handleRequest(req, res, start) {
     const url = new URL(req.url || '/', 'http://localhost');
     const page = PAGES.find((item) => item.route === url.pathname);
     if (page && (req.method === 'GET' || req.method === 'HEAD')) {
+      const html = await pageWithData(page);
       res.statusCode = 200;
       res.setHeader('content-type', 'text/html; charset=utf-8');
-      res.setHeader('content-length', Buffer.byteLength(page.html));
-      res.end(req.method === 'HEAD' ? undefined : page.html);
+      res.setHeader('content-length', Buffer.byteLength(html));
+      res.end(req.method === 'HEAD' ? undefined : html);
       finish(page.route, '', 200, start, req);
       return;
     }
