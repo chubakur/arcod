@@ -1093,11 +1093,20 @@ function serviceTemplate(svc: ServiceNode, dialect: 'mysql' | 'postgres' = 'mysq
     return streamSource(dropRedis(SERVICE_TEMPLATE), svc)
       .replace('__SQL_STORE__', () => (dialect === 'postgres' ? postgresSources() : SQL_STORE_SOURCE))
       .replace('__STORE_SELECT__', () => [
+        // A build speaks one dialect: a mismatched DATABASE_URL is a config
+        // error with a name, not a protocol error later.
+        'function assertDialectUrl(url, expected) {',
+        "  const scheme = String(url).split(':')[0].toLowerCase();",
+        "  const ok = expected === 'postgres' ? (scheme === 'postgres' || scheme === 'postgresql') : scheme === 'mysql';",
+        "  if (!ok) throw new Error('this build speaks ' + expected + ' but DATABASE_URL uses ' + scheme + '://');",
+        '  return url;',
+        '}',
+        '',
         "const store = spannedStore(process.env.SQL_DRIVER === 'memory'",
         '  ? new MemoryStore()',
         dialect === 'postgres'
-          ? "  : new PgStore(process.env.DATABASE_URL || 'postgres://arcod:***@postgres:5432/arcod'), 'sql');"
-          : "  : new SqlStore(process.env.DATABASE_URL || 'mysql://arcod:arcod@mysql:3306/arcod'), 'sql');",
+          ? "  : new PgStore(assertDialectUrl(process.env.DATABASE_URL || 'postgres://arcod:arcod@postgres:5432/arcod', 'postgres')), 'sql');"
+          : "  : new SqlStore(assertDialectUrl(process.env.DATABASE_URL || 'mysql://arcod:arcod@mysql:3306/arcod', 'mysql')), 'sql');",
       ].join('\n'));
   }
   return streamSource(SERVICE_TEMPLATE, svc)

@@ -274,7 +274,7 @@ export function outboxSource(dialect: 'mysql' | 'postgres' = 'mysql'): string {
   // same client the emitted service does.
   return OUTBOX_SOURCE.replace(
     /new SqlStore\(process\.env\.DATABASE_URL[^)]*\)/,
-    "new PgStore(process.env.DATABASE_URL || 'postgres://arcod:***@postgres:5432/arcod')",
+    "new PgStore(process.env.DATABASE_URL || 'postgres://arcod:arcod@postgres:5432/arcod')",
   );
 }
 

@@ -45,6 +45,11 @@ double-quoted, values go through `pgLiteral`, kv values travel as `BYTEA`,
 for the affected count), `<=>` becomes `IS NOT DISTINCT FROM`, and transactions
 use `BEGIN`.
 
+A mismatched deployment fails at startup with a named error: each build emits
+`assertDialectUrl(url, expected)`, so a mysql build given a `postgres://`
+DATABASE_URL (or the reverse) refuses to start instead of speaking the wrong
+protocol. The outbox dispatcher builds the same client as the service.
+
 The emitted module is syntax-checked in `test/pg-emit.test.ts`; MySQL output is
 asserted to stay byte-identical in shape. Still open (B5.3): one example on both
 dialects end to end, and compose/k8s picking the postgres image when the build

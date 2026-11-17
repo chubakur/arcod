@@ -21,7 +21,8 @@ async function emit(dialect?: 'postgres') {
 test('a postgres build carries the postgres store and its migrations', async () => {
   const code = await emit('postgres');
   assert.match(code, /class PgStore/);
-  assert.match(code, /new PgStore\(process\.env\.DATABASE_URL/);
+  assert.match(code, /new PgStore\(assertDialectUrl\(process\.env\.DATABASE_URL/);
+  assert.match(code, /assertDialectUrl\(url, expected\)/);
   assert.match(code, /postgres:\/\/arcod/);
   assert.match(code, /ON CONFLICT \(k\) DO NOTHING/);
   assert.match(code, /IS NOT DISTINCT FROM/);
@@ -35,7 +36,8 @@ test('a postgres build carries the postgres store and its migrations', async () 
 test('mysql stays the default spelling and is unchanged', async () => {
   const code = await emit();
   assert.match(code, /class SqlStore/);
-  assert.match(code, /new SqlStore\(process\.env\.DATABASE_URL/);
+  assert.match(code, /new SqlStore\(assertDialectUrl\(process\.env\.DATABASE_URL/);
+  assert.match(code, /this build speaks ' \+ expected/);
   assert.match(code, /ENGINE=InnoDB/);
   assert.doesNotMatch(code, /class PgStore/);
   assert.doesNotMatch(code, /BYTEA/);
