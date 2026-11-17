@@ -253,6 +253,9 @@ test('an ssr page carries a data slot only when a GET can fill it', () => {
   assert.match(html, /"op":"list","data":__ARC_SSR_DATA__/);
   // The client hydrates that slot instead of issuing a second request.
   assert.match(html, /SSR\.op === op\.name && SSR\.data !== null/);
+  // Without a uses list every public operation is eligible, in contract order.
+  const openUi = ssr(withList).replace('  uses Notes.create, Notes.list\n', '');
+  assert.equal(ssrFirstScreenOp(parse(openUi, 'main.arc')), 'list');
   // A parameterless GET is what makes the slot legal; a path parameter is not.
   const parameterized = LOCALIZED.replace(
     '  contract { public op create(text: string) -> Note { route: "POST /v1/notes" } }',
