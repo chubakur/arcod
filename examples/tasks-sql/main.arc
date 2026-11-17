@@ -40,6 +40,9 @@ service TaskBoard : http {
   rules {
     // A title is the human key of a task: two open tasks may not share one.
     unique Task.title
+    // The board reads by due date; the index is part of the data model, not
+    // something the DBA adds later.
+    index Task.dueAt
   }
 
   contract {

@@ -192,6 +192,23 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // A062 — an index names a field of a record type, exactly like unique.
+    // An index on a missing field would be a migration that fails at deploy
+    // time, so it is caught where the model is read.
+    for (const rule of svc.rules) {
+      if (rule.kind !== 'index') continue;
+      const parts = rule.path.split('.');
+      const decl = parts.length === 2 ? mod.types.find((type) => type.name === parts[0]) : undefined;
+      const field = decl && decl.type.kind === 'record'
+        ? decl.type.fields.find((item) => item.name === parts[1])
+        : undefined;
+      if (!decl || decl.type.kind !== 'record' || !field) {
+        diags.push(diag('A062', 'error', mod.file, rule.loc, `services.${svc.name}.rules.index`,
+          `index ${rule.path} does not name a field of a record type`,
+          'declare type Task = { … } and write index Task.dueAt'));
+      }
+    }
+
     // Collect capability calls from every expression in the service
     const uses = collectCapabilityUses(svc, aliases);
 

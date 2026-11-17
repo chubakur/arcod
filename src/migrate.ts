@@ -160,7 +160,7 @@ function columnDef(mod: ModuleNode, field: Param, unique: boolean): string {
   return def;
 }
 
-function entityTable(mod: ModuleNode, decl: TypeDecl, uniques: string[]): { up: string; down: string } {
+function entityTable(mod: ModuleNode, decl: TypeDecl, uniques: string[], indexes: string[] = []): { up: string; down: string } {
   const fields = decl.type.kind === 'record' ? decl.type.fields : [];
   const table = decl.name.toLowerCase();
   const cols: string[] = [];
@@ -171,6 +171,13 @@ function entityTable(mod: ModuleNode, decl: TypeDecl, uniques: string[]): { up: 
   for (const field of uniques) {
     if (!fields.some((f) => f.name === field)) continue;
     cols.push('  UNIQUE KEY `uq_' + table + '_' + field + '` (`' + field + '`)');
+  }
+  // A plain index is a query fact: find/order predicates read this column.
+  // Unique fields already carry a b-tree, so they are skipped here.
+  for (const field of indexes) {
+    if (uniques.includes(field)) continue;
+    if (!fields.some((f) => f.name === field)) continue;
+    cols.push('  KEY `idx_' + table + '_' + field + '` (`' + field + '`)');
   }
   const up = 'CREATE TABLE IF NOT EXISTS `' + table + '` (\n' + cols.join(',\n') + '\n) ENGINE=InnoDB';
   return { up, down: 'DROP TABLE IF EXISTS `' + table + '`' };
@@ -192,12 +199,13 @@ export function migrationPlan(mod: ModuleNode, svc: ServiceNode): MigrationPlan 
   const migrations: Migration[] = [];
 
   const uniquesByEntity: Record<string, string[]> = {};
+  const indexesByEntity: Record<string, string[]> = {};
   for (const rule of svc.rules) {
-    if (rule.kind !== 'unique') continue;
+    if (rule.kind !== 'unique' && rule.kind !== 'index') continue;
     const parts = rule.path.split('.');
-    if (parts.length === 2) {
-      (uniquesByEntity[parts[0]] ??= []).push(parts[1]);
-    }
+    if (parts.length !== 2) continue;
+    if (rule.kind === 'unique') (uniquesByEntity[parts[0]] ??= []).push(parts[1]);
+    else (indexesByEntity[parts[0]] ??= []).push(parts[1]);
   }
 
   // Base blob store: what the runtime uses today for kv records and unique
@@ -215,7 +223,8 @@ export function migrationPlan(mod: ModuleNode, svc: ServiceNode): MigrationPlan 
   const entities = mod.types.filter((d) => d.type.kind === 'record').sort((a, b) => a.name.localeCompare(b.name));
   for (const decl of entities) {
     const uniques = uniquesByEntity[decl.name] ?? [];
-    const { up, down } = entityTable(mod, decl, uniques);
+    const indexes = indexesByEntity[decl.name] ?? [];
+    const { up, down } = entityTable(mod, decl, uniques, indexes);
     migrations.push({
       version: String(migrations.length + 1).padStart(4, '0'),
       name: decl.name.toLowerCase(),

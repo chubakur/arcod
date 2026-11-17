@@ -442,6 +442,11 @@ class Parser {
         svc.rules.push({ kind: 'unique', path, loc: locOf(this.prev()) });
         continue;
       }
+      if (this.accept('index')) {
+        const path = this.parseQName();
+        svc.rules.push({ kind: 'index', path, loc: locOf(this.prev()) });
+        continue;
+      }
       this.error('unknown rule ' + JSON.stringify(this.peek().value));
     }
     this.expect('}');

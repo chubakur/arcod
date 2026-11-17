@@ -208,7 +208,9 @@ export type RuleNode =
   | { kind: 'invariant'; name: string; expr: Expr; loc: Loc }
   | { kind: 'atomic'; name: string; steps: string[]; loc: Loc }
   | { kind: 'ordering'; pairs: Array<[string, string]>; loc: Loc }
-  | { kind: 'unique'; path: string; loc: Loc };
+  | { kind: 'unique'; path: string; loc: Loc }
+  // A non-unique index: same Type.field path, no claim, no error.
+  | { kind: 'index'; path: string; loc: Loc };
 
 export interface EffectsNode {
   kind: 'effects';

@@ -769,7 +769,10 @@ type Task = {
 
 service TaskBoard : http {
   uses store: kv(ttl: 604800s)
-  rules { unique Task.title }
+  rules {
+    unique Task.title      // a claim: duplicates are Conflict
+    index Task.dueAt       // a query fact: KEY in the generated DDL
+  }
 }
 ```
 
@@ -795,8 +798,8 @@ encoded — so a page does not shift when rows are inserted above it.
 `examples/tasks-sql` (MySQL) share the same bodies and both pass
 `arcod test --impl`. What is not there yet: the filter runs in the adapter over
 one entity namespace (`scan` plus in-memory match), which is honest for
-thousands of rows, not millions. Schema-aware SQL tables, declared indexes and
-query pushdown are the next step.
+thousands of rows, not millions. Schema-aware SQL tables and declared indexes
+are in place; query pushdown is the next step.
 
 ### One model, different providers
 
@@ -1029,6 +1032,7 @@ Errors:
 - `A054` `unique` does not name a field of a record type;
 - `A055` `unique` without a declared `Conflict` error to return;
 - `A056` `unique` without a `kv`/`sql` store to keep the claim;
+- `A062` `index` does not name a field of a record type;
 - `A057` a saga step's `call`/`compensate` names an unknown operation;
 - `A058` a job's `saga:` names an undeclared saga;
 - `A059` a field default is not a literal of the field type;
@@ -1223,8 +1227,8 @@ This is a vertical slice, not a finished language.
 - **`find` on `kv` is a scan with a filter**, not a query planner: the adapter
   reads one entity namespace and matches in memory, which is fine for thousands
   of rows and wrong for millions. On `sql` the same `find` is pushed into
-  `WHERE`/`ORDER BY`/`LIMIT`; declared indexes beyond `unique` are not
-  generated yet.
+  `WHERE`/`ORDER BY`/`LIMIT`; `rules { index Task.dueAt }` becomes a `KEY` in
+  the generated DDL (single-column indexes only).
 - **A unique claim outlives the record**: the claim key has no TTL of its own,
   so a record that expires still holds its value until `io.remove`/`io.update`
   releases it. Update and delete keep the index in step; TTL cleanup is not

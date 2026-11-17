@@ -328,6 +328,7 @@ class Printer {
         case 'atomic': this.raw(2, 'atomic ' + r.name + ' { ' + r.steps.join('; ') + ' }'); break;
         case 'ordering': this.raw(2, 'ordering { ' + r.pairs.map(([a, b]) => a + ' before ' + b).join('; ') + ' }'); break;
         case 'unique': this.raw(2, 'unique ' + r.path); break;
+        case 'index': this.raw(2, 'index ' + r.path); break;
       }
     }
     this.raw(1, '}');
