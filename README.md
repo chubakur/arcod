@@ -1187,6 +1187,7 @@ Warnings:
 - `W026` an external service is called but no address is configured;
 - `W028` a presentation without `stream`: the page will poll state;
 - `W029` a plugin provider ships a runtime adapter but its capability declares no signatures (the service cannot dispatch it).
+- `W030` `ui { render: ssr }` is declared but the service-side renderer is not built yet: the page is emitted static.
 
 ### Examples are tests
 
