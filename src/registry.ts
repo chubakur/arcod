@@ -100,7 +100,8 @@ export function registryFromScan(scan: PluginScan): ProviderRegistry {
       // Collisions are reported by checkCollisions() and leave the built-in in
       // place; the registry never lets a plugin win silently.
       if (specs[provider.name]) continue;
-      specs[provider.name] = pluginProviderSpec(provider, {}, plugin.path);
+      // runtime.adapter is relative to the package directory, not the manifest.
+      specs[provider.name] = pluginProviderSpec(provider, {}, plugin.dir);
       origin[provider.name] = plugin.package;
     }
   }

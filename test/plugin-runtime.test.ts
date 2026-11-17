@@ -37,7 +37,8 @@ async function fixture() {
     plugins: [{
       package: 'arcod-plugin-fax',
       version: '0.1.0',
-      path: pluginDir,
+      path: join(pluginDir, 'arcod.plugin.json'),
+      dir: pluginDir,
       pluginApi: PLUGIN_API,
       capabilities: [{ name: 'fax' }],
       providers: [{
@@ -76,7 +77,8 @@ test('a declared adapter missing from the package fails the build', async () => 
     plugins: [{
       package: 'arcod-plugin-fax',
       version: '0.1.0',
-      path: join(exampleDir, '..', 'plugin'),
+      path: join(exampleDir, '..', 'plugin', 'arcod.plugin.json'),
+      dir: join(exampleDir, '..', 'plugin'),
       pluginApi: PLUGIN_API,
       capabilities: [{ name: 'fax' }],
       providers: [{ name: 'faxapi', capability: 'fax', runtime: { adapter: 'dist/gone.mjs' } }],
@@ -106,7 +108,8 @@ function faxRegistry(dir: string, signatures: string[]) {
     plugins: [{
       package: 'arcod-plugin-fax',
       version: '0.1.0',
-      path: dir,
+      path: join(dir, 'arcod.plugin.json'),
+      dir,
       pluginApi: PLUGIN_API,
       capabilities: [{ name: 'fax', signatures }],
       providers: [{

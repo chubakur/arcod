@@ -1,0 +1,36 @@
+{
+  "name": "arcod-plugin-notify",
+  "version": "0.1.0",
+  "arcod": {
+    "pluginApi": 1,
+    "capabilities": [
+      {
+        "name": "notify",
+        "summary": "send a notification to a human",
+        "effects": [
+          "send"
+        ],
+        "signatures": [
+          "send(to: string, text: string) -> string"
+        ]
+      }
+    ],
+    "providers": [
+      {
+        "name": "notifyfile",
+        "capability": "notify",
+        "summary": "append notifications to a file, no network (test fixture)",
+        "args": {
+          "path": "where to append the line"
+        },
+        "appEnv": {
+          "NOTIFY_PATH": "${path}"
+        },
+        "runtime": {
+          "adapter": "dist/notify.mjs",
+          "export": "createAdapter"
+        }
+      }
+    ]
+  }
+}

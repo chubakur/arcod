@@ -7,7 +7,7 @@
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { PROVIDERS } from './providers.ts';
 
 export const PLUGIN_API = 1;
@@ -32,7 +32,11 @@ export interface PluginProvider {
 export interface PluginManifest {
   package: string;
   version: string;
+  // The manifest file (what `providers --plugins` prints) and the package
+  // directory it lives in (what runtime.adapter is relative to). They differ;
+  // conflating them made the adapter path point inside the JSON file.
   path: string;
+  dir: string;
   pluginApi: number;
   capabilities: PluginCapability[];
   providers: PluginProvider[];
@@ -141,6 +145,7 @@ function parseManifest(path: string, raw: RawShape): { manifest: PluginManifest 
       package: typeof raw.name === 'string' ? raw.name : path,
       version: typeof raw.version === 'string' ? raw.version : '0.0.0',
       path,
+      dir: dirname(path),
       pluginApi: api,
       capabilities,
       providers,

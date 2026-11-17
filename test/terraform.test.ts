@@ -101,7 +101,8 @@ function faxRegistry() {
     plugins: [{
       package: 'arcod-plugin-fax',
       version: '0.1.0',
-      path: '/plugins/fax',
+      path: '/plugins/fax/arcod.plugin.json',
+      dir: '/plugins/fax',
       pluginApi: PLUGIN_API,
       capabilities: [{ name: 'fax', summary: 'send a fax' }],
       providers: [{
@@ -163,7 +164,8 @@ function registryWith(providers: Array<{ name: string; capability: string; secre
     plugins: [{
       package: 'arcod-plugin-edge',
       version: '0.1.0',
-      path: '/plugins/edge',
+      path: '/plugins/edge/arcod.plugin.json',
+      dir: '/plugins/edge',
       pluginApi: PLUGIN_API,
       capabilities: providers.map((provider) => ({ name: provider.capability })),
       providers: providers.map((provider) => ({ ...provider, capability: provider.capability })),
