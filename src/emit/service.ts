@@ -132,6 +132,25 @@ async function withSpan(name, attrs, fn) {
   }
 }
 
+// Store calls are client spans: an operation span answers "how long did the
+// request take", a store span answers "where did that time go". The proxy
+// keeps the adapter untouched and only observes; capability and entity are
+// the two facts every adapter call knows.
+function spannedStore(inner, capability) {
+  return new Proxy(inner, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value !== 'function') return value;
+      const name = 'store.' + String(prop);
+      return function (...args) {
+        const first = args[0];
+        const entity = typeof first === 'string' ? first.split(/[.:/]/)[0] : '';
+        return withSpan(name, { capability, entity }, () => value.apply(target, args));
+      };
+    },
+  });
+}
+
 function otlpHex(hex) {
   const h = String(hex || '').replace(/-/g, '').slice(0, 32).padEnd(32, '0');
   return Buffer.from(h, 'hex').toString('base64');
@@ -937,17 +956,17 @@ function serviceTemplate(svc: ServiceNode): string {
     return streamSource(dropRedis(SERVICE_TEMPLATE), svc)
       .replace('__SQL_STORE__', () => SQL_STORE_SOURCE)
       .replace('__STORE_SELECT__', () => [
-        "const store = process.env.SQL_DRIVER === 'memory'",
+        "const store = spannedStore(process.env.SQL_DRIVER === 'memory'",
         '  ? new MemoryStore()',
-        "  : new SqlStore(process.env.DATABASE_URL || 'mysql://arcod:arcod@mysql:3306/arcod');",
+        "  : new SqlStore(process.env.DATABASE_URL || 'mysql://arcod:arcod@mysql:3306/arcod'), 'sql');",
       ].join('\n'));
   }
   return streamSource(SERVICE_TEMPLATE, svc)
     .replace('__SQL_STORE__', () => '')
     .replace('__STORE_SELECT__', () => [
-      "const store = process.env.KV_DRIVER === 'memory'",
+      "const store = spannedStore(process.env.KV_DRIVER === 'memory'",
       '  ? new MemoryStore()',
-      "  : new RedisStore(process.env.KV_HOST || 'kv', Number(process.env.KV_PORT || 6379));",
+      "  : new RedisStore(process.env.KV_HOST || 'kv', Number(process.env.KV_PORT || 6379)), 'kv');",
     ].join('\n'));
 }
 
