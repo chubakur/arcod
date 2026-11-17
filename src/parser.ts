@@ -528,7 +528,7 @@ class Parser {
     const ui: UiNode = {
       kind: 'ui', name, impl: 'spa', route: '/', title: null, uses: [],
       layout: null, history: null, send: null, start: null,
-      join: null, state: null, advance: null, locale: null,
+      join: null, state: null, advance: null, locale: null, theme: 'auto',
       slides: [], loc: locOf(start),
     };
     this.expect('{');
@@ -567,6 +567,12 @@ class Parser {
           this.error('layout must be forms, chat or presentation');
         }
         ui.layout = value;
+      } else if (key === 'theme') {
+        const value = this.expectIdent('ui theme').value;
+        if (value !== 'auto' && value !== 'light' && value !== 'dark') {
+          this.error('theme must be auto, light or dark');
+        }
+        ui.theme = value;
       } else if (key === 'history' || key === 'send' || key === 'start'
         || key === 'join' || key === 'state' || key === 'advance') {
         ui[key] = this.parseQName();

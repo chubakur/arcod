@@ -292,8 +292,14 @@ ui TasksUi {
 }
 ```
 
-The chat and presentation pages take the same `lang`; translated catalogs for
-them, a locale switcher and design tokens are separate items (B12).
+Colours are design tokens (`--surface`, `--ink`, `--line`, `--muted`, `--accent`,
+`--danger`) read by every rule, and `theme: "light"|"dark"|"auto"` picks a
+palette on the `data-theme` attribute — `auto` (the default) follows the
+reader's OS through `prefers-color-scheme`. Nothing in the markup hard-codes a
+colour.
+
+The chat and presentation pages take the same `lang`; translated catalogs and
+tokens for them, a locale switcher and SSR are separate items (B12).
 
 ### The chat page
 

@@ -59,15 +59,33 @@ export function pageStrings(locale: string | null): Record<string, string> {
 }
 
 const PAGE = String.raw`<!doctype html>
-<html lang="__LANG__">
+<html lang="__LANG__" data-theme="__THEME__">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
 <style>
-  :root { color-scheme: light dark; --line: #d8dbe0; --muted: #6b7280; --accent: #2563eb; }
+  /* Design tokens: one palette the whole page reads. A theme is a data-theme
+     attribute, never a different stylesheet; 'auto' follows the OS. */
+  :root {
+    --surface: #ffffff; --ink: #111827; --line: #d8dbe0; --muted: #6b7280;
+    --accent: #2563eb; --on-accent: #ffffff; --danger: #b91c1c;
+  }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface: #0b1020; --ink: #e5e7eb; --line: #2b3245; --muted: #9aa3b2;
+    --accent: #6ea8fe; --on-accent: #06122b; --danger: #f87171;
+  }
+  :root[data-theme="auto"] { color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme="auto"] {
+      --surface: #0b1020; --ink: #e5e7eb; --line: #2b3245; --muted: #9aa3b2;
+      --accent: #6ea8fe; --on-accent: #06122b; --danger: #f87171;
+    }
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { margin: 0; background: var(--surface); color: var(--ink); font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
   main { max-width: 900px; margin: 0 auto; padding: 32px 20px 64px; }
   h1 { font-size: 22px; margin: 0 0 4px; }
   .lead { color: var(--muted); margin: 0 0 24px; }
@@ -81,12 +99,12 @@ const PAGE = String.raw`<!doctype html>
   label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
   input, textarea, select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
   textarea { min-height: 76px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
-  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; width: fit-content; }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); cursor: pointer; width: fit-content; }
   button[disabled] { opacity: .6; cursor: progress; }
   .result { margin-top: 12px; }
   .result pre { margin: 0; padding: 12px; border-radius: 8px; background: rgba(127,127,127,.09); overflow: auto; }
   .status { font-size: 12px; font-family: ui-monospace, monospace; color: var(--muted); margin-bottom: 6px; }
-  .bad { color: #b91c1c; }
+  .bad { color: var(--danger); }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
   dt { color: var(--muted); font-size: 13px; }
   dd { margin: 0; word-break: break-word; }
@@ -496,6 +514,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
   const guarded = isGuarded(svc);
 
   const locale = ui.locale ?? 'en';
+  const theme = ui.theme ?? 'auto';
 
   if (ui.layout === 'presentation') {
     const live = presentationOps(mod, svc, ui);
@@ -530,6 +549,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
 
   return PAGE
     .replaceAll('__LANG__', escapeHtml(locale))
+    .replaceAll('__THEME__', escapeHtml(theme))
     .replaceAll('__STRINGS__', jsonForScript(pageStrings(locale)))
     .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
     .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · operations: ' + ops.length))
