@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
+import { createHash } from 'node:crypto';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +10,63 @@ import { PG_STORE_SOURCE } from '../src/emit/pg-store.ts';
 
 // The Postgres client is emitted source, not an imported module: load it the
 // way the generated service will see it, then drive it with a fake server.
+
+// ---------- password auth ----------
+function authBackend(ask: (socket: import('node:net').Socket) => void) {
+  const seen: { password: string | null } = { password: null };
+  const server = createServer((socket) => {
+    let buffer = Buffer.alloc(0);
+    let started = false;
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+      while (buffer.length >= 5) {
+        const tag = String.fromCharCode(buffer[0]);
+        const typed = tag === 'p' || tag === 'Q' || tag === 'X';
+        const length = buffer.readInt32BE(typed ? 1 : 0);
+        const total = typed ? length + 1 : length;
+        if (buffer.length < total) return;
+        const packet = buffer.subarray(typed ? 5 : 4, total);
+        buffer = buffer.subarray(total);
+        if (!started) {
+          started = true;
+          ask(socket);
+          continue;
+        }
+        if (tag === 'p') {
+          seen.password = packet.toString('utf8').replace(String.fromCharCode(0), '');
+          socket.write(Buffer.concat([message('R', int32(0)), message('Z', Buffer.from('I'))]));
+        }
+      }
+    });
+  });
+  return { server, seen };
+}
+
+async function connectTo(port: number, mod: any) {
+  const db = new mod.PgConnection('postgres://arcod:s3cret@127.0.0.1:' + port + '/arcod');
+  await db.connect(2000);
+  await db.end();
+}
+
+test('postgres cleartext and MD5 auth send the expected password message', async () => {
+  const mod = await pg();
+  const clear = authBackend((socket) => socket.write(message('R', int32(3))));
+  await new Promise<void>((resolve) => clear.server.listen(0, '127.0.0.1', resolve));
+  try {
+    await connectTo((clear.server.address() as { port: number }).port, mod);
+    assert.equal(clear.seen.password, 's3cret');
+  } finally { clear.server.close(); }
+
+  const salt = Buffer.from([1, 2, 3, 4]);
+  const md5 = authBackend((socket) => socket.write(message('R', Buffer.concat([int32(5), salt]))));
+  await new Promise<void>((resolve) => md5.server.listen(0, '127.0.0.1', resolve));
+  try {
+    await connectTo((md5.server.address() as { port: number }).port, mod);
+    const inner = createHash('md5').update('s3cret' + 'arcod').digest('hex');
+    const expected = 'md5' + createHash('md5').update(inner).update(salt).digest('hex');
+    assert.equal(md5.seen.password, expected);
+  } finally { md5.server.close(); }
+});
 
 let loaded: any = null;
 async function pg() {
