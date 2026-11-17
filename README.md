@@ -136,7 +136,7 @@ format name (`A061`). Full example: `examples/signup`.
 | `arcod ast [dir]` | print the canonical AST; `--check` also runs the checks |
 | `arcod plan [dir]` | deterministic task DAG: files, dependencies, acceptance criteria |
 | `arcod openapi [dir]` | OpenAPI 3.1 on stdout: paths from `route`, schemas from `types`, errors mapped as in the runtime, examples from the `examples` block; `--service <name>` picks one service |
-| `arcod migrate [dir]` | generate migrations from the data model into `.arcod/build/migrations/` (changelog + up/down `.sql`); `--json`; the service applies them on boot |
+| `arcod migrate [dir]` | generate migrations from the data model into `.arcod/build/migrations/` (changelog + up/down `.sql`); `--json`; `--dialect mysql\|postgres` picks the DDL spelling; the service applies them on boot |
 | `arcod build [dir]` | scaffold: routes, adapters, tests, infrastructure in `.arcod/build`; bodies are TODO |
 | `arcod build --impl` | bodies from `impl/*.mjs`, the `io` adapter, nothing invented |
 | `arcod build --reference` | the same plus built-in demo bodies for `create`/`read` |
@@ -970,6 +970,11 @@ Each migration carries a `version`, a `checksum` (sha256 of up+down) and
 it records applied versions in `arcod_migrations`, a re-run is a no-op, and a
 migration that was edited after being applied refuses to start the service.
 
+The DDL is dialect-shaped: `--dialect postgres` emits double-quoted identifiers,
+`TIMESTAMPTZ`, `BOOLEAN`, `CONSTRAINT ... UNIQUE` and `CREATE INDEX` instead of
+`ENGINE=InnoDB` and `KEY` (see `src/dialects.ts`). MySQL is the runtime dialect
+today; the Postgres plan is generated and tested, the adapter is next.
+
 ```bash
 arcod migrate examples/tasks
 # migrations for TaskBoard (2):
@@ -1254,4 +1259,8 @@ Node >= 24 runs it natively). Pushing a `v*` tag runs `.github/workflows/release
 
 ## License
 
-MIT
+Apache-2.0 — see `LICENSE` and `NOTICE`.
+
+The code you generate from your own `.arc` specs belongs to you: the license
+covers the compiler and its runtime, not the output. The Arcod name and logo
+are not covered by the license (Apache-2.0, section 6).

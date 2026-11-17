@@ -132,7 +132,7 @@ type Account = { id: uuid, email: email, website: url?, plan: Plan = "free" }
 | `arcod ast [dir]` | печатает канонический AST |
 | `arcod plan [dir]` | детерминированный DAG задач: файлы, зависимости, критерии приёмки |
 | `arcod openapi [dir]` | документ OpenAPI 3.1 в stdout: пути из `route`, схемы из `types`, ошибки как в рантайме, примеры из блока `examples`; `--service <имя>` выбирает сервис |
-| `arcod migrate [dir]` | генерирует миграции из модели данных в `.arcod/build/migrations/` (changelog + up/down `.sql`); `--json`; сервис применяет их при старте |
+| `arcod migrate [dir]` | генерирует миграции из модели данных в `.arcod/build/migrations/` (changelog + up/down `.sql`); `--json`; `--dialect mysql\|postgres` выбирает диалект DDL; сервис применяет их при старте |
 | `arcod build [dir]` | scaffold: маршруты, адаптеры, тесты, инфраструктура в `.arcod/build`; тела — TODO |
 | `arcod build --impl` | тела из `impl/*.mjs`, адаптер `io`, ничего не додумывает |
 | `arcod build --reference` | то же плюс встроенные демо-тела `create`/`read` |
@@ -1241,4 +1241,8 @@ versions), `lsp.test.ts` (языковой сервер) и интеграцио
 
 ## Лицензия
 
-MIT
+Apache-2.0 — см. `LICENSE` и `NOTICE`.
+
+Код, сгенерированный из ваших `.arc`-спек, принадлежит вам: лицензия покрывает
+компилятор и рантайм, а не результат генерации. Имя и логотип Arcod лицензией
+не покрываются (Apache-2.0, раздел 6).

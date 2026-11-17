@@ -46,7 +46,7 @@
     "agents",
     "dsl"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "devDependencies": {
     "@types/node": "^26.6.6",
     "graphql": "^17.1.0",
