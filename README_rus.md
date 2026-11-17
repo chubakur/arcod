@@ -281,7 +281,7 @@ ui TasksUi {
 ```
 
 Цвета — design tokens (`--surface`, `--ink`, `--line`, `--muted`, `--accent`,
-`--danger`), которые читает каждое правило, а `theme: "light"|"dark"|"auto"`
+`--danger`), которые читает каждое правило, а `theme: light|dark|auto`
 выбирает палитру через атрибут `data-theme`; `auto` (по умолчанию) следует за
 ОС читателя через `prefers-color-scheme`. В разметке нет захардкоженных цветов.
 

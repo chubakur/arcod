@@ -38,6 +38,23 @@ test('fmt is idempotent on the canonical form', () => {
   assert.equal(printModule(parse(once, 'main.arc')), once);
 });
 
+test('fmt keeps ui locale, locales and theme', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'ui U {',
+    '  title: "T"',
+    '  locale: "ru"',
+    '  locales: "en, ru"',
+    '  theme: dark',
+    '}',
+  ].join('\n');
+  const out = printModule(parse(src, 'main.arc'));
+  assert.match(out, /locale: "ru"/);
+  assert.match(out, /locales: "en, ru"/);
+  assert.match(out, /theme: dark/);
+  assert.equal(printModule(parse(out, 'main.arc')), out, 'fmt must be idempotent');
+});
+
 test('fmt preserves comments attached to declarations', async () => {
   const url = new URL('../examples/tasks/main.arc', import.meta.url);
   const src = await readFile(url, 'utf8');
