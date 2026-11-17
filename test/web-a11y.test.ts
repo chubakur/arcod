@@ -191,3 +191,26 @@ test('render: ssr makes the service serve the page itself', async () => {
   const plain = emitService(mod);
   assert.match(plain, /const PAGES = \[\];/);
 });
+
+test('the running service answers the ui route with the page', async () => {
+  const { startService } = await import('./harness.ts');
+  const withRead = LOCALIZED.replace(
+    '  contract { public op create(text: string) -> Note { route: "POST /v1/notes" } }',
+    '  contract {\n' +
+    '    public op create(text: string) -> Note { route: "POST /v1/notes" }\n' +
+    '    public op read(id: uuid) -> Note { route: "GET /v1/notes/:id" }\n' +
+    '  }',
+  );
+  const source = withRead.split('  locale: "ru"').join('  render: ssr\n  locale: "ru"');
+  const svc = await startService(source, { reference: true });
+  try {
+    const response = await fetch(svc.base + '/');
+    assert.equal(response.status, 200);
+    assert.match(String(response.headers.get('content-type')), /text\/html/);
+    const body = await response.text();
+    assert.match(body, /^<!doctype html>/i);
+    assert.match(body, /<html lang="ru"/);
+  } finally {
+    await svc.stop();
+  }
+});
