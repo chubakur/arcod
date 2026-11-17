@@ -8,7 +8,7 @@ import { IDENTITY_SOURCE } from './identity.ts';
 import { BLOB_SOURCE } from './blob.ts';
 import { LLM_SOURCE } from './llm.ts';
 import { STREAM_SOURCE } from './stream.ts';
-import { QUEUE_SOURCE, QUEUE_SHUTDOWN, OUTBOX_SHUTDOWN, OUTBOX_SOURCE, consumerSource } from './queue.ts';
+import { QUEUE_SOURCE, QUEUE_SHUTDOWN, OUTBOX_SHUTDOWN, OUTBOX_SOURCE, outboxSource, consumerSource } from './queue.ts';
 import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
 import { fieldDefault, migrationPlan, recordColumns, type DefaultValue } from '../migrate.ts';
@@ -1352,7 +1352,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
   const plugins = pluginBindings(mod, options.registry);
   const template = withHandlers(serviceTemplate(svc, options.dialect), reference, svc, options.impl, externals, mod, plugins)
     .replace(CRYPTO_IMPORT, () => cryptoImportFor(svc, reference || Boolean(options.impl), options.dialect))
-    .replace('__QUEUE_SOURCE__\n', () => queueSourceFor(svc, options.impl) + (outboxActive(svc) && options.impl ? OUTBOX_SOURCE + '\n' : ''))
+    .replace('__QUEUE_SOURCE__\n', () => queueSourceFor(svc, options.impl) + (outboxActive(svc) && options.impl ? outboxSource(options.dialect) + '\n' : ''))
     .replace('__QUEUE_WIRE__', () => (hasQueue(svc) && options.impl ? (outboxActive(svc) ? 'startOutboxDispatcher();\n' : '') + 'startConsumers();\n' : ''))
     .replace('__SHUTDOWN__', () => (outboxActive(svc) && options.impl ? OUTBOX_SHUTDOWN : hasQueue(svc) && options.impl ? QUEUE_SHUTDOWN : DEFAULT_SHUTDOWN));
   const header = [

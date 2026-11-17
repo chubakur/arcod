@@ -49,3 +49,14 @@ test('both emitted services are syntactically valid modules', async () => {
     await run(process.execPath, ['--check', file]);
   }
 });
+
+test('the outbox dispatcher constructs the dialect client, not a hard-coded one', async () => {
+  const { outboxSource } = await import('../src/emit/queue.ts');
+  const mysql = outboxSource();
+  assert.match(mysql, /new SqlStore\(/);
+  assert.doesNotMatch(mysql, /new PgStore\(/);
+  const postgres = outboxSource('postgres');
+  assert.match(postgres, /new PgStore\(process\.env\.DATABASE_URL/);
+  assert.match(postgres, /postgres:\/\/arcod/);
+  assert.doesNotMatch(postgres, /new SqlStore\(/);
+});

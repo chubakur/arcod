@@ -266,6 +266,18 @@ export const OUTBOX_SHUTDOWN = String.raw`for (const signal of ['SIGINT', 'SIGTE
 // loop relays committed rows to the broker and marks them published. Runs
 // alongside consumers, so a replica that dies between commit and publish
 // finds the row still pending on restart.
+// The dispatcher is emitted with the service, so it has to construct the same
+// client the service does: a postgres build must not reference SqlStore.
+export function outboxSource(dialect: 'mysql' | 'postgres' = 'mysql'): string {
+  if (dialect !== 'postgres') return OUTBOX_SOURCE;
+  // Swap the constructor, not the text around it: the dispatcher must build the
+  // same client the emitted service does.
+  return OUTBOX_SOURCE.replace(
+    /new SqlStore\(process\.env\.DATABASE_URL[^)]*\)/,
+    "new PgStore(process.env.DATABASE_URL || 'postgres://arcod:***@postgres:5432/arcod')",
+  );
+}
+
 export const OUTBOX_SOURCE = String.raw`// ---------- outbox dispatcher ----------
 
 let outboxStopped = false;
@@ -275,7 +287,7 @@ let outboxDrained = Promise.resolve();
 // not interleave on the single store socket, or the RESP stream corrupts.
 const outboxStore = process.env.SQL_DRIVER === 'memory'
   ? store
-  : new SqlStore(process.env.DATABASE_URL || 'mysql://arcod:arcod@mysql:3306/arcod');
+  : new SqlStore(process.env.DATABASE_URL || 'mysql://arcod:***@mysql:3306/arcod');
 
 async function runOutboxDispatcher() {
   while (!outboxStopped) {
