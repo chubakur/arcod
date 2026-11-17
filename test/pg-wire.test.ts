@@ -1,0 +1,155 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer } from 'node:net';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { PG_STORE_SOURCE } from '../src/emit/pg-store.ts';
+
+// The Postgres client is emitted source, not an imported module: load it the
+// way the generated service will see it, then drive it with a fake server.
+
+let loaded: any = null;
+async function pg() {
+  if (loaded) return loaded;
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-pg-'));
+  const file = join(dir, 'pg.mjs');
+  await writeFile(file, PG_STORE_SOURCE, 'utf8');
+  loaded = await import(pathToFileURL(file).href);
+  return loaded;
+}
+
+// ---------- fake backend ----------
+function cstr(value: string): Buffer {
+  return Buffer.concat([Buffer.from(String(value), 'utf8'), Buffer.from([0])]);
+}
+function message(type: string, payload: Buffer): Buffer {
+  const head = Buffer.alloc(5);
+  head.write(type, 0);
+  head.writeInt32BE(payload.length + 4, 1);
+  return Buffer.concat([head, payload]);
+}
+function int32(value: number): Buffer {
+  const out = Buffer.alloc(4);
+  out.writeInt32BE(value, 0);
+  return out;
+}
+function int16(value: number): Buffer {
+  const out = Buffer.alloc(2);
+  out.writeInt16BE(value, 0);
+  return out;
+}
+function rowDescription(names: string[]): Buffer {
+  const parts = [int16(names.length)];
+  for (const name of names) parts.push(cstr(name), int32(0), int16(0), int32(25), int16(-1), int32(-1), int16(0));
+  return message('T', Buffer.concat(parts));
+}
+function dataRow(cells: Array<string | null>): Buffer {
+  const parts = [int16(cells.length)];
+  for (const cell of cells) {
+    if (cell === null) parts.push(int32(-1));
+    else parts.push(int32(Buffer.byteLength(cell)), Buffer.from(cell, 'utf8'));
+  }
+  return message('D', Buffer.concat(parts));
+}
+function errorResponse(code: string, text: string): Buffer {
+  return message('E', Buffer.concat([
+    Buffer.from('S'), cstr('ERROR'),
+    Buffer.from('C'), cstr(code),
+    Buffer.from('M'), cstr(text),
+    Buffer.from([0]),
+  ]));
+}
+
+test('postgres SCRAM-SHA-256 matches the RFC 7677 vector', async () => {
+  const mod = await pg();
+  const firstBare = 'n=user,r=rOprNGfwEbeRWgbNEkqO';
+  const serverFirst = 'r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096';
+  const out = mod.pgScramFinal('pencil', serverFirst, firstBare);
+  assert.equal(
+    out.clientFinal,
+    'c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ='
+  );
+  assert.equal(out.serverSignature, '6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=');
+});
+
+test('postgres client starts up, queries and maps a unique violation', async () => {
+  const mod = await pg();
+  const seen = { startup: [] as string[], queries: [] as string[] };
+  const server = createServer((socket) => {
+    let buffer = Buffer.alloc(0);
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+      while (buffer.length >= 5) {
+        const tag = String.fromCharCode(buffer[0]);
+        const typed = tag === 'Q' || tag === 'X' || tag === 'p';
+        const length = buffer.readInt32BE(typed ? 1 : 0);
+        const total = typed ? length + 1 : length;
+        if (buffer.length < total) return;
+        const packet = buffer.subarray(typed ? 5 : 4, total);
+        buffer = buffer.subarray(total);
+        // Startup packet: protocol version + null-terminated key/value pairs.
+        if (!typed) {
+          const parts = packet.subarray(4).toString('utf8').split(String.fromCharCode(0)).filter(Boolean);
+          seen.startup = parts;
+          socket.write(Buffer.concat([
+            message('R', int32(0)),
+            message('S', Buffer.concat([cstr('server_version'), cstr('16.4')])),
+            message('K', Buffer.concat([int32(1), int32(2)])),
+            message('Z', Buffer.from('I')),
+          ]));
+          continue;
+        }
+        const type = tag;
+        const body = packet;
+        if (type === 'Q') {
+          const sql = body.toString('utf8').replace(String.fromCharCode(0), '');
+          seen.queries.push(sql);
+          if (sql.includes('boom')) {
+            socket.write(Buffer.concat([errorResponse('23505', 'duplicate key value violates unique constraint'), message('Z', Buffer.from('I'))]));
+          } else {
+            socket.write(Buffer.concat([
+              rowDescription(['id', 'title']),
+              dataRow(['42', 'hello']),
+              message('C', cstr('SELECT 1')),
+              message('Z', Buffer.from('I')),
+            ]));
+          }
+        }
+      }
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as { port: number }).port;
+  try {
+    const db = new mod.PgConnection('postgres://arcod:s3cret@127.0.0.1:' + port + '/arcod_test');
+    await db.connect(2000);
+    assert.deepEqual(seen.startup, ['user', 'arcod', 'database', 'arcod_test', 'client_encoding', 'UTF8']);
+    const found = await db.query('SELECT id, title FROM tasks');
+    assert.deepEqual(found.fields, ['id', 'title']);
+    assert.deepEqual(found.rows, [['42', 'hello']]);
+    await assert.rejects(() => db.query('INSERT boom'), (error: any) => {
+      assert.equal(error.code, '23505');
+      assert.equal(mod.pgIsUnique(error), true);
+      return true;
+    });
+    await db.end();
+  } finally {
+    server.close();
+  }
+});
+
+test('postgres literals and cells are typed, not string-concatenated', async () => {
+  const mod = await pg();
+  assert.equal(mod.pgLiteral('bytes', "a'b"), "decode('612762', 'hex')");
+  assert.equal(mod.pgLiteral('string', "it's"), "'it''s'");
+  assert.equal(mod.pgLiteral('bool', true), 'TRUE');
+  assert.equal(mod.pgLiteral('json', { a: 1 }), "'{\"a\":1}'::jsonb");
+  assert.equal(mod.pgLiteral('int', 7), '7');
+  assert.equal(mod.pgLiteral('datetime', '2026-11-17T22:30:00Z'), "'2026-11-17 22:30:00'::timestamptz");
+  assert.equal(mod.readPgCell('bool', 't'), true);
+  assert.equal(mod.readPgCell('int', '12'), 12);
+  assert.equal(mod.readPgCell('datetime', '2026-11-17 22:30:00+00'), '2026-11-17T22:30:00Z');
+  assert.deepEqual(Object.keys(mod.readPgCell('json', '{"a":1}')), ['a']);
+});
