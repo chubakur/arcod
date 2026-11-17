@@ -137,6 +137,7 @@ format name (`A061`). Full example: `examples/signup`.
 | `arcod plan [dir]` | deterministic task DAG: files, dependencies, acceptance criteria |
 | `arcod openapi [dir]` | OpenAPI 3.1 on stdout: paths from `route`, schemas from `types`, errors mapped as in the runtime, examples from the `examples` block; `--service <name>` picks one service |
 | `arcod migrate [dir]` | generate migrations from the data model into `.arcod/build/migrations/` (changelog + up/down `.sql`); `--json`; `--dialect mysql\|postgres` picks the DDL spelling; the service applies them on boot |
+| `arcod build --dialect postgres` | same build, Postgres client/store/migrations; MySQL is the default |
 | `arcod build [dir]` | scaffold: routes, adapters, tests, infrastructure in `.arcod/build`; bodies are TODO |
 | `arcod build --impl` | bodies from `impl/*.mjs`, the `io` adapter, nothing invented |
 | `arcod build --reference` | the same plus built-in demo bodies for `create`/`read` |
@@ -1082,8 +1083,15 @@ migration that was edited after being applied refuses to start the service.
 
 The DDL is dialect-shaped: `--dialect postgres` emits double-quoted identifiers,
 `TIMESTAMPTZ`, `BOOLEAN`, `CONSTRAINT ... UNIQUE` and `CREATE INDEX` instead of
-`ENGINE=InnoDB` and `KEY` (see `src/dialects.ts`). MySQL is the runtime dialect
-today; the Postgres plan is generated and tested, the adapter is next.
+`ENGINE=InnoDB` and `KEY` (see `src/dialects.ts`).
+
+`arcod build --dialect postgres` carries that dialect into the service: the
+build embeds the Postgres wire client and a `PgStore` with the full store
+contract (entity CRUD/find, kv/claim/take, outbox, transactions) plus the
+Postgres migration changelog, and defaults `DATABASE_URL` to
+`postgres://...@postgres:5432/...`. A build speaks one dialect: a
+`DATABASE_URL` of the other scheme stops startup with a named error. MySQL
+remains the default output, byte for byte. See `docs/postgres-runtime.md`.
 
 ```bash
 arcod migrate examples/tasks

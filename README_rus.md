@@ -134,6 +134,7 @@ type Account = { id: uuid, email: email, website: url?, plan: Plan = "free" }
 | `arcod openapi [dir]` | документ OpenAPI 3.1 в stdout: пути из `route`, схемы из `types`, ошибки как в рантайме, примеры из блока `examples`; `--service <имя>` выбирает сервис |
 | `arcod migrate [dir]` | генерирует миграции из модели данных в `.arcod/build/migrations/` (changelog + up/down `.sql`); `--json`; `--dialect mysql\|postgres` выбирает диалект DDL; сервис применяет их при старте |
 | `arcod build [dir]` | scaffold: маршруты, адаптеры, тесты, инфраструктура в `.arcod/build`; тела — TODO |
+| `arcod build --dialect postgres` | та же сборка с postgres-клиентом, `PgStore` (entity/kv/outbox/транзакции) и postgres-миграциями; mysql по умолчанию |
 | `arcod build --impl` | тела из `impl/*.mjs`, адаптер `io`, ничего не додумывает |
 | `arcod build --reference` | то же плюс встроенные демо-тела `create`/`read` |
 | `arcod test [dir]` | поднимает сгенерированный сервис с in-memory kv и прогоняет `examples` |
