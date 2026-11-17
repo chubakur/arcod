@@ -295,6 +295,64 @@ test('every emitter is reachable through the CLI', async () => {
   assert.match(await readFile(join(dir, 'out', 'tf', 'main.tf'), 'utf8'), /provider "yandex"/);
 });
 
+test('make prints a pipeline table and the same steps as JSON', async () => {
+  const dir = await tempDir('arcod-cli-make-');
+  await cp(new URL('../examples/tasks-sql', import.meta.url), dir, { recursive: true });
+  const spec = join(dir, 'main.arc');
+
+  const human = await run(['make', spec, '--skip-impl', '--no-test']);
+  assert.equal(human.code, 0, JSON.stringify(human.err));
+  assert.match(human.out, /^arcod make: /m);
+  assert.match(human.out, /check\s+ok/);
+  assert.match(human.out, /impl\s+skip\s+skipped \(--skip-impl\)/);
+  assert.match(human.out, /test\s+skip\s+skipped \(--no-test\)/);
+  assert.match(human.out, /done in \d+ ms/);
+
+  const json = await run(['make', spec, '--skip-impl', '--no-test', '--json']);
+  assert.equal(json.code, 0, JSON.stringify(json.err));
+  const result = JSON.parse(json.out);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.steps.map((step: { name: string }) => step.name), ['check', 'prompts', 'impl', 'build', 'test']);
+});
+
+test('make exits 1 and stops when check fails', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'main.arc');
+  await writeFile(file, 'module bad @0.1.0 {\n  meta { owner: "@you" }\n}\n\nservice Bad : http {\n  contract {\n    public op go() -> string {\n      route: "GET /v1/go"\n      errors: Missing\n    }\n  }\n}\n', 'utf8');
+  const r = await run(['make', file, '--skip-impl', '--no-test']);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /stopped in/);
+  assert.match(r.out, /check\s+fail/);
+});
+
+test('prompts writes tasks and refuses a budget nothing fits', async () => {
+  const dir = await tempDir('arcod-cli-prompts-');
+  await cp(new URL('../examples/tasks-sql', import.meta.url), dir, { recursive: true });
+  const spec = join(dir, 'main.arc');
+
+  const ok = await run(['prompts', spec]);
+  assert.equal(ok.code, 0, JSON.stringify(ok.err));
+  assert.match(ok.out, /prompts: \d+ \(model /);
+  assert.match(ok.out, /written to .*prompts$/);
+  const manifest = JSON.parse(await readFile(join(dir, '.arcod', 'build', 'prompts.json'), 'utf8'));
+  assert.ok(manifest.tasks.length > 0);
+
+  const cramped = await run(['prompts', spec, '--max-tokens', '1']);
+  assert.equal(cramped.code, 1);
+  assert.match(cramped.err, /over budget \(1\)/);
+  assert.match(cramped.out, /over-budget/);
+});
+
+test('upgrade reports the current version and refuses an unknown target', async () => {
+  const already = await run(['upgrade', signupUrl.pathname]);
+  assert.equal(already.code, 0);
+  assert.match(already.out, /: already at 0\.1\.0$/);
+
+  const refused = await run(['upgrade', signupUrl.pathname, '--to', '9.9.9']);
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /unknown target version 9\.9\.9/);
+});
+
 test('an emitter refuses a spec that does not check', async () => {
   const dir = await tempDir();
   const file = join(dir, 'main.arc');
