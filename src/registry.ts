@@ -87,6 +87,38 @@ export function registryFromScan(scan: PluginScan): ProviderRegistry {
   return makeRegistry(specs, origin, extraCapabilities.sort());
 }
 
+export interface ProviderRow {
+  origin: string | null;
+  capability: string;
+  provider: string;
+  image: string;
+  port: number | null;
+  env: string[];
+  oneShot: boolean;
+  external: boolean;
+  requires: string[];
+}
+
+// One table for the CLI and its tests: a plugin provider is a row like any
+// other, with the declaring package in origin. appEnv is sampled with neutral
+// arguments, so the row shows keys, never values.
+export function providerRows(registry: ProviderRegistry): ProviderRow[] {
+  return registry.names().map((name) => {
+    const spec = registry.get(name)!;
+    return {
+      origin: registry.origin[name] ?? null,
+      capability: spec.capability,
+      provider: spec.name,
+      image: spec.image ?? '(external)',
+      port: spec.port ?? null,
+      env: spec.appEnv ? Object.keys(spec.appEnv({ host: 'host', port: spec.port ?? 0, alias: 'service', args: { dsn: 'x' } })).sort() : [],
+      oneShot: spec.oneShot === true,
+      external: spec.external === true,
+      requires: spec.requires ?? [],
+    };
+  });
+}
+
 export function builtinRegistry(): ProviderRegistry {
   return makeRegistry({ ...PROVIDERS }, {}, []);
 }

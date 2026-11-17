@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { PLUGIN_API, scanPlugins } from '../src/plugins.ts';
-import { registryFromScan, pluginProviderSpec, resetRegistryCache } from '../src/registry.ts';
+import { providerRows, registryFromScan, pluginProviderSpec, resetRegistryCache } from '../src/registry.ts';
 import { composeYaml } from '../src/emit/compose.ts';
 
 // Step 2 of docs/plugin-registry.md: a provider a plugin declares resolves in
@@ -79,6 +79,19 @@ test('plugin appEnv expands bind arguments, not template text', () => {
   assert.deepEqual(env, { FAX_URL: 'https://fax.example/v1', HOST_HINT: 'fax' });
   assert.equal(spec.external, true, 'a plugin provider is configured, never provisioned');
   assert.deepEqual(spec.requires, ['url']);
+});
+
+test('the provider table lists a plugin provider with its origin', async () => {
+  const registry = registryFromScan(await scanWith());
+  const rows = providerRows(registry);
+  const fax = rows.find((row) => row.provider === 'faxapi')!;
+  assert.equal(fax.origin, 'arcod-plugin-fax');
+  assert.equal(fax.external, true);
+  assert.equal(fax.image, '(external)');
+  assert.deepEqual(fax.env, ['FAX_TOKEN_FILE', 'FAX_URL']);
+  const redis = rows.find((row) => row.provider === 'redis')!;
+  assert.equal(redis.origin, null, 'a built-in has no declaring package');
+  assert.equal(redis.image, 'redis:7-alpine');
 });
 
 test('compose renders a plugin provider as env, without inventing an image', async () => {

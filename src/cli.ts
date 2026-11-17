@@ -25,7 +25,7 @@ import { adoptOpenapi } from './adopt.ts';
 import { helmChart, k8sManifests } from './emit/k8s.ts';
 import { terraformFiles, formatTerraform } from './emit/terraform.ts';
 import { scanPlugins } from './plugins.ts';
-import { loadRegistry, resetRegistryCache } from './registry.ts';
+import { loadRegistry, providerRows, resetRegistryCache } from './registry.ts';
 import { LANG_VERSION, declaredVersion, migrateSpec, VersionError } from './versions.ts';
 import { scaffold, isValidName } from './new.ts';
 import { serve as serveLsp } from './lsp-server.ts';
@@ -479,23 +479,9 @@ function runProviders(flags: Flags): void {
     return;
   }
 
-  const registry = loadRegistry(process.cwd());
-  const rows = registry.names().map((name) => {
-    const spec = registry.get(name)!;
-    return {
-      // A plugin-declared provider is listed with the package that declared it;
-      // built-ins have no origin.
-      origin: registry.origin[name] ?? null,
-      capability: spec.capability,
-      provider: spec.name,
-      image: spec.image ?? '(external)',
-      port: spec.port ?? null,
-      env: spec.appEnv ? Object.keys(spec.appEnv({ host: 'host', port: spec.port ?? 0, alias: 'service', args: { dsn: 'x' } })).sort() : [],
-      oneShot: spec.oneShot === true,
-      external: spec.external === true,
-      requires: spec.requires ?? [],
-    };
-  });
+  // A plugin-declared provider is listed with the package that declared it;
+  // built-ins have no origin.
+  const rows = providerRows(loadRegistry(process.cwd()));
 
   if (flags.json) {
     console.log(JSON.stringify(rows, null, 2));
