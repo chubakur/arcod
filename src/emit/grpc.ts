@@ -277,7 +277,7 @@ export function grpcProto(mod: ModuleNode, options: GrpcOptions = {}): string {
   const svc: ServiceNode | null = options.service
     ? mod.services.find((item) => item.name === options.service) ?? null
     : pickService(mod);
-  if (!svc) throw new Error('no service to emit gRPC for');
+  if (!svc) throw new Error(options.service ? 'no service named ' + options.service + ' to emit gRPC for' : 'no service to emit gRPC for');
 
   const registry = new Registry(mod);
   const methods: string[] = [];

@@ -441,6 +441,14 @@ test('test says bodies are missing instead of quoting the emitter', async () => 
   assert.doesNotMatch(r.out + r.err, /templates only for/, 'the internal wording stays internal');
 });
 
+test('an emitter asked for a service that is not there names it', async () => {
+  for (const command of ['openapi', 'graphql', 'grpc']) {
+    const r = await run([command, signupUrl.pathname, '--service', 'Nope']);
+    assert.equal(r.code, 1, command);
+    assert.match(r.err, new RegExp('no service named Nope to emit'), command + ' names the request');
+  }
+});
+
 test('an emitter refuses a spec that does not check', async () => {
   const dir = await tempDir();
   const file = join(dir, 'main.arc');

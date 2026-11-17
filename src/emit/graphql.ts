@@ -240,7 +240,7 @@ export function graphqlSchema(mod: ModuleNode, options: GraphqlOptions = {}): st
   const svc: ServiceNode | null = options.service
     ? mod.services.find((item) => item.name === options.service) ?? null
     : pickService(mod);
-  if (!svc) throw new Error('no service to emit GraphQL for');
+  if (!svc) throw new Error(options.service ? 'no service named ' + options.service + ' to emit GraphQL for' : 'no service to emit GraphQL for');
 
   const registry = new Registry(mod);
   const roots: { method: string; field: string }[] = [];

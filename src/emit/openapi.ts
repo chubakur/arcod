@@ -373,7 +373,7 @@ export function emitOpenapi(mod: ModuleNode, options: OpenapiOptions = {}): Open
   const svc = options.service
     ? mod.services.find((item) => item.name === options.service)
     : pickService(mod);
-  if (!svc) throw new Error('no service to emit OpenAPI for');
+  if (!svc) throw new Error(options.service ? 'no service named ' + options.service + ' to emit OpenAPI for' : 'no service to emit OpenAPI for');
 
   const examples = interpretExamples(svc);
   const paths: Record<string, unknown> = {};
