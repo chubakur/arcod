@@ -352,7 +352,9 @@ unless the environment names a `registry`, a `repository` or pins `image`. Semve
 `tag`, `image`) per service and in an `images` map, so a CI job builds the
 same name the runners pull — arcod still pushes nothing itself. `arcod k8s`
 and `arcod helm` render the same name by default; `--env` picks which
-environment's contract they use.
+environment's contract they use. `.github/workflows/images.yml` builds that
+image on a tag or on demand — and stops there: pushing to a registry is a
+release action, not something a generator does.
 
 **Secrets** are declared by the providers, not guessed from names: `postgres`
 marks `POSTGRES_PASSWORD` and `DATABASE_URL` sensitive, `s3` marks

@@ -1,0 +1,49 @@
+name: images
+
+# Build the images the deploy contract names. Nothing is pushed: publishing a
+# tag is a release action and needs the owner's registry and credentials
+# (see DECISIONS.md / B7 in BACKLOG.md). The job exists to prove that the name
+# in deploy.<env>.json is buildable by a plain Docker.
+on:
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: example directory with a deploy environment
+        default: examples/tasks
+      environment:
+        description: environment whose image contract to build
+        default: prod
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: install
+        run: npm ci --no-audit --no-fund
+      - name: build the service
+        run: node bin/arcod.mjs build "${{ inputs.spec || 'examples/tasks' }}"
+      - name: read the image contract
+        id: contract
+        env:
+          ARC_ENV: ${{ inputs.environment || 'prod' }}
+          ARC_SPEC: ${{ inputs.spec || 'examples/tasks' }}
+        run: |
+          node --input-type=module -e "
+            import { readFileSync } from 'node:fs';
+            const manifest = JSON.parse(readFileSync('.arcod/build/deploy.' + process.env.ARC_ENV + '.json', 'utf8'));
+            const image = manifest.services[0].image;
+            console.log('image=' + image);
+            console.log('artifact=' + process.env.ARC_SPEC);
+          " >> "$GITHUB_OUTPUT"
+      - name: docker build
+        run: docker build -t "${{ steps.contract.outputs.image }}" .arcod/build/service
+      - name: summary
+        run: |
+          echo "built ${{ steps.contract.outputs.image }} (not pushed)" >> "$GITHUB_STEP_SUMMARY"
