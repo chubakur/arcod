@@ -162,9 +162,10 @@ function checkCollisions(scan: PluginScan): void {
       capabilities.add(capability.name);
     }
     for (const provider of plugin.providers) {
+      // Keep the name as declared: a renamed entry would make the listing lie
+      // about what the manifest says. The issue is the report.
       if (seen.has(provider.name)) {
         scan.issues.push({ path: plugin.path, severity: 'error', message: 'provider ' + provider.name + ' shadows a built-in or an earlier plugin' });
-        provider.name = provider.name + '@' + plugin.version;
         continue;
       }
       seen.add(provider.name);
