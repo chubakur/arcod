@@ -127,6 +127,20 @@
     ],
     "description": "Интерфейс-чат"
   },
+  "SSR UI": {
+    "prefix": "uissr",
+    "body": [
+      "ui ${1:Web} {",
+      "  kind:   spa",
+      "  route:  \"/\"",
+      "  title:  \"${2:Интерфейс}\"",
+      "  uses   ${3:Service.list}, ${4:Service.create}",
+      "  render: ssr",
+      "  locale: \"${5:ru}\"",
+      "}"
+    ],
+    "description": "Интерфейс, который сервис рендерит сам (render: ssr)"
+  },
   "Effects": {
     "prefix": "effects",
     "body": [
