@@ -350,7 +350,9 @@ arcod deploy . --env prod --json   # the manifest
 unless the environment names a `registry`, a `repository` or pins `image`. Semver build metadata is sanitized into a legal tag (`0.2.0+build.7` →
 `0.2.0-build.7`). The manifest carries the parts (`registry`, `repository`,
 `tag`, `image`) per service and in an `images` map, so a CI job builds the
-same name the runners pull — arcod still pushes nothing itself.
+same name the runners pull — arcod still pushes nothing itself. `arcod k8s`
+and `arcod helm` render the same name by default; `--env` picks which
+environment's contract they use.
 
 **Secrets** are declared by the providers, not guessed from names: `postgres`
 marks `POSTGRES_PASSWORD` and `DATABASE_URL` sensitive, `s3` marks

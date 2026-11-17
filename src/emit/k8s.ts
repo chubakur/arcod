@@ -2,6 +2,7 @@ import type { ModuleNode } from '../ast.ts';
 import { kebab } from '../plan.ts';
 import { providerFor } from '../providers.ts';
 import { composeModel, localEnvironment, providerImage, type RenderedProvider } from './compose.ts';
+import { imageContract } from '../deploy.ts';
 
 // The kubernetes target is a second view of the same topology compose emits:
 // composeModel() decides which providers exist, their images and the app env,
@@ -9,6 +10,10 @@ import { composeModel, localEnvironment, providerImage, type RenderedProvider } 
 // cluster: the output is declarative text, deterministic for a given model.
 
 export interface K8sOptions {
+  // Which environment's deploy target this render belongs to: its image
+  // contract names the image the manifest advertises. Defaults to the first
+  // environment that declares a deploy.
+  environment?: string;
   image?: string;
   namespace?: string;
   replicas?: number;
@@ -379,7 +384,16 @@ function literalArg(bind: { args: Record<string, unknown> }, key: string): strin
 function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
   const model = composeModel(mod, 0, mod.uis.length > 0);
   const name = baseName(mod);
-  const appImage = options.image && options.image.length > 0 ? options.image : name + ':latest';
+  // The same contract the deploy manifest publishes: no second spelling of
+  // the image name that only differs by ':latest'.
+  const deployEnv = options.environment
+    ? mod.environments.find((item) => item.name === options.environment)
+    : mod.environments.find((item) => item.deploy);
+  const service = mod.services.find((item) => !item.external);
+  const derived = deployEnv && deployEnv.deploy && service
+    ? imageContract(mod, deployEnv, service.name).image
+    : name + ':latest';
+  const appImage = options.image && options.image.length > 0 ? options.image : derived;
   const webImage = options.webImage && options.webImage.length > 0 ? options.webImage : name + '-web:latest';
 
   // Credentials are whatever the bound providers call sensitive; nothing is

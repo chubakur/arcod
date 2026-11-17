@@ -319,6 +319,7 @@ async function runK8s(flags: Flags): Promise<void> {
     return;
   }
   const options = {
+    environment: flags.env,
     image: flags.image,
     namespace: flags.namespace,
     replicas: flags.replicas,

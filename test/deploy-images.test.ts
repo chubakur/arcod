@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parse } from '../src/parser.ts';
 import { deployManifest, imageContract } from '../src/deploy.ts';
+import { k8sManifests } from '../src/emit/k8s.ts';
 
 // An image name is a contract between the build and every runner. It comes
 // from the spec version, can be redirected to a registry or pinned explicitly,
@@ -63,6 +64,19 @@ test('a pinned image with a port is split into registry, repository and tag', ()
   assert.equal(contract.registry, 'registry.local:5000');
   assert.equal(contract.repository, 'team/board');
   assert.equal(contract.tag, '9.9.9');
+});
+
+test('k8s renders the same image name the manifest publishes', async () => {
+  const mod = parse(await readFile(tasksUrl, 'utf8'), 'main.arc');
+  const render = (environment?: string) => {
+    const deployment = k8sManifests(mod, { environment })
+      .find((file) => file.path === 'service.yaml');
+    assert.ok(deployment, 'the service workload is rendered');
+    const line = deployment.content.split('\n').find((item) => item.trim().startsWith('image:'));
+    return line!.trim().slice('image:'.length).trim();
+  };
+  assert.equal(render('prod'), 'cr.yandex/arcod/tasks:0.1.0', 'prod contract');
+  assert.equal(render(), 'arcod/tasks-TaskBoard:0.1.0', 'first deploy env contract');
 });
 
 test('the deploy manifest carries images and their parts', async () => {
