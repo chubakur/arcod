@@ -620,7 +620,7 @@ async function runBuild(flags: Flags): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: flags.reference, implDir: flags.impl ? undefined : null });
+  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: flags.reference, implDir: flags.impl ? undefined : null, registry: loadRegistry(loaded.dir) });
   const mode = result.impl.length > 0 ? 'impl' : result.reference ? 'reference' : 'scaffold';
   console.log('arcod build (' + mode + '): ' + result.files.length + ' files in ' + result.dir);
   if (mode === 'impl') {
@@ -652,6 +652,7 @@ async function runTest(flags: Flags): Promise<void> {
     port: flags.port,
     reference: !useImpl,
     implDir: useImpl ? undefined : null,
+    registry: loadRegistry(loaded.dir),
   });
   const report = await runExamples(loaded.mod, result.dir);
 
@@ -700,6 +701,7 @@ async function runRun(flags: Flags): Promise<void> {
     port: flags.port,
     reference: !flags.scaffold && !flags.impl,
     implDir: flags.impl ? undefined : null,
+    registry: loadRegistry(loaded.dir),
   });
   if (result.impl.length > 0) {
     console.log('arcod run: impl bodies (' + result.impl.join(', ') + ')');

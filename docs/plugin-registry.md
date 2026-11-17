@@ -129,6 +129,11 @@ so two machines can be compared.
    already rejects it.
 3. Copy `runtime.adapter` into the generated service and document the module
    contract (`createAdapter(io) -> { publish, consume }`).
+   First slice done (B11.3a): `arcod build` copies each used plugin provider's
+   adapter to `plugins/<provider>.mjs` and writes `plugins.json
+   ({provider, package, source, target, export})` next to the build. The
+   generated service does not import it yet — dispatch wiring is the rest of
+   this step.
 4. One reference plugin in the repository's test fixtures (a fake queue) that
    proves the seam end to end without a network dependency.
 

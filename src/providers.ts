@@ -23,6 +23,10 @@ export interface ProviderSpec {
   image?: string;
   // external providers are configured, not provisioned: Sentry, for instance.
   external?: boolean;
+  // A plugin provider may ship a runtime adapter. `dir` is the package
+  // directory on disk; the build copies `adapter` into the generated service
+  // instead of importing the package at runtime.
+  runtime?: { adapter: string; export?: string; dir: string };
   requires?: string[];
   port?: number;
   extraPorts?: number[];

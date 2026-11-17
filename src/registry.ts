@@ -45,7 +45,7 @@ function makeRegistry(specs: Record<string, ProviderSpec>, origin: Record<string
 // A plugin provider is configured, never provisioned: arcod does not know its
 // image. Its appEnv is data — ${arg} is the bind's argument, ${host}/${port}
 // the resolved address — and secrets are secret names, not values.
-export function pluginProviderSpec(provider: PluginProvider, args: Record<string, string | number | boolean> = {}): ProviderSpec {
+export function pluginProviderSpec(provider: PluginProvider, args: Record<string, string | number | boolean> = {}, dir = ''): ProviderSpec {
   const declarations = provider.args ?? {};
   return {
     name: provider.name,
@@ -53,6 +53,9 @@ export function pluginProviderSpec(provider: PluginProvider, args: Record<string
     external: true,
     requires: Object.keys(declarations),
     secrets: provider.secrets ?? [],
+    // The adapter path is relative and validated by the manifest reader; the
+    // package directory is what the build needs to copy it.
+    runtime: provider.runtime ? { adapter: provider.runtime.adapter, export: provider.runtime.export, dir } : undefined,
     appEnv: ({ host, port, args: bound }) => {
       const values: Record<string, string> = { host, port: String(port) };
       for (const [key, value] of Object.entries({ ...args, ...bound })) values[key] = String(value);
@@ -77,7 +80,7 @@ export function registryFromScan(scan: PluginScan): ProviderRegistry {
       // Collisions are reported by checkCollisions() and leave the built-in in
       // place; the registry never lets a plugin win silently.
       if (specs[provider.name]) continue;
-      specs[provider.name] = pluginProviderSpec(provider);
+      specs[provider.name] = pluginProviderSpec(provider, {}, plugin.path);
       origin[provider.name] = plugin.package;
     }
   }

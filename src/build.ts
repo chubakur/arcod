@@ -8,12 +8,16 @@ import { buildPrompts } from './prompts.ts';
 import { deployManifest, deployProvider, literalMap } from './deploy.ts';
 import { helmChart, k8sManifests, type K8sOptions } from './emit/k8s.ts';
 import { sandboxViolation } from './impl.ts';
+import type { ProviderRegistry } from './registry.ts';
 import { createHash } from 'node:crypto';
 
 export interface BuildOptions {
   port?: number;
   reference?: boolean;
   implDir?: string | null;
+  // Same registry check() uses: a plugin provider's runtime adapter travels
+  // with the build instead of being imported from the package at runtime.
+  registry?: ProviderRegistry;
 }
 
 export interface BuildResult {
@@ -23,6 +27,8 @@ export interface BuildResult {
   reference: boolean;
   impl: string[];
   files: string[];
+  // Plugin providers whose runtime adapter was copied into this build.
+  plugins: string[];
 }
 
 async function implDirFor(exampleDir: string): Promise<string> {
@@ -179,6 +185,34 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     }
   }
 
+  // A plugin provider's adapter is a file inside its package, not a dependency
+  // of the generated service: copy it in and record where it landed. The
+  // service does not import it yet (B11.3b wires the dispatch).
+  const pluginEntries: Array<{ provider: string; package: string; source: string; target: string; export?: string }> = [];
+  for (const bind of mod.environments[0]?.binds ?? []) {
+    const spec = options.registry?.get(bind.provider);
+    const runtime = spec?.runtime;
+    if (!spec || !runtime) continue;
+    if (pluginEntries.some((entry) => entry.provider === spec.name)) continue;
+    const source = join(runtime.dir, runtime.adapter);
+    const target = join(dir, 'plugins', spec.name + '.mjs');
+    await mkdir(dirname(target), { recursive: true });
+    await cp(source, target);
+    pluginEntries.push({
+      provider: spec.name,
+      package: options.registry?.origin[spec.name] ?? '',
+      source: runtime.adapter,
+      target: join('plugins', spec.name + '.mjs'),
+      export: runtime.export,
+    });
+  }
+  if (pluginEntries.length > 0) {
+    await writeFile(join(dir, 'plugins.json'), JSON.stringify({ plugins: pluginEntries }, null, 2) + '\n', {
+      encoding: 'utf8',
+      mode: 0o644,
+    });
+  }
+
   // Files a provider imports (a Keycloak realm, for instance) travel with the
   // build, so the compose file only refers to its own directory.
   for (const bind of mod.environments[0]?.binds ?? []) {
@@ -195,5 +229,6 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     reference,
     impl: impl ? Object.keys(impl).sort() : [],
     files: files.map(([path]) => path),
+    plugins: pluginEntries.map((entry) => entry.provider),
   };
 }
