@@ -343,6 +343,28 @@ test('prompts writes tasks and refuses a budget nothing fits', async () => {
   assert.match(cramped.out, /over-budget/);
 });
 
+test('prompts --full explains the io surface instead of sketching it', async () => {
+  const dir = await tempDir('arcod-cli-prompts-full-');
+  await cp(new URL('../examples/tasks-sql', import.meta.url), dir, { recursive: true });
+  const spec = join(dir, 'main.arc');
+
+  const compact = await run(['prompts', spec, '--json']);
+  assert.equal(compact.code, 0, JSON.stringify(compact.err));
+  const full = await run(['prompts', spec, '--full', '--json']);
+  assert.equal(full.code, 0, JSON.stringify(full.err));
+
+  const brief = JSON.parse(compact.out).tasks as Array<{ op: string; tokens: number; sha256: string }>;
+  const detailed = JSON.parse(full.out).tasks as Array<{ op: string; tokens: number; sha256: string; file: string }>;
+  assert.deepEqual(detailed.map((t) => t.op), brief.map((t) => t.op), 'the same operations are asked for');
+  assert.notEqual(detailed[0].sha256, brief[0].sha256, 'the full prompt is a different document');
+  assert.ok(detailed[0].tokens >= brief[0].tokens);
+
+  const task = detailed[0];
+  const prompt = await readFile(join(dir, '.arcod', 'build', 'prompts', task.op + '.md'), 'utf8');
+  assert.match(prompt, /io\./, 'the full prompt names the io calls the body may use');
+  assert.match(prompt, /export async function /);
+});
+
 test('upgrade reports the current version and refuses an unknown target', async () => {
   const already = await run(['upgrade', signupUrl.pathname]);
   assert.equal(already.code, 0);
