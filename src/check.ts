@@ -490,11 +490,21 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     }
   }
 
+  // A040 — one module builds one page: a second ui is silently unreachable,
+  // so it is an error while the emitters still read uis[0].
+  if (mod.uis.length > 1) {
+    for (const extra of mod.uis.slice(1)) {
+      diags.push(diag('A040', 'error', mod.file, extra.loc, 'ui.' + extra.name,
+        'only one ui is emitted per module; ' + mod.uis[0].name + ' is the page',
+        'merge this ui into ' + mod.uis[0].name + ' or split the module'));
+    }
+  }
+
   // A018 — ui references an operation that does not exist
   for (const ui of mod.uis) {
     // W030 — ssr without a first screen to render is a page that only looks
     // server-rendered: nothing can be fetched without input at request time.
-    if (ui.render === 'ssr' && !ssrDataOp(mod, ui)) {
+    if (ui.render === 'ssr' && (ui.layout === null || ui.layout === 'forms') && !ssrDataOp(mod, ui)) {
       diags.push(diag('W030', 'warning', mod.file, ui.loc, 'ui.' + ui.name,
         'render: ssr has no first-screen data: no public GET operation takes no path parameter',
         'add a parameterless GET operation or use render: static'));

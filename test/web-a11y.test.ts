@@ -175,6 +175,23 @@ test('render: ssr parses, survives fmt and warns until the service renders', () 
   assert.equal(check(plain).filter((item) => item.code === 'W030').length, 0);
 });
 
+test('a second ui is an error, not a silent drop', () => {
+  const two = LOCALIZED + '\n' + [
+    'ui Second {',
+    '  kind: spa',
+    '  route: "/two"',
+    '  title: "Second"',
+    '  uses Notes.create',
+    '}',
+  ].join('\n');
+  const diags = check(parse(two, 'main.arc'));
+  const error = diags.find((item) => item.code === 'A040');
+  assert.ok(error, 'A040 names the unreachable page');
+  assert.equal(error.severity, 'error');
+  assert.match(error.message, /only one ui is emitted per module; NotesUi is the page/);
+  assert.equal(check(parse(LOCALIZED, 'main.arc')).filter((item) => item.code === 'A040').length, 0);
+});
+
 test('render rejects a value that is neither static nor ssr', () => {
   const source = LOCALIZED.split('  locale: "ru"').join('  render: ssg\n  locale: "ru"');
   assert.throws(() => parse(source, 'main.arc'), /render must be static or ssr/);

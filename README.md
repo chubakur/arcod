@@ -1154,6 +1154,7 @@ Errors:
 - `A037` an external service operation has no `route`;
 - `A038` `uses` or effects declared for an external service;
 - `A039` an external service is bound to something other than `endpoint`;
+- `A040` a module declares more than one `ui`; v0.1 emits one page per module;
 - `A040` `layout: presentation` lacks `start`/`join`/`state`/`advance`;
 - `A041` a presentation without slides;
 - `A046` `auth`/`roles`/`owner` on an operation of a service without the
