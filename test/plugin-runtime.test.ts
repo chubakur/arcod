@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse } from '../src/parser.ts';
+import { check } from '../src/check.ts';
 import { buildExample } from '../src/build.ts';
 import { PLUGIN_API } from '../src/plugins.ts';
 import { registryFromScan } from '../src/registry.ts';
@@ -178,4 +179,16 @@ test('a plugin without signatures wires no method, so the build stays honest', a
   const source = await readFile(join(result.dir, 'service', 'index.mjs'), 'utf8');
   assert.match(source, /PLUGIN_ADAPTERS/, 'the adapter is still loaded at boot');
   assert.doesNotMatch(source, /pluginAdapter\("faxapi"\)\.send/, 'no invented method');
+});
+
+test('a plugin adapter whose capability has no signatures warns at the bind', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'arcod-nosig-check-'));
+  await mkdir(join(root, 'dist'), { recursive: true });
+  await writeFile(join(root, 'dist', 'fax.mjs'), 'export function createAdapter() { return {}; }\n', 'utf8');
+  const registry = faxRegistry(root, []);
+  const diags = check(parse(SPEC, 'main.arc'), { registry });
+  const warning = diags.find((item) => item.code === 'W029');
+  assert.ok(warning, 'W029 is reported');
+  assert.equal(warning.severity, 'warning');
+  assert.match(warning.message, /declares no signatures/);
 });

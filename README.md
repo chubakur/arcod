@@ -1155,7 +1155,8 @@ Warnings:
 - `W023` a step's `call` is not declared in the module;
 - `W024` a step without `call`: its body would have to be generated;
 - `W026` an external service is called but no address is configured;
-- `W028` a presentation without `stream`: the page will poll state.
+- `W028` a presentation without `stream`: the page will poll state;
+- `W029` a plugin provider ships a runtime adapter but its capability declares no signatures (the service cannot dispatch it).
 
 ### Examples are tests
 

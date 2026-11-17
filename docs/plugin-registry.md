@@ -152,6 +152,8 @@ so two machines can be compared.
      named — never a 500 on the first request.
    - The adapter sees `io.env` for `appEnv`-provided configuration; it never
      receives a request-scoped io, so it must not assume an actor or a body.
+   - A capability with no `signatures` is reported as `W029` at the bind: the
+     adapter would travel and load, but no method would ever call it.
 4. One reference plugin in the repository's test fixtures that proves the seam
    end to end without a network dependency.
    Done (B11.4): `test/fixtures/plugin-notify/` declares the `notify`

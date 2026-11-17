@@ -147,6 +147,16 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
 
       const capability = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
+      // W029 — a plugin provider ships a runtime adapter, but its capability
+      // declares no signatures: the service would load the adapter and never
+      // call it, because nothing names the method. Say so at the bind.
+      if (spec.runtime && registry.signaturesFor(capability).length === 0) {
+        diags.push(
+          diag('W029', 'warning', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
+            `${bind.provider} ships a runtime adapter but ${capability} declares no signatures`,
+            'add signatures to the capability manifest; without them the generated service cannot dispatch the adapter'),
+        );
+      }
       if (!providerImplements(spec, capability)) {
         const alternatives = registry.forCapability(capability);
         diags.push(
