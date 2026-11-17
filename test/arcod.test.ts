@@ -20,6 +20,7 @@ import { planBody } from '../src/plan-body.ts';
 import { extractCode, validateBody, sandboxViolation } from '../src/impl.ts';
 import { cp, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { freePort } from './harness.ts';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -1062,7 +1063,7 @@ test('file visibility: restricted list, authenticated, public and admin bypass',
   const built = await buildExample(filesAst, dir, {
     implDir: (await import('node:url')).fileURLToPath(new URL('../examples/files/impl', import.meta.url)),
   });
-  const port = 18000 + Math.floor(Math.random() * 2000);
+  const port = await freePort();
   const child = spawn(process.execPath, [join(built.dir, 'service', 'index.mjs')], {
     env: { ...process.env, PORT: String(port), SQL_DRIVER: 'memory', AUTH_DRIVER: 'memory', BLOB_DRIVER: 'memory' },
     stdio: ['ignore', 'pipe', 'pipe'],

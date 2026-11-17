@@ -7,6 +7,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
+import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildExample } from '../src/build.ts';
@@ -47,39 +48,75 @@ export async function startService(source: string, options: StartOptions = {}): 
     implDir = implRoot;
   }
   const built = await buildExample(mod, dir, { implDir, reference: options.reference, registry: options.registry });
-  const port = 18000 + Math.floor(Math.random() * 2000);
-  const child = spawn(process.execPath, [join(built.dir, 'service', 'index.mjs')], {
-    env: { ...process.env, ...MEMORY_DRIVERS, PORT: String(port), ...options.env },
-    stdio: ['ignore', 'pipe', 'pipe'],
+
+  // A hardcoded port range races other test files: a losing child dies on
+  // EADDRINUSE while the winner answers /healthz, and the suite then drives the
+  // wrong service (seen as a sudden 404 in an unrelated test). Ask the OS for a
+  // free port, and retry if our child loses it anyway.
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const port = await freePort();
+    const child = spawn(process.execPath, [join(built.dir, 'service', 'index.mjs')], {
+      env: { ...process.env, ...MEMORY_DRIVERS, PORT: String(port), ...options.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const stderr: string[] = [];
+    child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk.toString()));
+    const base = 'http://127.0.0.1:' + port;
+    try {
+      await waitForHealth(base, child, stderr);
+      return {
+        base,
+        child,
+        stop: async () => {
+          child.kill('SIGTERM');
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          await rm(dir, { recursive: true, force: true });
+        },
+      };
+    } catch (error) {
+      child.kill('SIGKILL');
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  await rm(dir, { recursive: true, force: true });
+  throw lastError ?? new Error('service did not start');
+}
+
+// Bind port 0, read what the kernel handed out, release it. The window between
+// close and the child's listen is tiny and the retry above covers it.
+export function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      server.close(() => resolve(port));
+    });
   });
-  const stderr: string[] = [];
-  child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk.toString()));
-  const base = 'http://127.0.0.1:' + port;
-  await waitForHealth(base, child, stderr);
-  return {
-    base,
-    child,
-    stop: async () => {
-      child.kill('SIGTERM');
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      await rm(dir, { recursive: true, force: true });
-    },
-  };
 }
 
 async function waitForHealth(base: string, child: ChildProcess, stderr: string[]): Promise<void> {
   const deadline = Date.now() + 8000;
+  // Two consecutive healthy answers with a live child: a single one can come
+  // from a foreign process that already owns the port.
+  let healthy = 0;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       throw new Error('service exited before start: ' + stderr.join('').slice(-2000));
     }
+    if (stderr.join('').includes('EADDRINUSE')) {
+      throw new Error('port already in use: ' + stderr.join('').slice(-500));
+    }
     try {
       const response = await fetch(base + '/healthz');
-      if (response.ok) return;
+      healthy = response.ok ? healthy + 1 : 0;
+      if (healthy >= 2) return;
     } catch {
-      // not ready yet
+      healthy = 0; // not ready yet
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 60));
   }
   throw new Error('service did not become healthy in 8s: ' + stderr.join('').slice(-2000));
 }
