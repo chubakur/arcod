@@ -528,7 +528,7 @@ class Parser {
     const ui: UiNode = {
       kind: 'ui', name, impl: 'spa', route: '/', title: null, uses: [],
       layout: null, history: null, send: null, start: null,
-      join: null, state: null, advance: null, locale: null, locales: null, theme: 'auto',
+      join: null, state: null, advance: null, locale: null, locales: null, theme: 'auto', render: 'static',
       slides: [], loc: locOf(start),
     };
     this.expect('{');
@@ -577,6 +577,12 @@ class Parser {
           this.error('layout must be forms, chat or presentation');
         }
         ui.layout = value;
+      } else if (key === 'render') {
+        const value = this.expectIdent('ui render').value;
+        if (value !== 'static' && value !== 'ssr') {
+          this.error('render must be static or ssr');
+        }
+        ui.render = value;
       } else if (key === 'theme') {
         const value = this.expectIdent('ui theme').value;
         if (value !== 'auto' && value !== 'light' && value !== 'dark') {

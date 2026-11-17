@@ -474,6 +474,13 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
 
   // A018 — ui references an operation that does not exist
   for (const ui of mod.uis) {
+    // W030 — server-side rendering is a B12.6 target; the knob parses now so
+    // the spec can declare intent, but the emitter still writes a static page.
+    if (ui.render === 'ssr') {
+      diags.push(diag('W030', 'warning', mod.file, ui.loc, 'ui.' + ui.name,
+        'render: ssr is not implemented yet: the page is emitted static',
+        'leave render: static until the service renders pages'));
+    }
     if (ui.impl !== 'spa') {
       diags.push(diag('A019', 'error', mod.file, ui.loc, 'ui.' + ui.name, 'ui kind ' + ui.impl + ' is not supported in v0.1', 'use kind: spa'));
     }

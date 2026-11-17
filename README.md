@@ -302,6 +302,12 @@ palette on the `data-theme` attribute — `auto` (the default) follows the
 reader's OS through `prefers-color-scheme`. Nothing in the markup hard-codes a
 colour.
 
+`render: static|ssr` declares where the page is produced. `static` (the
+default) emits the HTML at build; `ssr` is the target for service-side
+rendering and currently parses with a W030 warning — the emitter still writes
+the static page, so a draft cannot silently depend on a runtime that does not
+exist yet.
+
 The chat and presentation pages take the same `lang` and the same catalog:
 their static chrome (send button, composer placeholder, join form, deck
 navigation, participant count) is labelled from it, while slide titles and

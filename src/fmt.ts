@@ -488,6 +488,7 @@ class Printer {
     if (u.locale !== null) this.raw(1, 'locale: ' + quoteStr(u.locale));
     if (u.locales) this.raw(1, 'locales: ' + quoteStr(u.locales.join(', ')));
     if (u.theme && u.theme !== 'auto') this.raw(1, 'theme: ' + u.theme);
+    if (u.render && u.render !== 'static') this.raw(1, 'render: ' + u.render);
     if (u.start) this.raw(1, 'start: ' + u.start);
     if (u.join) this.raw(1, 'join: ' + u.join);
     if (u.state) this.raw(1, 'state: ' + u.state);

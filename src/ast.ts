@@ -286,6 +286,9 @@ export interface UiNode {
   locales: string[] | null;
   // Token scheme for the generated pages: 'auto' follows the reader's OS.
   theme: 'auto' | 'light' | 'dark';
+  // Where the page is rendered: statically at build (default) or by the
+  // service at request time (server-side rendering, B12.6).
+  render: 'static' | 'ssr';
   loc: Loc;
 }
 

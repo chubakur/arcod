@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parse } from '../src/parser.ts';
 import { emitWeb, pageStrings } from '../src/emit/web.ts';
+import { printModule } from '../src/fmt.ts';
+import { check } from '../src/check.ts';
 
 // The generated page is the only UI most specs will ever have, so the a11y
 // basics are part of the emitter's contract, not a later theme: a language, a
@@ -153,4 +155,26 @@ test('declared locales without locale default to the first tag', () => {
     .replace('  title: "Notes"', '  title: "Notes"' + '\n' + '  locales: "ru, en"');
   const html = emitWeb(parse(first, 'main.arc'), { maxBytes: 65536 });
   assert.match(html, /<html lang="ru"/);
+});
+
+test('render: ssr parses, survives fmt and warns until the service renders', () => {
+  const source = LOCALIZED.split('  locale: "ru"').join('  render: ssr\n  locale: "ru"');
+  const mod = parse(source, 'main.arc');
+  assert.equal(mod.uis[0].render, 'ssr');
+  const printed = printModule(mod);
+  assert.match(printed, /render: ssr/);
+  const diags = check(mod);
+  const warning = diags.find((item) => item.code === 'W030');
+  assert.ok(warning, 'W030 says ssr is not implemented yet');
+  assert.equal(warning.severity, 'warning');
+  // The default is static and prints nothing extra.
+  const plain = parse(LOCALIZED, 'main.arc');
+  assert.equal(plain.uis[0].render, 'static');
+  assert.doesNotMatch(printModule(plain), /render:/);
+  assert.equal(check(plain).filter((item) => item.code === 'W030').length, 0);
+});
+
+test('render rejects a value that is neither static nor ssr', () => {
+  const source = LOCALIZED.split('  locale: "ru"').join('  render: ssg\n  locale: "ru"');
+  assert.throws(() => parse(source, 'main.arc'), /render must be static or ssr/);
 });
