@@ -51,6 +51,10 @@ DATABASE_URL (or the reverse) refuses to start instead of speaking the wrong
 protocol. The outbox dispatcher builds the same client as the service.
 
 The emitted module is syntax-checked in `test/pg-emit.test.ts`; MySQL output is
-asserted to stay byte-identical in shape. Still open (B5.3): one example on both
-dialects end to end, and compose/k8s picking the postgres image when the build
-dialect is postgres.
+asserted to stay byte-identical in shape. Compose follows the dialect: a sql service with no explicit bind gets the
+database its build speaks (mysql:8.4 or postgres:16-alpine) with the matching
+`DATABASE_URL`; an explicit bind still wins.
+
+Still open (B5.3): one example on both dialects end to end with a live server
+(the host has neither postgres nor docker — see DECISIONS), and k8s picking the
+postgres image when the build dialect is postgres.

@@ -99,7 +99,7 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     );
   }
 
-  files.push([join(dir, 'docker-compose.yml'), composeYaml(mod, port, hasUi)]);
+  files.push([join(dir, 'docker-compose.yml'), composeYaml(mod, port, hasUi, options.registry, options.dialect)]);
 
   // Deterministic prompts are part of the build output: one per operation,
   // each carrying only its own contract and the capability signatures.

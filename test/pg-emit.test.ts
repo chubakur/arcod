@@ -62,3 +62,27 @@ test('the outbox dispatcher constructs the dialect client, not a hard-coded one'
   assert.match(postgres, /postgres:\/\/arcod/);
   assert.doesNotMatch(postgres, /new SqlStore\(/);
 });
+
+test('a sql service with no binding gets the database its build speaks', async () => {
+  const { composeYaml } = await import('../src/emit/compose.ts');
+  const mod = parse([
+    'module bare @0.1.0 {}',
+    'use capability arcod.std.sql @1',
+    'type Note = { id: uuid, text: string }',
+    'service Notes : http {',
+    '  uses store: sql(ttl: 1h)',
+    '  effects { allow store.insert }',
+    '  contract {',
+    '    public op create(id: uuid) -> Note { route: "POST /v1/n" effects: store.insert }',
+    '  }',
+    '}',
+  ].join('\n'), 'main.arc');
+  const mysql = composeYaml(mod, 8080, false);
+  assert.match(mysql, /image: mysql:8\.4/);
+  assert.match(mysql, /DATABASE_URL: ["']mysql:\/\/arcod:arcod@mysql:3306\/arcod["']/);
+  assert.doesNotMatch(mysql, /postgres:16-alpine/);
+  const postgres = composeYaml(mod, 8080, false, undefined, 'postgres');
+  assert.match(postgres, /postgres:16-alpine/);
+  assert.match(postgres, /DATABASE_URL: ["']postgres:\/\/arcod:arcod@postgres:5432\/arcod["']/);
+  assert.doesNotMatch(postgres, /mysql:8\.4/);
+});

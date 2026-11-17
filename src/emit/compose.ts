@@ -1,6 +1,7 @@
 import { kebab } from '../plan.ts';
 import type { BindNode, EnvironmentNode, ModuleNode } from '../ast.ts';
 import { providerFor, providerImplements, type ProviderSpec } from '../providers.ts';
+import { storageKind } from '../capabilities.ts';
 import { loadRegistry, type ProviderRegistry } from '../registry.ts';
 
 export function serviceDockerfile(): string {
@@ -234,7 +235,7 @@ export function localEnvironment(mod: ModuleNode): EnvironmentNode | undefined {
   return mod.environments.find((env) => !env.deploy || env.deploy.provider === 'docker') ?? mod.environments[0];
 }
 
-export function composeModel(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry()): ComposeModel {
+export function composeModel(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry(), dialect: 'mysql' | 'postgres' = 'mysql'): ComposeModel {
   const name = 'arcod-' + kebab(mod.name);
   const environment = localEnvironment(mod);
   const bound = (environment?.binds ?? [])
@@ -245,17 +246,37 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
   // A service with no explicit infra binding keeps a private kv so the demo
   // still runs; everything else comes from the environment.
   if ((environment?.binds ?? []).length === 0) {
-    bound.push({
-      alias: 'store',
-      host: 'kv',
-      spec: { ...providerFor('redis')!, name: 'redis' },
-      port: 6379,
-      importFile: null,
-      args: {},
-      expose: false,
-      appEnv: providerFor('redis')!.appEnv!({ host: 'kv', port: 6379, alias: 'store', args: {} }),
-      volume: null,
-    });
+    const svc = mod.services.find((item) => !item.external) ?? null;
+    if (svc && storageKind(svc) === 'sql') {
+      // A sql service without an explicit bind still needs a database to run
+      // locally; provision the one the build speaks, not a kv it cannot use.
+      const provider = providerFor(dialect === 'postgres' ? 'postgres' : 'mysql')!;
+      const host = provider.name;
+      const port = provider.port ?? 3306;
+      bound.push({
+        alias: 'store',
+        host,
+        spec: { ...provider, name: provider.name },
+        port,
+        importFile: null,
+        args: {},
+        expose: false,
+        appEnv: provider.appEnv!({ host, port, alias: 'store', args: {} }),
+        volume: null,
+      });
+    } else {
+      bound.push({
+        alias: 'store',
+        host: 'kv',
+        spec: { ...providerFor('redis')!, name: 'redis' },
+        port: 6379,
+        importFile: null,
+        args: {},
+        expose: false,
+        appEnv: providerFor('redis')!.appEnv!({ host: 'kv', port: 6379, alias: 'store', args: {} }),
+        volume: null,
+      });
+    }
   }
 
   const appEnv: Record<string, string> = {};
@@ -277,8 +298,8 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
   return { name, providers: bound, appEnv, hasUi };
 }
 
-export function composeYaml(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry()): string {
-  const { name, providers: bound, appEnv } = composeModel(mod, port, hasUi, registry);
+export function composeYaml(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry(), dialect: 'mysql' | 'postgres' = 'mysql'): string {
+  const { name, providers: bound, appEnv } = composeModel(mod, port, hasUi, registry, dialect);
   const lines = ['name: ' + name, 'services:'];
   for (const item of bound) lines.push(...providerLines(item));
 
