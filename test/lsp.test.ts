@@ -71,6 +71,34 @@ test('completion offers keywords and declared symbols, never dead keywords', () 
   assert.ok(!labels.includes('since'), 'dead keyword since is not offered');
 });
 
+test('inside a ui block the completions are its fields', () => {
+  const source = MINIMAL.replace(
+    'environment dev {',
+    'ui Web {\n  kind: spa\n  route: "/"\n  title: "Demo"\n\n  uses Api.get\n}\n\nenvironment dev {',
+  );
+  const lines = source.split('\n');
+  const uiStart = lines.findIndex((line) => line.trim() === 'ui Web {');
+  const uiLine = lines.findIndex((line, idx) => idx > uiStart && line === '');
+  // An empty line inside the block: no prefix, so every field is offered.
+  assert.ok(uiLine > 0, 'the ui block has a blank line');
+  const items = completions(source, uiLine, 0);
+  const labels = items.map((i) => i.label);
+  assert.ok(labels.includes('render'), 'render is a ui field');
+  assert.ok(labels.includes('locales'), 'locales is a ui field');
+  assert.ok(!labels.includes('service'), 'keywords step back inside a ui block');
+  const render = items.find((i) => i.label === 'render')!;
+  assert.equal(render.kind, CompletionKind.Field);
+  assert.match(String(render.insertText), /^render: /);
+  assert.equal(render.sortText, '0render', 'fields sort before keywords');
+
+  const kindLine = lines.findIndex((line) => line.includes('kind: spa'));
+  const filtered = completions(source, kindLine, 5);
+  assert.deepEqual(
+    filtered.filter((i) => i.kind === CompletionKind.Field).map((i) => i.label),
+    ['kind'],
+  );
+});
+
 test('completion filters by the prefix under the cursor', () => {
   const at = pos(MINIMAL, 4, 'Status', 2);
   const items = completions(MINIMAL, at.line, at.character);

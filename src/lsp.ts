@@ -441,15 +441,56 @@ function toLsp(d: Diagnostic): LspDiagnostic {
 
 // -------------------------------------------------------------- completion --
 
+// Inside a ui block the useful names are the block's own fields: a typo is
+// rejected by the parser anyway, but only after a save. The list is kept next
+// to the emitter's UiNode, not generated from it, so a new field is one line.
+const UI_FIELDS: Array<[string, string]> = [
+  ['kind', 'kind: spa'],
+  ['route', 'route: "/"'],
+  ['title', 'title: "..."'],
+  ['uses', 'uses Service.op'],
+  ['layout', 'forms | chat | presentation'],
+  ['history', 'layout: chat — op that reads the transcript'],
+  ['send', 'layout: chat — op that sends a message'],
+  ['start', 'layout: chat — op that starts a conversation'],
+  ['join', 'layout: presentation — op that joins a guest'],
+  ['state', 'layout: presentation — op that reads state'],
+  ['advance', 'layout: presentation — op that moves a slide'],
+  ['slides', 'layout: presentation — slides block'],
+  ['locale', 'BCP-47 language tag, e.g. "ru"'],
+  ['locales', 'declared catalogs, e.g. "en, ru"'],
+  ['theme', 'light | dark | auto'],
+  ['render', 'static | ssr'],
+];
+
 export function completions(text: string, line: number, character: number): LspCompletionItem[] {
   const doc = parseDoc(text, 'document.arc');
   const items: LspCompletionItem[] = [];
   const at = wordAt(text, line, character);
   const prefix = (at?.word ?? '').toLowerCase();
+  const offset = offsetAt(text, line, character);
 
-  for (const [kw, detail] of KEYWORDS) {
-    if (prefix === '' || kw.startsWith(prefix)) {
-      items.push({ label: kw, kind: CompletionKind.Keyword, detail, sortText: '1' + kw, insertText: kw });
+  const ui = doc.mod?.uis.find((item) => offset >= item.loc.offset && offset <= item.loc.end);
+  if (ui) {
+    for (const [field, detail] of UI_FIELDS) {
+      if (prefix !== '' && !field.startsWith(prefix)) continue;
+      items.push({
+        label: field,
+        kind: CompletionKind.Field,
+        detail: 'ui ' + ui.name + ' · ' + detail,
+        sortText: '0' + field,
+        insertText: field + ': ',
+      });
+    }
+  }
+
+  // Inside a ui block only its fields are useful; module-level keywords would
+  // just bury them. Declared symbols stay, so `uses` still finds a service.
+  if (!ui) {
+    for (const [kw, detail] of KEYWORDS) {
+      if (prefix === '' || kw.startsWith(prefix)) {
+        items.push({ label: kw, kind: CompletionKind.Keyword, detail, sortText: '1' + kw, insertText: kw });
+      }
     }
   }
 

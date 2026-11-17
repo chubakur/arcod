@@ -1313,6 +1313,7 @@ examples/
   files/               sign-in, rights, S3 objects
   chat/                dialogue with a model, `layout: chat`
   payments/            somebody else's service: contract and address
+  notes-ssr/           render: ssr — the page arrives with its first screen
   quiz/                a presentation and an event stream
   tasks/               a record store: unique, filter, keyset pages (kv)
   tasks-sql/           the same bodies on sql
