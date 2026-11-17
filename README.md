@@ -983,6 +983,10 @@ Routes, TTL, limits and infrastructure are identical.
 - `.arcod/build/web/` — a static frontend and nginx proxying the roots of
   declared routes (`/api`, `/v1`) and `/ws` when `stream` is used (only when a
   `ui` block is declared);
+- `.arcod/build/plugins/<provider>.mjs` — runtime adapters copied from plugin
+  packages that declare `runtime.adapter`, with `plugins.json` recording
+  `{provider, package, source, target, export}` (the service does not import
+  them yet — dispatch wiring is B11.3b);
 - `.arcod/build/docker-compose.yml` — providers + service + frontend;
 - `.arcod/build/k8s/` (or `helm/`) — the same topology as Kubernetes objects:
   a Namespace, a ConfigMap for the non-secret env, a `Secret` for credentials
