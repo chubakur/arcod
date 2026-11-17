@@ -1059,6 +1059,9 @@ async function handleRequest(req, res, start) {
       const html = await pageWithData(page);
       res.statusCode = 200;
       res.setHeader('content-type', 'text/html; charset=utf-8');
+      // The first screen is per-request data: a shared cache must not keep it.
+      res.setHeader('cache-control', 'no-store');
+      res.setHeader('x-content-type-options', 'nosniff');
       res.setHeader('content-length', Buffer.byteLength(html));
       res.end(req.method === 'HEAD' ? undefined : html);
       finish(page.route, '', 200, start, req);

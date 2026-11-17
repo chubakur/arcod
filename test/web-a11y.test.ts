@@ -309,6 +309,9 @@ test('a failing first screen still serves the page, just without data', async ()
   try {
     const response = await fetch(svc.base + '/');
     assert.equal(response.status, 200);
+    // Per-request data: nothing between the service and the reader may cache it.
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
     const body = await response.text();
     assert.match(body, /<!doctype html>/i);
     assert.match(body, /"op":"list","data":null/, 'the marker becomes null, not a broken script');
@@ -342,6 +345,21 @@ test('the ssr example ships the notes it just wrote', async () => {
   } finally {
     await svc.stop();
   }
+});
+
+test('the static copy of an ssr page carries no data marker', async () => {
+  const { buildExample } = await import('../src/build.ts');
+  const { mkdtemp, readFile: read } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-ssr-static-'));
+  const source = await read(new URL('../examples/notes-ssr/main.arc', import.meta.url), 'utf8');
+  const built = await buildExample(parse(source, 'main.arc'), dir);
+  const staticHtml = await read(join(built.dir, 'web', 'index.html'), 'utf8');
+  assert.doesNotMatch(staticHtml, /__ARC_SSR_DATA__/, 'a static file cannot fill a marker');
+  assert.match(staticHtml, /"op":"list","data":null/);
+  const service = await read(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.match(service, /__ARC_SSR_DATA__/, 'the service keeps the slot it fills');
 });
 
 test('an ssr build needs no web container in compose', async () => {

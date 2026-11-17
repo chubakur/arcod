@@ -98,8 +98,10 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
   ];
 
   if (hasUi && webHtml) {
+    // The static copy has no service behind it, so the data slot it cannot
+    // fill is null — a marker left in a served file would be invalid script.
     files.push(
-      [join(webDir, 'index.html'), webHtml],
+      [join(webDir, 'index.html'), webHtml.replaceAll('__ARC_SSR_DATA__', 'null')],
       [join(webDir, 'nginx.conf'), nginxConf(mod)],
       [join(webDir, 'Dockerfile'), webDockerfile()],
     );

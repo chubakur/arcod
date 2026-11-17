@@ -311,7 +311,8 @@ rendered in the HTML, not fetched after load: the service calls the first
 public `GET` operation that takes no path parameter in-process (no HTTP round
 trip), embeds its result in the page, and the client script hydrates that slot
 instead of issuing the call again (`examples/notes-ssr` is the minimal
-one). An operation that needs input cannot be
+one). A page with per-request data is served with `cache-control: no-store`.
+An operation that needs input cannot be
 the first screen, so a `render: ssr` ui whose operations are all
 parameterised or non-`GET` gets `W030` and serves the page without data.
 
