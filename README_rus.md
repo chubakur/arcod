@@ -143,6 +143,7 @@ type Account = { id: uuid, email: email, website: url?, plan: Plan = "free" }
 | `arcod providers` | таблица возможностей, провайдеров и их портов; `--json` |
 | `arcod deploy [dir]` | target развёртывания и манифест `deploy.<env>.json`; `--env`, `--json` |
 | `arcod k8s [dir]` | объекты Kubernetes для compose-топологии (namespace, configmap, деплойменты провайдеров, сервис, ingress); `--helm` — чарт, `--out dir` — записать файлы |
+| `arcod terraform [dir]` | Terraform для облака: сеть, managed-сервисы под привязки, секреты через переменные; `--env`, `--out dir`; Yandex Cloud |
 | `arcod prompts [dir]` | только промпты: `--max-tokens`, `--full` (не урезать), `--json` |
 | `arcod impl [dir]` | тела операций локальной моделью: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote` |
 | `arcod fmt [dir]` | канонический AST-форматтер в stdout; `--check` падает, если не отформатировано; `--write` перезаписывает спеку; `--to <version>` сперва мигрирует. Комментарии перевешиваются на декларацию, которую они предваряют |
@@ -354,6 +355,13 @@ arcod deploy . --env prod --json   # манифест
 `.github/workflows/images.yml` собирает этот образ по тегу или вручную —
 и на этом останавливается: публикация в registry — релизное действие, а не
 работа генератора.
+
+`arcod terraform` рендерит облачное представление того же окружения: сеть и
+подсеть, managed-кластер на каждую привязку `postgres`/`redis`, бакет на
+`s3`, а все креды — `variable` с `sensitive = true`, так что пароля в плане
+нет. Цель — Yandex Cloud (провайдер из `deploy`); любой другой таргет
+отвергается, а не рендерится наполовину. Backend состояния выбирает
+владелец, состояние не генерируется.
 
 **Секреты** объявляет сам провайдер, а не догадка по имени: `postgres` помечает
 `POSTGRES_PASSWORD` и `DATABASE_URL`, `s3` — `MINIO_ROOT_PASSWORD`/`S3_SECRET_KEY`,

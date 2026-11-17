@@ -23,6 +23,7 @@ import { formatSource } from './fmt.ts';
 import { diffSpecs } from './diff.ts';
 import { adoptOpenapi } from './adopt.ts';
 import { helmChart, k8sManifests } from './emit/k8s.ts';
+import { terraformFiles, formatTerraform } from './emit/terraform.ts';
 import { LANG_VERSION, declaredVersion, migrateSpec, VersionError } from './versions.ts';
 import { scaffold, isValidName } from './new.ts';
 import { serve as serveLsp } from './lsp-server.ts';
@@ -90,6 +91,9 @@ export async function main(argv: string[]): Promise<void> {
         return;
       case 'k8s':
         await runK8s(flags);
+        return;
+      case 'terraform':
+        await runTerraform(flags);
         return;
       case 'prompts':
         await runPrompts(flags);
@@ -337,6 +341,27 @@ async function runK8s(flags: Flags): Promise<void> {
     return;
   }
   console.log(emitted.map((file) => '# ' + file.path + '\n' + file.content).join('\n---\n'));
+}
+
+async function runTerraform(flags: Flags): Promise<void> {
+  const loaded = await load(flags.spec);
+  const errors = check(loaded.mod).filter((d) => d.severity === 'error');
+  if (errors.length > 0) {
+    printDiagnostics(errors, loaded.specPath);
+    process.exitCode = 1;
+    return;
+  }
+  const files = terraformFiles(loaded.mod, { environment: flags.env });
+  if (flags.out) {
+    for (const file of files) {
+      const path = join(flags.out, file.path);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, file.content, { encoding: 'utf8', mode: 0o644 });
+    }
+    console.log('wrote ' + files.length + ' file(s) to ' + flags.out);
+    return;
+  }
+  console.log(formatTerraform(files));
 }
 
 async function runPlan(flags: Flags): Promise<void> {
@@ -866,6 +891,7 @@ usage:
   arcod lsp
   arcod providers [--json]
   arcod deploy [dir|spec.arc] [--env name] [--json]
+  arcod terraform [dir|spec.arc] [--env name] [--out dir]
   arcod k8s   [dir|spec.arc] [--helm] [--image ref] [--host host]
                               [--namespace ns] [--replicas n] [--ingress-class c] [--out dir]
   arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]

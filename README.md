@@ -147,6 +147,7 @@ format name (`A061`). Full example: `examples/signup`.
 | `arcod providers` | capability and provider table with ports; `--json` |
 | `arcod deploy [dir]` | deployment target and `deploy.<env>.json` manifest; `--env`, `--json` |
 | `arcod k8s [dir]` | Kubernetes objects for the compose topology (namespace, configmap, provider deployments, app, ingress); `--helm` for a chart, `--out dir` to write files |
+| `arcod terraform [dir]` | Terraform for the cloud view: network, managed services for the binds, secrets as variables; `--env`, `--out dir`; Yandex Cloud |
 | `arcod prompts [dir]` | prompts only: `--max-tokens`, `--full` (no budget cut), `--json` |
 | `arcod impl [dir]` | generate operation bodies with a local model: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote` |
 | `arcod fmt [dir]` | canonical AST formatter on stdout; `--check` fails if not formatted; `--write` rewrites the spec; `--to <version>` migrates first. Comments are re-attached to the declaration they precede |
@@ -355,6 +356,13 @@ and `arcod helm` render the same name by default; `--env` picks which
 environment's contract they use. `.github/workflows/images.yml` builds that
 image on a tag or on demand — and stops there: pushing to a registry is a
 release action, not something a generator does.
+
+`arcod terraform` renders the cloud view of the same environment: a network
+and subnet, a managed cluster per `postgres`/`redis` bind, a bucket per `s3`,
+and every credential as a `variable` marked `sensitive`, so the plan never
+holds a password. It targets Yandex Cloud (the provider the `deploy` names)
+and refuses any other target instead of half-rendering it. The state backend
+is the owner's choice; no state is generated.
 
 **Secrets** are declared by the providers, not guessed from names: `postgres`
 marks `POSTGRES_PASSWORD` and `DATABASE_URL` sensitive, `s3` marks
