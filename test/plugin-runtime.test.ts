@@ -69,6 +69,26 @@ test('a plugin runtime adapter is copied and recorded in the build', async () =>
   }]);
 });
 
+test('a declared adapter missing from the package fails the build', async () => {
+  const { exampleDir, registry, mod } = await fixture();
+  const broken = registryFromScan({
+    plugins: [{
+      package: 'arcod-plugin-fax',
+      version: '0.1.0',
+      path: join(exampleDir, '..', 'plugin'),
+      pluginApi: PLUGIN_API,
+      capabilities: [{ name: 'fax' }],
+      providers: [{ name: 'faxapi', capability: 'fax', runtime: { adapter: 'dist/gone.mjs' } }],
+    }],
+    issues: [],
+  });
+  assert.deepEqual(registry.names().includes('faxapi'), true);
+  await assert.rejects(
+    () => buildExample(mod, exampleDir, { registry: broken, implDir: null }),
+    /arcod-plugin-fax declares runtime\.adapter dist\/gone\.mjs/,
+  );
+});
+
 test('without the registry nothing is copied and no manifest appears', async () => {
   const { exampleDir, mod } = await fixture();
   const result = await buildExample(mod, exampleDir, { implDir: null });

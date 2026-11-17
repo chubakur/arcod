@@ -189,7 +189,7 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
   // of the generated service: copy it in and record where it landed. The
   // service does not import it yet (B11.3b wires the dispatch).
   const pluginEntries: Array<{ provider: string; package: string; source: string; target: string; export?: string }> = [];
-  for (const bind of mod.environments[0]?.binds ?? []) {
+  for (const environment of mod.environments) for (const bind of environment.binds) {
     const spec = options.registry?.get(bind.provider);
     const runtime = spec?.runtime;
     if (!spec || !runtime) continue;
@@ -197,7 +197,16 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     const source = join(runtime.dir, runtime.adapter);
     const target = join(dir, 'plugins', spec.name + '.mjs');
     await mkdir(dirname(target), { recursive: true });
-    await cp(source, target);
+    // A declared adapter that is not in the package would only fail when the
+    // container starts, far from the manifest that lied; fail the build.
+    try {
+      await cp(source, target);
+    } catch (error) {
+      throw new Error(
+        'plugin ' + (options.registry?.origin[spec.name] ?? spec.name) + ' declares runtime.adapter ' + runtime.adapter +
+        ' but it cannot be read: ' + (error instanceof Error ? error.message : String(error)),
+      );
+    }
     pluginEntries.push({
       provider: spec.name,
       package: options.registry?.origin[spec.name] ?? '',
