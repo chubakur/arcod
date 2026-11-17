@@ -248,9 +248,7 @@ test('an ssr page carries a data slot only when a GET can fill it', () => {
   assert.equal(check(parse(ssr(LOCALIZED), 'main.arc')).filter((item) => item.code === 'W030').length, 1);
 });
 
-test('the service ships the first screen inside the html', async () => {
-  const { startService } = await import('./harness.ts');
-  const source = [
+const SSR_LIST = [
     'module loc @0.1.0 {}',
     'type Note = { id: uuid, text: string }',
     'service Notes : http {',
@@ -264,7 +262,11 @@ test('the service ships the first screen inside the html', async () => {
     '  render: ssr',
     '  locale: "ru"',
     '}',
-  ].join('\n');
+].join('\n');
+
+test('the service ships the first screen inside the html', async () => {
+  const { startService } = await import('./harness.ts');
+  const source = SSR_LIST;
   const id = '00000000-0000-4000-8000-000000000001';
   const list = [
     'export async function list(input, io) {',
@@ -279,6 +281,64 @@ test('the service ships the first screen inside the html', async () => {
     assert.match(body, /<!doctype html>/i);
     assert.doesNotMatch(body, /__ARC_SSR_DATA__/, 'the marker is always substituted');
     assert.match(body, new RegExp('"data":\\[\\{"id":"' + id + '","text":"first screen"'));
+  } finally {
+    await svc.stop();
+  }
+});
+
+test('HEAD answers the ssr page without a body, with the GET length', async () => {
+  const { startService } = await import('./harness.ts');
+  const list = 'export async function list(input, io) { return { result: [] }; }';
+  const svc = await startService(SSR_LIST, { impl: { list } });
+  try {
+    const get = await fetch(svc.base + '/');
+    const body = await get.text();
+    const head = await fetch(svc.base + '/', { method: 'HEAD' });
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), '');
+    assert.equal(Number(head.headers.get('content-length')), Buffer.byteLength(body));
+  } finally {
+    await svc.stop();
+  }
+});
+
+test('a failing first screen still serves the page, just without data', async () => {
+  const { startService } = await import('./harness.ts');
+  const boom = 'export async function list(input, io) { throw new Error("store down"); }';
+  const svc = await startService(SSR_LIST, { impl: { list: boom } });
+  try {
+    const response = await fetch(svc.base + '/');
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /<!doctype html>/i);
+    assert.match(body, /"op":"list","data":null/, 'the marker becomes null, not a broken script');
+    assert.doesNotMatch(body, /__ARC_SSR_DATA__/);
+  } finally {
+    await svc.stop();
+  }
+});
+
+test('the ssr example ships the notes it just wrote', async () => {
+  const { startService } = await import('./harness.ts');
+  const dir = new URL('../examples/notes-ssr/', import.meta.url);
+  const source = await readFile(new URL('main.arc', dir), 'utf8');
+  const impl = {
+    list: await readFile(new URL('impl/list.mjs', dir), 'utf8'),
+    create: await readFile(new URL('impl/create.mjs', dir), 'utf8'),
+  };
+  const mod = parse(source, 'main.arc');
+  assert.equal(check(mod).filter((item) => item.code === 'W030').length, 0, 'the example has a first screen');
+  const svc = await startService(source, { impl });
+  try {
+    const created = await fetch(svc.base + '/api/notes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'hello ssr' }),
+    });
+    assert.ok(created.status < 300, 'create answers ' + created.status);
+    const body = await (await fetch(svc.base + '/')).text();
+    assert.match(body, /hello ssr/, 'the first screen is in the html');
+    assert.match(body, /"op":"list","data":\[\{"id":/);
   } finally {
     await svc.stop();
   }
