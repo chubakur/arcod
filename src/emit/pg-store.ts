@@ -129,6 +129,7 @@ export class PgConnection {
     this.pending = null;
     this.ready = null;
     this.failed = null;
+    this.queue = [];
     this.startupParams = null;
     this.clientNonce = null;
     this.clientFirstBare = null;
@@ -192,6 +193,8 @@ export class PgConnection {
   failAll(error) {
     if (this.pending) { this.pending.reject(error); this.pending = null; }
     if (this.ready) { this.ready.reject(error); this.ready = null; }
+    const queued = this.queue.splice(0, this.queue.length);
+    for (const item of queued) item.reject(error);
     if (this.socket) this.socket.destroy();
   }
 
@@ -216,6 +219,7 @@ export class PgConnection {
         const pending = this.pending;
         this.pending = null;
         pending.resolve({ fields: pending.fields, rows: pending.rows, affected: pending.affected || 0 });
+        this.flushQueue();
       }
       return;
     }
@@ -276,11 +280,20 @@ export class PgConnection {
 
   async query(sql) {
     if (!this.socket) throw new Error('postgres: not connected');
-    if (this.pending) throw new Error('postgres: query already in flight');
+    // One socket serves the whole service: requests queue in arrival order and
+    // the next one is written when the current ReadyForQuery arrives. The
+    // store calls query() from many request contexts at once.
     return await new Promise((resolve, reject) => {
-      this.pending = { resolve, reject, fields: [], rows: [] };
-      this.send('Q', pgCString(sql));
+      this.queue.push({ sql, resolve, reject });
+      this.flushQueue();
     });
+  }
+
+  flushQueue() {
+    if (this.pending || this.queue.length === 0) return;
+    const next = this.queue.shift();
+    this.pending = { resolve: next.resolve, reject: next.reject, fields: [], rows: [], affected: 0 };
+    this.send('Q', pgCString(next.sql));
   }
 
   async run(sql) {

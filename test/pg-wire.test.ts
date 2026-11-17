@@ -310,6 +310,8 @@ test('PgStore issues postgres SQL and reads the command tag for affected rows', 
     await store.set('k', 'v', 1000);
     assert.match(seen[seen.length - 1], /ON CONFLICT \(k\) DO UPDATE SET v = EXCLUDED\.v/);
     assert.ok(seen.some((sql) => /CREATE TABLE IF NOT EXISTS arcod_migrations/.test(sql)));
+    const pongs = await Promise.all([store.ping(), store.ping(), store.ping()]);
+    assert.deepEqual(pongs, ['PONG', 'PONG', 'PONG']);
     await store.entityFind('task', [{ name: 'id', base: 'string' }, { name: 'done', base: 'bool' }], { limit: 2, order: [{ field: 'done', dir: 1 }], where: { done: true }, cursor: 'cur' });
     const page = seen[seen.length - 1];
     assert.match(page, /WHERE "done" = TRUE AND \(/);
