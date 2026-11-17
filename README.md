@@ -198,7 +198,7 @@ compose/k8s/terraform emitters and `arcod build`: a provider with
 generated service loads it at boot and routes the capability's declared
 signatures (`send(to)`) to the adapter's methods. A body names `io.send(...)`,
 never the package. The manifest is data; plugin code runs only inside the
-generated service. See `docs/plugin-registry.md`.
+generated service. A reference plugin in `test/fixtures/plugin-notify` shows the whole seam offline. See `docs/plugin-registry.md`.
 
 ```arcod
 environment dev {

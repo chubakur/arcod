@@ -101,6 +101,12 @@ so two machines can be compared.
   `arcod providers` output; the global code list stays append-only and owned
   by the compiler.
 - Change a built-in provider's behaviour. Shadowing is an error.
+- Supply the runtime for a *built-in* capability (a plugin `queue` provider,
+  say). Dispatch is driven by the capability's declared `signatures`, and
+  built-in capabilities declare none in a manifest, so the generated service
+  has no method to route. A plugin can add a capability and answer it; taking
+  over `queue`/`store` means changing the emitted runtime, which is a compiler
+  decision, not a manifest.
 
 ## Compatibility and versions
 
@@ -146,8 +152,15 @@ so two machines can be compared.
      named — never a 500 on the first request.
    - The adapter sees `io.env` for `appEnv`-provided configuration; it never
      receives a request-scoped io, so it must not assume an actor or a body.
-4. One reference plugin in the repository's test fixtures (a fake queue) that
-   proves the seam end to end without a network dependency.
+4. One reference plugin in the repository's test fixtures that proves the seam
+   end to end without a network dependency.
+   Done (B11.4): `test/fixtures/plugin-notify/` declares the `notify`
+   capability (`send(to, text) -> string`) and the `notifyfile` provider, whose
+   adapter appends a line to `NOTIFY_PATH`. `test/plugin-fixture.test.ts`
+   puts the directory on `ARC_PLUGIN_PATH`, checks a model against the
+   registry, builds it, starts the service and asserts the adapter wrote the
+   file. The same test found the `path`/`dir` bug: a manifest's path is the
+   JSON file, while `runtime.adapter` is relative to the package directory.
 
 Step 1 is the gate: if a manifest cannot be read and validated deterministically,
 nothing else should be built.
