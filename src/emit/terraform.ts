@@ -195,7 +195,11 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
       continue;
     }
     if (spec.external) {
-      external.push({ name: spec.name, origin: registry.origin[spec.name], secrets: spec.secrets ?? [] });
+      // Two binds may name the same external provider; terraform rejects a
+      // duplicate variable, so the plan lists each provider once.
+      if (!external.some((item) => item.name === spec.name)) {
+        external.push({ name: spec.name, origin: registry.origin[spec.name], secrets: spec.secrets ?? [] });
+      }
       continue;
     }
     if (bind.provider === 'postgres') resources.push(postgresBlock(bind, name));

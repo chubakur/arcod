@@ -145,6 +145,19 @@ test('a provider the registry does not know is reported, not dropped', () => {
   assert.match(main, /Providers unknown to the registry \(check reports them\): mysterydb/);
 });
 
+test('two binds to one external provider declare its input once', () => {
+  const source = FAX_SPEC
+    .replace('bind fx -> faxapi(url: "https://fax.example/v1")', 'bind fx -> faxapi(url: "https://fax.example/v1")\n  bind fx2 -> faxapi(url: "https://fax2.example/v1")')
+    .replace('uses fx: fax', 'uses fx: fax\n  uses fx2: fax');
+  const files = terraformFiles(parse(source, 'main.arc'), { environment: 'prod', registry: faxRegistry() });
+  const variables = files.find((f) => f.path === 'variables.tf')!.content;
+  const declared = variables.match(/variable "faxapi_fax_token"/g) ?? [];
+  assert.equal(declared.length, 1, 'one variable per provider secret, not per bind');
+  const main = files.find((f) => f.path === 'main.tf')!.content;
+  assert.equal((main.match(/External providers: configured outside this plan/g) ?? []).length, 1);
+  assert.ok(bracesBalanced(main));
+});
+
 test('every var.* reference in the plan is declared', async () => {
   const { files } = await tasksFiles();
   const main = files.find((f) => f.path === 'main.tf')!.content;
