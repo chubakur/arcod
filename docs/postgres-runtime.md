@@ -32,10 +32,20 @@ it with a fake backend:
   and SQLSTATE 23505 surfaces as `pgIsUnique`;
 - literals/cells are typed on both directions.
 
-## What is next (B5.2b)
+## Dialect at build time (B5.2b)
 
-`serviceTemplate()` still always embeds `SQL_STORE_SOURCE`. The next step picks
-the client by the `DATABASE_URL` scheme (or an explicit `--dialect` at build), teaches
-`SqlStore` to render literals through a dialect object, and runs one example against both
-MySQL and Postgres (B5.3). Until then a postgres-bound deployment starts but talks
-the wrong protocol — the check that rejects it is part of B5.2b.
+`emitService(mod, { dialect })` now emits exactly one store: `mysql` (the
+default, unchanged output) or `postgres`. A postgres build carries
+`PG_STORE_SOURCE` (wire client), `PG_SQL_STORE_SOURCE` (the same store contract:
+entity CRUD, kv/claim/take, outbox, transactions) and the postgres migration
+changelog; `arcod build --dialect postgres` selects it, and the service defaults
+`DATABASE_URL` to `postgres://...@postgres:5432/...`. Identifiers are
+double-quoted, values go through `pgLiteral`, kv values travel as `BYTEA`,
+`INSERT IGNORE` becomes `ON CONFLICT DO NOTHING` (with the command tag parsed
+for the affected count), `<=>` becomes `IS NOT DISTINCT FROM`, and transactions
+use `BEGIN`.
+
+The emitted module is syntax-checked in `test/pg-emit.test.ts`; MySQL output is
+asserted to stay byte-identical in shape. Still open (B5.3): one example on both
+dialects end to end, and compose/k8s picking the postgres image when the build
+dialect is postgres.

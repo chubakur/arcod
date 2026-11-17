@@ -14,6 +14,9 @@ import { createHash } from 'node:crypto';
 export interface BuildOptions {
   port?: number;
   reference?: boolean;
+  // The sql dialect the emitted service speaks: mysql unless the deployment
+  // targets postgres.
+  dialect?: 'mysql' | 'postgres';
   implDir?: string | null;
   // Same registry check() uses: a plugin provider's runtime adapter travels
   // with the build instead of being imported from the package at runtime.
@@ -80,7 +83,7 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     }
   }
 
-  const service = emitService(mod, { reference, impl, registry: options.registry });
+  const service = emitService(mod, { reference, impl, registry: options.registry, dialect: options.dialect });
 
   const files: Array<[string, string]> = [
     [join(serviceDir, 'index.mjs'), service],

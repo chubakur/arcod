@@ -215,13 +215,15 @@ export class PgConnection {
       if (this.pending) {
         const pending = this.pending;
         this.pending = null;
-        pending.resolve({ fields: pending.fields, rows: pending.rows });
+        pending.resolve({ fields: pending.fields, rows: pending.rows, affected: pending.affected || 0 });
       }
       return;
     }
     if (type === 'T') { if (this.pending) this.pending.fields = pgFields(payload); return; }
     if (type === 'D') { if (this.pending) this.pending.rows.push(pgRow(payload)); return; }
-    // S/K/N/C/1/2/3/A: status, notices and command tags need no handling here.
+    // The command tag carries the row count: INSERT 0 3, UPDATE 2, DELETE 1.
+    if (type === 'C') { if (this.pending) this.pending.affected = pgTagCount(payload); return; }
+    // S/K/N/1/2/3/A: status, notices and parameter status need no handling here.
   }
 
   onAuth(payload) {
@@ -319,6 +321,12 @@ function pgFields(payload) {
   return fields;
 }
 
+function pgTagCount(payload) {
+  const parts = payload.toString('utf8').trim().split(' ');
+  const count = Number(parts[parts.length - 1]);
+  return Number.isFinite(count) ? count : 0;
+}
+
 function pgRow(payload) {
   const count = payload.readInt16BE(0);
   const row = [];
@@ -331,5 +339,349 @@ function pgRow(payload) {
     at += length;
   }
   return row;
+}
+`;
+
+export const PG_SQL_STORE_SOURCE = `// ---------- postgres store ----------
+//
+// The store contract SqlStore implements, on the wire client above: same
+// operations, double-quoted identifiers, pgLiteral values and this dialect's
+// migration changelog.
+
+const MIGRATIONS_TABLE = 'CREATE TABLE IF NOT EXISTS arcod_migrations (version VARCHAR(16) NOT NULL PRIMARY KEY, checksum VARCHAR(64) NOT NULL, applied_at BIGINT NOT NULL)';
+
+async function applyMigrations(connection) {
+  await connection.run(MIGRATIONS_TABLE);
+  for (const migration of MIGRATIONS) {
+    const found = await connection.run(
+      'SELECT checksum FROM arcod_migrations WHERE version = ' + pgLiteral('string', migration.version) + ' LIMIT 1'
+    );
+    if (found.rows.length > 0) {
+      if (String(found.rows[0][0]) !== migration.checksum) {
+        throw new Error('migration ' + migration.version + ' (' + migration.name + ') was edited after it was applied: checksum mismatch');
+      }
+      continue;
+    }
+    await connection.run(migration.up);
+    await connection.run(
+      'INSERT INTO arcod_migrations (version, checksum, applied_at) VALUES (' +
+        pgLiteral('string', migration.version) + ', ' + pgLiteral('string', migration.checksum) + ', ' + Date.now() + ')'
+    );
+    console.log('migration applied: ' + migration.version + ' ' + migration.name);
+  }
+}
+
+// Identifiers are model names, but they can still be reserved words or mixed
+// case; double quotes stop Postgres folding them to lower case.
+function pq(name) {
+  return '"' + String(name).split('"').join('""') + '"';
+}
+
+function pgBytes(value) {
+  return "decode('" + Buffer.from(String(value), 'utf8').toString('hex') + "', 'hex')";
+}
+
+// BYTEA arrives in the text format as backslash-x hex.
+function pgTextOf(cell) {
+  if (cell === null || cell === undefined) return null;
+  const text = String(cell);
+  if (text.slice(0, 2) === String.fromCharCode(92) + 'x') return Buffer.from(text.slice(2), 'hex').toString('utf8');
+  return text;
+}
+
+function pgRowObject(columns, row) {
+  const obj = {};
+  for (let index = 0; index < columns.length; index += 1) {
+    obj[columns[index].name] = readPgCell(columns[index].base, row[index]);
+  }
+  return obj;
+}
+
+class PgStore {
+  constructor(url) {
+    this.url = url;
+    this.connection = new PgConnection(url);
+    this.schema = null;
+  }
+
+  async prepare() {
+    if (this.schema) return this.schema;
+    this.schema = (async () => {
+      let lastError = null;
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        try {
+          await this.connection.connect();
+          await applyMigrations(this.connection);
+          return;
+        } catch (error) {
+          lastError = error;
+          try { await this.connection.end(); } catch (ignored) {}
+          this.connection = new PgConnection(this.url);
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+      }
+      throw lastError;
+    })().catch((error) => {
+      this.schema = null;
+      throw error;
+    });
+    return this.schema;
+  }
+
+  async query(sql) {
+    await this.prepare();
+    return this.connection.run(sql);
+  }
+
+  async set(key, value, ttlMs) {
+    const expiresAt = Date.now() + Number(ttlMs || 0);
+    await this.query(
+      'INSERT INTO arcod_kv (k, v, expires_at) VALUES (' + pgLiteral('string', key) + ', ' + pgBytes(value) + ', ' + expiresAt + ') ' +
+      'ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, expires_at = EXCLUDED.expires_at'
+    );
+    return 'OK';
+  }
+
+  async get(key) {
+    const found = await this.query(
+      'SELECT v FROM arcod_kv WHERE k = ' + pgLiteral('string', key) + ' AND expires_at > ' + Date.now() + ' LIMIT 1'
+    );
+    if (found.rows.length === 0) return null;
+    return pgTextOf(found.rows[0][0]);
+  }
+
+  async del(key) {
+    const result = await this.query('DELETE FROM arcod_kv WHERE k = ' + pgLiteral('string', key));
+    return result.affected;
+  }
+
+  // ---------- typed entity operations ----------
+
+  async entityFetch(table, columns, id) {
+    const names = columns.map((c) => pq(c.name)).join(', ');
+    const found = await this.query('SELECT ' + names + ' FROM ' + pq(table) + ' WHERE ' + pq('id') + ' = ' + pgLiteral('string', String(id)) + ' LIMIT 1');
+    if (found.rows.length === 0) return null;
+    return pgRowObject(columns, found.rows[0]);
+  }
+
+  async entityInsert(table, columns, record) {
+    const names = columns.map((c) => pq(c.name)).join(', ');
+    const values = columns.map((c) => pgLiteral(c.base, record[c.name])).join(', ');
+    try {
+      await this.query('INSERT INTO ' + pq(table) + ' (' + names + ') VALUES (' + values + ')');
+    } catch (error) {
+      if (pgIsUnique(error)) throw new ArcodError('Conflict');
+      throw error;
+    }
+  }
+
+  async entityUpdate(table, columns, id, patch) {
+    const current = await this.entityFetch(table, columns, id);
+    if (current == null) throw new ArcodError('NotFound');
+    const next = Object.assign({}, current, patch || {});
+    const set = columns.map((c) => pq(c.name) + ' = ' + pgLiteral(c.base, next[c.name])).join(', ');
+    try {
+      await this.query('UPDATE ' + pq(table) + ' SET ' + set + ' WHERE ' + pq('id') + ' = ' + pgLiteral('string', String(id)));
+    } catch (error) {
+      if (pgIsUnique(error)) throw new ArcodError('Conflict');
+      throw error;
+    }
+    return next;
+  }
+
+  async entityRemove(table, columns, id) {
+    await this.query('DELETE FROM ' + pq(table) + ' WHERE ' + pq('id') + ' = ' + pgLiteral('string', String(id)));
+  }
+
+  async entityFind(table, columns, query) {
+    const q = query || {};
+    const requested = Number(q.limit);
+    const limit = Number.isFinite(requested) && requested > 0 ? Math.min(500, Math.floor(requested)) : 50;
+    const order = parseOrder(q.order);
+
+    const where = [];
+    for (const [field, cond] of Object.entries(q.where || {})) {
+      const col = columns.find((c) => c.name === field);
+      if (!col) continue;
+      where.push(...this.whereClauses(col, cond));
+    }
+
+    const at = q.cursor ? decodeCursor(q.cursor) : null;
+    if (at && Array.isArray(at.v) && at.v.length === order.length) {
+      where.push(this.keysetClause(columns, order, at.v, at.id));
+    }
+
+    const whereSql = where.length > 0 ? ' WHERE ' + where.join(' AND ') : '';
+    const orderSql = order.map((r) => pq(r.field) + ' ' + (r.dir < 0 ? 'DESC' : 'ASC')).join(', ') + ', ' + pq('id') + ' ASC';
+    const names = columns.map((c) => pq(c.name)).join(', ');
+
+    const found = await this.query('SELECT ' + names + ' FROM ' + pq(table) + whereSql + ' ORDER BY ' + orderSql + ' LIMIT ' + (limit + 1));
+    const items = found.rows.map((row) => pgRowObject(columns, row));
+    const hasMore = items.length > limit;
+    const page = hasMore ? items.slice(0, limit) : items;
+
+    let next = null;
+    if (hasMore && page.length > 0) {
+      const tail = page[page.length - 1];
+      next = encodeCursor(order.map((r) => (tail[r.field] == null ? null : tail[r.field])), tail.id);
+    }
+    return { items: page, next };
+  }
+
+  whereClauses(col, cond) {
+    const clauses = [];
+    const ops = (typeof cond === 'object' && cond !== null && !Array.isArray(cond)) ? cond : { eq: cond };
+    for (const [op, value] of Object.entries(ops)) {
+      const colSql = pq(col.name);
+      if (op === 'eq') clauses.push(colSql + ' = ' + pgLiteral(col.base, value));
+      else if (op === 'ne') clauses.push(colSql + ' <> ' + pgLiteral(col.base, value));
+      else if (op === 'in' && Array.isArray(value)) clauses.push(colSql + ' IN (' + value.map((v) => pgLiteral(col.base, v)).join(', ') + ')');
+      else if (op === 'gt') clauses.push(colSql + ' > ' + pgLiteral(col.base, value));
+      else if (op === 'gte') clauses.push(colSql + ' >= ' + pgLiteral(col.base, value));
+      else if (op === 'lt') clauses.push(colSql + ' < ' + pgLiteral(col.base, value));
+      else if (op === 'lte') clauses.push(colSql + ' <= ' + pgLiteral(col.base, value));
+      else if (op === 'contains') clauses.push(colSql + ' LIKE ' + pgLiteral('string', '%' + String(value) + '%'));
+    }
+    return clauses;
+  }
+
+  keysetClause(columns, order, values, id) {
+    const terms = [];
+    const eqs = [];
+    for (let index = 0; index < order.length; index += 1) {
+      const col = columns.find((c) => c.name === order[index].field);
+      if (!col) continue;
+      const colSql = pq(order[index].field);
+      const cmp = order[index].dir < 0 ? '<' : '>';
+      const literalValue = pgLiteral(col.base, values[index]);
+      terms.push((eqs.length > 0 ? eqs.join(' AND ') + ' AND ' : '') + colSql + ' ' + cmp + ' ' + literalValue);
+      eqs.push(colSql + ' IS NOT DISTINCT FROM ' + literalValue);
+    }
+    terms.push((eqs.length > 0 ? eqs.join(' AND ') + ' AND ' : '') + pq('id') + ' > ' + pgLiteral('string', String(id)));
+    return '(' + terms.join(' OR ') + ')';
+  }
+
+  async claim(key) {
+    const result = await this.query(
+      'INSERT INTO arcod_kv (k, v, expires_at) VALUES (' + pgLiteral('string', key) + ', ' + pgBytes('1') + ', 9007199254740991) ON CONFLICT (k) DO NOTHING'
+    );
+    return result.affected === 1;
+  }
+
+  async exists(key) {
+    const found = await this.query(
+      'SELECT 1 FROM arcod_kv WHERE k = ' + pgLiteral('string', key) + ' AND expires_at > ' + Date.now() + ' LIMIT 1'
+    );
+    return found.rows.length > 0;
+  }
+
+  async seen(key) {
+    return this.exists(key);
+  }
+
+  async scan(prefix) {
+    const found = await this.query('SELECT k, v FROM arcod_kv WHERE expires_at > ' + Date.now());
+    const out = [];
+    for (const row of found.rows) {
+      const key = pgTextOf(row[0]);
+      if (prefix && !key.startsWith(prefix)) continue;
+      out.push({ key, value: pgTextOf(row[1]) });
+    }
+    return out;
+  }
+
+  async takeIf(messageKey, goneKey, ttlMs, expected) {
+    const key = pgLiteral('string', messageKey);
+    await this.query('BEGIN');
+    try {
+      const found = await this.query(
+        'SELECT v FROM arcod_kv WHERE k = ' + key + ' AND expires_at > ' + Date.now() + ' FOR UPDATE'
+      );
+      if (found.rows.length === 0 || pgTextOf(found.rows[0][0]) !== String(expected)) {
+        await this.query('ROLLBACK');
+        return false;
+      }
+      await this.query('DELETE FROM arcod_kv WHERE k = ' + key);
+      await this.markGone(goneKey, ttlMs);
+      await this.query('COMMIT');
+      return true;
+    } catch (error) {
+      await this.rollback();
+      throw error;
+    }
+  }
+
+  async take(messageKey, goneKey, ttlMs, atomic) {
+    const key = pgLiteral('string', messageKey);
+    await this.query('BEGIN');
+    try {
+      const found = await this.query(
+        'SELECT v FROM arcod_kv WHERE k = ' + key + ' AND expires_at > ' + Date.now() + ' FOR UPDATE'
+      );
+      if (found.rows.length > 0) {
+        const value = pgTextOf(found.rows[0][0]);
+        await this.query('DELETE FROM arcod_kv WHERE k = ' + key);
+        await this.markGone(goneKey, ttlMs);
+        await this.query('COMMIT');
+        return { state: 'ok', value };
+      }
+      const gone = await this.query(
+        'SELECT 1 FROM arcod_kv WHERE k = ' + pgLiteral('string', goneKey) + ' AND expires_at > ' + Date.now() + ' LIMIT 1'
+      );
+      await this.query('DELETE FROM arcod_kv WHERE k = ' + key);
+      await this.query('COMMIT');
+      return { state: gone.rows.length > 0 ? 'gone' : 'missing' };
+    } catch (error) {
+      await this.rollback();
+      throw error;
+    }
+  }
+
+  async markGone(goneKey, ttlMs) {
+    const expiresAt = Date.now() + Number(ttlMs || 0);
+    await this.query(
+      'INSERT INTO arcod_kv (k, v, expires_at) VALUES (' + pgLiteral('string', goneKey) + ', ' + pgBytes('1') + ', ' + expiresAt + ') ' +
+      'ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, expires_at = EXCLUDED.expires_at'
+    );
+  }
+
+  async rollback() {
+    try {
+      await this.query('ROLLBACK');
+    } catch (ignored) {}
+  }
+
+  async begin() {
+    await this.query('BEGIN');
+  }
+
+  async commit() {
+    await this.query('COMMIT');
+  }
+
+  async outboxAppend(id, topic, payload) {
+    await this.query(
+      'INSERT INTO arcod_outbox (id, topic, payload, created_at) VALUES (' +
+      pgLiteral('string', String(id)) + ', ' + pgLiteral('string', String(topic)) + ', ' + pgLiteral('string', String(payload)) + ', ' + Date.now() + ')'
+    );
+    return true;
+  }
+
+  async outboxPending(limit) {
+    const found = await this.query(
+      'SELECT id, topic, payload FROM arcod_outbox WHERE published_at IS NULL ORDER BY created_at LIMIT ' + Number(limit || 100)
+    );
+    return found.rows.map((row) => ({ id: String(row[0]), topic: String(row[1]), payload: String(row[2]) }));
+  }
+
+  async outboxMark(id) {
+    await this.query('UPDATE arcod_outbox SET published_at = ' + Date.now() + ' WHERE id = ' + pgLiteral('string', String(id)));
+    return true;
+  }
+
+  async ping() {
+    await this.query('SELECT 1');
+    return 'PONG';
+  }
 }
 `;

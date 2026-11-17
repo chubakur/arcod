@@ -1,7 +1,9 @@
 import type { ModuleNode, OpNode, ServiceNode, TypeDecl, TypeExpr } from '../ast.ts';
+import { dialectNamed } from '../dialects.ts';
 import { asOnce } from '../check.ts';
 import { HANDLER_TEMPLATES, templateFor } from '../templates.ts';
 import { SQL_STORE_SOURCE } from './sql-store.ts';
+import { PG_STORE_SOURCE, PG_SQL_STORE_SOURCE } from './pg-store.ts';
 import { IDENTITY_SOURCE } from './identity.ts';
 import { BLOB_SOURCE } from './blob.ts';
 import { LLM_SOURCE } from './llm.ts';
@@ -15,6 +17,9 @@ import type { ProviderRegistry } from '../registry.ts';
 
 export interface EmitOptions {
   port?: number;
+  // The sql driver is one contract with two wire clients; the build picks the
+  // dialect and the emitted service carries only that client.
+  dialect?: 'mysql' | 'postgres';
   reference?: boolean;
   impl?: Record<string, string>;
   // Providers a plugin declares carry a runtime adapter; the registry is what
@@ -1071,16 +1076,28 @@ __SHUTDOWN__
 
 const CRYPTO_IMPORT = "import { randomUUID, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';";
 
+// The store sources are standalone modules for their own tests; inside the
+// service the net/crypto imports come from the template, so strip them and
+// bind the single name the client needs.
+function postgresSources(): string {
+  const body = PG_STORE_SOURCE.split('\n')
+    .filter((line) => !line.startsWith('import '))
+    .join('\n');
+  return 'const pgConnect = net.connect;\n' + body + '\n' + PG_SQL_STORE_SOURCE;
+}
+
 // The model names a capability; the generated adapter is whatever the
 // environment can provision. kv gets a Redis client, sql a MySQL client.
-function serviceTemplate(svc: ServiceNode): string {
+function serviceTemplate(svc: ServiceNode, dialect: 'mysql' | 'postgres' = 'mysql'): string {
   if (storageKind(svc) === 'sql') {
     return streamSource(dropRedis(SERVICE_TEMPLATE), svc)
-      .replace('__SQL_STORE__', () => SQL_STORE_SOURCE)
+      .replace('__SQL_STORE__', () => (dialect === 'postgres' ? postgresSources() : SQL_STORE_SOURCE))
       .replace('__STORE_SELECT__', () => [
         "const store = spannedStore(process.env.SQL_DRIVER === 'memory'",
         '  ? new MemoryStore()',
-        "  : new SqlStore(process.env.DATABASE_URL || 'mysql://arcod:arcod@mysql:3306/arcod'), 'sql');",
+        dialect === 'postgres'
+          ? "  : new PgStore(process.env.DATABASE_URL || 'postgres://arcod:***@postgres:5432/arcod'), 'sql');"
+          : "  : new SqlStore(process.env.DATABASE_URL || 'mysql://arcod:arcod@mysql:3306/arcod'), 'sql');",
       ].join('\n'));
   }
   return streamSource(SERVICE_TEMPLATE, svc)
@@ -1255,11 +1272,14 @@ function dropRedis(template: string): string {
   return template.slice(0, start) + template.slice(end + '// __REDIS_END__'.length);
 }
 
-function cryptoImportFor(svc: ServiceNode, withBodies: boolean): string {
+function cryptoImportFor(svc: ServiceNode, withBodies: boolean, dialect: 'mysql' | 'postgres' = 'mysql'): string {
   const names = ['randomUUID'];
   if (withBodies && isGuarded(svc)) names.push('randomBytes', 'scryptSync', 'timingSafeEqual');
   if (storageKind(svc) === 'sql') names.push('constants', 'createHash', 'createPublicKey', 'publicEncrypt');
   if (hasStream(svc)) names.push('createHash');
+  // SCRAM-SHA-256 needs HMAC and PBKDF2; the client only travels with a
+  // postgres build.
+  if (dialect === 'postgres') names.push('createHash', 'createHmac', 'pbkdf2Sync', 'randomBytes');
   if (svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'))) {
     names.push('createPublicKey', 'verify');
   }
@@ -1330,8 +1350,8 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
 
   const externals = mod.services.filter((item) => item.external);
   const plugins = pluginBindings(mod, options.registry);
-  const template = withHandlers(serviceTemplate(svc), reference, svc, options.impl, externals, mod, plugins)
-    .replace(CRYPTO_IMPORT, () => cryptoImportFor(svc, reference || Boolean(options.impl)))
+  const template = withHandlers(serviceTemplate(svc, options.dialect), reference, svc, options.impl, externals, mod, plugins)
+    .replace(CRYPTO_IMPORT, () => cryptoImportFor(svc, reference || Boolean(options.impl), options.dialect))
     .replace('__QUEUE_SOURCE__\n', () => queueSourceFor(svc, options.impl) + (outboxActive(svc) && options.impl ? OUTBOX_SOURCE + '\n' : ''))
     .replace('__QUEUE_WIRE__', () => (hasQueue(svc) && options.impl ? (outboxActive(svc) ? 'startOutboxDispatcher();\n' : '') + 'startConsumers();\n' : ''))
     .replace('__SHUTDOWN__', () => (outboxActive(svc) && options.impl ? OUTBOX_SHUTDOWN : hasQueue(svc) && options.impl ? QUEUE_SHUTDOWN : DEFAULT_SHUTDOWN));
@@ -1351,7 +1371,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
   return header + template
     .replace('__CONFIG__', () => JSON.stringify(config, null, 2))
     .replace('__STORES__', () => JSON.stringify(stores, null, 2))
-    .replace('__MIGRATIONS__', () => JSON.stringify(migrationPlan(mod, svc).migrations))
+    .replace('__MIGRATIONS__', () => JSON.stringify(migrationPlan(mod, svc, { dialect: dialectNamed(options.dialect) }).migrations))
     .replace('__ROUTES__', () => JSON.stringify(routes, null, 2))
     .replace('__ERRORS__', () => JSON.stringify(errors, null, 2))
     .replace('__ATOMIC__', () => String(atomicRead))

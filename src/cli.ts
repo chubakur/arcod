@@ -606,7 +606,7 @@ async function runBuild(flags: Flags): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: flags.reference, implDir: flags.impl ? undefined : null, registry: loadRegistry(loaded.dir) });
+  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: flags.reference, implDir: flags.impl ? undefined : null, registry: loadRegistry(loaded.dir), dialect: flags.dialect === 'postgres' ? 'postgres' : undefined });
   const mode = result.impl.length > 0 ? 'impl' : result.reference ? 'reference' : 'scaffold';
   console.log('arcod build (' + mode + '): ' + result.files.length + ' files in ' + result.dir);
   if (mode === 'impl') {
@@ -639,6 +639,7 @@ async function runTest(flags: Flags): Promise<void> {
     reference: !useImpl,
     implDir: useImpl ? undefined : null,
     registry: loadRegistry(loaded.dir),
+    dialect: flags.dialect === 'postgres' ? 'postgres' : undefined,
   });
   const report = await runExamples(loaded.mod, result.dir);
 
@@ -688,6 +689,7 @@ async function runRun(flags: Flags): Promise<void> {
     reference: !flags.scaffold && !flags.impl,
     implDir: flags.impl ? undefined : null,
     registry: loadRegistry(loaded.dir),
+    dialect: flags.dialect === 'postgres' ? 'postgres' : undefined,
   });
   if (result.impl.length > 0) {
     console.log('arcod run: impl bodies (' + result.impl.join(', ') + ')');
@@ -920,7 +922,7 @@ usage:
                               [--dry-run] [--no-cache] [--allow-remote]
   arcod make  [dir|spec.arc] [--model m] [--force] [--skip-impl] [--no-test]
                               [--reference] [--port 8080] [--json]
-  arcod build [dir|spec.arc] [--reference | --impl] [--port 8080]
+  arcod build [dir|spec.arc] [--reference | --impl] [--port 8080] [--dialect mysql|postgres]
   arcod test  [dir|spec.arc] [--impl] [--json]
   arcod run   [dir|spec.arc] [--impl] [--scaffold] [--port 8080] [--detach] [--down]
 
