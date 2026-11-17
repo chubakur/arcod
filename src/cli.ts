@@ -644,15 +644,39 @@ async function runTest(flags: Flags): Promise<void> {
   // `arcod test` runs real bodies when impl/ has them (same as `arcod make`);
   // it falls back to the built-in reference handlers only when there is no impl.
   // `--impl` forces impl, `--reference` forces the demo handlers.
+  // Nothing to run means nothing to build: say it once, before paying for a
+  // build and a service spawn that can only report the same thing.
+  const own = loaded.mod.services.filter((svc) => !svc.external);
+  const declared = own.reduce((total, svc) => total + svc.examples.length + svc.rules.length, 0);
+  if (declared === 0) {
+    console.log('no examples or rules declared');
+    return;
+  }
+
   const hasBodies = (await readdir(join(loaded.dir, 'impl')).catch(() => [] as string[])).some((name) => name.endsWith('.mjs'));
   const useImpl = flags.impl || (!flags.reference && hasBodies);
-  const result = await buildExample(loaded.mod, loaded.dir, {
-    port: flags.port,
-    reference: !useImpl,
-    implDir: useImpl ? undefined : null,
-    registry: loadRegistry(loaded.dir),
-    dialect: flags.dialect === 'postgres' ? 'postgres' : undefined,
-  });
+  let result: Awaited<ReturnType<typeof buildExample>>;
+  try {
+    result = await buildExample(loaded.mod, loaded.dir, {
+      port: flags.port,
+      reference: !useImpl,
+      implDir: useImpl ? undefined : null,
+      registry: loadRegistry(loaded.dir),
+      dialect: flags.dialect === 'postgres' ? 'postgres' : undefined,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // The demo handlers only cover create/read. Anything else without bodies
+    // needs the model or a hand-written file, and the user should hear that
+    // instead of the emitter's internal wording.
+    if (/templates only for/.test(message)) {
+      console.error('no operation bodies to test: impl/ is empty and the demo handlers cover only create/read.');
+      console.error('run `arcod impl` (or `arcod make`) first, or add impl/<op>.mjs by hand.');
+      process.exitCode = 1;
+      return;
+    }
+    throw error;
+  }
   const report = await runExamples(loaded.mod, result.dir);
 
   if (report.examples.length === 0 && report.rules.length === 0) {

@@ -385,6 +385,62 @@ test('upgrade reports the current version and refuses an unknown target', async 
   assert.match(refused.err, /unknown target version 9\.9\.9/);
 });
 
+test('test runs the bodies in impl/ and reports every example', async () => {
+  const dir = await tempDir('arcod-cli-test-');
+  await cp(new URL('../examples/onetimemessage', import.meta.url), dir, { recursive: true });
+  const spec = join(dir, 'main.arc');
+
+  const human = await run(['test', spec]);
+  assert.equal(human.code, 0, human.out + human.err);
+  assert.match(human.out, /^examples:/m);
+  assert.match(human.out, /ok +create/);
+  assert.match(human.out, /\d+ passed, 0 failed/);
+
+  const json = await run(['test', spec, '--json']);
+  assert.equal(json.code, 0, json.err);
+  const report = JSON.parse(json.out);
+  assert.ok(report.examples.length > 0);
+  assert.equal(report.examples.every((item: { ok: boolean }) => item.ok), true);
+});
+
+test('test --reference uses the demo handlers when impl/ exists', async () => {
+  const dir = await tempDir('arcod-cli-ref-');
+  await cp(new URL('../examples/onetimemessage', import.meta.url), dir, { recursive: true });
+  const r = await run(['test', join(dir, 'main.arc'), '--reference']);
+  assert.equal(r.code, 0, r.out + r.err);
+  assert.match(r.out, /\d+ passed, 0 failed/);
+});
+
+test('a body that lies about its contract turns the run red', async () => {
+  const dir = await tempDir('arcod-cli-red-');
+  await cp(new URL('../examples/onetimemessage', import.meta.url), dir, { recursive: true });
+  await writeFile(join(dir, 'impl', 'read.mjs'), 'export async function read(input, io) { return { error: "Gone" }; }\n', 'utf8');
+  const r = await run(['test', join(dir, 'main.arc')]);
+  assert.equal(r.code, 1, 'a failed example must not pass silently');
+  assert.match(r.out, /fail/);
+  assert.match(r.out, /, [1-9]\d* failed/);
+});
+
+test('test on a spec without examples says so and exits 0', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'main.arc');
+  await writeFile(file, 'module demo @0.1.0 {\n  meta { owner: "@you" }\n}\n\nservice Ping : http {\n  contract {\n    public op ping() -> string {\n      route: "GET /v1/ping"\n    }\n  }\n}\n', 'utf8');
+  const r = await run(['test', file]);
+  assert.equal(r.code, 0, r.out + r.err);
+  assert.match(r.out, /no examples or rules declared/);
+});
+
+test('test says bodies are missing instead of quoting the emitter', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'main.arc');
+  await writeFile(file, 'module demo @0.1.0 {\n  meta { owner: "@you" }\n}\n\nservice Ping : http {\n  contract {\n    public op ping() -> string {\n      route: "GET /v1/ping"\n    }\n  }\n\n  examples {\n    example ping_ok {\n      when { let r = ping() }\n      then { r == "pong" }\n    }\n  }\n}\n', 'utf8');
+  const r = await run(['test', file]);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /no operation bodies to test/);
+  assert.match(r.err, /arcod impl/);
+  assert.doesNotMatch(r.out + r.err, /templates only for/, 'the internal wording stays internal');
+});
+
 test('an emitter refuses a spec that does not check', async () => {
   const dir = await tempDir();
   const file = join(dir, 'main.arc');

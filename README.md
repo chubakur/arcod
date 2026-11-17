@@ -1201,8 +1201,11 @@ Warnings:
 ### Examples are tests
 
 `examples` in the model are not documentation but executable scenarios:
-`arcod test` boots the service and runs them. Without a flag it uses reference
-bodies (`create`/`read`); with `--impl` it uses the bodies from `impl/`.
+`arcod test` boots the service and runs them. Bodies come from `impl/` when it
+has any (`--impl` forces that); an empty `impl/` falls back to the built-in
+reference bodies, which cover only `create`/`read`. For any other operation
+`arcod test` says the bodies are missing (and how to generate them) rather than
+building a service that cannot answer.
 
 ```arcod
 service OneTimeMessage : http {
