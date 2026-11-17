@@ -125,3 +125,15 @@ test('k8s manifests carry the same database choice as the build', async () => {
   assert.match(pg, /postgres:16-alpine/);
   assert.doesNotMatch(pg, /image: mysql:8\.4/);
 });
+
+test('a postgres build with a queue has no mysql store left anywhere', async () => {
+  const mod = parse(await readFile(new URL('../examples/orders/main.arc', import.meta.url), 'utf8'), 'main.arc');
+  const code = emitService(mod, { dialect: 'postgres', impl: { create: 'export async function create() {}' } });
+  assert.match(code, /class PgStore/);
+  assert.match(code, /arcod_outbox/);
+  const stores = code.match(/new PgStore\(/g) ?? [];
+  assert.ok(stores.length >= 2, 'the service and the outbox dispatcher each build one');
+  assert.doesNotMatch(code, /new SqlStore\(/);
+  assert.doesNotMatch(code, /class SqlStore/);
+  assert.doesNotMatch(code, /MySqlConnection/);
+});
