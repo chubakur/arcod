@@ -43,24 +43,35 @@ export const CHAT_PAGE = String.raw`<!doctype html>
   </header>
   <p class="lead">__LEAD__</p>
   <section class="auth" id="auth" hidden>
-    <input id="token" type="password" autocomplete="off" placeholder="Bearer token">
-    <button type="button" id="save-token">Save</button>
+    <input id="token" type="password" autocomplete="off" placeholder="Bearer token" data-i18n-ph="chatTokenPlaceholder">
+    <button type="button" id="save-token" data-i18n="chatSave">Save</button>
   </section>
   <div class="chat">
-    <div class="msgs" id="msgs"><div class="empty">Nothing here yet — send the first message.</div></div>
+    <div class="msgs" id="msgs"><div class="empty" id="empty" data-i18n="chatEmpty">Nothing here yet — send the first message.</div></div>
     <form class="composer" id="composer">
-      <textarea id="text" rows="2" placeholder="Message… (Enter — send, Shift+Enter — new line)"></textarea>
-      <button class="primary" id="send" type="submit">Send</button>
+      <textarea id="text" rows="2" placeholder="Message… (Enter — send, Shift+Enter — new line)" data-i18n-ph="chatPlaceholder"></textarea>
+      <button class="primary" id="send" type="submit" data-i18n="chatSend">Send</button>
     </form>
   </div>
   <div class="row" style="margin-top:10px">
-    <button type="button" id="reset">New conversation</button>
+    <button type="button" id="reset" data-i18n="chatReset">New conversation</button>
     <span class="status" id="conv"></span>
   </div>
 </main>
 <script>
 var OPS = __CHAT_OPS__;
 var HAS_AUTH = __HAS_AUTH__;
+var T = __STRINGS__;
+// The page ships English in the markup (so it reads without JS) and the
+// locale's catalog replaces the static labels once the script runs.
+document.querySelectorAll('[data-i18n]').forEach(function (node) {
+  var value = T[node.getAttribute('data-i18n')];
+  if (value) node.textContent = value;
+});
+document.querySelectorAll('[data-i18n-ph]').forEach(function (node) {
+  var value = T[node.getAttribute('data-i18n-ph')];
+  if (value) node.placeholder = value;
+});
 var TOKEN_KEY = 'arcod.token';
 var CONV_KEY = 'arcod.chat.' + OPS.module;
 var msgs = document.getElementById('msgs');

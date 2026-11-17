@@ -41,6 +41,23 @@ const UI_STRINGS: Record<string, Record<string, string>> = {
     run: 'Run',
     json: 'JSON',
     optional: 'optional',
+    chatTokenPlaceholder: 'Bearer token',
+    chatSave: 'Save',
+    chatEmpty: 'Nothing here yet — send the first message.',
+    chatPlaceholder: 'Message… (Enter — send, Shift+Enter — new line)',
+    chatSend: 'Send',
+    chatReset: 'New conversation',
+    presIntro: 'The host opens a session on the big screen; participants join with a code or QR.',
+    presHostTitle: 'I am the host',
+    presHostLead: 'Create a session to get a code, a QR and the slides.',
+    presCreate: 'Create session',
+    presGuestTitle: 'I am a participant',
+    presCode: 'Session code',
+    presName: 'Your name',
+    presJoin: 'Join',
+    presBack: '← Back',
+    presNext: 'Next →',
+    presParticipants: 'Participants',
   },
   ru: {
     token: 'Токен доступа',
@@ -50,6 +67,23 @@ const UI_STRINGS: Record<string, Record<string, string>> = {
     run: 'Выполнить',
     json: 'JSON',
     optional: 'необязательно',
+    chatTokenPlaceholder: 'Bearer-токен',
+    chatSave: 'Сохранить',
+    chatEmpty: 'Здесь пока пусто — отправьте первое сообщение.',
+    chatPlaceholder: 'Сообщение… (Enter — отправить, Shift+Enter — новая строка)',
+    chatSend: 'Отправить',
+    chatReset: 'Новый диалог',
+    presIntro: 'Ведущий открывает сессию на большом экране; участники подключаются по коду или QR.',
+    presHostTitle: 'Я ведущий',
+    presHostLead: 'Создайте сессию, чтобы получить код, QR и слайды.',
+    presCreate: 'Создать сессию',
+    presGuestTitle: 'Я участник',
+    presCode: 'Код сессии',
+    presName: 'Ваше имя',
+    presJoin: 'Подключиться',
+    presBack: '← Назад',
+    presNext: 'Далее →',
+    presParticipants: 'Участники',
   },
 };
 
@@ -528,6 +562,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
     };
     return PRESENTATION_PAGE
       .replaceAll('__LANG__', escapeHtml(locale))
+      .replaceAll('__STRINGS__', jsonForScript(pageStrings(locale)))
       .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
       .replaceAll('__DECK__', jsonForScript(deck))
       .replaceAll('__OPS__', jsonForScript(live))
@@ -541,6 +576,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
     const chat = chatOps(mod, svc, ui);
     return CHAT_PAGE
       .replaceAll('__LANG__', escapeHtml(locale))
+      .replaceAll('__STRINGS__', jsonForScript(pageStrings(locale)))
       .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
       .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · chat with the model'))
       .replaceAll('__CHAT_OPS__', JSON.stringify(chat))

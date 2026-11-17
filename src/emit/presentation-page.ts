@@ -72,6 +72,10 @@ var DECK = __DECK__;
 var OPS = __OPS__;
 var TITLE = DECK.title;
 var HAS_AUTH = __HAS_AUTH__;
+var T = __STRINGS__;
+// Static UI labels come from the same catalog as the other layouts; slide
+// titles and bodies are authored in the spec and are never translated here.
+function t(key) { return T[key] || ''; }
 var HOST_KEY = 'arcod.presentation.host';
 var GUEST_PREFIX = 'arcod.presentation.guest.';
 var app = document.getElementById('app');
@@ -167,7 +171,7 @@ function landing(note) {
   app.replaceChildren();
   var head = el('div', 'card');
   head.appendChild(el('h1', null, TITLE));
-  head.appendChild(el('p', 'muted', 'The host opens a session on the big screen; participants join with a code or QR.'));
+  head.appendChild(el('p', 'muted', t('presIntro')));
   if (note) head.appendChild(el('p', 'muted', note));
   app.appendChild(head);
 
@@ -175,9 +179,9 @@ function landing(note) {
   grid.style.marginTop = '16px';
 
   var host = el('div', 'card');
-  host.appendChild(el('h2', null, 'I am the host'));
-  host.appendChild(el('p', 'muted', 'Create a session to get a code, a QR and the slides.'));
-  var create = el('button', 'primary', 'Create session');
+  host.appendChild(el('h2', null, t('presHostTitle')));
+  host.appendChild(el('p', 'muted', t('presHostLead')));
+  var create = el('button', 'primary', t('presCreate'));
   create.onclick = async function () {
     create.disabled = true;
     try {
@@ -194,15 +198,15 @@ function landing(note) {
   grid.appendChild(host);
 
   var guest = el('div', 'card');
-  guest.appendChild(el('h2', null, 'I am a participant'));
+  guest.appendChild(el('h2', null, t('presGuestTitle')));
   var codeInput = el('input');
-  codeInput.placeholder = 'Session code';
+  codeInput.placeholder = t('presCode');
   codeInput.autocapitalize = 'characters';
   codeInput.style.marginBottom = '10px';
   var nameInput = el('input');
-  nameInput.placeholder = 'Your name';
+  nameInput.placeholder = t('presName');
   nameInput.style.marginBottom = '10px';
-  var join = el('button', 'primary', 'Join');
+  var join = el('button', 'primary', t('presJoin'));
   join.onclick = function () { enterAsGuest(codeInput.value.trim().toUpperCase(), nameInput.value.trim()); };
   guest.appendChild(codeInput);
   guest.appendChild(nameInput);
@@ -296,7 +300,7 @@ async function hostView(session) {
   var left = el('div');
   left.appendChild(el('div', 'pill', 'session ' + session.code));
   left.appendChild(el('h1', null, TITLE));
-  left.appendChild(el('p', 'muted', 'Participants: ' + (current.joined || 0)));
+  left.appendChild(el('p', 'muted', t('presParticipants') + ': ' + (current.joined || 0)));
   head.appendChild(left);
   var right = el('div');
   right.style.textAlign = 'center';
@@ -309,8 +313,8 @@ async function hostView(session) {
   app.appendChild(stage);
 
   var foot = el('div', 'foot');
-  var prev = el('button', null, '← Back');
-  var next = el('button', 'primary', 'Next →');
+  var prev = el('button', null, t('presBack'));
+  var next = el('button', 'primary', t('presNext'));
   var progress = el('span', 'muted', '');
   foot.appendChild(prev);
   foot.appendChild(progress);

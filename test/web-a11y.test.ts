@@ -76,3 +76,32 @@ test('a malformed locale is rejected at parse time', () => {
     /BCP-47/,
   );
 });
+
+// B12: the chat and presentation layouts read static labels from the same
+// catalog as the form page. Slide titles and bodies are author text; only the
+// chrome is translated, and the markup keeps English as the no-JS fallback.
+const chatUrl = new URL('../examples/chat/main.arc', import.meta.url);
+const quizUrl = new URL('../examples/quiz/main.arc', import.meta.url);
+
+test('the chat layout localizes its static labels', async () => {
+  const mod = parse(await readFile(chatUrl, 'utf8'), 'main.arc');
+  mod.uis[0].locale = 'ru';
+  const html = emitWeb(mod, { maxBytes: 2_000_000 });
+  assert.match(html, /<html lang="ru">/);
+  assert.ok(html.includes('data-i18n="chatSend"'), 'the button is labelled from the catalog');
+  assert.ok(html.includes('Отправить'), 'the Russian label is in the page');
+  assert.ok(html.includes('data-i18n-ph="chatPlaceholder"'), 'the composer placeholder is catalogued');
+  assert.ok(!html.includes('__STRINGS__'), 'the catalog is expanded');
+  assert.ok(html.includes('New conversation'), 'English stays as the no-JS fallback');
+});
+
+test('the presentation layout localizes its chrome, not the slides', async () => {
+  const mod = parse(await readFile(quizUrl, 'utf8'), 'main.arc');
+  mod.uis[0].locale = 'ru';
+  const html = emitWeb(mod, { maxBytes: 2_000_000 });
+  assert.match(html, /<html lang="ru">/);
+  assert.ok(html.includes('"presNext":"Далее →"'), 'the catalog carries the deck chrome');
+  assert.ok(html.includes("t('presNext')"), 'the button reads the catalog');
+  assert.ok(html.includes(mod.uis[0].slides[0].title), 'a slide title is not translated');
+  assert.ok(!html.includes('__STRINGS__'));
+});
