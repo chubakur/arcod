@@ -255,6 +255,15 @@ function storeBackend(seen: string[], sockets: Set<any> = new Set()) {
           socket.write(Buffer.concat([rowDescription(['checksum']), message('C', cstr('SELECT 0')), message('Z', Buffer.from('I'))]));
           continue;
         }
+        if (/^SELECT .* FROM "task"/.test(sql)) {
+          socket.write(Buffer.concat([
+            rowDescription(['id', 'done']),
+            rowData(['t1', 't']),
+            message('C', cstr('SELECT 1')),
+            message('Z', Buffer.from('I')),
+          ]));
+          continue;
+        }
         const command = /^INSERT/.test(sql) ? 'INSERT 0 1'
           : /^UPDATE/.test(sql) ? 'UPDATE 1'
           : /^DELETE/.test(sql) ? 'DELETE 1'
@@ -265,6 +274,15 @@ function storeBackend(seen: string[], sockets: Set<any> = new Set()) {
     });
   });
   return server;
+}
+
+function rowData(values: string[]): Buffer {
+  const parts = [int16(values.length)];
+  for (const value of values) {
+    const bytes = Buffer.from(value, 'utf8');
+    parts.push(int32(bytes.length), bytes);
+  }
+  return message('D', Buffer.concat(parts));
 }
 
 let storeLoaded: any = null;
@@ -310,6 +328,12 @@ test('PgStore issues postgres SQL and reads the command tag for affected rows', 
     await store.set('k', 'v', 1000);
     assert.match(seen[seen.length - 1], /ON CONFLICT \(k\) DO UPDATE SET v = EXCLUDED\.v/);
     assert.ok(seen.some((sql) => /CREATE TABLE IF NOT EXISTS arcod_migrations/.test(sql)));
+    const updated = await store.entityUpdate('task', [{ name: 'id', base: 'string' }, { name: 'done', base: 'bool' }], 't1', { done: false });
+    assert.equal(updated.done, false);
+    await store.entityRemove('task', [{ name: 'id', base: 'string' }], 't1');
+    assert.match(seen[seen.length - 1], /DELETE FROM "task" WHERE "id" = 't1'/);
+    await store.outboxAppend('e1', 'topic', 'payload');
+    assert.match(seen[seen.length - 1], /INSERT INTO arcod_outbox \(id, topic, payload, created_at\)/);
     const pongs = await Promise.all([store.ping(), store.ping(), store.ping()]);
     assert.deepEqual(pongs, ['PONG', 'PONG', 'PONG']);
     await store.entityFind('task', [{ name: 'id', base: 'string' }, { name: 'done', base: 'bool' }], { limit: 2, order: [{ field: 'done', dir: 1 }], where: { done: true }, cursor: 'cur' });
