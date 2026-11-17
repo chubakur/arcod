@@ -103,7 +103,10 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     );
   }
 
-  files.push([join(dir, 'docker-compose.yml'), composeYaml(mod, port, hasUi, options.registry, options.dialect)]);
+  // render: ssr serves the page from the service, so compose needs no nginx
+  // sidecar for the first screen.
+  const webContainer = hasUi && firstUi?.render !== 'ssr';
+  files.push([join(dir, 'docker-compose.yml'), composeYaml(mod, port, webContainer, options.registry, options.dialect)]);
 
   // Deterministic prompts are part of the build output: one per operation,
   // each carrying only its own contract and the capability signatures.

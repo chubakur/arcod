@@ -214,3 +214,27 @@ test('the running service answers the ui route with the page', async () => {
     await svc.stop();
   }
 });
+
+test('an ssr build needs no web container in compose', async () => {
+  const { buildExample } = await import('../src/build.ts');
+  const { mkdtemp, writeFile, readFile: read } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const withRead = LOCALIZED.replace(
+    '  contract { public op create(text: string) -> Note { route: "POST /v1/notes" } }',
+    '  contract {\n' +
+    '    public op create(text: string) -> Note { route: "POST /v1/notes" }\n' +
+    '    public op read(id: uuid) -> Note { route: "GET /v1/notes/:id" }\n' +
+    '  }',
+  );
+  const ssrSource = withRead.split('  locale: "ru"').join('  render: ssr\n  locale: "ru"');
+  const staticSource = withRead;
+  for (const [name, source, wantsWeb] of [['ssr', ssrSource, false], ['static', staticSource, true]] as const) {
+    const dir = await mkdtemp(join(tmpdir(), 'arcod-compose-' + name + '-'));
+    await writeFile(join(dir, 'main.arc'), source, 'utf8');
+    const built = await buildExample(parse(source, 'main.arc'), dir, { reference: true });
+    const compose = await read(join(built.dir, 'docker-compose.yml'), 'utf8');
+    if (wantsWeb) assert.match(compose, /\n  web:\n/);
+    else assert.doesNotMatch(compose, /\n  web:\n/);
+  }
+});

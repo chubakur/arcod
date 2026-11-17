@@ -385,7 +385,10 @@ function literalArg(bind: { args: Record<string, unknown> }, key: string): strin
 }
 
 function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
-  const model = composeModel(mod, 0, mod.uis.length > 0, undefined, options.dialect);
+  // The service serves page HTML for render: ssr, so there is no separate web
+  // deployment or ingress backend for it.
+  const hasUi = mod.uis.length > 0 && mod.uis[0].render !== 'ssr';
+  const model = composeModel(mod, 0, hasUi, undefined, options.dialect);
   const name = baseName(mod);
   // The same contract the deploy manifest publishes: no second spelling of
   // the image name that only differs by ':latest'.
