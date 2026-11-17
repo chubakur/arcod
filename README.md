@@ -1170,9 +1170,13 @@ This is a vertical slice, not a finished language.
   capabilities.
 - `kv` in a real environment is Redis; the in-memory driver exists only for
   `arcod test`.
-- `arcod fmt` is a stub; `arcod diff` and `arcod adopt` are not implemented.
+- `arcod fmt` is canonical and idempotent, but it re-lays out record types on one
+  line and drops comments between or after statements. `arcod diff` compares
+  canonicalized specs; `arcod adopt` imports OpenAPI 3.x JSON only.
 - of the rule predicates `arcod test` supports only `once`.
-- `unique` and `ordering` are not checked beyond syntax and cycles.
+- `unique` is checked and enforced (`A054`–`A056`, a duplicate returns the
+  declared `Conflict`), but only on a single record field. `ordering` is checked
+  for cycles only and stays declarative.
 - Generation targets JavaScript/Node only. PHP, Go and Python would be separate
   emitters.
 - `change`, `policy`, `hint`, `impl`, `lifecycle` and `unknown` blocks, and
