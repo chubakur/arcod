@@ -71,6 +71,18 @@ test('reports a provider mentioned in the model', () => {
   assert.ok(codes.includes('A003'));
 });
 
+test('a name that merely contains a provider word is not a mention', () => {
+  const named = parse(source.replace('service OneTimeMessage', 'service messages_mysql'), 'main.arc');
+  const codes = check(named).map((d) => d.code);
+  assert.equal(codes.includes('A003'), false, 'identifiers are not provider mentions');
+});
+
+test('a provider mention next to punctuation still counts', () => {
+  const withUrl = parse(source.replace('uses store: kv(ttl: 999s, consistency: strong)', 'uses store: kv(ttl: 999s, consistency: strong) // see redis://cache:6379'), 'main.arc');
+  const codes = check(withUrl).map((d) => d.code);
+  assert.ok(codes.includes('A003'), 'a real host still trips the guard');
+});
+
 test('build defaults to scaffold, reference is opt-in', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'arcod-scaffold-'));
   const scaffold = await buildExample(ast, dir);

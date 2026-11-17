@@ -11,6 +11,15 @@ import { constraintOf, describeViolation, unknownFormatOf } from './constraints.
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
 const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysql', 'mongodb', 'localhost', '127.0.0.1', 'ollama', 'openai', 'anthropic'];
 
+// A provider word counts only when it stands alone: an identifier such as
+// messages_mysql or a path such as docs/redis.md is not a binding, while
+// `// redis`, `redis://` and `127.0.0.1:6379` all are.
+function mentionsWord(text: string, word: string): boolean {
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('(?<![A-Za-z0-9_])' + escaped + '(?![A-Za-z0-9_])', 'i').test(text);
+}
+
+
 export interface CheckOptions {
   environment?: string;
   // Budgets are a design decision, not a prerequisite: a draft may not know
@@ -114,9 +123,11 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     const sourceSlice = mod.source.slice(svc.loc.offset, svc.loc.end);
     const aliases = new Set(svc.uses.map((u) => u.alias));
 
-    // A003 — provider, host or secret mentioned in the model
+    // A003 — provider, host or secret mentioned in the model. Match whole
+    // words only: `messages_mysql` is a service name, not a binding, and a
+    // substring hit would make the name of your own module an error.
     for (const word of FORBIDDEN_IN_MODEL) {
-      if (sourceSlice.toLowerCase().includes(word)) {
+      if (mentionsWord(sourceSlice, word)) {
         diags.push(diag('A003', 'error', mod.file, svc.loc, 'services', `provider or host ${word} mentioned in the model`, 'move the binding into environment'));
       }
     }
