@@ -8,10 +8,11 @@ import { fileURLToPath } from 'node:url';
 // the offline contract: a clear SKIP line and exit 0, never a red run.
 
 const script = fileURLToPath(new URL('../scripts/e2e-local-model.mjs', import.meta.url));
+const harness = fileURLToPath(new URL('../scripts/model-harness.mjs', import.meta.url));
 
-function runScript(env: Record<string, string>): Promise<{ code: number | null; out: string }> {
+function runScript(env: Record<string, string>, file = script): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [script], {
+    const child = spawn(process.execPath, [file], {
       env: { ...process.env, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -31,4 +32,10 @@ test('without Ollama the local-model e2e skips instead of failing', async () => 
   assert.equal(result.code, 0, 'a missing model is not a failure');
   assert.match(result.out, /SKIP e2e-local-model: Ollama is not reachable at http:\/\/127\.0\.0\.1:1/);
   assert.match(result.out, /OLLAMA_ENDPOINT/, 'the message says how to point it elsewhere');
+});
+
+test('the quality harness skips the same way', async () => {
+  const result = await runScript({ OLLAMA_ENDPOINT: 'http://127.0.0.1:1' }, harness);
+  assert.equal(result.code, 0, 'no model means no measurement, not a failure');
+  assert.match(result.out, /SKIP model-harness: Ollama is not reachable/);
 });

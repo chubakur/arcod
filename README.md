@@ -914,6 +914,12 @@ when no model is reachable it prints one `SKIP e2e-local-model: ...` line and
 exits `0` — a machine without a model is a configuration fact, not a red test.
 Set `ARC_MODEL` to try another model, `ARC_E2E_KEEP=1` to keep the temp dir.
 
+`node scripts/model-harness.mjs [example ...]` measures the model instead of
+trusting it: it copies each example to a temp dir, generates every body, runs
+that spec's own examples and writes `docs/model-report.md` — per-example body
+coverage, examples green/red, wall time. It skips with the same one-line exit
+when no model is reachable, and never touches the checked-in `impl/` bodies.
+
 ## What is generated
 
 For `examples/onetimemessage` and `examples/onetimemessage-pwd`: what comes from
