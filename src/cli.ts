@@ -24,6 +24,7 @@ import { diffSpecs } from './diff.ts';
 import { adoptOpenapi } from './adopt.ts';
 import { helmChart, k8sManifests } from './emit/k8s.ts';
 import { terraformFiles, formatTerraform } from './emit/terraform.ts';
+import { scanPlugins } from './plugins.ts';
 import { LANG_VERSION, declaredVersion, migrateSpec, VersionError } from './versions.ts';
 import { scaffold, isValidName } from './new.ts';
 import { serve as serveLsp } from './lsp-server.ts';
@@ -455,6 +456,28 @@ async function runGrpc(flags: Flags): Promise<void> {
 }
 
 function runProviders(flags: Flags): void {
+  if (flags.plugins) {
+    const scan = scanPlugins(process.cwd());
+    if (flags.json) {
+      console.log(JSON.stringify({ plugins: scan.plugins, issues: scan.issues }, null, 2));
+      return;
+    }
+    if (scan.plugins.length === 0) {
+      console.log('no plugins found: ARC_PLUGIN_PATH, ./.arcod/plugins, ~/.arcod/plugins are empty');
+    }
+    for (const plugin of scan.plugins) {
+      console.log(plugin.package + '@' + plugin.version + '  api ' + plugin.pluginApi + '  ' + plugin.path);
+      for (const capability of plugin.capabilities) {
+        console.log('  capability ' + capability.name + (capability.summary ? ' — ' + capability.summary : ''));
+      }
+      for (const provider of plugin.providers) {
+        console.log('  provider   ' + provider.name + ' -> ' + provider.capability);
+      }
+    }
+    for (const issue of scan.issues) console.log(issue.severity + '  ' + issue.path + ': ' + issue.message);
+    return;
+  }
+
   const rows = providerNames().map((name) => {
     const spec = PROVIDERS[name];
     return {
@@ -763,6 +786,7 @@ interface Flags {
   write: boolean;
   to?: string;
   helm: boolean;
+  plugins: boolean;
   dialect?: string;
   image?: string;
   host?: string;
@@ -795,6 +819,7 @@ function parseFlags(args: string[]): Flags {
     noTest: false,
     write: false,
     helm: false,
+    plugins: false,
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -822,6 +847,7 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--write' || arg === '-w') flags.write = true;
     else if (arg === '--to') flags.to = args[++i];
     else if (arg === '--helm') flags.helm = true;
+    else if (arg === '--plugins') flags.plugins = true;
     else if (arg === '--dialect') flags.dialect = args[++i];
     else if (arg === '--image') flags.image = args[++i];
     else if (arg === '--host') flags.host = args[++i];
@@ -889,7 +915,7 @@ usage:
   arcod upgrade [dir|spec.arc] [--to version] [--write]
   arcod new <name>
   arcod lsp
-  arcod providers [--json]
+  arcod providers [--json] [--plugins]
   arcod deploy [dir|spec.arc] [--env name] [--json]
   arcod terraform [dir|spec.arc] [--env name] [--out dir]
   arcod k8s   [dir|spec.arc] [--helm] [--image ref] [--host host]

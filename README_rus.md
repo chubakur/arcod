@@ -140,7 +140,7 @@ type Account = { id: uuid, email: email, website: url?, plan: Plan = "free" }
 | `arcod make [dir]` | весь цикл одной командой: check → prompts → тела → build → test |
 | `arcod run [dir]` | build + `docker compose up --build` |
 | `arcod run --down` | останавливает окружение (`down --remove-orphans`) |
-| `arcod providers` | таблица возможностей, провайдеров и их портов; `--json` |
+| `arcod providers` | таблица возможностей, провайдеров и их портов; `--json`; `--plugins` — манифесты на `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
 | `arcod deploy [dir]` | target развёртывания и манифест `deploy.<env>.json`; `--env`, `--json` |
 | `arcod k8s [dir]` | объекты Kubernetes для compose-топологии (namespace, configmap, деплойменты провайдеров, сервис, ingress); `--helm` — чарт, `--out dir` — записать файлы |
 | `arcod terraform [dir]` | Terraform для облака: сеть, managed-сервисы под привязки, секреты через переменные; `--env`, `--out dir`; Yandex Cloud |
@@ -194,6 +194,7 @@ environment dev {
 
 ```bash
 arcod providers            # таблица возможностей и провайдеров
+arcod providers --plugins  # манифесты плагинов на этой машине
 arcod deploy . --env prod  # target развёртывания и манифест
 ```
 
@@ -817,6 +818,13 @@ uses store: sql(ttl: 999s)    bind store -> mysql(host: "store")
 
 Живые примеры: `examples/project1` (Redis) и `examples/project1-mysql` (MySQL) —
 одна и та же спека, отличие в двух строках.
+
+Возможности и провайдеры могут приходить из пакета: манифест плагина их
+объявляет, а `arcod providers --plugins` показывает, что найдено, откуда и что
+с ним не так (неизвестный `pluginApi`, перекрытие встроенного провайдера,
+провайдер с необъявленной возможностью). Ничего не устанавливается и не
+исполняется — чтение манифеста это первый, read-only шаг дизайна из
+`docs/plugin-registry.md`; подключение lookup к `check` и эмиттерам — следующий.
 
 Провайдер может быть внешним: `bind errors -> sentry(dsn: "...")` не создаёт
 контейнер, но добавляет `SENTRY_DSN` в окружение сервиса; без `dsn` — ошибка

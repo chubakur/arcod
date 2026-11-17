@@ -144,7 +144,7 @@ format name (`A061`). Full example: `examples/signup`.
 | `arcod make [dir]` | the whole cycle in one command: check → prompts → bodies → build → test |
 | `arcod run [dir]` | build + `docker compose up --build` |
 | `arcod run --down` | stop the environment (`down --remove-orphans`) |
-| `arcod providers` | capability and provider table with ports; `--json` |
+| `arcod providers` | capability and provider table with ports; `--json`; `--plugins` lists manifests found on `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
 | `arcod deploy [dir]` | deployment target and `deploy.<env>.json` manifest; `--env`, `--json` |
 | `arcod k8s [dir]` | Kubernetes objects for the compose topology (namespace, configmap, provider deployments, app, ingress); `--helm` for a chart, `--out dir` to write files |
 | `arcod terraform [dir]` | Terraform for the cloud view: network, managed services for the binds, secrets as variables; `--env`, `--out dir`; Yandex Cloud |
@@ -189,6 +189,14 @@ provider (`redis`, `postgres`, `s3`…). The compiler knows which provider
 implements which capability and enforces it (`A023` unknown, `A024`
 incompatible, `A025` double bind).
 
+Capabilities and providers can also come from a package: a plugin manifest
+declares them and `arcod providers --plugins` shows what was found, where it
+came from and what is wrong with it (unknown `pluginApi`, shadowing a built-in,
+a provider naming an undeclared capability). Nothing is installed or executed —
+reading a manifest is the first, read-only step of the design in
+`docs/plugin-registry.md`; wiring the lookup into `check` and the emitters is
+the next one.
+
 ```arcod
 environment dev {
   bind db     -> postgres(host: "db", expose: true)
@@ -199,6 +207,7 @@ environment dev {
 
 ```bash
 arcod providers            # capability and provider table
+arcod providers --plugins  # plugin manifests found on this machine
 arcod deploy . --env prod  # deployment target and manifest
 ```
 
