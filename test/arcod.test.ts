@@ -847,6 +847,54 @@ test('a ui clause its layout does not read is an error', () => {
   assert.match(diags[1].hint ?? '', /add layout: presentation/);
 });
 
+test('an allow-list entry that names no effect is an error', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  uses store: kv',
+    '  contract {',
+    '    public op a() -> int {',
+    '      route: "POST /a"',
+    '      effects: store.set',
+    '      post: result != null',
+    '    }',
+    '  }',
+    '  effects { allow store.gett, store.set }',
+    '}',
+    'environment dev {',
+    '  bind store -> redis(host: "kv")',
+    '  deploy docker',
+    '}',
+  ].join('\n');
+  const diags = check(parse(src, 'main.arc')).filter((item) => item.code === 'A044');
+  assert.equal(diags.length, 1, 'only the typo, not the valid entry');
+  assert.match(diags[0].message, /^effect store\.gett does not exist in kv$/);
+  assert.match(diags[0].hint ?? '', /^known: get, set, del/);
+});
+
+test('an allow-list entry may name a wildcard or another service operation', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'external service Ledger : http {',
+    '  contract {',
+    '    op record() -> int {',
+    '      route: "POST /v1/entries"',
+    '    }',
+  '  }',
+  '}',
+  'service S : http {',
+  '  uses store: kv',
+  '  effects { allow store.*, Ledger.record }',
+  '}',
+  ].join('\n');
+  const diags = check(parse(src, 'main.arc'));
+  assert.deepEqual(diags.filter((item) => item.code === 'A044'), []);
+  assert.equal(diags.filter((item) => item.code === 'A004').length, 0, 'the wildcard really allows the effect');
+  const printed = formatSource(src, 'main.arc');
+  assert.match(printed, /allow store\.\*, Ledger\.record/, 'fmt prints the wildcard back');
+  assert.equal(formatSource(printed, 'main.arc'), printed, 'idempotent');
+});
+
 test('the presentation page carries the deck and a real QR encoder', () => {
   const html = emitWeb(quizAst, { maxBytes: 2_000_000 });
   assert.ok(!/__[A-Z]+__/.test(html), 'no unexpanded placeholders');

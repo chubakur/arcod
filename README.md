@@ -537,6 +537,10 @@ The planner derives the procedure from effects and type shapes, not from
 operation names; without a declaration, effects are inferred from shape (uuid →
 read, bytes → object, list → list).
 
+`allow store.*` grants every effect of one capability in a single entry. An
+allow/deny entry that names no effect of the declared capability (or of another
+service) is `A044`, so a typo cannot pass for a guard.
+
 Access control is declarative, and the generated runtime enforces it before the
 body runs:
 
@@ -1175,6 +1179,8 @@ Errors:
 - `A041` a presentation without slides;
 - `A042` slides on a page whose `layout` is not `presentation` — the page
   would drop them, so the text never reaches the browser;
+- `A044` an `allow`/`deny` entry that names no effect of the declared
+  capability (a typo such as `store.gett`) or of another service;
 - `A043` a `ui` clause the chosen layout does not read (`history`/`send` need
   `layout: chat`; `start` needs chat or presentation; `join`/`state`/`advance`
   need presentation) — the clause would be ignored, not rendered;

@@ -3,7 +3,7 @@ import type { Expr, Loc, ModuleNode, OpNode, Param, ServiceNode, TypeExpr, UiNod
 import { templateFor } from './templates.ts';
 import { providerImplements } from './providers.ts';
 import { builtinRegistry, type ProviderRegistry } from './registry.ts';
-import { storageUse } from './capabilities.ts';
+import { capabilityFor, storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
 import { defaultValue } from './migrate.ts';
 import { constraintOf, describeViolation, unknownFormatOf } from './constraints.ts';
@@ -340,6 +340,37 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       if (op.kind !== 'op') continue;
       for (const effect of requiredEffects(svc, op)) {
         checkEffect(effect.alias, effect.op, op.loc);
+      }
+    }
+
+    // A044 — an allow/deny entry names an effect the capability does not
+    // have. A typo (store.gett) used to be accepted and let nothing through,
+    // so the guard looked configured while the operation still failed A004.
+    if (svc.effects) {
+      const aliasFor = new Map(svc.uses.map((use) => [use.alias, use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability]));
+      for (const [listName, entries] of [['allow', svc.effects.allow], ['deny', svc.effects.deny]] as const) {
+        for (const entry of entries) {
+          const [alias, name] = entry.split('.');
+          if (!name || name === '*') continue; // native deny (net/fs/exec) has no dot
+          // Another service's operation (an external call or a saga step) is
+          // an effect too, and it is named Service.op, not alias.effect.
+          const target = mod.services.find((item) => item.name === alias);
+          if (target && target.contract.some((item) => item.name === name)) continue;
+          const capability = aliasFor.get(alias);
+          if (!capability) {
+            diags.push(diag('A044', 'error', mod.file, svc.effects.loc, 'services.' + svc.name + '.effects.' + listName,
+              'effect ' + entry + ' names alias ' + alias + ', which is not declared in uses',
+              'declare the capability or fix the alias'));
+            continue;
+          }
+          const spec = capabilityFor(capability);
+          if (!spec) continue; // a plugin capability declares its own methods
+          if (!(name in spec.effects)) {
+            diags.push(diag('A044', 'error', mod.file, svc.effects.loc, 'services.' + svc.name + '.effects.' + listName,
+              'effect ' + entry + ' does not exist in ' + capability,
+              'known: ' + Object.keys(spec.effects).join(', ')));
+          }
+        }
       }
     }
 

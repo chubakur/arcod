@@ -534,6 +534,17 @@ class Parser {
         continue;
       }
       const nameStart = this.peek();
+      // alias.* allows every effect of one capability: the check already
+      // matches it, so the parser must not be the only place that refuses it.
+      if (nameStart.kind === 'ident' && this.peek(1).value === '.' && this.peek(2).value === '*') {
+        this.next();
+        this.expect('.');
+        this.expect('*');
+        target.push(nameStart.value + '.*');
+        targetLocs.push(locOf(nameStart));
+        this.accept(',');
+        continue;
+      }
       target.push(this.parseQName());
       targetLocs.push(locOf(nameStart));
       this.accept(',');
