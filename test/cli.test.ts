@@ -90,8 +90,71 @@ test('an unknown flag is a usage error, not a crash', async () => {
   const r = await run(['check', '--bogus']);
   assert.equal(r.code, 2);
   assert.match(r.err, /arcod: unknown flag: --bogus/);
-  assert.match(r.err, /arcod help/);
+  assert.match(r.err, /hint: arcod check --help/);
   assert.doesNotMatch(r.err, /\n\s+at /, 'no stack trace leaks to the user');
+});
+
+test('every subcommand answers its own --help', async () => {
+  const commands = ['check', 'ast', 'plan', 'openapi', 'graphql', 'grpc', 'migrate', 'fmt',
+    'diff', 'adopt', 'upgrade', 'new', 'lsp', 'providers', 'deploy', 'terraform', 'k8s',
+    'prompts', 'impl', 'make', 'build', 'test', 'run'];
+  for (const command of commands) {
+    const r = await run([command, '--help']);
+    assert.equal(r.code, 0, command + ' --help exits 0');
+    assert.match(r.out, new RegExp('usage: arcod ' + command + '\\b'), command + ' names itself');
+  }
+  const short = await run(['run', '-h']);
+  assert.equal(short.code, 0);
+  assert.match(short.out, /usage: arcod run/);
+});
+
+test('run --down stops the built project instead of rebuilding it', async () => {
+  const dir = await tempDir('arcod-down-');
+  const build = join(dir, '.arcod', 'build');
+  await mkdir(build, { recursive: true });
+  const composeFile = join(build, 'docker-compose.yml');
+  const kept = 'name: arcod-down\nservices: {}\n';
+  await writeFile(composeFile, kept);
+  // An operation the emitters cannot template: a build here would fail, which
+  // is exactly the case the stop button has to survive.
+  await writeFile(join(dir, 'main.arc'), [
+    'module down @0.1.0 {}',
+    '',
+    'type Note = { id: uuid, text: string }',
+    '',
+    'service Notes : http {',
+    '  contract {',
+    '    public op list() -> list<Note> { route: "GET /v1/notes" }',
+    '  }',
+    '}',
+    '',
+  ].join('\n'));
+
+  const bin = join(dir, 'bin');
+  await mkdir(bin);
+  const log = join(dir, 'docker.log');
+  await writeFile(join(bin, 'docker'), '#!/bin/sh\necho "$@" >> ' + log + '\nexit 0\n', { mode: 0o755 });
+
+  const before = process.env.PATH;
+  process.env.PATH = bin + ':' + (before ?? '');
+  try {
+    const r = await run(['run', dir, '--down']);
+    assert.equal(r.code, 0, r.err);
+    assert.doesNotMatch(r.out + r.err, /emitter v0|templates only/, 'no build was attempted');
+  } finally {
+    process.env.PATH = before;
+  }
+
+  assert.match(await readFile(log, 'utf8'), /compose -f .*docker-compose\.yml down --remove-orphans/);
+  assert.equal(await readFile(composeFile, 'utf8'), kept, 'build artifacts are untouched');
+  assert.deepEqual(await readdir(build), ['docker-compose.yml'], 'nothing was rebuilt');
+});
+
+test('run --down on a project that was never built is a quiet no-op', async () => {
+  const dir = await tempDir('arcod-down-empty-');
+  const r = await run(['run', dir, '--down']);
+  assert.equal(r.code, 0);
+  assert.match(r.out, /nothing to stop/);
 });
 
 test('check says nothing on a clean spec and prints diagnostics as JSON', async () => {

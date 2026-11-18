@@ -144,7 +144,7 @@ format name (`A061`). Full example: `examples/signup`.
 | `arcod test [dir]` | boots the generated service and runs the model's `examples` |
 | `arcod make [dir]` | the whole cycle in one command: check → prompts → bodies → build → test |
 | `arcod run [dir]` | build + `docker compose up --build` |
-| `arcod run --down` | stop the environment (`down --remove-orphans`) |
+| `arcod run --down` | stop what this project started (`docker compose down --remove-orphans`); no rebuild, the `.arcod/build` artifacts stay |
 | `arcod providers` | capability and provider table with ports and the declaring package (`origin`, `-` for built-ins); `--json`; `--plugins` lists manifests found on `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
 | `arcod deploy [dir]` | deployment target and `deploy.<env>.json` manifest; `--env`, `--json` |
 | `arcod k8s [dir]` | Kubernetes objects for the compose topology (namespace, configmap, provider deployments, app, ingress); `--helm` for a chart, `--out dir` to write files |
@@ -165,6 +165,8 @@ Flags: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`,
 `--no-test`, `--model`, `--endpoint`, `--reference`, `--port`. `ast` takes
 `--check`, `test` takes `--impl`, `run` takes `--impl` or `--scaffold`, `check`
 takes `--strict`. `fmt`/`upgrade` take `--check`, `--write`, `--to <version>`.
+Every subcommand answers `arcod <cmd> --help` with its own usage and exits 0;
+an unknown flag prints one line plus `hint: arcod <cmd> --help` and exits 2.
 
 ```bash
 arcod make .            # first build from scratch

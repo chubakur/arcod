@@ -140,7 +140,7 @@ type Account = { id: uuid, email: email, website: url?, plan: Plan = "free" }
 | `arcod test [dir]` | поднимает сгенерированный сервис с in-memory kv и прогоняет `examples` |
 | `arcod make [dir]` | весь цикл одной командой: check → prompts → тела → build → test |
 | `arcod run [dir]` | build + `docker compose up --build` |
-| `arcod run --down` | останавливает окружение (`down --remove-orphans`) |
+| `arcod run --down` | останавливает то, что поднял этот проект (`docker compose down --remove-orphans`); без пересборки, артефакты `.arcod/build` остаются |
 | `arcod providers` | таблица возможностей, провайдеров, портов и пакета-объявителя (`origin`, `-` для встроенных); `--json`; `--plugins` — манифесты на `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
 | `arcod deploy [dir]` | target развёртывания и манифест `deploy.<env>.json`; `--env`, `--json` |
 | `arcod k8s [dir]` | объекты Kubernetes для compose-топологии (namespace, configmap, деплойменты провайдеров, сервис, ingress); `--helm` — чарт, `--out dir` — записать файлы |
@@ -155,6 +155,9 @@ type Account = { id: uuid, email: email, website: url?, plan: Plan = "free" }
 | `arcod upgrade [dir]` | миграция версии языка: `--to <version>`, `--write`; сегодня версия одна (0.1.0), так что это identity или отказ на неизвестную цель |
 | `arcod new <name>` | скаффолдит минимальный валидный сервис: `<name>/main.arc`, `.gitignore`, `impl/README.md` (сгенерённая спека парсится и проходит check); не пишет в непустой каталог без `--force` |
 | `arcod lsp` | языковой сервер (LSP) по stdio для редакторов (VS Code, Neovim, JetBrains) |
+
+У каждой подкоманды своя справка: `arcod <cmd> --help` печатает её и выходит 0;
+неизвестный флаг — одна строка плюс `hint: arcod <cmd> --help`, exit 2.
 
 Флаги: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`,
 `--remove-orphans`. У `make`: `--force` (перегенерировать тела), `--skip-impl`,

@@ -47,6 +47,24 @@ export async function main(argv: string[]): Promise<void> {
   let flags: Flags | undefined;
 
   try {
+    // `arcod <cmd> --help` answers before flags are parsed, so no command has
+    // to declare --help itself and a missing argument cannot get in the way.
+    if (rest.includes('--help') || rest.includes('-h')) {
+      if (!command || command === 'help') {
+        printHelp();
+        return;
+      }
+      const usage = COMMAND_USAGE[command];
+      if (!usage) {
+        console.error('unknown command: ' + command);
+        printHelp();
+        process.exitCode = 2;
+        return;
+      }
+      console.log(usage);
+      return;
+    }
+
     flags = parseFlags(rest);
     switch (command) {
       case undefined:
@@ -143,7 +161,7 @@ export async function main(argv: string[]): Promise<void> {
     }
     if (error instanceof UsageError) {
       console.error('arcod: ' + error.message);
-      console.error("run 'arcod help' for usage");
+      console.error('hint: arcod ' + (command && command !== 'help' ? command : '<command>') + ' --help');
       process.exitCode = 2;
       return;
     }
@@ -710,7 +728,34 @@ async function runTest(flags: Flags): Promise<void> {
   process.exitCode = all.every((item) => item.ok) ? 0 : 1;
 }
 
+async function stopProject(flags: Flags): Promise<number> {
+  const target = resolve(flags.spec ?? '.');
+  const info = await stat(target).catch(() => null);
+  const dir = info?.isFile() ? join(target, '..') : target;
+  const buildDir = join(dir, '.arcod', 'build');
+  const composeFile = join(buildDir, 'docker-compose.yml');
+  const exists = await stat(composeFile).catch(() => null);
+  if (!exists) {
+    console.log('arcod run: nothing to stop — no .arcod/build/docker-compose.yml');
+    return 0;
+  }
+  const docker = spawnSync('docker', ['info'], { stdio: 'ignore' });
+  if (docker.status !== 0) {
+    console.error('docker is not running or unavailable');
+    return 1;
+  }
+  return compose({ composeFile, dir: buildDir }, ['down', '--remove-orphans'], flags);
+}
+
 async function runRun(flags: Flags): Promise<void> {
+  // --down is the stop button: it must work even when the project no longer
+  // builds (an operation the emitters do not template yet) and must leave the
+  // artifacts of the last build alone. So it never parses the spec.
+  if (flags.down) {
+    process.exitCode = await stopProject(flags);
+    return;
+  }
+
   const loaded = await load(flags.spec);
   const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
   const errors = diags.filter((d) => d.severity === 'error');
@@ -930,6 +975,88 @@ async function findSpec(dir: string): Promise<string> {
 
   throw new Error('no .arc file found in ' + dir);
 }
+
+// Every subcommand answers for itself: "arcod <cmd> --help" prints this
+// string and exits 0, so a wrong flag never needs a guess from the full page.
+const COMMAND_USAGE: Record<string, string> = {
+  check: `usage: arcod check [dir|spec.arc] [--json] [--env name] [--strict]
+
+Parse the spec and print diagnostics. --json prints a JSON report,
+--strict treats warnings as errors, --env checks one environment.`,
+  ast: `usage: arcod ast [dir|spec.arc] [--check] [--json]
+
+Print the parsed module (canonical AST). --check also prints the diagnostics.`,
+  plan: `usage: arcod plan [dir|spec.arc] [--json]
+
+Print the build plan: services, routes, capabilities, emitted files.`,
+  openapi: `usage: arcod openapi [dir|spec.arc] [--service name]
+
+Print the OpenAPI 3.1 document for the spec (or for one service).`,
+  graphql: `usage: arcod graphql [dir|spec.arc] [--service name] [--out file]
+
+Print the GraphQL schema (or write it with --out).`,
+  grpc: `usage: arcod grpc [dir|spec.arc] [--service name] [--out file]
+
+Print the gRPC .proto (or write it with --out).`,
+  migrate: `usage: arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres]
+
+Print the migrations for the stored entities. --dialect picks the SQL dialect.`,
+  fmt: `usage: arcod fmt [dir|spec.arc] [--check] [--write] [--to version]
+
+Print the canonical form of the spec. --check fails when the file differs,
+--write rewrites it in place, --to upgrades it across language versions.`,
+  diff: `usage: arcod diff <a.arc|dir> <b.arc|dir>
+
+Structurally diff two specs (canonicalized first, so formatting is not a change).`,
+  adopt: `usage: arcod adopt <openapi.json>
+
+Turn an OpenAPI 3.x document into an arcod spec.`,
+  upgrade: `usage: arcod upgrade [dir|spec.arc] [--to version] [--write]
+
+Migrate a spec across language versions; --write rewrites the file.`,
+  new: `usage: arcod new <name> [--force]
+
+Scaffold a new project in ./<name>. Refuses to overwrite without --force.`,
+  lsp: `usage: arcod lsp
+
+Serve the language server over stdio.`,
+  providers: `usage: arcod providers [--json] [--plugins]
+
+List the capability providers the build can bind. --plugins adds the ones an
+external package declares.`,
+  deploy: `usage: arcod deploy [dir|spec.arc] [--env name] [--json]
+
+Print the deploy manifest (services, images, env) for one environment.`,
+  terraform: `usage: arcod terraform [dir|spec.arc] [--env name] [--out dir]
+
+Print (or write) Terraform HCL for the topology.`,
+  k8s: `usage: arcod k8s [dir|spec.arc] [--helm] [--image ref] [--host host]
+                 [--namespace ns] [--replicas n] [--ingress-class c] [--out dir]
+
+Render the topology as Kubernetes manifests; --helm wraps them in a chart.`,
+  prompts: `usage: arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full]
+
+Write one deterministic prompt per operation into .arcod/build/prompts.`,
+  impl: `usage: arcod impl [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
+                   [--dry-run] [--no-cache] [--allow-remote]
+
+Ask a local Ollama-compatible model for the operation bodies.`,
+  make: `usage: arcod make [dir|spec.arc] [--model m] [--force] [--skip-impl] [--no-test]
+                   [--reference] [--port 8080] [--json]
+
+Run the loop: check, prompts, bodies, build, test. Stops at the first failure.`,
+  build: `usage: arcod build [dir|spec.arc] [--reference | --impl] [--port 8080]
+                     [--dialect mysql|postgres]
+
+Emit the service, migrations, compose and pages into .arcod/build.`,
+  test: `usage: arcod test [dir|spec.arc] [--impl] [--json]
+
+Run the examples and rules against the emitted service.`,
+  run: `usage: arcod run [dir|spec.arc] [--impl] [--scaffold] [--port 8080] [--detach] [--down]
+
+Build and start the project with docker compose. --detach leaves it running,
+--down stops what this project started (no rebuild, no cleanup of the build).`,
+};
 
 function printHelp(): void {
   console.log(`arcod ${VERSION} — specification compiler for agent-built services
