@@ -150,3 +150,32 @@ environment dev {
   const errors = check(parse(adopted, 'adopted.arc')).filter((item) => item.severity === 'error');
   assert.deepEqual(errors.map((item) => item.code + ' ' + item.message), []);
 });
+
+// The security pass is only useful if it classifies every operation the same
+// way the model did, on every example — not just on the fixture written for it.
+function routeAuth(mod: ReturnType<typeof parse>, only?: string): string[] {
+  const out: string[] = [];
+  for (const svc of mod.services) {
+    if (only && svc.name !== only) continue;
+    for (const op of svc.contract) {
+      const route = op.clauses.find((clause) => clause.kind === 'route');
+      if (!route || route.kind !== 'route') continue;
+      const [method, path] = route.value.split(' ');
+      const normalized = path.replace(/:[^/]+/g, ':param');
+      out.push(method.toUpperCase() + ' ' + normalized + ' ' + (op.auth ? 'auth' : 'public'));
+    }
+  }
+  return out.sort();
+}
+
+test('adopt: every example keeps its auth/public classification', async () => {
+  for (const { name, source } of await allExamples()) {
+    const original = parse(source, 'main.arc');
+    for (const svc of original.services) {
+      // emitOpenapi defaults to one service; an external contract is its own
+      // document and has to be adopted on its own too.
+      const adopted = parse(adoptOpenapi(emitOpenapi(original, { service: svc.name })), name + '/adopted.arc');
+      assert.deepEqual(routeAuth(adopted), routeAuth(original, svc.name), name + '/' + svc.name);
+    }
+  }
+});
