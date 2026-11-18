@@ -120,3 +120,46 @@ test('a spec without comments still formats canonically', () => {
   assert.equal(out, 'module m @0.1.0 {\n}\n\ntype T = { x: int }\n');
   assert.equal(formatSource(out, 'main.arc'), out);
 });
+
+// A comment written inside `meta { ... }` used to slide out of the block: the
+// header rule claimed every comment inside the module braces. The block owns
+// its offsets now, so the comment stays next to the entry it describes.
+test('a comment inside the module meta block stays inside it', () => {
+  const source = [
+    'module m @0.1.0 {',
+    '  meta {',
+    '    owner: "@you"',
+    '    // статус пока черновик',
+    '    status: "draft"',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const formatted = formatSource(source, 'm.arc');
+  const lines = formatted.split('\n');
+  const metaOpen = lines.indexOf('  meta {');
+  const metaClose = lines.indexOf('  }');
+  const comment = lines.findIndex((l) => l.includes('черновик'));
+
+  assert.notEqual(metaOpen, -1, 'the block survives');
+  assert.ok(comment > metaOpen && comment < metaClose, 'the comment sits between the braces: ' + JSON.stringify(formatted));
+  assert.equal(lines[comment].startsWith('    //'), true, 'and is indented like a meta entry');
+  assert.equal(formatSource(formatted, 'm.arc'), formatted, 'stable on a second pass');
+});
+
+test('a comment after the last meta entry stays in the block', () => {
+  const source = [
+    'module m @0.1.0 {',
+    '  meta {',
+    '    owner: "@you"  // who owns it',
+    '    // конец блока',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const lines = formatSource(source, 'm.arc').split('\n');
+  assert.equal(lines.some((l) => l.includes('who owns it') && l.includes('owner:')), true, 'the trailing comment keeps its line');
+  const close = lines.indexOf('  }');
+  const tail = lines.findIndex((l) => l.includes('конец блока'));
+  assert.ok(tail > 1 && tail < close, 'the block-end comment stays inside: ' + JSON.stringify(lines.join('\n')));
+});

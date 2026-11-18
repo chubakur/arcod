@@ -61,11 +61,16 @@ class Parser {
     if (this.peek().kind === 'version') version = this.next().value;
 
     const meta: Record<string, string> = {};
+    let metaLoc: ModuleNode['metaLoc'];
+    let metaEntryLocs: Loc[] = [];
     this.expect('{');
     while (!this.is('}')) {
       if (this.peek().kind === 'eof') this.error('unexpected end of file: missing closing `}` for the module header');
       if (this.accept('meta')) {
-        Object.assign(meta, this.parseMeta());
+        const parsed = this.parseMeta();
+        Object.assign(meta, parsed.values);
+        metaLoc = parsed.loc;
+        metaEntryLocs = parsed.locs;
       } else {
         this.next();
       }
@@ -73,7 +78,7 @@ class Parser {
     const end = this.expect('}');
 
     const mod: ModuleNode = {
-      kind: 'module', name, version, meta, uses: [], types: [], errors: [], enums: [],
+      kind: 'module', name, version, meta, metaLoc, metaEntryLocs, uses: [], types: [], errors: [], enums: [],
       services: [], workflows: [], environments: [], uis: [], file: this.file, source: this.source,
       loc: this.loc(start, end),
     };
@@ -97,19 +102,22 @@ class Parser {
     return mod;
   }
 
-  private parseMeta(): Record<string, string> {
-    const out: Record<string, string> = {};
-    this.expect('{');
+  private parseMeta(): { values: Record<string, string>; locs: Loc[]; loc: Loc } {
+    const values: Record<string, string> = {};
+    const locs: Loc[] = [];
+    const open = this.expect('{');
     while (!this.is('}')) {
-      const key = this.expectIdent('meta key').value;
+      const keyTok = this.expectIdent('meta key');
       this.expect(':');
       const tok = this.next();
-      out[key] = tok.value;
+      values[keyTok.value] = tok.value;
+      locs.push(locOf(keyTok));
       this.accept(',');
       this.accept(';');
     }
-    this.expect('}');
-    return out;
+    const close = this.expect('}');
+    const loc = locOf(open);
+    return { values, locs, loc: { ...loc, endLine: close.line, endCol: close.col, end: close.end } };
   }
 
   private parseUse(): UseNode {

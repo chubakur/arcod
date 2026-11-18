@@ -15,6 +15,10 @@ export interface ModuleNode {
   name: string;
   version: string;
   meta: Record<string, string>;
+  // Offsets of the `meta { ... }` block and of each entry, so fmt can keep a
+  // comment written inside the block where the author put it.
+  metaLoc?: Loc;
+  metaEntryLocs?: Loc[];
   uses: UseNode[];
   types: TypeDecl[];
   errors: ErrorDecl[];

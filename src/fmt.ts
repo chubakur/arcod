@@ -159,6 +159,9 @@ function extractComments(source: string): Comment[] {
 
 function collectOffsets(m: ModuleNode): number[] {
   const out: number[] = [m.loc.offset];
+  // A comment inside `meta { ... }` belongs to the entry it precedes: without
+  // these offsets it slid out of the block (the header check below claimed it).
+  for (const loc of m.metaEntryLocs ?? []) out.push(loc.offset);
   for (const u of m.uses) out.push(u.loc.offset);
   for (const t of m.types) {
     out.push(t.loc.offset);
@@ -231,15 +234,18 @@ class Printer {
   // Comments that follow the last declaration: no node starts after them, so
   // they are printed at the end of the file instead of being dropped.
   private tailComments: string[];
+  // Comments after the last `meta` entry, still inside the block.
+  private metaTail: string[];
   // Trailing comments wait for the next emitted line: the node that owns them
   // prints exactly one line right after its emitComments call.
   private pending: string[] = [];
 
-  constructor(comments: Map<number, string[]>, trailing: Map<number, string[]> = new Map(), moduleComments: string[] = [], tailComments: string[] = []) {
+  constructor(comments: Map<number, string[]>, trailing: Map<number, string[]> = new Map(), moduleComments: string[] = [], tailComments: string[] = [], metaTail: string[] = []) {
     this.comments = comments;
     this.trailing = trailing;
     this.moduleComments = moduleComments;
     this.tailComments = tailComments;
+    this.metaTail = metaTail;
   }
 
   private raw(indent: number, text: string): void {
@@ -275,8 +281,19 @@ class Printer {
     this.emitComments(m.loc.offset, 0);
     this.raw(0, 'module ' + m.name + ' @' + m.version + ' {');
     if (Object.keys(m.meta).length > 0) {
+      const entries = Object.entries(m.meta);
+      const locs = m.metaEntryLocs ?? [];
+      const commented = locs.length === entries.length &&
+        entries.some((_, i) => this.comments.has(locs[i].offset) || this.trailing.has(locs[i].offset));
       this.raw(1, 'meta {');
-      for (const [k, v] of Object.entries(m.meta)) this.raw(2, k + ': ' + quoteStr(v));
+      entries.forEach(([k, v], i) => {
+        if (commented) this.emitComments(locs[i].offset, 2);
+        this.raw(2, k + ': ' + quoteStr(v));
+      });
+      for (const c of this.metaTail) {
+        if (c.startsWith('//')) this.raw(2, c);
+        else for (const line of c.split('\n')) this.raw(2, line);
+      }
       this.raw(1, '}');
     }
     for (const c of this.moduleComments) {
@@ -631,11 +648,22 @@ export function formatSource(source: string, file: string): string {
   const trailing = new Map<number, string[]>();
   const moduleComments: string[] = [];
   const tailComments: string[] = [];
+  const metaTail: string[] = [];
   for (const c of comments) {
     // A comment written between the module header braces belongs to the block,
     // not to the first declaration after it. Trailing ones keep the normal path
     // and stay on the header line.
-    if (!c.trailing && c.start > mod.loc.offset && c.end <= mod.loc.end) {
+    const inMeta = mod.metaLoc !== undefined && c.start > mod.metaLoc.offset && c.end <= mod.metaLoc.end;
+    if (!c.trailing && inMeta) {
+      // Inside the meta block: the normal leading rule attaches it to the
+      // entry that follows, and Printer.module prints it back at indent 2.
+      const entry = (mod.metaEntryLocs ?? []).find((loc) => loc.offset >= c.end);
+      if (!entry) {
+        // After the last entry: keep it in the block, at the end.
+        metaTail.push(c.text);
+        continue;
+      }
+    } else if (!c.trailing && c.start > mod.loc.offset && c.end <= mod.loc.end) {
       moduleComments.push(c.text);
       continue;
     }
@@ -671,5 +699,5 @@ export function formatSource(source: string, file: string): string {
     arr.push(c.text);
     leading.set(target, arr);
   }
-  return new Printer(leading, trailing, moduleComments, tailComments).module(mod);
+  return new Printer(leading, trailing, moduleComments, tailComments, metaTail).module(mod);
 }
