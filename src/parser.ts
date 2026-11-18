@@ -690,16 +690,20 @@ class Parser {
     const title = this.next();
     if (title.kind !== 'string') this.error('slide requires a quoted title');
     let body: string | null = null;
+    let bodyLoc: Loc | undefined;
     this.expect('{');
     while (!this.is('}')) {
       const key = this.expectIdent('slide property').value;
       this.expect(':');
       const value = this.next();
-      if (key === 'body' && value.kind === 'string') body = value.value;
+      if (key === 'body' && value.kind === 'string') {
+        body = value.value;
+        bodyLoc = locOf(value);
+      }
       this.accept(';');
     }
     const end = this.expect('}');
-    return { title: title.value, body, loc: this.loc(start, end) };
+    return { title: title.value, body, bodyLoc, closeLoc: locOf(end), loc: this.loc(start, end) };
   }
 
   // saga Name {

@@ -281,6 +281,47 @@ test('a comment on a default-valued ui property stays inside the block', () => {
   assert.equal(formatSource(out, 'main.arc'), out, 'stable on a second pass');
 });
 
+test('a comment above a slide body stays inside the slide', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'ui Deck {',
+    '  kind: spa',
+    '  route: "/"',
+    '  slide "One" {',
+    '    // says hello',
+    '    body: "Hello"',
+    '  }',
+    '  // the second slide',
+    '  slide "Two" {',
+    '    body: "World"',
+    '  }',
+    '}',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  // The comment used to slide past the closing brace and pile up before the
+  // next slide, because the body value had no offset of its own.
+  assert.match(out, /^  slide "One" \{\n    \/\/ says hello\n    body: "Hello"\n  \}$/m);
+  assert.match(out, /^  \/\/ the second slide\n  slide "Two" \{$/m);
+  assert.equal(formatSource(out, 'main.arc'), out, 'stable on a second pass');
+});
+
+test('a comment after the slide body stays inside the slide', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'ui Deck {',
+    '  kind: spa',
+    '  route: "/"',
+    '  slide "One" {',
+    '    body: "Hello"',
+    '    // closing thought',
+    '  }',
+    '}',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^  slide "One" \{\n    body: "Hello"\n    \/\/ closing thought\n  \}$/m);
+  assert.equal(formatSource(out, 'main.arc'), out, 'stable on a second pass');
+});
+
 test('workflow and ui formatting with clause comments is idempotent', () => {
   const once = formatSource(workflowSpec, 'main.arc');
   assert.equal(formatSource(once, 'main.arc'), once);

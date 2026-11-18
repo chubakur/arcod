@@ -134,6 +134,7 @@ ui Stage {
     body: "Open the link shown on the big screen or scan the code to follow from your phone."
   }
   slide "Agenda" {
+    // One page per topic; the host advances, the room follows.
     body: "The host advances the deck; guests see every slide as it changes."
   }
   slide "Questions" {

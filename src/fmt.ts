@@ -242,7 +242,11 @@ function collectUi(u: UiNode, out: number[]): void {
   // closing brace, at the end of the file.
   for (const loc of Object.values(u.clauseLocs ?? {})) out.push(loc.offset);
   if (u.closeLoc) out.push(u.closeLoc.offset);
-  for (const s of u.slides) out.push(s.loc.offset);
+  for (const s of u.slides) {
+    out.push(s.loc.offset);
+    if (s.bodyLoc) out.push(s.bodyLoc.offset);
+    if (s.closeLoc) out.push(s.closeLoc.offset);
+  }
 }
 
 // ---------------- printer ----------------
@@ -715,7 +719,11 @@ class Printer {
     for (const s of u.slides) {
       this.emitComments(s.loc.offset, 1);
       this.raw(1, 'slide ' + quoteStr(s.title) + ' {');
-      if (s.body !== null) this.raw(2, 'body: ' + quoteStr(s.body));
+      if (s.body !== null) {
+        if (s.bodyLoc) this.emitComments(s.bodyLoc.offset, 2);
+        this.raw(2, 'body: ' + quoteStr(s.body));
+      }
+      this.blockTail(s.closeLoc, 2);
       this.raw(1, '}');
     }
     this.blockTail(u.closeLoc, 1);

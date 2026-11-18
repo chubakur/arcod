@@ -293,6 +293,12 @@ export interface BudgetNode {
 export interface UiSlide {
   title: string;
   body: string | null;
+  // Location of the `body` value: a comment written above the line belongs to
+  // it, and without the offset the printer cannot place it inside the slide.
+  bodyLoc?: Loc;
+  // Location of the slide's closing brace: comments after the last property
+  // still belong inside the slide.
+  closeLoc?: Loc;
   loc: Loc;
 }
 
