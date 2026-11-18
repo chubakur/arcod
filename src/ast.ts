@@ -244,6 +244,9 @@ export interface EffectsNode {
   kind: 'effects';
   allow: string[];
   deny: string[];
+  // The `allow`/`deny` keywords: fmt keeps a comment written above them on
+  // the line they introduce.
+  clauseLocs?: Record<string, Loc>;
   loc: Loc;
 }
 

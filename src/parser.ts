@@ -516,15 +516,16 @@ class Parser {
     this.expect('{');
     const allow: string[] = [];
     const deny: string[] = [];
+    const clauseLocs: Record<string, Loc> = {};
     let target: string[] = allow;
     while (!this.is('}')) {
-      if (this.accept('allow')) { target = allow; continue; }
-      if (this.accept('deny')) { target = deny; continue; }
+      if (this.accept('allow')) { clauseLocs.allow = locOf(this.prev()); target = allow; continue; }
+      if (this.accept('deny')) { clauseLocs.deny = locOf(this.prev()); target = deny; continue; }
       target.push(this.parseQName());
       this.accept(',');
     }
     this.expect('}');
-    return { kind: 'effects', allow, deny, loc: this.loc(start, this.prev()) };
+    return { kind: 'effects', allow, deny, clauseLocs, loc: this.loc(start, this.prev()) };
   }
 
   private parseExamples(svc: ServiceNode): void {

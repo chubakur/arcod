@@ -189,7 +189,10 @@ function collectService(s: ServiceNode, out: number[]): void {
   out.push(s.loc.offset);
   for (const loc of s.metaEntryLocs ?? []) out.push(loc.offset);
   for (const c of s.uses) out.push(c.loc.offset);
-  if (s.effects) out.push(s.effects.loc.offset);
+  if (s.effects) {
+    out.push(s.effects.loc.offset);
+    for (const loc of Object.values(s.effects.clauseLocs ?? {})) out.push(loc.offset);
+  }
   for (const r of s.rules) out.push(r.loc.offset);
   for (const op of s.contract) {
     out.push(op.loc.offset);
@@ -207,7 +210,10 @@ function collectService(s: ServiceNode, out: number[]): void {
     out.push(ex.loc.offset);
     for (const stmt of [...ex.given, ...ex.when, ...ex.then]) out.push(stmt.loc.offset);
   }
-  if (s.budget) out.push(s.budget.loc.offset);
+  if (s.budget) {
+    out.push(s.budget.loc.offset);
+    for (const item of s.budget.items) out.push(item.loc.offset);
+  }
 }
 
 function collectWorkflow(w: WorkflowNode, out: number[]): void {
@@ -453,8 +459,13 @@ class Printer {
   private effects(e: EffectsNode): void {
     this.emitComments(e.loc.offset, 1);
     this.raw(1, 'effects {');
-    if (e.allow.length > 0) this.raw(2, 'allow ' + e.allow.join(', '));
-    if (e.deny.length > 0) this.raw(2, 'deny ' + e.deny.join(', '));
+    const clause = (key: string, list: string[]): void => {
+      if (list.length === 0) return;
+      this.clauseComments(e.clauseLocs, key, 2);
+      this.raw(2, key + ' ' + list.join(', '));
+    };
+    clause('allow', e.allow);
+    clause('deny', e.deny);
     this.raw(1, '}');
   }
 
@@ -572,6 +583,7 @@ class Printer {
     this.emitComments(b.loc.offset, 1);
     this.raw(1, 'budget {');
     for (const item of b.items) {
+      this.emitComments(item.loc.offset, 2);
       let s = item.key + ': ';
       if (item.op) s += item.op + ' ';
       s += expr(item.expr);

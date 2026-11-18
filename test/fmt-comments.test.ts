@@ -365,3 +365,30 @@ test('an uncommented saga step stays on one line', () => {
   assert.match(out, /^    step one \{ call: a retry: 1 \}$/m);
 });
 
+
+
+test('a comment inside effects and budget blocks stays on its line', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service Api : http {',
+    '  effects {',
+    '    // allowed writes',
+    '    allow store.set',
+    '    deny net',
+    '  }',
+    '  budget {',
+    '    // keep it cheap',
+    '    tokens: 2000',
+    '  }',
+    '  contract {',
+    '    public op a() -> string { route: "POST /a" }',
+    '  }',
+    '}',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^    \/\/ allowed writes\n    allow store\.set$/m);
+  assert.match(out, /^    \/\/ keep it cheap$/m);
+  assert.doesNotMatch(out, /\/\/ allowed writes\n  \}\n\n  budget/, 'the effects note does not slide to the next block');
+  assert.equal(formatSource(out, 'main.arc'), out, 'stable on a second pass');
+});
+
