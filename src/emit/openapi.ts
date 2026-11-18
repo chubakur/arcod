@@ -236,7 +236,9 @@ function toOpenapiPath(path: string): string {
 function paramLocation(route: RouteInfo, param: Param): 'path' | 'query' | 'body' {
   const inPath = route.path.split('/').some((segment) => segment === '{' + param.name + '}');
   if (inPath) return 'path';
-  return route.method === 'GET' || route.method === 'DELETE' ? 'query' : 'body';
+  // HEAD is body-less like GET: what the runtime sends in the query string
+  // must be documented as a query parameter, not as a requestBody.
+  return route.method === 'GET' || route.method === 'DELETE' || route.method === 'HEAD' ? 'query' : 'body';
 }
 
 function errorNamesOf(op: OpNode): string[] {

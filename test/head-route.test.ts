@@ -41,3 +41,29 @@ test('openapi: a HEAD operation is documented as 200', () => {
   assert.equal(operation.responses['201'], undefined);
   assert.equal(operation.responses['200'].content['text/plain'].schema.type, 'string');
 });
+
+// A HEAD probe may carry a cache-buster or a tag; the runtime puts it in the
+// query string and never reads a body. The document said otherwise: every
+// method other than GET/DELETE was documented as a JSON requestBody, which for
+// HEAD describes a request that cannot be sent.
+const PARAM_SPEC = [
+  'module probeparam @0.1.0 {}',
+  '',
+  'service Probe : http {',
+  '  contract {',
+  '    public op peek(tag: string) -> { ok: bool } {',
+  '      route: "HEAD /v1/peek"',
+  '    }',
+  '  }',
+  '}',
+].join('\n');
+
+test('openapi: a HEAD parameter is a query parameter, not a body', () => {
+  const doc = emitOpenapi(parse(PARAM_SPEC, 'main.arc')) as Record<string, any>;
+  const operation = doc.paths['/v1/peek'].head;
+  assert.deepEqual(
+    (operation.parameters ?? []).map((param: any) => [param.name, param.in]),
+    [['tag', 'query']],
+  );
+  assert.equal(operation.requestBody, undefined, 'HEAD has no request body');
+});
