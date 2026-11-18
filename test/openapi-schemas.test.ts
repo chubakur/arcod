@@ -99,3 +99,32 @@ environment dev {
   assert.equal(op.responses['403'].description, 'Forbidden, WrongPassword');
   assert.equal(op.responses['403'].content['application/json'].schema.oneOf.length, 2);
 });
+
+test('openapi: a request body is required only when a field is', () => {
+  const source = `module bodies @0.1.0 {}
+
+service Notes : http {
+  contract {
+    public op add(text: string, tag: string?) -> uuid {
+      route: "POST /v1/notes"
+    }
+
+    public op touch(id: uuid, note: string?) -> void {
+      route: "PATCH /v1/notes/:id"
+    }
+  }
+}
+`;
+  const mod = parse(source, 'main.arc');
+  assert.deepEqual(check(mod).filter((d) => d.severity === 'error'), []);
+  const paths = emitOpenapi(mod).paths as Record<string, any>;
+
+  const add = paths['/v1/notes'].post;
+  assert.equal(add.requestBody.required, true);
+  assert.deepEqual(add.requestBody.content['application/json'].schema.required, ['text']);
+
+  // Nothing in the body is mandatory here, so a client may send no body at all.
+  const touch = paths['/v1/notes/{id}'].patch;
+  assert.equal(touch.requestBody.required, false);
+  assert.equal(touch.requestBody.content['application/json'].schema.required, undefined);
+});

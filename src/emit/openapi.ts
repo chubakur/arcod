@@ -342,13 +342,18 @@ function operationFor(mod: ModuleNode, svc: ServiceNode, op: OpNode): Record<str
     const schema = withDefault(schemaFor(mod, param.type), param);
     const optional = param.type.kind === 'optional' || param.default !== undefined;
     if (where === 'body') {
+      // The body itself is optional until a required field appears: a client
+      // may omit the whole body when every field has a default or is optional.
       requestBody ??= {
-        required: true,
+        required: false,
         content: { 'application/json': { schema: { type: 'object', properties: {} as Record<string, unknown> } } },
       };
       const bodySchema = (requestBody.content as Record<string, Record<string, unknown>>)['application/json'].schema as Record<string, unknown>;
       (bodySchema.properties as Record<string, unknown>)[param.name] = schema;
-      if (!optional) ((bodySchema.required ??= []) as string[]).push(param.name);
+      if (!optional) {
+        requestBody.required = true;
+        ((bodySchema.required ??= []) as string[]).push(param.name);
+      }
     } else {
       parameters.push({
         name: param.name,
