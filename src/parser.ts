@@ -669,7 +669,12 @@ class Parser {
         || key === 'join' || key === 'state' || key === 'advance') {
         ui[key] = this.parseQName();
       } else {
-        this.next();
+        // A property the language does not know used to be parsed and thrown
+        // away, so a typo printed clean and vanished on the next `fmt`.
+        throw new ParseError(
+          'unknown ui property ' + JSON.stringify(key) + '; expected kind, route, title, layout, locale, locales, theme, render, start, join, state, advance, history, send, uses or slide',
+          locOf(keyTok),
+        );
       }
       this.accept(';');
     }
@@ -693,13 +698,16 @@ class Parser {
     let bodyLoc: Loc | undefined;
     this.expect('{');
     while (!this.is('}')) {
-      const key = this.expectIdent('slide property').value;
+      const keyTok = this.expectIdent('slide property');
+      const key = keyTok.value;
       this.expect(':');
       const value = this.next();
-      if (key === 'body' && value.kind === 'string') {
-        body = value.value;
-        bodyLoc = locOf(value);
+      if (key !== 'body') {
+        throw new ParseError('unknown slide property ' + JSON.stringify(key) + '; a slide takes only body', locOf(keyTok));
       }
+      if (value.kind !== 'string') this.error('slide body must be a quoted string');
+      body = value.value;
+      bodyLoc = locOf(value);
       this.accept(';');
     }
     const end = this.expect('}');
