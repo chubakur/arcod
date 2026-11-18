@@ -738,14 +738,14 @@ class MemoryStore {
   }
 
   async entityFind(table, columns, query) {
-    const q = query || {};
-    const requested = Number(q.limit);
+    const opts = query || {};
+    const requested = Number(opts.limit);
     const limit = Number.isFinite(requested) && requested > 0 ? Math.min(500, Math.floor(requested)) : 50;
-    const order = parseOrder(q.order);
+    const order = parseOrder(opts.order);
     const prefix = 'tbl:' + table + ':';
     const rows = await this.scan(prefix);
     let items = rows.map((row) => ({ id: row.key.slice(prefix.length), value: recordOf(row.value) }));
-    if (q.where) items = items.filter((item) => matchesWhere(item.value, q.where));
+    if (opts.where) items = items.filter((item) => matchesWhere(item.value, opts.where));
     items.sort((left, right) => {
       for (const rule of order) {
         const a = left.value && typeof left.value === 'object' ? sortValue(left.value[rule.field]) : null;
@@ -755,8 +755,8 @@ class MemoryStore {
       }
       return compareValues(left.id, right.id);
     });
-    if (q.cursor) {
-      const at = decodeCursor(q.cursor);
+    if (opts.cursor) {
+      const at = decodeCursor(opts.cursor);
       if (at && Array.isArray(at.v)) {
         const after = (item) => {
           for (let index = 0; index < order.length; index++) {
@@ -1806,13 +1806,13 @@ function implHandlers(
     '    async find(entity, query) {',
     '      metricCapability("store.find");',
     '      const meta = requestEntity(entity);',
-    '      const q = query || {};',
-    '      const requested = Number(q.limit);',
+    '      const opts = query || {};',
+    '      const requested = Number(opts.limit);',
     '      const limit = Number.isFinite(requested) && requested > 0 ? Math.min(500, Math.floor(requested)) : 50;',
-    '      const order = parseOrder(q.order);',
+    '      const order = parseOrder(opts.order);',
     '      const rows = await store.scan(meta.prefix);',
     '      let items = rows.map((row) => ({ id: row.key.slice(meta.prefix.length), value: recordOf(row.value) }));',
-    '      if (q.where) items = items.filter((item) => matchesWhere(item.value, q.where));',
+    '      if (opts.where) items = items.filter((item) => matchesWhere(item.value, opts.where));',
     '      items.sort((left, right) => {',
     '        for (const rule of order) {',
     '          const a = left.value && typeof left.value === "object" ? sortValue(left.value[rule.field]) : null;',
@@ -1822,8 +1822,8 @@ function implHandlers(
     '        }',
     '        return compareValues(left.id, right.id);',
     '      });',
-    '      if (q.cursor) {',
-    '        const at = decodeCursor(q.cursor);',
+    '      if (opts.cursor) {',
+    '        const at = decodeCursor(opts.cursor);',
     '        if (at && Array.isArray(at.v)) {',
     '          const after = (item) => {',
     '            for (let index = 0; index < order.length; index++) {',

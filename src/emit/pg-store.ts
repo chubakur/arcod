@@ -507,19 +507,19 @@ class PgStore {
   }
 
   async entityFind(table, columns, query) {
-    const q = query || {};
-    const requested = Number(q.limit);
+    const opts = query || {};
+    const requested = Number(opts.limit);
     const limit = Number.isFinite(requested) && requested > 0 ? Math.min(500, Math.floor(requested)) : 50;
-    const order = parseOrder(q.order);
+    const order = parseOrder(opts.order);
 
     const where = [];
-    for (const [field, cond] of Object.entries(q.where || {})) {
+    for (const [field, cond] of Object.entries(opts.where || {})) {
       const col = columns.find((c) => c.name === field);
       if (!col) continue;
       where.push(...this.whereClauses(col, cond));
     }
 
-    const at = q.cursor ? decodeCursor(q.cursor) : null;
+    const at = opts.cursor ? decodeCursor(opts.cursor) : null;
     if (at && Array.isArray(at.v) && at.v.length === order.length) {
       where.push(this.keysetClause(columns, order, at.v, at.id));
     }

@@ -572,6 +572,8 @@ test('the sql service writes records to typed tables, not blobs', async () => {
   assert.ok(code.includes('"table": "task"'), 'the entity is wired to a typed table');
   assert.ok(code.includes('function sqlLiteral('), 'the value codec is emitted');
   assert.ok(code.includes('mysql 1062'), 'a duplicate key surfaces as Conflict');
+  assert.ok(!code.includes('const q = query'), 'find options never shadow the identifier quoter');
+  assert.ok(code.includes('const opts = query || {}'), 'find reads its options from opts');
 
   const kvDir = await mkdtemp(join(tmpdir(), 'arcod-kv-')); 
   const kvBuilt = await buildExample(tasksAst, kvDir, { implDir });

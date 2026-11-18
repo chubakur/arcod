@@ -99,6 +99,9 @@ test('a postgres build runs the tasks-sql examples on the memory driver', async 
   await writeFile(join(dir, 'main.arc'), source, 'utf8');
   await cp(new URL('../examples/tasks-sql/impl', import.meta.url), join(dir, 'impl'), { recursive: true });
   const built = await buildExample(mod, dir, { dialect: 'postgres' });
+  const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(!code.includes('const q = query'), 'find options never shadow the identifier quoter');
+  assert.ok(code.includes('const opts = query || {}'), 'find reads its options from opts');
   const report = await runExamples(mod, built.dir);
   assert.deepEqual(report.examples.filter((example) => !example.ok), []);
   assert.ok(report.examples.length >= 2, 'the example file has checks');
