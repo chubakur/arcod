@@ -1492,8 +1492,11 @@ planner, core emitter), `emit-openapi` / `emit-authz` / `emit-async` (emitters),
 versions), `lsp.test.ts` (language server), and the integration suites —
 `authz.test.ts` (401/403), `contract.test.ts` (external services against a mock),
 `soak.test.ts` (concurrency + latency) and `property.test.ts` (input fuzzing —
-no input may cause a 500). `test/harness.ts` builds a spec and runs the generated
-service on a free port for the integration suites.
+no input may cause a 500). Method behaviour has its own small suites:
+`remote-methods` and `remote-capture` (what a remote call does with each method
+and parameter), `head-example` (a HEAD operation reached from an example) and
+`head-ui` (the SPA operation table). `test/harness.ts` builds a spec and runs the
+generated service on a free port for the integration suites.
 
 ## v0.1 limitations
 
