@@ -931,6 +931,14 @@ function matchRoute(method, pathname) {
   return found;
 }
 
+function safeDecode(segment) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+}
+
 function findRoute(method, pathname) {
   const actual = pathname.split('/').filter(Boolean);
   for (const route of ROUTES) {
@@ -941,7 +949,13 @@ function findRoute(method, pathname) {
     let ok = true;
     for (let i = 0; i < expected.length; i++) {
       if (expected[i].startsWith(':')) {
-        params[expected[i].slice(1)] = decodeURIComponent(actual[i]);
+        // A path with a malformed escape ("%zz") is a client mistake, not a
+        // server fault: decodeURIComponent throws a URIError, which used to
+        // escape the matcher, land in handleRequest's catch and answer 500 —
+        // polluting the error rate with requests that are simply wrong.
+        const decoded = safeDecode(actual[i]);
+        if (decoded === null) { ok = false; break; }
+        params[expected[i].slice(1)] = decoded;
       } else if (expected[i] !== actual[i]) {
         ok = false;
         break;

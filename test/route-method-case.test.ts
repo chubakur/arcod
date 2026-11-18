@@ -22,6 +22,11 @@ const SPEC = [
   '      route: "Get /v1/peek"',
   '      post: result != null',
   '    }',
+  '',
+  '    public op item(id: string) -> { ok: bool } {',
+  '      route: "GET /v1/items/:id"',
+  '      post: result != null',
+  '    }',
   '  }',
   '}',
 ].join('\n');
@@ -29,6 +34,7 @@ const SPEC = [
 const IMPL = {
   poke: 'export async function poke() {\n  return { result: { ok: true } };\n}',
   peek: 'export async function peek() {\n  return { result: { ok: true } };\n}',
+  item: 'export async function item(input) {\n  return { result: { ok: input.id === "a b" } };\n}',
 };
 
 test('a lowercase route method still reaches its operation', async () => {
@@ -61,6 +67,26 @@ test('a HEAD probe is answered by the GET route without a body', async () => {
     // A route that exists only as POST is still a miss for HEAD.
     const missing = await fetch(svc.base + '/v1/poke', { method: 'HEAD' });
     assert.equal(missing.status, 404);
+  } finally {
+    await svc.stop();
+  }
+});
+
+test('a malformed percent escape is a 404, not a 500', async () => {
+  const svc = await startService(SPEC, { impl: IMPL });
+  try {
+    // decodeURIComponent throws URIError on "%zz"; the throw used to leave the
+    // matcher and be caught as a server fault, so a typo in a URL counted as a
+    // 5xx in the metrics.
+    const broken = await fetch(svc.base + '/v1/items/%zz');
+    assert.equal(broken.status, 404);
+
+    const decoded = await fetch(svc.base + '/v1/items/a%20b');
+    assert.equal(decoded.status, 200, 'a valid escape still matches, decoded');
+    assert.deepEqual(await decoded.json(), { ok: true });
+
+    const alive = await fetch(svc.base + '/v1/peek');
+    assert.equal(alive.status, 200, 'the service keeps serving after the bad path');
   } finally {
     await svc.stop();
   }
