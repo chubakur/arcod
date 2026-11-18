@@ -1167,7 +1167,7 @@ function printHelp(): void {
   console.log(`arcod ${VERSION} — specification compiler for agent-built services
 
 usage:
-  arcod check [dir|spec.arc] [--json] [--env name] [--strict]
+  arcod check [dir|spec.arc|pattern] [--json] [--env name] [--strict]
   arcod ast   [dir|spec.arc] [--check]
   arcod plan  [dir|spec.arc] [--json]
   arcod openapi [dir|spec.arc] [--service name]
