@@ -175,6 +175,15 @@ test('check accepts a pattern across projects', async () => {
   assert.equal(bad.code, 1);
   assert.match(bad.out, /1 with errors/);
 
+  const deep = await run(['check', join(root, '**', 'main.arc')]);
+  assert.equal(deep.code, 1, '** finds the broken project too');
+
+  const json = await run(['check', join(root, 'alpha', '*.arc'), '--json']);
+  assert.equal(json.code, 0);
+  const report = JSON.parse(json.out);
+  assert.equal(report.length, 1);
+  assert.match(report[0].file, /alpha\/main\.arc$/);
+
   const none = await run(['check', join(root, 'nope', '*', 'main.arc')]);
   assert.equal(none.code, 2);
   assert.match(none.err, /no files match/);
