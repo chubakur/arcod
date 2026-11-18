@@ -1173,6 +1173,8 @@ Errors:
 - `A040` a module declares more than one `ui`; v0.1 emits one page per module;
 - `A040` `layout: presentation` lacks `start`/`join`/`state`/`advance`;
 - `A041` a presentation without slides;
+- `A042` slides on a page whose `layout` is not `presentation` — the page
+  would drop them, so the text never reaches the browser;
 - `A046` `auth`/`roles`/`owner` on an operation of a service without the
   `identity` capability — a guarded operation needs an actor source;
 - `A047` a `roles:` entry outside the service `roles:` vocabulary;

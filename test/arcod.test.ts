@@ -805,6 +805,17 @@ test('a presentation without its bindings does not compile', () => {
   assert.ok(codes(noSlides).includes('A041'), 'A041: empty deck');
 });
 
+test('slides on a page without layout: presentation are an error', () => {
+  // The web emitter only reads slides for the presentation layout: without the
+  // diagnostic the text vanished from the page and check stayed silent.
+  const flat = quizSource.replace(/^[ \t]*layout:[ \t]*presentation[ \t]*$/m, '');
+  const diags = check(parse(flat, 'main.arc')).filter((item) => item.code === 'A042');
+  assert.equal(diags.length, 1, 'one diagnostic, not one per slide');
+  assert.equal(diags[0].severity, 'error');
+  assert.match(diags[0].message, /layout: presentation/);
+  assert.equal(diags[0].range.line, quizSource.split('\n').findIndex((line) => line.trim().startsWith('slide "')) + 1);
+});
+
 test('the presentation page carries the deck and a real QR encoder', () => {
   const html = emitWeb(quizAst, { maxBytes: 2_000_000 });
   assert.ok(!/__[A-Z]+__/.test(html), 'no unexpanded placeholders');

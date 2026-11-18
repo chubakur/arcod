@@ -555,6 +555,13 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
 
   // A018 — ui references an operation that does not exist
   for (const ui of mod.uis) {
+    // A042 — slides are a presentation feature. Any other layout drops them,
+    // so the author's text never reaches the browser; say so at the slides.
+    if (ui.slides.length > 0 && ui.layout !== 'presentation') {
+      diags.push(diag('A042', 'error', mod.file, ui.slides[0].loc, 'ui.' + ui.name + '.slides',
+        'slides are only rendered by layout: presentation',
+        'add layout: presentation or move the text into the page'));
+    }
     // W030 — ssr without a first screen to render is a page that only looks
     // server-rendered: nothing can be fetched without input at request time.
     if (ui.render === 'ssr' && (ui.layout === null || ui.layout === 'forms') && !ssrDataOp(mod, ui)) {
