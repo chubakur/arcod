@@ -690,7 +690,7 @@ deploy.dev.json          deploy manifest per environment</code></pre>
             <li><b>SSR embeds one first screen.</b> A page whose operations all need input cannot fill it and gets <code>W030</code>; later changes still come from the generated form, not from streamed updates.</li>
             <li><b>A unique claim on <code>kv</code> outlives the record</b>: the claim key has no TTL, so an expired record holds its value until removed or updated. On <code>sql</code>, uniqueness is the table constraint, so nothing to clean up.</li>
             <li><b>Workflows</b> are parsed, described and validated — no runner is generated (<code>W022</code>); a job runs only when it declares an <code>on:</code> queue consumer (<code>W017</code>).</li>
-            <li><b>Streams and queues are in-process</b> until you bind them to Redis; only then do replicas share events. OpenAPI has no <code>securitySchemes</code> yet.</li>
+            <li><b>Streams and queues are in-process</b> until you bind them to Redis; only then do replicas share events. OpenAPI publishes a <code>bearerAuth</code> scheme for a service that uses <code>auth: identity</code>; a <code>public</code> operation opts out with <code>security: []</code>.</li>
             <li><b>JavaScript only.</b> PHP, Go and Python would be separate emitters.</li>
             <li><b><code>arcod terraform</code> targets Yandex Cloud only</b> and renders no state backend; <code>terraform validate</code> is not part of CI yet.</li>
           </ul>

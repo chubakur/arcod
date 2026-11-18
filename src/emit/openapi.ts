@@ -380,6 +380,10 @@ export function emitOpenapi(mod: ModuleNode, options: OpenapiOptions = {}): Open
     : pickService(mod);
   if (!svc) throw new Error(options.service ? 'no service named ' + options.service + ' to emit OpenAPI for' : 'no service to emit OpenAPI for');
 
+  // A service that verifies tokens has a real security scheme: the runtime
+  // reads a bearer token from the Authorization header, so the contract
+  // publishes the scheme instead of leaving the client to guess.
+  const bearer = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'));
   const examples = interpretExamples(svc);
   const paths: Record<string, unknown> = {};
 
@@ -408,10 +412,11 @@ export function emitOpenapi(mod: ModuleNode, options: OpenapiOptions = {}): Open
     }
 
     const pathItem = (paths[path] ??= {}) as Record<string, unknown>;
+    if (bearer && op.isPublic) operation.security = []; // public overrides the document default
     pathItem[method.toLowerCase()] = operation;
   }
 
-  return {
+  const document: OpenapiDocument = {
     openapi: '3.1.0',
     info: {
       title: mod.name,
@@ -420,4 +425,16 @@ export function emitOpenapi(mod: ModuleNode, options: OpenapiOptions = {}): Open
     paths,
     components: { schemas: components(mod) },
   };
+  if (bearer) {
+    (document.components as Record<string, unknown>).securitySchemes = {
+      bearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'access token issued by the identity provider',
+      },
+    };
+    document.security = [{ bearerAuth: [] }];
+  }
+  return document;
 }

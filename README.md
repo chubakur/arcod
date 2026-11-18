@@ -787,10 +787,12 @@ by `then { e is Invalid }`. Providers and hosts never appear in the document:
 the model is not allowed to name them (`A003`), so neither does the contract.
 
 What it does not describe: no `servers` — the address belongs to the
-environment, not to the contract — and no `securitySchemes` yet. A guarded
-operation lists its `401`/`403` responses, but the bearer scheme itself is
-documented only in this README. Read the document as shapes and statuses, not as
-authentication.
+environment, not to the contract. Authentication is described when the model
+has it: a service that uses `auth: identity` publishes a `bearerAuth` scheme
+(`http`, `bearer`, JWT) and applies it to the whole document, while a `public`
+operation opts out with an explicit `security: []`. A spec without an identity
+capability has no `security` key at all, so the document never promises a
+token the runtime would not check.
 
 ### The contract as GraphQL
 

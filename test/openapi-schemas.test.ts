@@ -128,3 +128,45 @@ service Notes : http {
   assert.equal(touch.requestBody.required, false);
   assert.equal(touch.requestBody.content['application/json'].schema.required, undefined);
 });
+
+test('openapi: a token-verifying service publishes a bearer scheme', () => {
+  const source = `module guarded @0.1.0 {}
+
+service Vault : http {
+  uses auth: identity
+
+  contract {
+    public op status() -> string {
+      route: "GET /v1/status"
+    }
+
+    auth op peek(id: uuid) -> string {
+      route: "GET /v1/secret/:id"
+    }
+  }
+}
+
+environment dev {
+  bind auth -> keycloak(host: "idp", port: 8080)
+}
+`;
+  const mod = parse(source, 'main.arc');
+  assert.deepEqual(check(mod).filter((d) => d.severity === 'error'), []);
+  const doc = emitOpenapi(mod) as Record<string, any>;
+
+  assert.deepEqual(doc.security, [{ bearerAuth: [] }]);
+  const scheme = doc.components.securitySchemes.bearerAuth;
+  assert.equal(scheme.type, 'http');
+  assert.equal(scheme.scheme, 'bearer');
+  assert.equal(scheme.bearerFormat, 'JWT');
+
+  // A public operation opts out of the document default explicitly.
+  assert.deepEqual(doc.paths['/v1/status'].get.security, []);
+  assert.equal(doc.paths['/v1/secret/{id}'].get.security, undefined);
+});
+
+test('openapi: a service without identity has no security at all', () => {
+  const doc = emitOpenapi(parse(refined, 'main.arc')) as Record<string, any>;
+  assert.equal('security' in doc, false);
+  assert.equal('securitySchemes' in doc.components, false);
+});
