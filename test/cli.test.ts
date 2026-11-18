@@ -760,3 +760,46 @@ test('a pattern names each file and keeps going after a parse error', async () =
   assert.match(broken.message, /module header/);
   assert.equal(broken.line, 2);
 });
+
+test('fmt reads a pattern, --check gates it and --write repairs it', async () => {
+  const root = await tempDir('arcod-fmt-glob-');
+  for (const name of ['alpha', 'beta']) {
+    await mkdir(join(root, name), { recursive: true });
+    await writeFile(join(root, name, 'main.arc'),
+      'module ' + name + ' @0.1.0 {\n meta { title: "' + name + '" }\n}\n');
+  }
+
+  const bare = await run(['fmt', join(root, '*', 'main.arc')]);
+  assert.equal(bare.code, 2, 'printing several specs to one stdout is ambiguous');
+  assert.match(bare.err, /needs --check or --write/);
+
+  const check = await run(['fmt', join(root, '*', 'main.arc'), '--check']);
+  assert.equal(check.code, 1, check.out);
+  assert.ok(check.out.includes(join(root, 'alpha', 'main.arc') + ': not formatted'), check.out);
+  assert.ok(check.out.includes(join(root, 'beta', 'main.arc') + ': not formatted'), check.out);
+  assert.match(check.out, /2 file\(s\), 2 not formatted, 0 failed/);
+
+  const write = await run(['fmt', join(root, '*', 'main.arc'), '--write']);
+  assert.equal(write.code, 0, 'a successful write is not a failure: ' + write.out);
+  const clean = await run(['fmt', join(root, '*', 'main.arc'), '--check']);
+  assert.equal(clean.code, 0, clean.out);
+
+  // A file that does not parse is reported with its location and left alone;
+  // the other match is still checked.
+  const brokenSource = ['module beta @0.1.0 {', '  type T = { x: int }', '}'].join('\n');
+  await writeFile(join(root, 'beta', 'main.arc'), brokenSource);
+  const broken = await run(['fmt', join(root, '*', 'main.arc'), '--check']);
+  assert.equal(broken.code, 1);
+  assert.ok(broken.out.includes(join(root, 'beta', 'main.arc') + ':2:3'), broken.out);
+  assert.match(broken.out, /2 file\(s\), 0 not formatted, 1 failed/);
+  assert.equal(await readFile(join(root, 'beta', 'main.arc'), 'utf8'), brokenSource,
+    'a spec that does not parse is never rewritten');
+});
+
+test('every example is already in canonical form', async () => {
+  // The formatting gate that CI cannot run yet (owner decision): the local
+  // equivalent, so an example cannot drift from what fmt prints.
+  const r = await run(['fmt', 'examples/*/main.arc', '--check']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /15 file\(s\), 0 not formatted, 0 failed/);
+});

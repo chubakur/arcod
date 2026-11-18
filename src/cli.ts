@@ -334,7 +334,77 @@ async function runAst(flags: Flags): Promise<void> {
   console.log(JSON.stringify(ast, null, 2));
 }
 
+// fmt over a pattern is the shape a formatting gate needs: one line per file,
+// one exit code. Printing several canonical specs to a single stdout would be
+// ambiguous, so a pattern has to ask for --check or --write.
+async function runFmtPattern(flags: Flags, pattern: string): Promise<void> {
+  if (!flags.check && !flags.write) {
+    console.error('arcod: a pattern needs --check or --write; a single file prints its canonical form');
+    process.exitCode = 2;
+    return;
+  }
+  const specs = await expandSpecs(pattern);
+  if (specs.length === 0) {
+    console.error('arcod: no files match ' + pattern);
+    process.exitCode = 2;
+    return;
+  }
+  let changed = 0;
+  let failed = 0;
+  for (const specPath of specs) {
+    const label = specLabel(specPath);
+    let source: string;
+    try {
+      source = await readFile(specPath, 'utf8');
+      // Parse first: formatSource on a broken spec would silently reformat a
+      // half-understood file, and a gate must never hide its own input error.
+      parse(source, label);
+    } catch (error) {
+      failed++;
+      const loc = error instanceof ParseError ? error.loc : null;
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(loc
+        ? label + ':' + loc.line + ':' + loc.col + '  error  parse  ' + message
+        : label + '  error  ' + message);
+      continue;
+    }
+    if (flags.to) {
+      try {
+        source = migrateSpec(source, declaredVersion(source, label), flags.to, label);
+      } catch (error) {
+        failed++;
+        console.log(label + ': ' + (error instanceof Error ? error.message : String(error)));
+        continue;
+      }
+    }
+    const formatted = formatSource(source, label);
+    if (formatted === source) {
+      console.log(label + ': ok');
+      continue;
+    }
+    changed++;
+    if (flags.write) {
+      await writeFile(specPath, formatted, 'utf8');
+      console.log('formatted ' + label);
+    } else {
+      console.log(label + ': not formatted');
+    }
+  }
+  if (flags.write) {
+    // A write that succeeded is not a failure; only a file we could not read,
+    // parse or migrate is.
+    process.exitCode = failed > 0 ? 1 : 0;
+    return;
+  }
+  console.log('\n' + specs.length + ' file(s), ' + changed + ' not formatted, ' + failed + ' failed');
+  process.exitCode = changed > 0 || failed > 0 ? 1 : 0;
+}
+
 async function runFmt(flags: Flags): Promise<void> {
+  if (flags.spec && /[*?]/.test(flags.spec)) {
+    await runFmtPattern(flags, flags.spec);
+    return;
+  }
   const loaded = await load(flags.spec);
   let source = loaded.mod.source;
   if (flags.to) {
@@ -1144,10 +1214,11 @@ Print the gRPC .proto (or write it with --out).`,
   migrate: `usage: arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres]
 
 Print the migrations for the stored entities. --dialect picks the SQL dialect.`,
-  fmt: `usage: arcod fmt [dir|spec.arc] [--check] [--write] [--to version]
+  fmt: `usage: arcod fmt [dir|spec.arc|pattern] [--check] [--write] [--to version]
 
 Print the canonical form of the spec. --check fails when the file differs,
---write rewrites it in place, --to upgrades it across language versions.`,
+--write rewrites it in place, --to upgrades it across language versions.
+A quoted pattern checks or rewrites every match and reports each file by path.`,
   diff: `usage: arcod diff <a.arc|dir> <b.arc|dir>
 
 Structurally diff two specs (canonicalized first, so formatting is not a change).`,
@@ -1212,7 +1283,7 @@ usage:
   arcod graphql [dir|spec.arc] [--service name] [--out file]
   arcod grpc  [dir|spec.arc] [--service name] [--out file]
   arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres]
-  arcod fmt  [dir|spec.arc] [--check] [--write] [--to version]
+  arcod fmt  [dir|spec.arc|pattern] [--check] [--write] [--to version]
   arcod diff <a.arc|dir> <b.arc|dir>
   arcod adopt <openapi.json>
   arcod upgrade [dir|spec.arc] [--to version] [--write]
