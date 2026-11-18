@@ -149,12 +149,15 @@ class Parser {
     const name = this.expectIdent('enum name').value;
     this.expect('{');
     const values: string[] = [];
+    const valueLocs: Loc[] = [];
     while (!this.is('}')) {
-      values.push(this.expectIdent('enum value').value);
+      const token = this.expectIdent('enum value');
+      values.push(token.value);
+      valueLocs.push(locOf(token));
       this.accept(',');
     }
     this.expect('}');
-    return { kind: 'enum', name, values, loc: this.loc(start, this.prev()) };
+    return { kind: 'enum', name, values, valueLocs, loc: this.loc(start, this.prev()) };
   }
 
   private parseTypeExpr(): TypeExpr {

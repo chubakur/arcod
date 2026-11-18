@@ -1,9 +1,9 @@
 // Canonical formatter: parse -> canonical AST -> canonical source.
 // fmt is a pure function of the AST, so it is idempotent and round-trips the
 // model exactly (parse(print(x)) === x structurally). Comments are re-attached
-// to the declaration or field they precede (a commented field turns its record
-// or error block multi-line); anything the parser does not keep (comments
-// between two statements, trailing comments) is dropped.
+// to the declaration, field, enum value or example statement they precede (a
+// commented element turns its block multi-line). A comment that trails code on
+// the same line is dropped: the parser keeps no column for it.
 
 import type {
   Arg, BindNode, BudgetNode, CapUse, Clause, DeployNode, EffectsNode, EnvironmentNode,
@@ -160,7 +160,10 @@ function collectOffsets(m: ModuleNode): number[] {
     out.push(e.loc.offset);
     for (const field of e.fields) out.push(field.loc.offset);
   }
-  for (const e of m.enums) out.push(e.loc.offset);
+  for (const e of m.enums) {
+    out.push(e.loc.offset);
+    for (const loc of e.valueLocs ?? []) out.push(loc.offset);
+  }
   for (const s of m.services) collectService(s, out);
   for (const w of m.workflows) collectWorkflow(w, out);
   for (const e of m.environments) collectEnv(e, out);
@@ -182,7 +185,10 @@ function collectService(s: ServiceNode, out: number[]): void {
     out.push(sg.loc.offset);
     for (const st of sg.steps) out.push(st.loc.offset);
   }
-  for (const ex of s.examples) out.push(ex.loc.offset);
+  for (const ex of s.examples) {
+    out.push(ex.loc.offset);
+    for (const stmt of [...ex.given, ...ex.when, ...ex.then]) out.push(stmt.loc.offset);
+  }
   if (s.budget) out.push(s.budget.loc.offset);
 }
 
@@ -306,9 +312,21 @@ class Printer {
     this.raw(0, '}');
   }
 
-  private enumDecl(e: { kind: string; name: string; values: string[]; loc: Loc }): void {
+  private enumDecl(e: { kind: string; name: string; values: string[]; valueLocs?: Loc[]; loc: Loc }): void {
     this.emitComments(e.loc.offset, 0);
-    this.raw(0, 'enum ' + e.name + ' { ' + e.values.join(', ') + ' }');
+    const locs = e.valueLocs ?? [];
+    const commented = locs.length === e.values.length && e.values.some((_, index) => this.comments.has(locs[index].offset));
+    if (!commented) {
+      this.raw(0, 'enum ' + e.name + ' { ' + e.values.join(', ') + ' }');
+      return;
+    }
+    // A commented value needs its own line, exactly like a commented field.
+    this.raw(0, 'enum ' + e.name + ' {');
+    for (let index = 0; index < e.values.length; index += 1) {
+      this.emitComments(locs[index].offset, 1);
+      this.raw(1, e.values[index] + (index < e.values.length - 1 ? ',' : ''));
+    }
+    this.raw(0, '}');
   }
 
   private service(s: ServiceNode): void {
@@ -442,6 +460,7 @@ class Printer {
   private section(name: string, stmts: Stmt[], indent: number): void {
     this.raw(indent, name + ' {');
     for (const st of stmts) {
+      this.emitComments(st.loc.offset, indent + 1);
       if (st.kind === 'let') this.raw(indent + 1, 'let ' + st.name + ' = ' + expr(st.expr));
       else this.raw(indent + 1, expr(st.expr));
     }

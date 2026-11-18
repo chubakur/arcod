@@ -49,6 +49,51 @@ test('formatting is idempotent for every example', async () => {
   }
 });
 
+
+test('comments above enum values and example statements survive fmt', () => {
+  const source = [
+    'module probe @0.1.0 {}',
+    '',
+    'enum Color {',
+    '  // the warm one',
+    '  red,',
+    '  blue',
+    '}',
+    '',
+    'use capability arcod.std.kv @1',
+    'type Note = { id: uuid, text: string }',
+    'error Invalid',
+    'service Notes : http {',
+    '  uses store: kv(ttl: 1h)',
+    '  effects { allow store.insert }',
+    '  contract {',
+    '    public op create(text: string) -> Note {',
+    '      route: "POST /v1/n"',
+    '      effects: store.insert',
+    '      errors: Invalid',
+    '      on error Invalid: text != null',
+    '    }',
+    '  }',
+    '  examples {',
+    '    example one {',
+    '      when {',
+    '        // the first statement',
+    '        let note = create("hi")',
+    '      }',
+    '      then {',
+    '        note.id != null',
+    '      }',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const once = formatSource(source, 'main.arc');
+  assert.match(once, /\/\/ the warm one\n  red/);
+  assert.match(once, /\/\/ the first statement\n {8}let note/);
+  assert.equal(formatSource(once, 'main.arc'), once, 'a second fmt changes nothing');
+});
+
 test('a spec never differs from itself, and a diff is symmetric in existence', async () => {
   const a = await readFile(example('signup'), 'utf8');
   const b = await readFile(example('onetimemessage'), 'utf8');

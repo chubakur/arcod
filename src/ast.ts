@@ -54,6 +54,9 @@ export interface EnumDecl {
   kind: 'enum';
   name: string;
   values: string[];
+  // One loc per value, so fmt can keep a comment written above a value.
+  // Optional: specs adopted from OpenAPI have no source offsets.
+  valueLocs?: Loc[];
   loc: Loc;
 }
 
