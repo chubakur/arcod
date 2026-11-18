@@ -93,14 +93,14 @@ test('an offset instant keeps its zone', () => {
 
 test('fmt prints both forms back and stays idempotent', () => {
   const source = spec('after 30s').replace('workflow Delayed', 'workflow Delayed');
-  const once = formatSource(source);
+  const once = formatSource(source, 'trigger.arc');
   assert.ok(once.includes('trigger after 30s'), 'the delay keeps its shorthand');
   assert.ok(!once.includes('after(30s)'), 'fmt does not invent parentheses');
-  assert.equal(formatSource(once), once);
+  assert.equal(formatSource(once, 'trigger.arc'), once);
 
-  const instant = formatSource(spec('at(2026-11-18T12:00:05Z)'));
+  const instant = formatSource(spec('at(2026-11-18T12:00:05Z)'), 'trigger.arc');
   assert.ok(instant.includes('trigger at(2026-11-18T12:00:05Z)'), 'the bare instant keeps its text');
-  assert.equal(formatSource(instant), instant);
+  assert.equal(formatSource(instant, 'trigger.arc'), instant);
 });
 
 test('A034 rejects a delay that cannot be scheduled', () => {
