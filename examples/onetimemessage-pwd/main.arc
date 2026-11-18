@@ -1,7 +1,7 @@
 module onetimemessagepwd @0.1.0 {
   meta {
     owner: "@andrey"
-    status: draft
+    status: "draft"
     since: "2026-11-10"
     basedOn: "onetimemessage@0.1.0"
   }
@@ -23,13 +23,20 @@ error WrongPassword
 service GuardedMessage : http {
   uses store: kv(ttl: 999s, consistency: strong)
   uses uuid: ids
-  uses passwords: hash(scrypt)
+  uses passwords: hash
 
-  budget {
-    concurrency: 32
+  effects {
+    allow store.get, store.set, store.del, store.has, uuid.new, passwords.hash, passwords.verify
+    deny net, fs, exec
+  }
+
+  rules {
+    invariant read.at_most_once: once(read, by: id, else: Gone)
+    atomic read { get; del }
   }
 
   contract {
+
     public op create(body: Body, password: Password?) -> MessageId {
       route: "POST /api/messages"
       errors: Invalid
@@ -44,17 +51,8 @@ service GuardedMessage : http {
     }
   }
 
-  effects {
-    allow store.get, store.set, store.del, store.has, uuid.new, passwords.hash, passwords.verify
-    deny net, fs, exec
-  }
-
-  rules {
-    invariant read.at_most_once: once(read, by: id, else: Gone)
-    atomic read { get; del }
-  }
-
   examples {
+
     example guarded_roundtrip {
       when {
         let id = create("hi", "s3cret")
@@ -85,13 +83,10 @@ service GuardedMessage : http {
       }
     }
   }
-}
 
-ui Web {
-  kind:  spa
-  route: "/"
-  title: "Password-protected message"
-  uses  GuardedMessage.create, GuardedMessage.read
+  budget {
+    concurrency: 32
+  }
 }
 
 environment dev {
@@ -99,4 +94,11 @@ environment dev {
   bind uuid -> local
   bind passwords -> local
   deploy docker
+}
+
+ui Web {
+  kind: spa
+  route: "/"
+  title: "Password-protected message"
+  uses GuardedMessage.create, GuardedMessage.read
 }

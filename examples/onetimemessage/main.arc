@@ -1,7 +1,7 @@
 module onetimemessage @0.1.0 {
   meta {
     owner: "@andrey"
-    status: draft
+    status: "draft"
     since: "2026-11-10"
   }
 }
@@ -20,7 +20,18 @@ service OneTimeMessage : http {
   uses store: kv(ttl: 999s, consistency: strong)
   uses uuid: ids
 
+  effects {
+    allow store.get, store.set, store.del, store.has, uuid.new
+    deny net, fs, exec
+  }
+
+  rules {
+    invariant read.at_most_once: once(read, by: id, else: Gone)
+    atomic read { get; del }
+  }
+
   contract {
+
     public op create(body: Body) -> MessageId {
       route: "POST /api/messages"
       errors: Invalid
@@ -32,27 +43,10 @@ service OneTimeMessage : http {
       errors: NotFound, Gone
       post: !store.has(id)
     }
-
-  }
-
-  rules {
-    invariant read.at_most_once: once(read, by: id, else: Gone)
-    atomic read { get; del }
-  }
-
-  effects {
-    allow store.get, store.set, store.del, store.has, uuid.new
-    deny net, fs, exec
-  }
-
-  budget {
-    latency: p95 <= 50ms
-    concurrency: 100
-    tokens: <= 40000
-    time: 2h
   }
 
   examples {
+
     example create_and_read {
       when {
         let id = create("hi")
@@ -73,17 +67,24 @@ service OneTimeMessage : http {
       }
     }
   }
-}
 
-ui Web {
-  kind:  spa
-  route: "/"
-  title: "One-time message"
-  uses  OneTimeMessage.create, OneTimeMessage.read
+  budget {
+    latency: p95 <= 50ms
+    concurrency: 100
+    tokens: <= 40000
+    time: 2h
+  }
 }
 
 environment dev {
   bind store -> redis(host: "kv", port: 6379)
   bind uuid -> local
   deploy docker
+}
+
+ui Web {
+  kind: spa
+  route: "/"
+  title: "One-time message"
+  uses OneTimeMessage.create, OneTimeMessage.read
 }

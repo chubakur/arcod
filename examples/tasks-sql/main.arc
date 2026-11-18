@@ -1,7 +1,7 @@
 module tasks_sql @0.1.0 {
   meta {
     owner: "@andrey"
-    status: draft
+    status: "draft"
     since: "2026-11-12"
   }
 }
@@ -46,6 +46,7 @@ service TaskBoard : http {
   }
 
   contract {
+
     public op create(title: string, priority: Priority, dueAt: datetime?) -> Task {
       route: "POST /v1/tasks"
       effects: store.insert, uuid.new
@@ -75,6 +76,7 @@ service TaskBoard : http {
   }
 
   examples {
+
     example create_then_move {
       when {
         let task = create("write the docs", 2, null)
@@ -98,13 +100,12 @@ service TaskBoard : http {
 }
 
 environment dev {
-  bind store -> mysql()
+  bind store -> mysql
   bind uuid -> local
   deploy docker
 }
-
 environment prod {
-  bind store -> mysql()
+  bind store -> mysql
   bind uuid -> local
   deploy yandex(region: "ru-central1", folder: "arcod-prod", service: "tasks-sql", image: "cr.yandex/arcod/tasks-sql:0.1.0")
 }

@@ -1,7 +1,7 @@
 module orders @0.1.0 {
   meta {
     owner: "@andrey"
-    status: draft
+    status: "draft"
     since: "2026-11-12"
   }
 }
@@ -11,12 +11,7 @@ use capability arcod.std.ids @1
 use capability arcod.std.queue @1
 
 type OrderId = uuid
-type Order = {
-  id: OrderId,
-  sku: string,
-  qty: int,
-  placedAt: datetime
-}
+type Order = { id: OrderId, sku: string, qty: int, placedAt: datetime }
 
 error Invalid
 error Conflict
@@ -35,6 +30,7 @@ service Orders : http {
   }
 
   contract {
+
     public op create(sku: string, qty: int) -> Order {
       route: "POST /v1/orders"
       effects: store.insert, uuid.new, events.publish
@@ -47,15 +43,14 @@ service Orders : http {
 }
 
 environment dev {
-  bind store -> mysql()
+  bind store -> mysql
   bind uuid -> local
-  bind events -> redis()
+  bind events -> redis
   deploy docker
 }
-
 environment prod {
-  bind store -> mysql()
+  bind store -> mysql
   bind uuid -> local
-  bind events -> redis()
+  bind events -> redis
   deploy yandex(region: "ru-central1", folder: "arcod-prod", service: "orders", image: "cr.yandex/arcod/orders:0.1.0")
 }

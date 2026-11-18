@@ -1,7 +1,7 @@
 module signup @0.1.0 {
   meta {
     owner: "@andrey"
-    status: draft
+    status: "draft"
     since: "2026-11-17"
   }
 }
@@ -9,24 +9,18 @@ module signup @0.1.0 {
 use capability arcod.std.kv @1
 use capability arcod.std.ids @1
 
-// A plan is a closed set: an unknown value is a client mistake, and the
-// service rejects it at the boundary instead of storing a typo.
-enum Plan { free, pro, team }
-
 // The address and the site are strings with a promise attached. The promise is
 // published as OpenAPI format, checked by check() on defaults and enforced by
 // the generated service before the body runs.
-type Account = {
-  id: uuid,
-  email: email,
-  website: url?,
-  plan: Plan = "free",
-  createdAt: datetime
-}
+type Account = { id: uuid, email: email, website: url?, plan: Plan = "free", createdAt: datetime }
 
 error Invalid
 error Conflict
 error NotFound
+
+// A plan is a closed set: an unknown value is a client mistake, and the
+// service rejects it at the boundary instead of storing a typo.
+enum Plan { free, pro, team }
 
 service Signup : http {
   uses store: kv(ttl: 604800s)
@@ -41,6 +35,7 @@ service Signup : http {
   }
 
   contract {
+
     public op create(email: email, website: url?, plan: Plan?) -> Account {
       route: "POST /v1/accounts"
       effects: store.insert, uuid.new
@@ -60,6 +55,7 @@ service Signup : http {
   }
 
   examples {
+
     example create_account {
       when {
         let account = create("a@example.com", "https://example.com", "pro")

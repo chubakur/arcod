@@ -1,7 +1,7 @@
 module saga @0.1.0 {
   meta {
     owner: "@andrey"
-    status: draft
+    status: "draft"
     since: "2026-11-12"
   }
 }
@@ -24,30 +24,39 @@ service Checkout : http {
   }
 
   contract {
+
     public op mark(label: string) -> Marker {
       route: "POST /v1/mark"
       effects: store.insert, uuid.new
       errors: Invalid
       on error Invalid: label != null
     }
+
     public op unmark(label: string) -> int {
       route: "DELETE /v1/mark"
       effects: store.find, store.remove
     }
+
     public op boom(x: string) -> string {
       route: "POST /v1/boom"
     }
+
     public op peek(label: string) -> int {
       route: "GET /v1/mark"
       effects: store.find
     }
+
     public op start(label: string) -> string {
       route: "POST /v1/start"
       effects: events.publish
       errors: Invalid
       on error Invalid: label != null
     }
-    job run_checkout(label: string) { on: events.checkout saga: checkout }
+
+    job run_checkout(label: string) {
+      on: events.checkout
+      saga: checkout
+    }
   }
 
   saga checkout {

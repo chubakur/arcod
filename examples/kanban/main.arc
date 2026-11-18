@@ -1,7 +1,7 @@
 module kanban @0.1.0 {
   meta {
     owner: "@andrey"
-    status: draft
+    status: "draft"
     since: "2026-11-13"
   }
 }
@@ -16,14 +16,7 @@ type UserId = string
 type Status = string
 type CardText = string
 type Image = bytes(min: 1, max: 5mb)
-type Card = {
-  id: CardId,
-  owner: UserId,
-  text: CardText,
-  status: Status,
-  createdAt: datetime,
-  imageId: uuid?
-}
+type Card = { id: CardId, owner: UserId, text: CardText, status: Status, createdAt: datetime, imageId: uuid? }
 
 error Unauthorized
 error Forbidden
@@ -42,6 +35,7 @@ service Kanban : http {
   }
 
   contract {
+
     // A card is always created for the signed-in caller; there is no owner input.
     auth op create(text: CardText, image: Image?) -> Card {
       route: "POST /v1/cards"
@@ -94,6 +88,7 @@ service Kanban : http {
   }
 
   examples {
+
     example create_then_move {
       when {
         let card = create("write the spec", null)
@@ -114,17 +109,17 @@ service Kanban : http {
   }
 }
 
-ui Web {
-  kind: spa
-  route: "/"
-  title: "Kanban"
-  uses Kanban.create, Kanban.list, Kanban.move, Kanban.remove, Kanban.image
-}
-
 environment dev {
   bind store -> mysql(host: "db", port: 3306)
   bind auth -> keycloak(host: "idp", port: 8080, import: "realm.json")
   bind files -> s3(host: "s3", port: 9000)
   bind uuid -> local
   deploy docker
+}
+
+ui Web {
+  kind: spa
+  route: "/"
+  title: "Kanban"
+  uses Kanban.create, Kanban.list, Kanban.move, Kanban.remove, Kanban.image
 }

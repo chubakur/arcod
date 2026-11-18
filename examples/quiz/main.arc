@@ -1,7 +1,7 @@
 module quiz @0.1.0 {
   meta {
     owner: "@andrey"
-    status: draft
+    status: "draft"
     since: "2026-11-11"
   }
 }
@@ -15,14 +15,7 @@ type Code = string
 type Session = { id: SessionId, code: Code, token: string }
 type Member = { id: SessionId, token: string, name: string }
 type Comment = { name: string, text: string }
-type Tally = {
-  index: number,
-  counts: list<number>,
-  average: number,
-  rated: number,
-  comments: list<Comment>,
-  joined: number
-}
+type Tally = { index: number, counts: list<number>, average: number, rated: number, comments: list<Comment>, joined: number }
 type Ack = { ok: boolean }
 
 error NotFound
@@ -40,6 +33,7 @@ service Live : http {
   }
 
   contract {
+
     // The host opens a room: one short code, one presenter token.
     public op start() -> Session {
       route: "POST /v1/sessions"
@@ -110,44 +104,39 @@ service Live : http {
   }
 }
 
-ui Stage {
-  kind:    spa
-  route:   "/"
-  title:   "Quiz: arcod"
-  layout:  presentation
-  start:   Live.start
-  join:    Live.join
-  state:   Live.state
-  advance: Live.advance
-  uses     Live.start, Live.join, Live.state, Live.advance
-
-  slide "Who are you?" {
-    body: "Developers, QA, product — the host asks, the room answers out loud."
-  }
-
-  slide "Join" {
-    body: "Open the link shown on the big screen or scan the code to follow from your phone."
-  }
-
-  slide "Agenda" {
-    body: "The host advances the deck; guests see every slide as it changes."
-  }
-
-  slide "Questions" {
-    body: "Write a question — the host sees it in the live state."
-  }
-}
-
 environment dev {
   bind store -> redis(host: "kv", port: 6379)
   bind uuid -> local
-  bind stream -> websocket()
+  bind stream -> websocket
   deploy docker
 }
-
 environment prod {
   bind store -> redis(host: "kv", port: 6379)
   bind uuid -> local
-  bind stream -> websocket()
+  bind stream -> websocket
   deploy yandex(region: "ru-central1", folder: "arcod-prod", service: "quiz", image: "cr.yandex/arcod/quiz:0.1.0")
+}
+
+ui Stage {
+  kind: spa
+  route: "/"
+  title: "Quiz: arcod"
+  layout: presentation
+  start: Live.start
+  join: Live.join
+  state: Live.state
+  advance: Live.advance
+  uses Live.start, Live.join, Live.state, Live.advance
+  slide "Who are you?" {
+    body: "Developers, QA, product — the host asks, the room answers out loud."
+  }
+  slide "Join" {
+    body: "Open the link shown on the big screen or scan the code to follow from your phone."
+  }
+  slide "Agenda" {
+    body: "The host advances the deck; guests see every slide as it changes."
+  }
+  slide "Questions" {
+    body: "Write a question — the host sees it in the live state."
+  }
 }

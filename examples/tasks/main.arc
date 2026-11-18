@@ -1,7 +1,7 @@
 module tasks @0.1.0 {
   meta {
     owner: "@andrey"
-    status: draft
+    status: "draft"
     since: "2026-11-12"
   }
 }
@@ -42,6 +42,7 @@ service TaskBoard : http {
   }
 
   contract {
+
     public op create(title: string, priority: Priority, dueAt: datetime?) -> Task {
       route: "POST /v1/tasks"
       effects: store.insert, uuid.new
@@ -71,6 +72,7 @@ service TaskBoard : http {
   }
 
   examples {
+
     example create_then_move {
       when {
         let task = create("write the docs", 2, null)
@@ -98,7 +100,6 @@ environment dev {
   bind uuid -> local
   deploy docker
 }
-
 environment prod {
   bind store -> redis(host: "kv", port: 6379)
   bind uuid -> local

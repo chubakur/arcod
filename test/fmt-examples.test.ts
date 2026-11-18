@@ -32,6 +32,14 @@ test('every example formats idempotently', async () => {
   }
 });
 
+test('every checked-in example is already canonical', async () => {
+  const specs = await exampleSpecs();
+  const drifted = specs
+    .filter(({ name, source }) => formatSource(source, name + '/main.arc') !== source)
+    .map(({ name }) => name);
+  assert.deepEqual(drifted, [], 'run arcod fmt --write on these examples');
+});
+
 test('every example keeps its declaration comments through fmt', async () => {
   const specs = await exampleSpecs();
   for (const { name, source } of specs) {

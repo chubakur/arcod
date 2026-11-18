@@ -1,7 +1,7 @@
 module chat @0.1.0 {
   meta {
     owner: "@andrey"
-    status: draft
+    status: "draft"
     since: "2026-11-11"
   }
 }
@@ -29,6 +29,7 @@ service Chat : http {
   }
 
   contract {
+
     public op start() -> ConversationId {
       route: "POST /v1/conversations"
       effects: store.set, uuid.new
@@ -55,17 +56,6 @@ service Chat : http {
   }
 }
 
-ui Web {
-  kind:    spa
-  route:   "/"
-  title:   "Chat with an agent"
-  layout:  chat
-  history: Chat.history
-  send:    Chat.send
-  start:   Chat.start
-  uses     Chat.start, Chat.send, Chat.history
-}
-
 environment dev {
   bind store -> mysql(host: "db", port: 3306)
   bind uuid -> local
@@ -74,11 +64,21 @@ environment dev {
   bind llm -> ollama(host: "host.docker.internal", port: 11434, model: "qwen2.5-coder:7b")
   deploy docker
 }
-
 environment prod {
   bind store -> postgres(host: "pg", port: 5432)
   bind uuid -> local
   // Same contract, another provider: any OpenAI-compatible endpoint.
   bind llm -> openai(model: "gpt-4o-mini")
   deploy yandex(region: "ru-central1", folder: "arcod-prod", service: "chat", image: "cr.yandex/arcod/chat:0.1.0")
+}
+
+ui Web {
+  kind: spa
+  route: "/"
+  title: "Chat with an agent"
+  layout: chat
+  start: Chat.start
+  history: Chat.history
+  send: Chat.send
+  uses Chat.start, Chat.send, Chat.history
 }

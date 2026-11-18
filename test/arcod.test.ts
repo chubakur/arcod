@@ -147,10 +147,13 @@ test('once else must be a declared error', () => {
 });
 
 test('a job is parsed but flagged as not executable', () => {
+  // Anchor on the contract block, not on the example's layout: the spec is free
+  // to be reformatted (arcod fmt does exactly that) without breaking this test.
   const withJob = source.replace(
-    "    }\n\n  }\n\n  rules {",
-    "    }\n\n    job purge_expired() -> int {\n    }\n  }\n\n  rules {",
+    /^([ \t]*)contract \{\n/m,
+    '$1contract {\n$1  job purge_expired() -> int {\n$1  }\n\n',
   );
+  assert.notEqual(withJob, source, 'the job was inserted');
   const jobAst = parse(withJob, 'main.arc');
   assert.ok(jobAst.services[0].contract.some((item) => item.kind === 'job'));
   const diags = check(jobAst);
@@ -796,7 +799,7 @@ test('a presentation is a deck of slides', () => {
 test('a presentation without its bindings does not compile', () => {
   const codes = (text: string) => check(parse(text, 'main.arc')).map((item) => item.code);
 
-  assert.ok(codes(quizSource.replace('  join:    Live.join\n', '')).includes('A040'), 'A040: no join');
+  assert.ok(codes(quizSource.replace(/^[ \t]*join:[ \t]*Live\.join[ \t]*$/m, '')).includes('A040'), 'A040: no join');
 
   const noSlides = quizSource.replace(/  slide[\s\S]*?\n  }\n/g, '');
   assert.ok(codes(noSlides).includes('A041'), 'A041: empty deck');
@@ -831,17 +834,17 @@ const quizBodies = { start: '', join: '', state: '', advance: '', vote: '', rate
 test('stream is a capability the environment binds, not a package', () => {
   const svc = quizAst.services.find((item) => item.name === 'Live')!;
   assert.ok(svc.uses.some((use) => use.capability === 'stream'), 'the service asks for stream');
-  assert.ok(quizSource.includes('bind stream -> websocket()'), 'the environment answers');
+  assert.match(quizSource, /bind stream -> websocket(?:\(\))?/, 'the environment answers');
 
-  const unbound = quizSource.replace('  bind stream -> websocket()\n', '');
+  const unbound = quizSource.replace(/^[ \t]*bind stream -> websocket(?:\(\))?[ \t]*$/m, '');
   assert.ok(check(parse(unbound, 'main.arc')).map((item) => item.code).includes('A002'), 'A002: stream is unbound');
 
-  const wrong = quizSource.split('bind stream -> websocket()').join('bind stream -> postgres(host: "pg", port: 5432)');
+  const wrong = quizSource.replace(/bind stream -> websocket(?:\(\))?/g, 'bind stream -> postgres(host: "pg", port: 5432)');
   const codes = check(parse(wrong, 'main.arc')).map((item) => item.code);
   assert.ok(codes.includes('A024'), 'A024: postgres does not implement stream');
 
   // redis does implement stream (and queue) since M0.3 — one broker, three roles
-  const redisBound = quizSource.split('bind stream -> websocket()').join('bind stream -> redis(host: "bus", port: 6379)');
+  const redisBound = quizSource.replace(/bind stream -> websocket(?:\(\))?/g, 'bind stream -> redis(host: "bus", port: 6379)');
   assert.ok(!check(parse(redisBound, 'main.arc')).some((item) => item.code === 'A024'));
 });
 

@@ -1,7 +1,7 @@
 module files @0.1.0 {
   meta {
     owner: "@andrey"
-    status: draft
+    status: "draft"
     since: "2026-11-11"
   }
 }
@@ -28,7 +28,13 @@ service FileShare : http {
   uses auth: identity
   uses files: blob
 
+  effects {
+    allow store.get, store.set, store.del, store.scan, uuid.new, auth.actor, auth.users, files.put, files.get
+    deny net, fs, exec
+  }
+
   contract {
+
     auth op upload(name: FileName, body: Contents, visibility: Visibility, allowed: list<UserId>) -> FileId {
       route: "POST /v1/files"
       effects: store.set, uuid.new, auth.actor, files.put
@@ -72,24 +78,12 @@ service FileShare : http {
     }
   }
 
-  effects {
-    allow store.get, store.set, store.del, store.scan, uuid.new, auth.actor, auth.users, files.put, files.get
-    deny net, fs, exec
-  }
-
   budget {
     latency: p95 <= 120ms
     concurrency: 200
     tokens: <= 60000
     time: 3h
   }
-}
-
-ui Web {
-  kind: spa
-  route: "/"
-  title: "Files"
-  uses FileShare.upload, FileShare.list, FileShare.download, FileShare.setVisibility, FileShare.users
 }
 
 environment dev {
@@ -99,11 +93,17 @@ environment dev {
   bind uuid -> local
   deploy docker
 }
-
 environment prod {
   bind store -> postgres(host: "pg", port: 5432)
   bind auth -> keycloak(host: "idp", port: 8080)
   bind files -> s3(host: "s3", port: 9000)
   bind uuid -> local
   deploy yandex(region: "ru-central1", folder: "arcod-prod", service: "files", image: "cr.yandex/arcod/files:0.1.0")
+}
+
+ui Web {
+  kind: spa
+  route: "/"
+  title: "Files"
+  uses FileShare.upload, FileShare.list, FileShare.download, FileShare.setVisibility, FileShare.users
 }
