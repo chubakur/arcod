@@ -43,7 +43,11 @@ const BIN_PREC: Record<string, number> = {
 function expr(e: Expr, minPrec = 0): string {
   switch (e.kind) {
     case 'literal': {
-      if (typeof e.value === 'string') return quoteStr(e.value);
+      if (typeof e.value === 'string') {
+        // A bare ISO instant (`at(2026-11-18T12:00:05Z)`) carries no quotes
+        // in its raw text; quoting it would change the spec on every fmt run.
+        return e.raw && !e.raw.startsWith('"') ? e.raw : quoteStr(e.value);
+      }
       if (e.value === null) return 'null';
       if (typeof e.value === 'boolean') return e.value ? 'true' : 'false';
       return e.raw || String(e.value);
@@ -738,6 +742,9 @@ class Printer {
 
   private trigger(t: TriggerNode): string {
     if (t.args.length === 0) return t.kind;
+    // `after` keeps its argument outside the parentheses; the canonical form
+    // is the one a reader writes: after 30s, after Cleanup.
+    if (t.kind === 'after' && t.args.length === 1 && !t.args[0].name) return 'after ' + expr(t.args[0].value);
     return t.kind + '(' + t.args.map((a) => (a.name ? a.name + ': ' : '') + expr(a.value)).join(', ') + ')';
   }
 

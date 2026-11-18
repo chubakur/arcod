@@ -519,10 +519,17 @@ Rules:
   producer is `A031`;
 - `onFail: stop | skip | retry | continue`; `onFail: skip` on a step others
   depend on is `W020`;
-- triggers: `cron(...)`, `event(...)`, `manual`, `after Other`.
+- triggers: `cron(...)`, `event(...)`, `manual`, `after Other`,
+  `after <duration>` (a delay such as `after 30s`) and `at(<instant>)` (a
+  one-shot start). An instant is ISO-8601 with an explicit zone, written bare
+  (`at(2026-11-18T12:00:05Z)`) or quoted; a typo, an impossible date or a
+  missing zone is `A034`, a non-positive or unitless delay is `A034` too.
 
 The graph is declarative: it lands in `deploy.<env>.json`, but no runner is
-generated yet — a workflow is described, not executed (`W022`).
+generated yet — a workflow is described, not executed (`W022`). The manifest
+carries the trigger as data: `kind`, `args`, and for the delayed forms
+`at` (the instant) or `afterSeconds` (the delay), so a runner schedules
+without re-parsing the spec.
 
 ### Files, sign-in and rights
 
@@ -1195,6 +1202,9 @@ Errors:
 - `A031` an input port has no single producer;
 - `A032` a step is declared twice;
 - `A033` a workflow without a trigger or with an unknown trigger;
+- `A034` a delayed trigger without a schedulable argument: `at` without one
+  ISO-8601 instant carrying a zone (or with an impossible date), `after`
+  without a positive duration or job name, or an unknown duration unit;
 - `A036` `layout: chat` without `history`/`send` or pointing at a non-public operation;
 - `A037` an external service operation has no `route`;
 - `A038` `uses` or effects declared for an external service;

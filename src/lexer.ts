@@ -1,6 +1,6 @@
 import type { Loc } from './ast.ts';
 
-export type TokenKind = 'ident' | 'number' | 'string' | 'version' | 'punct' | 'eof';
+export type TokenKind = 'ident' | 'number' | 'string' | 'version' | 'datetime' | 'punct' | 'eof';
 
 export interface Token {
   kind: TokenKind;
@@ -102,6 +102,16 @@ export function lex(source: string): Token[] {
     }
 
     if (/[0-9]/.test(ch)) {
+      // An ISO-8601 instant is one token: `at(2026-11-18T12:00:05Z)` is a
+      // moment, not a subtraction of three numbers. Without this the lexer
+      // produced `2026`, `-`, `11`, `-`, `18T`, ... and the parser could
+      // never read the argument of a delayed trigger.
+      const dated = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})/.exec(source.slice(i));
+      if (dated) {
+        advance(dated[0].length);
+        tokens.push({ kind: 'datetime', value: dated[0], raw: dated[0], line: startLine, col: startCol, offset: startOffset, end: i });
+        continue;
+      }
       let raw = '';
       while (i < source.length && /[0-9]/.test(source[i])) {
         raw += source[i];

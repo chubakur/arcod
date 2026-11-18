@@ -1,4 +1,4 @@
-import type { BindNode, DeployNode, EnvironmentNode, Expr, ModuleNode } from './ast.ts';
+import type { BindNode, DeployNode, EnvironmentNode, Expr, ModuleNode, TriggerNode } from './ast.ts';
 import { providerFor } from './providers.ts';
 
 // Deployment providers are separate from capability providers. A capability
@@ -196,15 +196,7 @@ export function deployManifest(mod: ModuleNode, env: EnvironmentNode): Record<st
     // without re-parsing the spec.
     workflows: mod.workflows.map((wf) => ({
       name: wf.name,
-      trigger: wf.trigger
-        ? {
-            kind: wf.trigger.kind,
-            args: wf.trigger.args.map((arg) => ({
-              name: arg.name ?? null,
-              value: arg.value.kind === 'literal' ? String(arg.value.value) : '<expr>',
-            })),
-          }
-        : null,
+      trigger: wf.trigger ? triggerManifest(wf.trigger) : null,
       overlap: wf.overlap,
       catchup: wf.catchup,
       retry: wf.retry,
@@ -236,4 +228,39 @@ export function formatDeploy(mod: ModuleNode, env: EnvironmentNode): string {
   const args = literalMap(deploy.args);
   const tail = Object.entries(args).map(([key, value]) => key + '=' + value).join(' ');
   return env.name + ': ' + deploy.provider + ' — ' + where + (tail ? ' · ' + tail : '');
+}
+
+// A trigger travels as data so a runner outside this repo can schedule it
+// without re-parsing the spec. at/afterSeconds are the two forms the v0.1
+// language defines; args keeps the source text for diagnostics.
+const TRIGGER_UNIT_MS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+
+function triggerManifest(trigger: TriggerNode): {
+  kind: string;
+  at: string | null;
+  afterSeconds: number | null;
+  args: Array<{ name: string | null; value: string }>;
+} {
+  const first = trigger.args.length === 1 ? trigger.args[0].value : null;
+  const at = trigger.kind === 'at' && first?.kind === 'literal' && typeof first.value === 'string'
+    ? first.value
+    : null;
+  const afterSeconds = trigger.kind === 'after' && first?.kind === 'duration'
+    ? (first.value * (TRIGGER_UNIT_MS[first.unit] ?? 1000)) / 1000
+    : null;
+  return {
+    kind: trigger.kind,
+    at,
+    afterSeconds,
+    args: trigger.args.map((arg) => ({
+      name: arg.name ?? null,
+      value: arg.value.kind === 'literal'
+        ? String(arg.value.value)
+        : arg.value.kind === 'duration'
+          ? arg.value.value + arg.value.unit
+          : arg.value.kind === 'ident'
+            ? arg.value.name
+            : '<expr>',
+    })),
+  };
 }

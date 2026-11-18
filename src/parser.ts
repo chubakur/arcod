@@ -931,14 +931,25 @@ class Parser {
     return step;
   }
 
-  // cron("0 3 * * *", tz: "..."), event(Something), manual, after Cleanup
+  // cron("0 3 * * *", tz: "..."), event(Something), manual, after Cleanup,
+  // after 30s, at(2026-11-18T12:00:05Z)
   private parseTrigger(): TriggerNode {
+    const start = this.peek();
+    // `after` takes its argument outside the parentheses: `after Cleanup`
+    // (wait for a job) or `after 30s` (a delay). parseExpr alone would stop
+    // at the bare word and hand `Cleanup`/`30s` to the workflow loop, which
+    // rejected a documented trigger with "unexpected workflow clause".
+    if (start.kind === 'ident' && start.value === 'after' && this.peek(1).kind !== 'punct') {
+      this.next();
+      const value = this.parseExpr();
+      return { kind: 'after', args: [{ value, loc: locOf(start) }], loc: this.loc(start, this.prev()) };
+    }
     const expr = this.parseExpr();
     if (expr.kind === 'call' && expr.callee.kind === 'ident') {
       return { kind: expr.callee.name, args: expr.args, loc: expr.loc };
     }
     if (expr.kind === 'ident') return { kind: expr.name, args: [], loc: expr.loc };
-    this.error('trigger must be cron(...), event(...), manual or after Job');
+    this.error('trigger must be cron(...), event(...), manual, after <job|duration> or at(<instant>)');
   }
 
   private parseIntLiteral(what: string): number {
@@ -1118,6 +1129,12 @@ class Parser {
   private parseAtom(): Expr {
     const tok = this.peek();
     if (tok.kind === 'string') {
+      this.next();
+      return { kind: 'literal', value: tok.value, raw: tok.raw, loc: locOf(tok) };
+    }
+    if (tok.kind === 'datetime') {
+      // Kept as a string with its original text: the emitter writes the
+      // instant into the manifest, fmt prints it back without quotes.
       this.next();
       return { kind: 'literal', value: tok.value, raw: tok.raw, loc: locOf(tok) };
     }

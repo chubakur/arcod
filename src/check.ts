@@ -12,6 +12,21 @@ const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update'
 // The HTTP methods a route may name. Anything else (or no method at all)
 // would silently become GET with path "/" in the emitters.
 const ROUTE_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
+// Delay units a trigger may use; a runner has to convert them to a timer.
+const TRIGGER_UNITS = ['ms', 's', 'm', 'h', 'd'];
+
+// An instant is only schedulable when the zone is explicit: 12:00 in whose
+// clock? The lexer accepts the bare token, check decides whether it means a
+// moment, and Date.parse rejects impossible dates (2026-02-30).
+function isIsoInstant(text: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/.test(text)) return false;
+  const at = Date.parse(text);
+  if (Number.isNaN(at)) return false;
+  // Date.parse rolls 2026-02-30 over into March; compare the calendar day.
+  const day = text.slice(0, 10);
+  return new Date(at).toISOString().slice(0, 10) === day;
+}
+
 const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysql', 'mongodb', 'localhost', '127.0.0.1', 'ollama', 'openai', 'anthropic'];
 
 // A provider word counts only when it stands alone: an identifier such as
@@ -968,13 +983,54 @@ function checkWorkflows(mod: ModuleNode, diags: Diagnostic[]): void {
     // A033 — a graph without a start is dead weight.
     if (!wf.trigger) {
       diags.push(diag('A033', 'error', mod.file, wf.loc, path, 'workflow without a trigger',
-        'add trigger cron("...") | event(...) | manual | after Job'));
-    } else if (!['cron', 'event', 'manual', 'after'].includes(wf.trigger.kind)) {
+        'add trigger cron("...") | event(...) | manual | after 30s | at("2026-11-18T12:00:05Z")'));
+    } else if (!['cron', 'event', 'manual', 'after', 'at'].includes(wf.trigger.kind)) {
       diags.push(diag('A033', 'error', mod.file, wf.trigger.loc, path + '.trigger',
-        'unknown trigger ' + wf.trigger.kind, 'cron, event, manual, after'));
+        'unknown trigger ' + wf.trigger.kind, 'cron, event, manual, after, at'));
     } else if (wf.trigger.kind === 'cron' && wf.trigger.args.length === 0) {
       diags.push(diag('A033', 'error', mod.file, wf.trigger.loc, path + '.trigger',
         'cron without an expression', 'cron("0 3 * * *", tz: "Europe/Moscow")'));
+    } else if (wf.trigger.kind === 'at') {
+      // A034 — a one-shot start is only useful with a real instant. The
+      // manifest carries it verbatim, so a typo would reach a runner and
+      // schedule nothing; reject it at the door while the spec is in hand.
+      const only = wf.trigger.args.length === 1 ? wf.trigger.args[0] : null;
+      if (!only || only.name) {
+        diags.push(diag('A034', 'error', mod.file, wf.trigger.loc, path + '.trigger',
+          'at needs exactly one positional instant',
+          'trigger at("2026-11-18T12:00:05Z") or trigger at(2026-11-18T12:00:05Z)'));
+      } else if (only.value.kind !== 'literal' || typeof only.value.value !== 'string') {
+        diags.push(diag('A034', 'error', mod.file, wf.trigger.loc, path + '.trigger',
+          'at expects an ISO-8601 instant, got ' + valueLabel(only.value),
+          'trigger at("2026-11-18T12:00:05Z")'));
+      } else if (!isIsoInstant(only.value.value)) {
+        diags.push(diag('A034', 'error', mod.file, wf.trigger.loc, path + '.trigger',
+          'at(' + JSON.stringify(only.value.value) + ') is not an ISO-8601 instant with a time zone',
+          'use YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS+HH:MM'));
+      }
+    } else if (wf.trigger.kind === 'after') {
+      // A034 — a delay needs a positive duration; `after Job` (wait for a
+      // job) stays valid and is checked by W023-style name lookup elsewhere.
+      const only = wf.trigger.args.length === 1 ? wf.trigger.args[0] : null;
+      if (!only) {
+        diags.push(diag('A034', 'error', mod.file, wf.trigger.loc, path + '.trigger',
+          'after needs exactly one job name or duration',
+          'trigger after 30s | trigger after Cleanup'));
+      } else if (only.value.kind === 'duration') {
+        if (!TRIGGER_UNITS.includes(only.value.unit)) {
+          diags.push(diag('A034', 'error', mod.file, wf.trigger.loc, path + '.trigger',
+            'unknown duration unit ' + JSON.stringify(only.value.unit),
+            'use ' + TRIGGER_UNITS.join(', ')));
+        } else if (!(only.value.value > 0)) {
+          diags.push(diag('A034', 'error', mod.file, wf.trigger.loc, path + '.trigger',
+            'after ' + only.value.value + only.value.unit + ' is not a positive delay',
+            'the delay must be greater than zero'));
+        }
+      } else if (only.value.kind !== 'ident' && only.value.kind !== 'member') {
+        diags.push(diag('A034', 'error', mod.file, wf.trigger.loc, path + '.trigger',
+          'after expects a duration or a job name, got ' + valueLabel(only.value),
+          'trigger after 30s | trigger after Cleanup'));
+      }
     }
 
     const byName = new Map<string, (typeof wf.steps)[number]>();
