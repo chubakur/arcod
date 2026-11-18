@@ -736,9 +736,10 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     // A069 — two operations of one service answer the same method and path.
     // The generated router keeps the first and the second is unreachable, and
     // nothing else would report it. The method is compared case-insensitively,
-    // the path verbatim, but a capture is compared by position and not by
-    // name: /v1/t/:id and /v1/t/:tid are the same route to matchRoute, so the
-    // segment names are normalized to ":" before the comparison.
+    // and the path is compared the way matchRoute reads it: empty segments are
+    // dropped ("/v1/x/" and "/v1/x" are one route) and a capture is a position,
+    // not a name ("/v1/t/:id" and "/v1/t/:tid" are one route). Static segments
+    // stay case-sensitive: /v1/x and /v1/X are two different routes.
     if (!svc.external) {
       const routes = new Map<string, string>();
       for (const op of svc.contract) {
@@ -746,7 +747,10 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         const route = routeOf(op);
         if (!route) continue;
         const parts = route.trim().split(/\s+/);
-        const pathKey = parts.slice(1).join(' ').split('/').map((segment) => (segment.startsWith(':') ? ':' : segment)).join('/');
+        const pathKey = '/' + parts.slice(1).join(' ').split('/')
+          .filter((segment) => segment.length > 0)
+          .map((segment) => (segment.startsWith(':') ? ':' : segment))
+          .join('/');
         const key = (parts[0] ?? '').toUpperCase() + ' ' + pathKey;
         const first = routes.get(key);
         if (first !== undefined) {

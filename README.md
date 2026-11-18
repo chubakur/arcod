@@ -1235,9 +1235,10 @@ Errors:
   nobody wrote;
 - `A069` two operations of one service answer the same method and path: the
   generated router keeps the first and the second is unreachable, so the
-  second op never runs and no other diagnostic mentions it. A capture is
-  compared by position, not by name — `/v1/t/:id` and `/v1/t/:tid` are the
-  same route to the router;
+  second op never runs and no other diagnostic mentions it. The path is
+  compared the way the router reads it: a capture is a position, not a name
+  (`/v1/t/:id` and `/v1/t/:tid` collide), and empty segments are dropped
+  (`/v1/x/` is `/v1/x`);
 - `A068` `bind alias -> local` for a capability the bundled runtime does not
   serve: `local` is the compiler's own runtime (ids, hash), so a storage or
   queue alias bound to it provisions nothing and the service starts without an

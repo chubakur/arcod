@@ -1980,6 +1980,37 @@ test('A069 compares captures by position, not by name', () => {
   assert.deepEqual(check(parse(distinct, 'main.arc')).filter((d) => d.code === 'A069'), []);
 });
 
+test('A069 drops empty path segments like the router does', () => {
+  // matchRoute splits on "/" and filters empty segments, so "/v1/x/" and
+  // "/v1/x" reach the same branch: the second operation is unreachable while
+  // the paths differ as strings.
+  const src = (second: string) => [
+    'module dup @0.1.0 {}',
+    '',
+    'service S : http {',
+    '  contract {',
+    '    public op a() -> string {',
+    '      route: "GET /v1/x"',
+    '      post: result != null',
+    '    }',
+    '',
+    '    public op b() -> string {',
+    '      route: "' + second + '"',
+    '      post: result != null',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const dups = (second: string) => check(parse(src(second), 'main.arc')).filter((d) => d.code === 'A069');
+
+  for (const trailing of ['GET /v1/x/', 'GET //v1/x']) {
+    assert.equal(dups(trailing).length, 1, trailing + ' still answers /v1/x');
+  }
+  assert.deepEqual(dups('GET /v1/x/y'), [], 'a longer path is a different route');
+  assert.deepEqual(dups('GET /v1/X'), [], 'static segments stay case-sensitive');
+});
+
 test('a route names a known method and a path, A070', () => {
   const spec = (route: string) => [
     'module r @0.1.0 {}',
