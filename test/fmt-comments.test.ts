@@ -426,3 +426,105 @@ test('an uncommented effect list stays on one line', () => {
   assert.match(out, /^    allow store\.get, store\.set$/m);
 });
 
+
+// A single spec that touches every comment anchor fmt knows: if a future
+// change drops a note somewhere, this one test fails regardless of which
+// construct regressed.
+test('a comment in every block kind survives one format pass', () => {
+  const src = [
+    'module m @0.1.0 {',
+    '  // module note',
+    '  meta {',
+    '    // the owner writes tickets',
+    '    owner: "@you"',
+    '  }',
+    '}',
+    '',
+    '// a task',
+    'type Task = {',
+    '  // the human key',
+    '  name: string',
+    '}',
+    '',
+    'enum Plan {',
+    '  // paid tier',
+    '  pro',
+    '}',
+    '',
+    'service Api : http {',
+    '  uses store: kv',
+    '  effects {',
+    '    allow',
+    '      // reads the board',
+    '      store.get',
+    '      store.set',
+    '    deny net',
+    '  }',
+    '  rules {',
+    '    // one row per name',
+    '    unique Task.name',
+    '  }',
+    '  budget {',
+    '    // keep it cheap',
+    '    tokens: 2000',
+    '  }',
+    '  contract {',
+    '    public op a() -> Task {',
+    '      route: "POST /a"',
+    '      // runs in one go',
+    '      effects: store.get',
+    '    }',
+    '    public op b() -> Task { route: "POST /b" }',
+    '  }',
+    '  saga Checkout {',
+    '    // reserve first',
+    '    step reserve {',
+    '      call: a',
+    '      // undo it',
+    '      compensate: b',
+    '    }',
+    '  }',
+    '}',
+    '',
+    'workflow Nightly {',
+    '  // runs at midnight',
+    '  trigger cron("0 0 * * *")',
+    '  // never doubled',
+    '  overlap: skip',
+    '  step one() {',
+    '    // what it calls',
+    '    call: Api.a',
+    '    // and what it needs',
+    '    needs: zero',
+    '  }',
+    '  // last word',
+    '}',
+    '',
+    'environment prod {',
+    '  // the shared instance',
+    '  bind store -> kv(host: "kv")',
+    '}',
+    '',
+    'ui Board {',
+    '  // the board page',
+    '  kind: spa',
+    '  route: "/board"',
+    '  // dark by default',
+    '  theme: dark',
+    '  slide "Intro" {',
+    '    body: "Hello"',
+    '  }',
+    '  // after the last property',
+    '}',
+  ].join('\n');
+  const once = formatSource(src, 'main.arc');
+  const twice = formatSource(once, 'main.arc');
+  assert.equal(twice, once, 'a second pass changes nothing');
+  const notes = src.match(/\/\/[^\n]*/g) ?? [];
+  assert.ok(notes.length >= 20, 'the fixture really is comment-heavy: ' + notes.length);
+  for (const note of notes) {
+    const seen = once.split(note).length - 1;
+    assert.equal(seen, 1, 'exactly one ' + JSON.stringify(note));
+  }
+});
+
