@@ -515,6 +515,11 @@ async function runMigrate(flags: Flags): Promise<void> {
   const svc = pickService(loaded.mod);
   if (!svc) throw new Error('no service to migrate');
   const plan = migrationPlan(loaded.mod, svc, { dialect: dialectNamed(flags.dialect) });
+  if (plan.migrations.length === 0) {
+    if (flags.json) console.log(JSON.stringify(plan, null, 2));
+    else console.log('no stored entities in ' + svc.name + ' — nothing to migrate');
+    return;
+  }
 
   const dir = join(loaded.dir, '.arcod', 'build', 'migrations');
   await mkdir(dir, { recursive: true });

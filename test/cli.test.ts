@@ -157,6 +157,17 @@ test('run --down on a project that was never built is a quiet no-op', async () =
   assert.match(r.out, /nothing to stop/);
 });
 
+test('migrate on a spec without storage says so instead of inventing a kv table', async () => {
+  const dir = await tempDir('arcod-migrate-plain-');
+  await writeFile(join(dir, 'main.arc'), ['module plain @0.1.0 {}', '', 'service Plain : http {',
+    '  contract {', '    public op ping() -> string { route: "GET /v1/ping" }', '  }', '}', ''].join('\n'));
+  const r = await run(['migrate', dir]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /nothing to migrate/);
+  assert.equal(await readdir(join(dir, '.arcod', 'build', 'migrations')).catch(() => null), null,
+    'an empty plan writes no artifacts');
+});
+
 test('check accepts a pattern across projects', async () => {
   const root = await tempDir('arcod-glob-');
   for (const name of ['alpha', 'beta']) {

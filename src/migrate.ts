@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Expr, ModuleNode, Param, ServiceNode, TypeDecl, TypeExpr } from './ast.ts';
 import { MYSQL, type SqlDialect } from './dialects.ts';
+import { storageUse } from './capabilities.ts';
 
 export interface Migration {
   version: string;
@@ -205,6 +206,11 @@ function usesQueue(svc: ServiceNode): boolean {
 export function migrationPlan(mod: ModuleNode, svc: ServiceNode, options: { dialect?: SqlDialect } = {}): MigrationPlan {
   const dialect = options.dialect ?? MYSQL;
   const migrations: Migration[] = [];
+
+  // A service with no storage capability has nothing to migrate: no kv blob,
+  // no entity table, no outbox. An empty plan is the honest answer, and it
+  // keeps .arcod/build/migrations from pretending otherwise.
+  if (storageUse(svc) === null) return { service: svc.name, migrations };
 
   const uniquesByEntity: Record<string, string[]> = {};
   const indexesByEntity: Record<string, string[]> = {};
