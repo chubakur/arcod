@@ -1380,8 +1380,10 @@ This is a vertical slice, not a finished language.
 - `kv` in a real environment is Redis; the in-memory driver exists only for
   `arcod test`.
 - `arcod fmt` is canonical and idempotent, but it re-lays out record types on one
-  line. Comments above declarations, fields, enum values and example statements
-  survive, a comment written inside the module header braces stays inside the
+  line. Comments above declarations, fields, enum values, example statements,
+  service `uses` lines, `allow`/`deny` lines, `budget` items and workflow step
+  clauses survive, a comment inside a `saga` step turns that step from one line
+  into a block, a comment written inside the module header braces stays inside the
   block (printed after `meta` when one is declared), a comment inside
   `meta { ... }` stays with the entry it precedes (or at the end of the block),
   a comment inside a `workflow` or `ui` block stays on the clause it precedes
