@@ -183,7 +183,10 @@ process or eval, only the `io` adapter — and `arcod build` fails naming the
 operation and the reason. Each body is hashed into
 `.arcod/build/impl-manifest.json`, and generated bodies carry a
 `// @arcod generated:` header with the prompt hash and model, so provenance is
-never lost.
+never lost. All bodies land in one module, so a top-level name declared by two
+files (`const LINES` in both `impl/create.mjs` and `impl/list.mjs`) is refused
+at build time, naming both files, instead of surfacing as a `SyntaxError` when
+the container starts.
 
 ## Providers
 

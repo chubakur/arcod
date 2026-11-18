@@ -106,6 +106,39 @@ test('build emits an impl-manifest with body hashes', async () => {
   assert.equal(manifest.bodies.mark.source, 'impl');
 });
 
+
+test('two impl bodies may not share a top-level name', async () => {
+  const tasksUrl = new URL('../examples/tasks-sql/main.arc', import.meta.url);
+  const tasksAst = parse(await readFile(tasksUrl, 'utf8'), 'main.arc');
+  const addLine = async (root: string, op: string, line: string) => {
+    const file = join(root, 'impl', op + '.mjs');
+    await writeFile(file, (await readFile(file, 'utf8')) + '\n' + line + '\n', 'utf8');
+  };
+
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-dupname-'));
+  await cp(new URL('../examples/tasks-sql', import.meta.url), dir, { recursive: true });
+  await addLine(dir, 'create', 'const LINES = [];');
+  await addLine(dir, 'list', 'const LINES = [];');
+  await assert.rejects(() => buildExample(tasksAst, dir, {}), (error: Error) => {
+    assert.match(error.message, /duplicate top-level name "LINES"/);
+    assert.match(error.message, /impl\/create\.mjs/);
+    assert.match(error.message, /impl\/list\.mjs/);
+    return true;
+  });
+
+  // Distinct helpers in the same pair are legal and the bundle still parses.
+  const okDir = await mkdtemp(join(tmpdir(), 'arcod-uniquename-'));
+  await cp(new URL('../examples/tasks-sql', import.meta.url), okDir, { recursive: true });
+  await addLine(okDir, 'create', 'const CREATE_LINES = [];');
+  await addLine(okDir, 'list', 'const LIST_LINES = [];');
+  const built = await buildExample(tasksAst, okDir, {});
+  const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+  assert.ok(code.includes('const CREATE_LINES'), 'the helper travels into the bundle');
+  const { spawnSync } = await import('node:child_process');
+  const check = spawnSync(process.execPath, ['--check', join(built.dir, 'service', 'index.mjs')], { encoding: 'utf8' });
+  assert.equal(check.status, 0, check.stderr);
+});
+
 test('malformed specs throw instead of hanging the parser', () => {
   // The LSP feeds every keystroke to the parser, so an unclosed brace or a
   // stray token must throw a ParseError, never spin forever.

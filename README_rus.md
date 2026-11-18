@@ -180,6 +180,10 @@ arcod make . --skip-impl --no-test   # только check + prompts + build
 только адаптер `io` — и `arcod build` падает, называя операцию и причину. Каждое
 тело хешируется в `.arcod/build/impl-manifest.json`, а сгенерированные тела несут
 заголовок `// @arcod generated:` с хешем промпта и моделью — provenance не теряется.
+Все тела попадают в один модуль, поэтому top-level имя, объявленное в двух
+файлах (`const LINES` и в `impl/create.mjs`, и в `impl/list.mjs`), отклоняется
+на сборке с указанием обоих файлов, а не всплывает `SyntaxError` при старте
+контейнера.
 
 ## Провайдеры
 

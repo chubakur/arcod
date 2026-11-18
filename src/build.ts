@@ -52,6 +52,99 @@ async function readImpl(dir: string): Promise<Record<string, string> | undefined
   return Object.keys(impl).length > 0 ? impl : undefined;
 }
 
+
+// A usage-level build failure (bad impl bodies, conflicting names in them) is
+// the caller's fault: the CLI prints one line and exits 2, no stack trace.
+export class BuildError extends Error {}
+
+// impl/*.mjs bodies are concatenated into one module. A top-level name declared
+// in two files is a SyntaxError only when the container starts, so buildExample
+// scans the bodies first. This is a declaration scanner, not a full parser:
+// comments and string/template literals are skipped, brackets track depth, and
+// only depth-zero const/let/var/function/class names are collected.
+export function topLevelDeclarations(source: string): string[] {
+  const names: string[] = [];
+  const text = String(source);
+  let depth = 0;
+  let index = 0;
+  while (index < text.length) {
+    const ch = text[index];
+    const next = text[index + 1];
+    if (ch === '/' && next === '/') {
+      const end = text.indexOf('\n', index);
+      index = end === -1 ? text.length : end;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      const end = text.indexOf('*/', index + 2);
+      index = end === -1 ? text.length : end + 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === String.fromCharCode(96)) {
+      index = skipQuoted(text, index, ch);
+      continue;
+    }
+    if (ch === '{' || ch === '[' || ch === '(') {
+      depth += 1;
+      index += 1;
+      continue;
+    }
+    if (ch === '}' || ch === ']' || ch === ')') {
+      depth = Math.max(0, depth - 1);
+      index += 1;
+      continue;
+    }
+    if (depth === 0) {
+      const word = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(text.slice(index, index + 64));
+      if (word) {
+        const keyword = word[0];
+        if (keyword === 'const' || keyword === 'let' || keyword === 'var' || keyword === 'class' || keyword === 'function') {
+          const after = /^\s*\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)/.exec(text.slice(index + keyword.length));
+          if (after) names.push(after[1]);
+        }
+        index += keyword.length;
+        continue;
+      }
+    }
+    index += 1;
+  }
+  return names;
+}
+
+function skipQuoted(text: string, start: number, quote: string): number {
+  let index = start + 1;
+  while (index < text.length) {
+    const ch = text[index];
+    if (ch === '\\') {
+      index += 2;
+      continue;
+    }
+    if (ch === quote) return index + 1;
+    index += 1;
+  }
+  return text.length;
+}
+
+function checkImplDeclarations(impl: Record<string, string>): void {
+  const declared = new Map<string, { file: string; name: string }>();
+  for (const op of Object.keys(impl).sort()) {
+    const file = 'impl/' + op + '.mjs';
+    const inFile = new Set<string>();
+    for (const name of topLevelDeclarations(impl[op])) {
+      // The op's own exported function is renamed to impl<Op>, so that is the
+      // name that actually lands in the bundled module.
+      const effective = name === op ? 'impl' + op.charAt(0).toUpperCase() + op.slice(1) : name;
+      if (inFile.has(effective)) continue;
+      inFile.add(effective);
+      const previous = declared.get(effective);
+      if (previous) {
+        throw new BuildError('duplicate top-level name "' + name + '" in ' + previous.file + ' and ' + file);
+      }
+      declared.set(effective, { file, name });
+    }
+  }
+}
+
 export async function buildExample(mod: ModuleNode, exampleDir: string, options: BuildOptions = {}): Promise<BuildResult> {
   const port = options.port ?? 8080;
   const dir = join(exampleDir, '.arcod', 'build');
@@ -72,6 +165,7 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
   // hashed into a provenance manifest next to the build output.
   const implManifest: Record<string, { sha256: string; bytes: number; source: string }> = {};
   if (impl) {
+    checkImplDeclarations(impl);
     for (const op of Object.keys(impl).sort()) {
       const violation = sandboxViolation(impl[op]);
       if (violation) throw new Error('impl body ' + op + '.mjs violates the sandbox: ' + violation);

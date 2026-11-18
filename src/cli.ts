@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { parse, ParseError } from './parser.ts';
 import { check } from './check.ts';
 import { buildPlan, formatPlan } from './plan.ts';
-import { buildExample } from './build.ts';
+import { BuildError, buildExample } from './build.ts';
 import { runExamples } from './test.ts';
 import type { Diagnostic } from './diagnostics.ts';
 import type { ModuleNode } from './ast.ts';
@@ -162,6 +162,13 @@ export async function main(argv: string[]): Promise<void> {
     if (error instanceof UsageError) {
       console.error('arcod: ' + error.message);
       console.error('hint: arcod ' + (command && command !== 'help' ? command : '<command>') + ' --help');
+      process.exitCode = 2;
+      return;
+    }
+    // A build refusal (for example two impl bodies declaring the same name) is
+    // a mistake in the project, not a crash: one line and exit 2.
+    if (error instanceof BuildError) {
+      console.error('arcod: ' + error.message);
       process.exitCode = 2;
       return;
     }

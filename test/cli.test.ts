@@ -485,6 +485,22 @@ test('make exits 1 and stops when check fails', async () => {
   assert.match(r.out, /check\s+fail/);
 });
 
+
+test('build refuses two impl bodies with one top-level name, exit 2', async () => {
+  const dir = await tempDir('arcod-cli-dupname-');
+  await cp(new URL('../examples/tasks-sql', import.meta.url), dir, { recursive: true });
+  for (const op of ['create', 'list']) {
+    const file = join(dir, 'impl', op + '.mjs');
+    await writeFile(file, (await readFile(file, 'utf8')) + '\nconst LINES = [];\n', 'utf8');
+  }
+  const r = await run(['build', join(dir, 'main.arc'), '--impl']);
+  assert.equal(r.code, 2);
+  assert.match(r.err, /duplicate top-level name "LINES"/);
+  assert.match(r.err, /impl\/create\.mjs/);
+  assert.match(r.err, /impl\/list\.mjs/);
+  assert.doesNotMatch(r.err, /\n\s+at /, 'no stack trace');
+});
+
 test('prompts writes tasks and refuses a budget nothing fits', async () => {
   const dir = await tempDir('arcod-cli-prompts-');
   await cp(new URL('../examples/tasks-sql', import.meta.url), dir, { recursive: true });
