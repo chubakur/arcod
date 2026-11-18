@@ -77,7 +77,10 @@ export function sandboxViolation(code: string): string | null {
   if (/^\s*import\s/m.test(code)) return 'body must not import anything';
   if (/\brequire\s*\(/.test(code)) return 'body must not use require';
   if (/\bimport\s*\(/.test(code)) return 'body must not use dynamic import';
-  if (/\bfetch\s*\(/.test(code)) return 'body must not use raw network (deny net)';
+  // `io.fetch` is the declared way to read an entity; only the global `fetch`
+  // (bare, or reached through a global receiver) is raw network.
+  if (/\b(?:globalThis|window|self)\s*\.\s*fetch\s*\(/.test(code)) return 'body must not use raw network (deny net)';
+  if (/(?<![\w.$])fetch\s*\(/.test(code)) return 'body must not use raw network (deny net)';
   if (/\bWebSocket\b/.test(code)) return 'body must not use raw network (deny net)';
   if (/\bXMLHttpRequest\b/.test(code)) return 'body must not use raw network (deny net)';
   if (/\bprocess\.env\b/.test(code)) return 'body must not read the environment';

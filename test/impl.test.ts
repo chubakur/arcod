@@ -73,6 +73,15 @@ test('the body sandbox blocks network, fs, exec, process and eval', () => {
   assert.equal(sandboxViolation('export async function a(input, io) { return { result: 1 }; }'), null);
 });
 
+test('only the global fetch is raw network, io.fetch is the declared read', () => {
+  assert.equal(sandboxViolation("const item = await io.fetch('Event', id);"), null);
+  assert.equal(sandboxViolation("const item = await client.fetch('Event', id);"), null);
+  assert.equal(sandboxViolation('prefetch(id);'), null);
+  assert.equal(sandboxViolation("await globalThis.fetch('http://x');"), 'body must not use raw network (deny net)');
+  assert.equal(sandboxViolation("await window.fetch('http://x');"), 'body must not use raw network (deny net)');
+  assert.match(sandboxViolation("const r = await fetch('http://x');") ?? '', /network/);
+});
+
 test('a hand-written impl body that violates the sandbox fails the build', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'arcod-sandbox-'));
   const sagaUrl = new URL('../examples/saga/main.arc', import.meta.url);
