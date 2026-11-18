@@ -818,6 +818,17 @@ test('slides on a page without layout: presentation are an error', () => {
 
 
 
+
+test('check with an undeclared environment returns one diagnostic and stops', () => {
+  const mod = parse(quizSource, 'main.arc');
+  const diags = check(mod, { environment: 'staging' });
+  assert.equal(diags.length, 1, 'no flood of unbound-capability errors');
+  assert.equal(diags[0].code, 'A045');
+  assert.match(diags[0].message, /^unknown environment staging$/);
+  assert.match(diags[0].hint ?? '', /^declared: dev/);
+  assert.deepEqual(check(mod, { environment: 'dev' }).filter((item) => item.severity === 'error'), []);
+});
+
 test('bind guarantees are kept but flagged as declarative', () => {
   const src = [
     'module m @0.1.0 {}',
