@@ -2149,18 +2149,23 @@ async function remoteCall(service, op, input) {
   for (const key of Object.keys(values)) {
     if (route.path.includes(':' + key)) {
       path = path.split(':' + key).join(encodeURIComponent(String(values[key])));
-    } else if (route.method === 'GET' || route.method === 'DELETE') {
+    } else if (route.method === 'GET' || route.method === 'DELETE' || route.method === 'HEAD') {
       query.append(key, String(values[key]));
     } else {
       body[key] = values[key];
     }
   }
   const url = base + path + (query.toString() ? '?' + query.toString() : '');
-  const init = { method: route.method, headers: { 'content-type': 'application/json' } };
+  // HEAD is a GET without a response body: parameters travel in the query and
+  // the request carries no body, which undici refuses for GET/HEAD anyway.
+  const init = { method: route.method, headers: {} };
   const ctx = requestCtx.getStore();
   if (ctx && ctx.id) init.headers['x-request-id'] = ctx.id;
   if (CONFIG.timeoutMs) init.signal = AbortSignal.timeout(CONFIG.timeoutMs);
-  if (route.method !== 'GET' && route.method !== 'DELETE') init.body = JSON.stringify(body);
+  if (route.method !== 'GET' && route.method !== 'DELETE' && route.method !== 'HEAD') {
+    init.headers['content-type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
 
   metricCapability('remote.' + service + '.' + op);
   const response = await withSpan('remote.' + service + '.' + op, { method: route.method, path: route.path }, () => fetch(url, init));
