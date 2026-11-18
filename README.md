@@ -1208,6 +1208,10 @@ Errors:
   value, an operation, a service, a type, an enum, an error, a workflow or an
   environment) — every emitter keys by name, so the second would silently
   replace the first;
+- `A070` a `route` is not `"METHOD /path"` with a known HTTP method (GET,
+  POST, PUT, PATCH, DELETE, HEAD, OPTIONS): a bare path used to fall through
+  to `GET /` in OpenAPI and in the router, so the operation answered a URL
+  nobody wrote;
 - `A069` two operations of one service answer the same method and path: the
   generated router keeps the first and the second is unreachable, so the
   second op never runs and no other diagnostic mentions it;

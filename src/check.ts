@@ -9,6 +9,9 @@ import { defaultValue } from './migrate.ts';
 import { constraintOf, describeViolation, unknownFormatOf } from './constraints.ts';
 
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
+// The HTTP methods a route may name. Anything else (or no method at all)
+// would silently become GET with path "/" in the emitters.
+const ROUTE_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysql', 'mongodb', 'localhost', '127.0.0.1', 'ollama', 'openai', 'anthropic'];
 
 // A provider word counts only when it stands alone: an identifier such as
@@ -656,6 +659,21 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           diags.push(diag('A050', 'error', mod.file, op.loc, `services.${svc.name}.contract.${op.name}`, `public operation ${op.name} has no route`, 'add route: "VERB /path" or drop public'));
         }
       }
+    }
+
+    // A070 — a route is "METHOD /path". A bare path used to fall through to
+    // GET with path "/" in OpenAPI and in the router, so the operation
+    // answered a URL nobody wrote.
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      const route = routeOf(op);
+      if (!route) continue;
+      const parts = route.trim().split(/\s+/);
+      const wellFormed = parts.length === 2 && ROUTE_METHODS.has((parts[0] ?? '').toUpperCase()) && parts[1].startsWith('/');
+      if (wellFormed) continue;
+      diags.push(diag('A070', 'error', mod.file, op.loc, 'services.' + svc.name + '.contract.' + op.name,
+        'route ' + JSON.stringify(route) + ' must be "METHOD /path" with a known method',
+        'for example "GET /v1/tasks" or "POST /v1/tasks"'));
     }
 
     // A069 — two operations of one service answer the same method and path.

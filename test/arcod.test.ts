@@ -1947,3 +1947,30 @@ test('two operations on one method and path are refused, A069', () => {
     .replace('route: "GET /v1/x"', 'route: "get /v1/x"');
   assert.deepEqual(check(parse(ok, 'main.arc')).filter((d) => d.code === 'A069'), []);
 });
+
+test('a route names a known method and a path, A070', () => {
+  const spec = (route: string) => [
+    'module r @0.1.0 {}',
+    '',
+    'service S : http {',
+    '  contract {',
+    '    public op a() -> string {',
+    '      route: "' + route + '"',
+    '      post: result != null',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+  const code = (route: string) => check(parse(spec(route), 'main.arc')).filter((d) => d.code === 'A070');
+
+  for (const bad of ['/v1/x', 'FETCH /v1/x', 'GET', 'GET v1/x', 'GET /v1/x extra']) {
+    const diags = code(bad);
+    assert.equal(diags.length, 1, bad);
+    assert.equal(diags[0].severity, 'error');
+    assert.match(diags[0].message, /must be "METHOD \/path" with a known method/);
+    assert.match(diags[0].hint ?? '', /GET \/v1\/tasks/);
+  }
+  for (const good of ['GET /v1/x', 'post /v1/x', 'DELETE /v1/x/:id', 'HEAD /']) {
+    assert.deepEqual(code(good), [], good);
+  }
+});
