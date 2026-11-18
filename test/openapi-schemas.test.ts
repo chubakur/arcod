@@ -229,3 +229,28 @@ service Canon : http {
   const paths = emitOpenapi(mod).paths as Record<string, any>;
   assert.deepEqual(Object.keys(paths), ['/v1/items']);
 });
+
+test('openapi: identity without a guarded operation does not advertise a token', () => {
+  const source = `module publiconly @0.1.0 {}
+
+service Front : http {
+  uses auth: identity
+
+  contract {
+    public op home() -> string {
+      route: "GET /v1/home"
+    }
+  }
+}
+
+environment dev {
+  bind auth -> keycloak
+}
+`;
+  const mod = parse(source, 'main.arc');
+  assert.deepEqual(check(mod).filter((d) => d.severity === 'error'), []);
+  const doc = emitOpenapi(mod) as Record<string, any>;
+  assert.equal('security' in doc, false);
+  assert.equal('securitySchemes' in doc.components, false);
+  assert.equal(doc.paths['/v1/home'].get.security, undefined);
+});

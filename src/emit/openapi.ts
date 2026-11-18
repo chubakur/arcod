@@ -399,7 +399,10 @@ export function emitOpenapi(mod: ModuleNode, options: OpenapiOptions = {}): Open
   // A service that verifies tokens has a real security scheme: the runtime
   // reads a bearer token from the Authorization header, so the contract
   // publishes the scheme instead of leaving the client to guess.
-  const bearer = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'));
+  // A scheme nobody needs is noise: publish it only when a routed operation
+  // actually inherits it (a public-only service gets no `security` key).
+  const bearer = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'))
+    && svc.contract.some((op) => op.kind === 'op' && op.auth && routeOf(op) !== null);
   const examples = interpretExamples(svc);
   const paths: Record<string, unknown> = {};
 
