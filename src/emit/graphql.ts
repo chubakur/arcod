@@ -15,7 +15,7 @@ import type {
   ServiceNode,
   TypeExpr,
 } from '../ast.ts';
-import { pickService, routeOf, statusForError } from './service.ts';
+import { accessNotes, pickService, routeOf, statusForError } from './service.ts';
 
 export interface GraphqlOptions {
   service?: string;
@@ -217,6 +217,7 @@ function fieldDescription(op: OpNode): string[] {
   if (errors.length > 0) {
     lines.push('Errors: ' + errors.map((name) => name + ' (' + statusForError(name) + ')').join(', '));
   }
+  for (const note of accessNotes(op)) lines.push(note + '.');
   return lines;
 }
 

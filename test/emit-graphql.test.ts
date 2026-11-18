@@ -139,3 +139,47 @@ test('graphql CLI writes the schema to --out', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('graphql: access clauses appear in the field description', () => {
+  const source = `module shelf @0.1.0 {
+}
+use capability arcod.std.identity @1
+
+service Shelf : http {
+  uses auth: identity
+  roles: admin, member
+
+  contract {
+    auth op purge(id: uuid) -> void {
+      route: "DELETE /v1/shelf/:id"
+      roles: admin
+    }
+
+    auth op edit(id: uuid, title: string) -> void {
+      route: "PATCH /v1/shelf/:id"
+      owner: id
+    }
+
+    auth op read(id: uuid) -> string {
+      route: "GET /v1/shelf/:id"
+    }
+
+    public op home() -> string {
+      route: "GET /v1/home"
+    }
+  }
+}
+
+environment dev {
+  bind auth -> keycloak
+}
+`;
+  const sdl = graphqlSchema(parse(source, 'main.arc'));
+  assert.ok(sdl.includes('Requires one of the roles: admin.'));
+  assert.ok(sdl.includes('The record must belong to the caller.'));
+  assert.ok(sdl.includes('Requires an authenticated actor.'));
+  // A GET auth op is a Query field and still says a token is needed.
+  assert.ok(sdl.includes('HTTP: GET /v1/shelf/:id\n  Requires an authenticated actor.'));
+  // The public field carries the route and nothing else.
+  assert.ok(sdl.includes('HTTP: GET /v1/home\n  \"\"\"\n  home: String!'));
+});

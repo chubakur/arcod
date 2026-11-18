@@ -2356,6 +2356,20 @@ export function statusForError(name: string): number {
   return errorInfo(name).status;
 }
 
+// What `auth`, `roles:` and `owner:` mean to a caller. OpenAPI has no keyword
+// for the last two and GraphQL has none for any, so both emitters publish these
+// sentences; the wording lives here once, next to the status table they read.
+export function accessNotes(op: OpNode): string[] {
+  if (!op.auth) return [];
+  const notes: string[] = [];
+  const roles = op.clauses.find((clause) => clause.kind === 'roles');
+  const owner = op.clauses.find((clause) => clause.kind === 'owner');
+  if (roles && roles.kind === 'roles') notes.push('Requires one of the roles: ' + roles.names.join(', '));
+  if (owner) notes.push('The record must belong to the caller');
+  if (notes.length === 0) notes.push('Requires an authenticated actor');
+  return notes;
+}
+
 function errorInfo(name: string): { status: number; message: string } {
   const table: Record<string, { status: number; message: string }> = {
     Invalid: { status: 400, message: 'invalid request' },

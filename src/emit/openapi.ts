@@ -13,7 +13,7 @@ import type {
   TypeArg,
   TypeExpr,
 } from '../ast.ts';
-import { pickService, routeOf, statusForError } from './service.ts';
+import { accessNotes, pickService, routeOf, statusForError } from './service.ts';
 
 export interface OpenapiOptions {
   // Only this service's operations are exported; defaults to the local one.
@@ -376,14 +376,7 @@ function operationFor(mod: ModuleNode, svc: ServiceNode, op: OpNode): Record<str
   };
   // OpenAPI cannot express roles or ownership, but the runtime enforces them
   // before the body runs: a client author has to read that somewhere.
-  const access: string[] = [];
-  if (op.auth) {
-    const roles = op.clauses.find((clause) => clause.kind === 'roles');
-    const owner = op.clauses.find((clause) => clause.kind === 'owner');
-    if (roles && roles.kind === 'roles') access.push('Requires one of the roles: ' + roles.names.join(', '));
-    if (owner) access.push('The record must belong to the caller');
-    if (access.length === 0) access.push('Requires an authenticated actor');
-  }
+  const access = accessNotes(op);
   if (access.length > 0) operation.description = access.join('. ') + '.';
   if (parameters.length > 0) operation.parameters = parameters;
   if (requestBody) operation.requestBody = requestBody;
