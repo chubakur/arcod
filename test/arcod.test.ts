@@ -346,6 +346,61 @@ test('a list literal in an example parses, checks, formats and runs', async () =
   assert.ok(report.examples.every((item) => item.ok), JSON.stringify(report.examples));
 });
 
+test('a record literal in an example is typed against the entity', async () => {
+  const spec = [
+    'module members @0.1.0 {}',
+    '',
+    'use capability arcod.std.kv @1',
+    '',
+    'type Member = { member: string, age: int }',
+    '',
+    'service Members : http {',
+    '  uses store: kv',
+    '',
+    '  effects {',
+    '    allow store.find',
+    '  }',
+    '',
+    '  contract {',
+    '    public op add(entry: Member) -> int {',
+    '      route: "POST /v1/add"',
+    '      effects: store.find',
+    '    }',
+    '  }',
+    '',
+    '  examples {',
+    '    example add_ann {',
+    '      when {',
+    '        add({ member: "ann", age: 30 })',
+    '      }',
+    '      then { true }',
+    '    }',
+    '  }',
+    '}',
+    '',
+    'environment dev {',
+    '  bind store -> redis(host: "kv")',
+    '  deploy docker',
+    '}',
+    '',
+  ].join('\n');
+
+  const recordAst = parse(spec, 'main.arc');
+  assert.deepEqual(check(recordAst).filter((d) => d.severity === 'error'), []);
+  const formatted = printModule(recordAst);
+  assert.match(formatted, /add\(\{ member: "ann", age: 30 \}\)/);
+  assert.equal(printModule(parse(formatted, 'main.arc')), formatted);
+
+  const bad = parse(spec.replace('age: 30', 'age: "old"'), 'main.arc');
+  const errors = check(bad).filter((d) => d.code === 'A063');
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /Member\.age expects int, got "old"/);
+
+  const unknown = parse(spec.replace('age: 30', 'nickname: "ann"'), 'main.arc');
+  const unknownErrors = check(unknown).filter((d) => d.code === 'A063');
+  assert.equal(unknownErrors.length, 1);
+});
+
 const infraSource = `module infra @0.1.0 {}
 
 use capability arcod.std.kv @1

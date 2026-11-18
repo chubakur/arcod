@@ -964,6 +964,7 @@ export function walkExpr(expr: Expr, fn: (expr: Expr) => void): void {
       for (const arg of expr.args) walkExpr(arg.value, fn);
       break;
     case 'list': for (const item of expr.items) walkExpr(item, fn); break;
+    case 'record': for (const field of expr.fields) walkExpr(field.value, fn); break;
     case 'unary': walkExpr(expr.operand, fn); break;
     case 'binary': walkExpr(expr.left, fn); walkExpr(expr.right, fn); break;
     case 'is': walkExpr(expr.expr, fn); break;
@@ -1072,9 +1073,10 @@ function checkExampleArguments(mod: ModuleNode, svc: ServiceNode, diags: Diagnos
       call.args.forEach((arg, index) => {
         const param = op.params[index];
         if (!param) return;
-        if (!exampleMismatch(param.type, arg.value)) return;
+        const problem = exampleMismatch(param.type, arg.value, mod);
+        if (!problem) return;
         diags.push(diag('A063', 'error', mod.file, arg.loc, 'services.' + svc.name + '.contract.' + op.name,
-          'example ' + example.name + ': argument ' + (index + 1) + ' of ' + op.name + ' expects ' + typeLabel(param.type) + ', got ' + valueLabel(arg.value)));
+          'example ' + example.name + ': argument ' + (index + 1) + ' of ' + op.name + ': ' + problem));
       });
     }
   }
@@ -1093,35 +1095,59 @@ function typeLabel(type: TypeExpr): string {
 function valueLabel(expr: Expr): string {
   if (expr.kind === 'literal') return expr.value === null ? 'null' : JSON.stringify(expr.value);
   if (expr.kind === 'list') return 'a list';
+  if (expr.kind === 'record') return 'a record';
   if (expr.kind === 'duration') return 'a duration';
   return 'a computed value';
 }
 
-function exampleMismatch(type: TypeExpr, expr: Expr): boolean {
+// Returns a complaint ("Member.age expects int, got "old"") or null. The label
+// walks into the value, so the message points at the leaf that is wrong.
+function exampleMismatch(type: TypeExpr, expr: Expr, mod: ModuleNode, label = ''): string | null {
+  const at = label ? label + ' ' : '';
   if (type.kind === 'optional') {
-    if (expr.kind === 'literal' && expr.value === null) return false;
-    return exampleMismatch(type.inner, expr);
+    if (expr.kind === 'literal' && expr.value === null) return null;
+    return exampleMismatch(type.inner, expr, mod, label);
   }
-  if (type.kind === 'union') return type.variants.every((variant) => exampleMismatch(variant, expr));
+  if (type.kind === 'union') {
+    for (const variant of type.variants) if (exampleMismatch(variant, expr, mod, label) === null) return null;
+    return at + 'expects ' + typeLabel(type) + ', got ' + valueLabel(expr);
+  }
   if (expr.kind === 'list') {
-    if (type.kind !== 'named' || type.name !== 'list') return true;
+    if (type.kind !== 'named' || type.name !== 'list') return at + 'expects ' + typeLabel(type) + ', got a list';
     const element = type.args[0];
-    if (!element || !element.isType) return false;
-    return expr.items.some((item) => exampleMismatch(element.value as TypeExpr, item));
+    if (!element || !element.isType) return null;
+    for (let index = 0; index < expr.items.length; index++) {
+      const inner = exampleMismatch(element.value as TypeExpr, expr.items[index], mod, typeLabel(type) + '[' + index + ']');
+      if (inner) return inner;
+    }
+    return null;
   }
-  if (expr.kind !== 'literal') return false;
-  if (expr.value === null) return true;
-  if (type.kind !== 'named') return false;
-  if (type.name === 'list') return true;
+  if (expr.kind === 'record') {
+    // Only a declared record type can judge a record literal; an unknown name is
+    // somebody else's diagnostic, not this one.
+    if (type.kind !== 'named') return null;
+    const decl = mod.types.find((item) => item.name === type.name);
+    if (!decl || decl.type.kind !== 'record') return null;
+    for (const field of expr.fields) {
+      const param = decl.type.fields.find((item) => item.name === field.name);
+      if (!param) return type.name + ' has no field ' + field.name;
+      const inner = exampleMismatch(param.type, field.value, mod, type.name + '.' + field.name);
+      if (inner) return inner;
+    }
+    return null;
+  }
+  if (expr.kind !== 'literal') return null;
+  if (expr.value === null) return at + 'expects ' + typeLabel(type) + ', got null';
+  if (type.kind !== 'named') return null;
+  if (type.name === 'list') return at + 'expects ' + typeLabel(type) + ', got ' + valueLabel(expr);
+  const kind = typeof expr.value;
   const name = type.name.toLowerCase();
-  if (name === 'string' || name === 'uuid' || name === 'url' || name === 'email' || name === 'datetime') {
-    return typeof expr.value !== 'string';
-  }
-  if (name === 'int' || name === 'number' || name === 'float' || name === 'decimal') {
-    return typeof expr.value !== 'number';
-  }
-  if (name === 'bool') return typeof expr.value !== 'boolean';
-  return false;
+  const wants = name === 'string' || name === 'uuid' || name === 'url' || name === 'email' || name === 'datetime' ? 'string'
+    : name === 'int' || name === 'number' || name === 'float' || name === 'decimal' ? 'number'
+    : name === 'bool' ? 'boolean'
+    : null;
+  if (wants === null || kind === wants) return null;
+  return at + 'expects ' + type.name + ', got ' + valueLabel(expr);
 }
 
 function collectMentionedOps(svc: ServiceNode): Set<string> {

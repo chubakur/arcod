@@ -204,6 +204,12 @@ async function evalExpr(expr: Expr, env: Map<string, Value>, ctx: Context): Prom
       return items;
     }
 
+    case 'record': {
+      const record: Record<string, Value> = {};
+      for (const field of expr.fields) record[field.name] = await evalExpr(field.value, env, ctx);
+      return record;
+    }
+
     case 'ident':
       return env.has(expr.name) ? env.get(expr.name) : expr.name;
 

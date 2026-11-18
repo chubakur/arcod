@@ -994,6 +994,22 @@ class Parser {
       this.next();
       return { kind: 'ident', name: tok.value, loc: locOf(tok) };
     }
+    if (this.is('{')) {
+      // A record literal: { member: "ann", age: 3 }. It is the direct form of a
+      // record-typed parameter, so an example does not need a fake operation
+      // to produce one.
+      const recordLoc = locOf(tok);
+      this.next();
+      const fields: Array<{ name: string; value: Expr; loc: Loc }> = [];
+      while (!this.is('}')) {
+        const fieldName = this.expectIdent('field').value;
+        this.expect(':');
+        fields.push({ name: fieldName, value: this.parseExpr(), loc: locOf(this.prev()) });
+        if (!this.accept(',')) break;
+      }
+      this.expect('}');
+      return { kind: 'record', fields, loc: recordLoc };
+    }
     if (this.is('[')) {
       // A list literal: ["ann", "bob"]. It is the one value shape a list<T>
       // parameter can carry in an example, so the parser has to know it.
