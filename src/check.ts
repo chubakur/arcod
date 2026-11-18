@@ -54,6 +54,16 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   const env = options.environment
     ? mod.environments.find((e) => e.name === options.environment)
     : mod.environments[0];
+  // A045 — `--env staging` used to fall through to "no environment", and every
+  // capability then looked unbound: the report pointed at bindings while the
+  // real mistake was the environment name.
+  if (options.environment && !env) {
+    return [diag('A045', 'error', mod.file, mod.loc, 'environments',
+      'unknown environment ' + options.environment,
+      mod.environments.length > 0
+        ? 'declared: ' + mod.environments.map((item) => item.name).join(', ')
+        : 'declare an environment, or drop --env')];
+  }
   // A028 — unknown deploy provider; W019 — unknown deploy argument.
   // Every environment is checked, not only the selected one.
   for (const environment of mod.environments) {

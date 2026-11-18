@@ -1179,6 +1179,8 @@ Errors:
 - `A041` a presentation without slides;
 - `A042` slides on a page whose `layout` is not `presentation` — the page
   would drop them, so the text never reaches the browser;
+- `A045` `--env` names an environment the module does not declare (the hint
+  lists the declared ones, instead of reporting every binding as missing);
 - `A044` an `allow`/`deny` entry that names no effect of the declared
   capability (a typo such as `store.gett`) or of another service;
 - `A043` a `ui` clause the chosen layout does not read (`history`/`send` need

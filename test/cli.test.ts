@@ -255,6 +255,31 @@ test('check says nothing on a clean spec and prints diagnostics as JSON', async 
   assert.deepEqual(diags.filter((d) => d.severity === 'error'), []);
 });
 
+
+test('check --env names the environments the module declares', async () => {
+  const missing = await run(['check', signupUrl.pathname, '--env', 'staging']);
+  assert.equal(missing.code, 1);
+  assert.match(missing.out, /unknown environment staging/);
+  assert.match(missing.out, /declared: /);
+  assert.doesNotMatch(missing.out, /is not bound/, 'the binding report is not the answer');
+
+  const ok = await run(['check', signupUrl.pathname, '--env', 'dev']);
+  assert.equal(ok.code, 0, ok.out);
+});
+
+test('check --strict asks for the budget the default check leaves alone', async () => {
+  const dir = await tempDir('arcod-strict-');
+  const file = join(dir, 'plain.arc');
+  await writeFile(file, ['module plain @0.1.0 {}', '', 'service Plain : http {',
+    '  contract {', '    public op ping() -> string { route: "GET /v1/ping" }', '  }', '}', ''].join('\n'));
+  const loose = await run(['check', file]);
+  assert.equal(loose.code, 0);
+  assert.doesNotMatch(loose.out, /W013/);
+  const strict = await run(['check', file, '--strict']);
+  assert.match(strict.out, /W013/);
+  assert.equal(strict.code, 0, 'a warning stays a warning, not an exit code');
+});
+
 test('check fails a broken spec with file:line:col and a parse hint', async () => {
   const dir = await tempDir();
   const file = join(dir, 'broken.arc');
