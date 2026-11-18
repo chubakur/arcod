@@ -370,6 +370,17 @@ function operationFor(mod: ModuleNode, svc: ServiceNode, op: OpNode): Record<str
     tags: [svc.name],
     responses,
   };
+  // OpenAPI cannot express roles or ownership, but the runtime enforces them
+  // before the body runs: a client author has to read that somewhere.
+  const access: string[] = [];
+  if (op.auth) {
+    const roles = op.clauses.find((clause) => clause.kind === 'roles');
+    const owner = op.clauses.find((clause) => clause.kind === 'owner');
+    if (roles && roles.kind === 'roles') access.push('Requires one of the roles: ' + roles.names.join(', '));
+    if (owner) access.push('The record must belong to the caller');
+    if (access.length === 0) access.push('Requires an authenticated actor');
+  }
+  if (access.length > 0) operation.description = access.join('. ') + '.';
   if (parameters.length > 0) operation.parameters = parameters;
   if (requestBody) operation.requestBody = requestBody;
   return operation;

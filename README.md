@@ -792,7 +792,9 @@ has it: a service that uses `auth: identity` publishes a `bearerAuth` scheme
 (`http`, `bearer`, JWT) and applies it to the whole document, while a `public`
 operation opts out with an explicit `security: []`. A spec without an identity
 capability has no `security` key at all, so the document never promises a
-token the runtime would not check.
+token the runtime would not check. Roles and ownership have no OpenAPI keyword,
+so a `roles:`/`owner:` clause lands in the operation `description` — the client
+author reads what the runtime enforces before the body runs.
 
 ### The contract as GraphQL
 

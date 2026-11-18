@@ -170,3 +170,45 @@ test('openapi: a service without identity has no security at all', () => {
   assert.equal('security' in doc, false);
   assert.equal('securitySchemes' in doc.components, false);
 });
+
+test('openapi: access clauses reach the client as a description', () => {
+  const source = `module access @0.1.0 {}
+
+service Shelf : http {
+  uses auth: identity
+  roles: admin, member
+
+  contract {
+    auth op purge(id: uuid) -> void {
+      route: "DELETE /v1/shelf/:id"
+      roles: admin
+    }
+
+    auth op edit(id: uuid, title: string) -> void {
+      route: "PATCH /v1/shelf/:id"
+      owner: id
+    }
+
+    auth op open(id: uuid) -> string {
+      route: "GET /v1/shelf/:id"
+    }
+
+    public op home() -> string {
+      route: "GET /v1/home"
+    }
+  }
+}
+
+environment dev {
+  bind auth -> keycloak
+}
+`;
+  const mod = parse(source, 'main.arc');
+  assert.deepEqual(check(mod).filter((d) => d.severity === 'error'), []);
+  const paths = emitOpenapi(mod).paths as Record<string, any>;
+
+  assert.equal(paths['/v1/shelf/{id}'].delete.description, 'Requires one of the roles: admin.');
+  assert.equal(paths['/v1/shelf/{id}'].patch.description, 'The record must belong to the caller.');
+  assert.equal(paths['/v1/shelf/{id}'].get.description, 'Requires an authenticated actor.');
+  assert.equal(paths['/v1/home'].get.description, undefined);
+});
