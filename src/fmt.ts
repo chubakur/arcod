@@ -192,6 +192,7 @@ function collectService(s: ServiceNode, out: number[]): void {
   if (s.effects) {
     out.push(s.effects.loc.offset);
     for (const loc of Object.values(s.effects.clauseLocs ?? {})) out.push(loc.offset);
+    for (const loc of [...(s.effects.nameLocs?.allow ?? []), ...(s.effects.nameLocs?.deny ?? [])]) out.push(loc.offset);
   }
   for (const r of s.rules) out.push(r.loc.offset);
   for (const op of s.contract) {
@@ -459,10 +460,22 @@ class Printer {
   private effects(e: EffectsNode): void {
     this.emitComments(e.loc.offset, 1);
     this.raw(1, 'effects {');
-    const clause = (key: string, list: string[]): void => {
+    const clause = (key: 'allow' | 'deny', list: string[]): void => {
       if (list.length === 0) return;
       this.clauseComments(e.clauseLocs, key, 2);
-      this.raw(2, key + ' ' + list.join(', '));
+      const locs = e.nameLocs?.[key] ?? [];
+      const commented = locs.some((loc) => this.comments.has(loc.offset) || this.trailing.has(loc.offset));
+      // One name per line only when a comment needs the line; otherwise the
+      // list stays on the keyword line.
+      if (!commented || locs.length !== list.length) {
+        this.raw(2, key + ' ' + list.join(', '));
+        return;
+      }
+      this.raw(2, key);
+      list.forEach((name, i) => {
+        this.emitComments(locs[i].offset, 3);
+        this.raw(3, name);
+      });
     };
     clause('allow', e.allow);
     clause('deny', e.deny);

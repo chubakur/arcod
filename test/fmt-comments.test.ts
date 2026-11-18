@@ -392,3 +392,37 @@ test('a comment inside effects and budget blocks stays on its line', () => {
   assert.equal(formatSource(out, 'main.arc'), out, 'stable on a second pass');
 });
 
+
+
+test('a comment on one effect name lists the effects one per line', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service Api : http {',
+    '  effects {',
+    '    allow',
+    '      // reads the board',
+    '      store.get',
+    '      store.set,',
+    '    deny net',
+    '  }',
+    '  contract { public op a() -> string { route: "POST /a" } }',
+    '}',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^    allow\n      \/\/ reads the board\n      store\.get\n      store\.set$/m);
+  assert.match(out, /^    deny net$/m);
+  assert.equal(formatSource(out, 'main.arc'), out, 'stable on a second pass');
+});
+
+test('an uncommented effect list stays on one line', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service Api : http {',
+    '  effects { allow store.get, store.set deny net }',
+    '  contract { public op a() -> string { route: "POST /a" } }',
+    '}',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^    allow store\.get, store\.set$/m);
+});
+

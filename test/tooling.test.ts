@@ -15,7 +15,8 @@ function strip(x: unknown): unknown {
   // `clauseLocs`/`closeLoc` are fmt anchors (positions only): a canonical print
   // moves them, so they are not part of the semantics this test compares.
   return JSON.parse(JSON.stringify(x, (k, v) => (
-    k === 'loc' || k === 'clauseLocs' || k === 'closeLoc' || k === 'source' || k === 'file' ? undefined : v
+    k === 'loc' || k === 'clauseLocs' || k === 'closeLoc' || k === 'nameLocs' ||
+    k === 'source' || k === 'file' ? undefined : v
   )));
 }
 

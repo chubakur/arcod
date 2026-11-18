@@ -517,15 +517,29 @@ class Parser {
     const allow: string[] = [];
     const deny: string[] = [];
     const clauseLocs: Record<string, Loc> = {};
+    const nameLocs: { allow: Loc[]; deny: Loc[] } = { allow: [], deny: [] };
     let target: string[] = allow;
+    let targetLocs: Loc[] = nameLocs.allow;
     while (!this.is('}')) {
-      if (this.accept('allow')) { clauseLocs.allow = locOf(this.prev()); target = allow; continue; }
-      if (this.accept('deny')) { clauseLocs.deny = locOf(this.prev()); target = deny; continue; }
+      if (this.accept('allow')) {
+        clauseLocs.allow = locOf(this.prev());
+        target = allow;
+        targetLocs = nameLocs.allow;
+        continue;
+      }
+      if (this.accept('deny')) {
+        clauseLocs.deny = locOf(this.prev());
+        target = deny;
+        targetLocs = nameLocs.deny;
+        continue;
+      }
+      const nameStart = this.peek();
       target.push(this.parseQName());
+      targetLocs.push(locOf(nameStart));
       this.accept(',');
     }
     this.expect('}');
-    return { kind: 'effects', allow, deny, clauseLocs, loc: this.loc(start, this.prev()) };
+    return { kind: 'effects', allow, deny, clauseLocs, nameLocs, loc: this.loc(start, this.prev()) };
   }
 
   private parseExamples(svc: ServiceNode): void {

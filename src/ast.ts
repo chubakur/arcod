@@ -247,6 +247,9 @@ export interface EffectsNode {
   // The `allow`/`deny` keywords: fmt keeps a comment written above them on
   // the line they introduce.
   clauseLocs?: Record<string, Loc>;
+  // One location per effect name (`allow store.get`), parallel to `allow` and
+  // `deny`. A comment on a single name makes the list print one name per line.
+  nameLocs?: { allow: Loc[]; deny: Loc[] };
   loc: Loc;
 }
 
