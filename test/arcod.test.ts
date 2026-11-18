@@ -919,6 +919,35 @@ test('a clause declared twice on one operation is A067', () => {
   assert.deepEqual(check(parse(alone, 'main.arc')).filter((item) => item.code === 'A067'), [], 'one clause each is fine');
 });
 
+test('a workflow or step clause declared twice is A067, first value wins', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  contract { op list() -> int { route: "GET /l" } }',
+    '}',
+    'workflow W {',
+    '  trigger cron("* * * * *")',
+    '  trigger manual',
+    '  retry: 1',
+    '  retry: 2',
+    '  step one() {',
+    '    call: S.list',
+    '    call: S.other',
+    '  }',
+    '}',
+  ].join('\n');
+  const mod = parse(src, 'main.arc');
+  const diags = check(mod).filter((item) => item.code === 'A067');
+  assert.deepEqual(diags.map((item) => item.message), [
+    'clause trigger is declared twice',
+    'clause retry is declared twice',
+    'clause call is declared twice',
+  ]);
+  assert.equal(mod.workflows[0].trigger?.kind, 'cron', 'the first trigger is the one kept');
+  assert.equal(mod.workflows[0].retry, 1);
+  assert.equal(mod.workflows[0].steps[0].call, 'S.list');
+});
+
 test('a name declared twice is an error, not a silent overwrite', () => {
   const src = [
     'module m @0.1.0 {}',

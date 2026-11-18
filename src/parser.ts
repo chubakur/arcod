@@ -799,20 +799,30 @@ class Parser {
       if (this.accept(';')) continue;
       if (this.is('step')) { wf.steps.push(this.parseWorkflowStep()); continue; }
       if (this.accept('trigger')) {
-        wf.clauseLocs!.trigger = locOf(this.prev());
-        wf.trigger = this.parseTrigger();
+        const loc = locOf(this.prev());
+        const trigger = this.parseTrigger();
+        if (wf.trigger) {
+          (wf.duplicates ??= []).push({ key: 'trigger', loc });
+          continue;
+        }
+        wf.clauseLocs!.trigger = loc;
+        wf.trigger = trigger;
         continue;
       }
       const keyTok = this.expectIdent('workflow clause');
       const key = keyTok.value;
-      wf.clauseLocs![key] = locOf(keyTok);
+      // First clause wins; a copy is recorded for A067 instead of silently
+      // replacing the value the rest of the pipeline already read.
+      const dup = wf.clauseLocs![key] !== undefined;
+      if (dup) (wf.duplicates ??= []).push({ key, loc: locOf(keyTok) });
+      else wf.clauseLocs![key] = locOf(keyTok);
       this.expect(':');
       if (key === 'overlap') {
         const value = this.expectIdent('overlap policy').value;
         if (value !== 'skip' && value !== 'queue' && value !== 'parallel') {
           this.error('overlap must be skip, queue or parallel');
         }
-        wf.overlap = value;
+        if (!dup) wf.overlap = value;
         continue;
       }
       if (key === 'catchup') {
@@ -820,11 +830,11 @@ class Parser {
         if (value !== 'none' && value !== 'last' && value !== 'all') {
           this.error('catchup must be none, last or all');
         }
-        wf.catchup = value;
+        if (!dup) wf.catchup = value;
         continue;
       }
-      if (key === 'retry') { wf.retry = this.parseIntLiteral('retry'); continue; }
-      if (key === 'timeout') { wf.timeout = this.parseExpr(); continue; }
+      if (key === 'retry') { const value = this.parseIntLiteral('retry'); if (!dup) wf.retry = value; continue; }
+      if (key === 'timeout') { const value = this.parseExpr(); if (!dup) wf.timeout = value; continue; }
       this.error('unexpected workflow clause ' + JSON.stringify(key));
     }
     const end = this.expect('}');
@@ -848,25 +858,31 @@ class Parser {
       if (this.accept(';')) continue;
       const keyTok = this.expectIdent('step clause');
       const key = keyTok.value;
-      step.clauseLocs![canonicalStepClause(key)] = locOf(keyTok);
+      const canonical = canonicalStepClause(key);
+      const dup = step.clauseLocs![canonical] !== undefined;
+      if (dup) (step.duplicates ??= []).push({ key: canonical, loc: locOf(keyTok) });
+      else step.clauseLocs![canonical] = locOf(keyTok);
       this.expect(':');
-      if (key === 'call') { step.call = this.parseQName(); continue; }
+      if (key === 'call') { const value = this.parseQName(); if (!dup) step.call = value; continue; }
       if (key === 'needs') {
-        step.needs = [];
+        const names: string[] = [];
         while (true) {
-          step.needs.push(this.expectIdent('step name').value);
+          names.push(this.expectIdent('step name').value);
           if (!this.accept(',')) break;
         }
+        if (!dup) step.needs = names;
         continue;
       }
       if (key === 'effects') {
+        const effects: string[] = [];
         while (true) {
           const alias = this.expectIdent('effect alias').value;
           this.expect('.');
           const effect = this.expectIdent('effect name').value;
-          step.effects.push(alias + '.' + effect);
+          effects.push(alias + '.' + effect);
           if (!this.accept(',')) break;
         }
+        if (!dup) step.effects = effects;
         continue;
       }
       if (key === 'onFail' || key === 'onfail' || key === 'on_fail') {
@@ -874,11 +890,11 @@ class Parser {
         if (value !== 'stop' && value !== 'skip' && value !== 'retry' && value !== 'continue') {
           this.error('onFail must be stop, skip, retry or continue');
         }
-        step.onFail = value;
+        if (!dup) step.onFail = value;
         continue;
       }
-      if (key === 'retry') { step.retry = this.parseIntLiteral('retry'); continue; }
-      if (key === 'timeout') { step.timeout = this.parseExpr(); continue; }
+      if (key === 'retry') { const value = this.parseIntLiteral('retry'); if (!dup) step.retry = value; continue; }
+      if (key === 'timeout') { const value = this.parseExpr(); if (!dup) step.timeout = value; continue; }
       this.error('unexpected step clause ' + JSON.stringify(key));
     }
     const end = this.expect('}');

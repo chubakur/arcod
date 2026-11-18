@@ -104,6 +104,9 @@ export interface WorkflowNode {
   // The closing brace: a comment written after the last step belongs to the
   // block and must not slide past it to the end of the file.
   closeLoc?: Loc;
+  // Clauses written twice on one workflow. The first keeps its value; the
+  // second is kept here so the checker can report it instead of losing it.
+  duplicates?: Array<{ key: string; loc: Loc }>;
   loc: Loc;
 }
 
@@ -129,6 +132,8 @@ export interface WorkflowStepNode {
   clauseLocs?: Record<string, Loc>;
   // The closing brace, for a comment written after the last clause.
   closeLoc?: Loc;
+  // Clauses written twice on one step: first wins, the copy is reported.
+  duplicates?: Array<{ key: string; loc: Loc }>;
   loc: Loc;
 }
 

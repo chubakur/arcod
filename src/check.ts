@@ -132,6 +132,23 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     });
   }
 
+  // A067 — a workflow or step clause written twice: the parser keeps the
+  // first value, so the copy would vanish without a word.
+  for (const wf of mod.workflows) {
+    for (const item of wf.duplicates ?? []) {
+      diags.push(diag('A067', 'error', mod.file, item.loc, 'workflows.' + wf.name,
+        'clause ' + item.key + ' is declared twice',
+        'keep one: the first value is the one that is used'));
+    }
+    for (const st of wf.steps) {
+      for (const item of st.duplicates ?? []) {
+        diags.push(diag('A067', 'error', mod.file, item.loc, 'workflows.' + wf.name + '.steps.' + st.name,
+          'clause ' + item.key + ' is declared twice',
+          'keep one: the first value is the one that is used'));
+      }
+    }
+  }
+
   // A067 — one operation declares the same clause twice. The AST keeps both,
   // every reader takes the first, and the second silently does nothing.
   for (const svc of mod.services) {
