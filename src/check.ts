@@ -132,6 +132,19 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     });
   }
 
+  // A066 — two examples of one service with the same name: the run reports
+  // them by name, so one result would shadow the other.
+  for (const svc of mod.services) {
+    const exampleNames = new Set<string>();
+    for (const example of svc.examples) {
+      if (exampleNames.has(example.name)) {
+        diags.push(diag('A066', 'error', mod.file, example.loc, 'services.' + svc.name + '.examples.' + example.name,
+          'example ' + example.name + ' is declared twice in ' + svc.name, 'rename one of them'));
+      }
+      exampleNames.add(example.name);
+    }
+  }
+
   // A067 — a workflow or step clause written twice: the parser keeps the
   // first value, so the copy would vanish without a word.
   for (const wf of mod.workflows) {

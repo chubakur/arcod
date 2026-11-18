@@ -919,6 +919,35 @@ test('a clause declared twice on one operation is A067', () => {
   assert.deepEqual(check(parse(alone, 'main.arc')).filter((item) => item.code === 'A067'), [], 'one clause each is fine');
 });
 
+test('two examples with one name are A066', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  contract { op list() -> int { route: "GET /l" } }',
+    '  examples {',
+    '    example ok {',
+    '      when {',
+    '        list()',
+    '      }',
+    '      then {',
+    '        1',
+    '      }',
+    '    }',
+    '    example ok {',
+    '      when {',
+    '        list()',
+    '      }',
+    '      then {',
+    '        2',
+    '      }',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+  const diags = check(parse(src, 'main.arc')).filter((item) => item.code === 'A066');
+  assert.deepEqual(diags.map((item) => item.path), ['services.S.examples.ok']);
+});
+
 test('a workflow or step clause declared twice is A067, first value wins', () => {
   const src = [
     'module m @0.1.0 {}',
