@@ -157,6 +157,28 @@ test('run --down on a project that was never built is a quiet no-op', async () =
   assert.match(r.out, /nothing to stop/);
 });
 
+test('run --detach starts the project and prints how to stop it', async () => {
+  const dir = await tempDir('arcod-run-detach-');
+  await cp(new URL('../examples/onetimemessage', import.meta.url), dir, { recursive: true });
+  const bin = join(dir, 'bin');
+  await mkdir(bin);
+  const log = join(dir, 'docker.log');
+  await writeFile(join(bin, 'docker'), '#!/bin/sh\necho "$@" >> ' + log + '\nexit 0\n', { mode: 0o755 });
+
+  const before = process.env.PATH;
+  process.env.PATH = bin + ':' + (before ?? '');
+  try {
+    const r = await run(['run', dir, '--detach']);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out, /url: +http:\/\/localhost:8080/);
+    assert.match(r.out, /stop: arcod run/);
+  } finally {
+    process.env.PATH = before;
+  }
+  const calls = await readFile(log, 'utf8');
+  assert.match(calls, /compose -f .*docker-compose\.yml up --build -d/);
+});
+
 test('migrate on a spec without storage says so instead of inventing a kv table', async () => {
   const dir = await tempDir('arcod-migrate-plain-');
   await writeFile(join(dir, 'main.arc'), ['module plain @0.1.0 {}', '', 'service Plain : http {',
