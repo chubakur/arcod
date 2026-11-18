@@ -163,3 +163,45 @@ test('a comment after the last meta entry stays in the block', () => {
   const tail = lines.findIndex((l) => l.includes('конец блока'));
   assert.ok(tail > 1 && tail < close, 'the block-end comment stays inside: ' + JSON.stringify(lines.join('\n')));
 });
+
+test('a comment inside a service meta block stays inside it', () => {
+  const source = [
+    'module m @0.1.0 {}',
+    '',
+    'service Api : http {',
+    '  meta {',
+    '    owner: "@you"',
+    '    // сервис на паузе',
+    '    status: "paused"',
+    '  }',
+    '  contract {',
+    '    public op get() -> string {',
+    '      route: "GET /v1/get"',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const formatted = formatSource(source, 'm.arc');
+  const lines = formatted.split('\n');
+  const open = lines.findIndex((l) => l === '  meta {');
+  const comment = lines.findIndex((l) => l.includes('сервис на паузе'));
+  assert.ok(open !== -1 && comment > open && comment < lines.indexOf('  }', open), 'comment stays between the braces: ' + JSON.stringify(formatted));
+  assert.equal(formatSource(formatted, 'm.arc'), formatted, 'stable on a second pass');
+});
+
+test('a service meta block without comments prints canonically', () => {
+  const source = [
+    'module m @0.1.0 {}',
+    'service Api : http {',
+    '  meta { owner: "@you", status: "live" }',
+    '  contract {',
+    '    public op get() -> string { route: "GET /v1/get" }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const formatted = formatSource(source, 'm.arc');
+  assert.match(formatted, /  meta \{\n    owner: "@you"\n    status: "live"\n  \}\n\n/);
+  assert.equal(formatSource(formatted, 'm.arc'), formatted);
+});

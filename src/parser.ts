@@ -248,7 +248,13 @@ class Parser {
     };
 
     while (!this.is('}')) {
-      if (this.accept('meta')) { Object.assign(svc.meta, this.parseMeta()); continue; }
+      if (this.accept('meta')) {
+        const parsedMeta = this.parseMeta();
+        Object.assign(svc.meta, parsedMeta.values);
+        svc.metaLoc = parsedMeta.loc;
+        svc.metaEntryLocs = parsedMeta.locs;
+        continue;
+      }
       if (this.accept('uses')) { svc.uses.push(this.parseCapUse()); continue; }
       if (this.accept('contract')) { this.parseContract(svc); continue; }
       if (this.accept('roles')) {

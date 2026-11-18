@@ -150,6 +150,8 @@ export interface ServiceNode {
   impl: string;
   external: boolean;
   meta: Record<string, string>;
+  metaLoc?: Loc;
+  metaEntryLocs?: Loc[];
   uses: CapUse[];
   contract: OpNode[];
   sagas: SagaNode[];

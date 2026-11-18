@@ -187,6 +187,7 @@ function collectOffsets(m: ModuleNode): number[] {
 
 function collectService(s: ServiceNode, out: number[]): void {
   out.push(s.loc.offset);
+  for (const loc of s.metaEntryLocs ?? []) out.push(loc.offset);
   for (const c of s.uses) out.push(c.loc.offset);
   if (s.effects) out.push(s.effects.loc.offset);
   for (const r of s.rules) out.push(r.loc.offset);
@@ -397,8 +398,15 @@ class Printer {
     const head = (s.external ? 'external service ' : 'service ') + s.name + ' : ' + s.impl + ' {';
     this.raw(0, head);
     if (Object.keys(s.meta).length > 0) {
+      const entries = Object.entries(s.meta);
+      const locs = s.metaEntryLocs ?? [];
+      const commented = locs.length === entries.length &&
+        entries.some((_, i) => this.comments.has(locs[i].offset) || this.trailing.has(locs[i].offset));
       this.raw(1, 'meta {');
-      for (const [k, v] of Object.entries(s.meta)) this.raw(2, k + ': ' + quoteStr(v));
+      entries.forEach(([k, v], i) => {
+        if (commented) this.emitComments(locs[i].offset, 2);
+        this.raw(2, k + ': ' + quoteStr(v));
+      });
       this.raw(1, '}');
       this.blank();
     }
