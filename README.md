@@ -1383,7 +1383,8 @@ This is a vertical slice, not a finished language.
   line. Comments above declarations, fields, enum values, example statements,
   service `uses` lines, `allow`/`deny` lines, `budget` items and workflow step
   clauses survive, a comment inside a `saga` step turns that step from one line
-  into a block, a comment written inside the module header braces stays inside the
+  into a block, a comment on one effect name lists the effects one per line,
+  a comment written inside the module header braces stays inside the
   block (printed after `meta` when one is declared), a comment inside
   `meta { ... }` stays with the entry it precedes (or at the end of the block),
   a comment inside a `workflow` or `ui` block stays on the clause it precedes
