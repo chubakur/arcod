@@ -161,31 +161,35 @@ test('references follow a saga step back to the operation it calls', async () =>
   );
 });
 
+// A workflow with two steps: `render` depends on `prepare` and both call the
+// same operation, so the two kinds of reference can be told apart.
+const WORKFLOW = [
+  'module nightly @0.1.0 {',
+  '  meta { owner: "@you" }',
+  '}',
+  '',
+  'type Snapshot = { id: string }',
+  '',
+  'service Reports : http {',
+  '  contract {',
+  '    public op prepare() -> Snapshot { route: "POST /v1/prepare" }',
+  '  }',
+  '}',
+  '',
+  'workflow Nightly {',
+  '  trigger cron("0 3 * * *")',
+  '  step prepare() -> Snapshot {',
+  '    call: Reports.prepare',
+  '  }',
+  '  step render(snapshot: Snapshot) -> Snapshot {',
+  '    call: Reports.prepare',
+  '    needs: prepare',
+  '  }',
+  '}',
+].join('\n');
+
 test('references follow a workflow step call to the operation', () => {
-  const spec = [
-    'module nightly @0.1.0 {',
-    '  meta { owner: "@you" }',
-    '}',
-    '',
-    'type Snapshot = { id: string }',
-    '',
-    'service Reports : http {',
-    '  contract {',
-    '    public op prepare() -> Snapshot { route: "POST /v1/prepare" }',
-    '  }',
-    '}',
-    '',
-    'workflow Nightly {',
-    '  trigger cron("0 3 * * *")',
-    '  step prepare() -> Snapshot {',
-    '    call: Reports.prepare',
-    '  }',
-    '  step render(snapshot: Snapshot) -> Snapshot {',
-    '    call: Reports.prepare',
-    '    needs: prepare',
-    '  }',
-    '}',
-  ].join('\n');
+  const spec = WORKFLOW;
   const lines = spec.split('\n');
 
   // A `call:` is an op reference: the op declaration and every call site.
@@ -211,4 +215,21 @@ test('references follow a workflow step call to the operation', () => {
     stepRefs.some((r) => r.range.start.line === needsLine && r.range.start.character === lines[needsLine].indexOf('prepare')),
     'the needs clause points at the step, at the right column: ' + JSON.stringify(ranged),
   );
+});
+
+test('document symbols nest workflow steps under the workflow', () => {
+  const symbols = documentSymbols(WORKFLOW);
+  const workflow = symbols[0].children?.find((s) => s.name === 'Nightly');
+  assert.ok(workflow, 'the workflow appears in the outline: ' + JSON.stringify(symbols[0].children?.map((s) => s.name)));
+  assert.deepEqual(
+    workflow.children?.map((s) => s.name),
+    ['prepare', 'render'],
+    'steps are the workflow children, in source order',
+  );
+});
+
+test('formatting a broken spec returns no edits instead of throwing', () => {
+  const broken = ['module broken @0.1.0 {', '  meta {', ''].join('\n');
+  assert.deepEqual(formatting(broken, 'broken.arc'), [], 'a half-written spec formats to nothing');
+  assert.deepEqual(formatting('@@@ not arcod at all', 'broken.arc'), [], 'a lexer failure is not a crash');
 });
