@@ -1256,9 +1256,11 @@ Warnings:
 - `W033` a `uses` declares a parameter nothing reads (`consistency: strong`):
   only `ttl` on `kv`/`sql` is executed; every other name stays a note for the
   reader, so the checker says so instead of letting it read as a guarantee.
-- `W034` a bind argument is not a literal (`bind store -> redis(host: host)`):
-  emitters read `host`, `port`, `expose` and provider options from literals
-  only, so the expression would silently fall back to the default.
+- `W034` a bind or deploy argument is not a literal
+  (`bind store -> redis(host: host)`, `deploy yandex(region: zone)`): emitters
+  read `host`, `port`, `expose` and provider options from literals only, so
+  the expression would silently fall back to a default or to the string
+  `'<expr>'`.
 
 ### Examples are tests
 

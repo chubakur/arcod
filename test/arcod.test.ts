@@ -640,6 +640,32 @@ service Items : http {
   assert.equal(warn.length, 1);
   assert.equal(warn[0].path, 'environments.dev.binds.store');
   assert.match(warn[0].message, /bind argument host is not a literal/);
+
+  // The same silent fallback applies to a deploy argument: literalMap turns a
+  // non-literal into the string '<expr>' and terraform writes it to the plan.
+  const deploy = parse(`module envs @0.1.0 {
+  meta { owner: "@dev" }
+}
+
+type Item = { id: uuid }
+
+service Items : http {
+  contract {
+    public op list() -> { items: list<Item> } {
+      route: "GET /v1/items"
+      post: result.items != null
+    }
+  }
+}
+
+environment dev {
+  deploy yandex(region: zone, folder: "arcod-prod")
+}
+`, 'envs.arc');
+  const deployWarn = check(deploy).filter((item) => item.code === 'W034');
+  assert.equal(deployWarn.length, 1);
+  assert.equal(deployWarn[0].path, 'environments.dev.deploy');
+  assert.match(deployWarn[0].message, /deploy argument region is not a literal/);
 });
 
 test('unknown provider and capability mismatch are errors', () => {

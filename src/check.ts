@@ -212,6 +212,14 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           'provider ' + deploy.provider + ' does not know argument ' + key,
           'known: ' + Object.keys(spec.args).join(', ')));
       }
+      // W034 — the same rule as for binds: a deploy argument reaches the
+      // manifest as the string '<expr>' when it is not a literal, and the
+      // terraform emitter would write that string into the plan.
+      const expr = deploy.args[key];
+      if (expr.kind === 'literal') continue;
+      diags.push(diag('W034', 'warning', mod.file, expr.loc, 'environments.' + environment.name + '.deploy',
+        'deploy argument ' + key + ' is not a literal and no emitter reads it',
+        'write a string, number or true/false; deploy arguments are static'));
     }
   }
 
