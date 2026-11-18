@@ -1351,7 +1351,10 @@ Warnings:
 has any (`--impl` forces that); an empty `impl/` falls back to the built-in
 reference bodies, which cover only `create`/`read`. For any other operation
 `arcod test` says the bodies are missing (and how to generate them) rather than
-building a service that cannot answer.
+building a service that cannot answer. A statement becomes a real request: a
+`:path` capture fills the path, `GET`, `HEAD` and `DELETE` put the rest in the
+query string, every other method sends a JSON body. A `HEAD` answer has no body,
+so the statement evaluates to `null`.
 
 ```arcod
 service OneTimeMessage : http {
