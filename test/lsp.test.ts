@@ -140,3 +140,75 @@ test('formatting canonicalizes and is idempotent', () => {
   const again = formatting(formatted, 'demo.arc');
   assert.deepEqual(again, [], 'formatting a canonical spec is a no-op');
 });
+
+// Saga steps and workflow steps call declared operations; "find references" is
+// only useful in the editor if those calls resolve like any other use.
+test('references follow a saga step back to the operation it calls', async () => {
+  const saga = await readFile(new URL('../examples/saga/main.arc', import.meta.url), 'utf8');
+  const lines = saga.split('\n');
+  const line = lines.findIndex((l) => l.includes('step mark'));
+  assert.notEqual(line, -1, 'the saga example still declares the mark step');
+
+  const refs = references(saga, line, lines[line].indexOf('mark'), 'file:///saga/main.arc');
+  assert.ok(refs.length >= 2, 'the step and the op it calls both answer, got ' + refs.length);
+  assert.ok(
+    refs.some((r) => r.range.start.line === line),
+    'the step declaration is one of the references',
+  );
+  assert.ok(
+    refs.some((r) => /op mark\b/.test(lines[r.range.start.line])),
+    'the operation declaration is one of the references',
+  );
+});
+
+test('references follow a workflow step call to the operation', () => {
+  const spec = [
+    'module nightly @0.1.0 {',
+    '  meta { owner: "@you" }',
+    '}',
+    '',
+    'type Snapshot = { id: string }',
+    '',
+    'service Reports : http {',
+    '  contract {',
+    '    public op prepare() -> Snapshot { route: "POST /v1/prepare" }',
+    '  }',
+    '}',
+    '',
+    'workflow Nightly {',
+    '  trigger cron("0 3 * * *")',
+    '  step prepare() -> Snapshot {',
+    '    call: Reports.prepare',
+    '  }',
+    '  step render(snapshot: Snapshot) -> Snapshot {',
+    '    call: Reports.prepare',
+    '    needs: prepare',
+    '  }',
+    '}',
+  ].join('\n');
+  const lines = spec.split('\n');
+
+  // A `call:` is an op reference: the op declaration and every call site.
+  const callLine = lines.findIndex((l) => l.includes('call: Reports.prepare'));
+  const callRefs = references(spec, callLine, lines[callLine].indexOf('prepare'), 'file:///nightly.arc');
+  assert.ok(callRefs.length >= 2, 'the workflow call and the op declaration answer, got ' + callRefs.length);
+  assert.ok(
+    callRefs.some((r) => /public op prepare/.test(lines[r.range.start.line])),
+    'the operation declaration is one of the references',
+  );
+
+  // A `needs:` is a step reference, in the workflow's own scope. It used to be
+  // indexed as an op reference, so find-references on the step hid its users.
+  const stepLine = lines.findIndex((l) => l.trimStart().startsWith('step prepare'));
+  const stepRefs = references(spec, stepLine, lines[stepLine].indexOf('prepare'), 'file:///nightly.arc');
+  const ranged = stepRefs.map((r) => r.range.start.line + ':' + r.range.start.character);
+  assert.ok(
+    stepRefs.some((r) => r.range.start.line === stepLine && r.range.start.character === lines[stepLine].indexOf('prepare')),
+    'the step declaration itself is included: ' + JSON.stringify(ranged),
+  );
+  const needsLine = lines.findIndex((l) => l.trimStart().startsWith('needs:'));
+  assert.ok(
+    stepRefs.some((r) => r.range.start.line === needsLine && r.range.start.character === lines[needsLine].indexOf('prepare')),
+    'the needs clause points at the step, at the right column: ' + JSON.stringify(ranged),
+  );
+});

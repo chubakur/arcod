@@ -237,6 +237,38 @@ function nameLoc(mod: ModuleNode, declLoc: Loc, name: string): Loc {
   return declLoc;
 }
 
+// Tight range for a name inside a `needs:` list. The list is searched on its
+// own line: scanning the whole step block would hit the `call:` op name first
+// and report the dependency at the wrong place.
+function locForNeed(mod: ModuleNode, name: string, block: Loc): Loc {
+  const window = mod.source.slice(block.offset, block.end);
+  const needsAt = window.indexOf('needs:');
+  if (needsAt === -1) return block;
+  const listStart = block.offset + needsAt + 'needs:'.length;
+  const newline = mod.source.indexOf('\n', listStart);
+  const listEnd = newline === -1 ? block.end : Math.min(newline, block.end);
+  const list = mod.source.slice(listStart, listEnd);
+  let at = -1;
+  for (let i = list.indexOf(name); i !== -1; i = list.indexOf(name, i + 1)) {
+    const before = i === 0 ? ' ' : list[i - 1];
+    const after = list[i + name.length] ?? ' ';
+    if (!/[A-Za-z0-9_.]/.test(before) && !/[A-Za-z0-9_]/.test(after)) { at = i; break; }
+  }
+  if (at === -1) return block;
+  const nameIdx = listStart + at;
+  const before = mod.source.slice(0, nameIdx);
+  const lineStart = before.lastIndexOf('\n') + 1;
+  const col = nameIdx - lineStart + 1;
+  return {
+    line: before.split('\n').length,
+    col,
+    endLine: before.split('\n').length,
+    endCol: col + name.length,
+    offset: nameIdx,
+    end: nameIdx + name.length,
+  };
+}
+
 // Tight range for a (possibly qualified) op reference inside a containing
 // block: find 'call' in the source window and point at just the op name.
 function locForCall(mod: ModuleNode, call: string, block: Loc): Loc {
@@ -336,7 +368,9 @@ function index(mod: ModuleNode): { defs: SymbolDef[]; refs: SymbolRef[] } {
     for (const step of w.steps) {
       addDef(step.name, 'step', w.name, null, step.loc);
       if (step.call) addCallRef(step.call, null, step.loc);
-      for (const need of step.needs) addCallRef(need, null, step.loc);
+      // `needs:` names a step of the same workflow, not an op: keep the
+      // workflow as the container so find-references sees both sides.
+      for (const need of step.needs) addRef(need, 'step', w.name, null, locForNeed(mod, need, step.loc));
     }
   }
 
