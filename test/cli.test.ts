@@ -157,6 +157,24 @@ test('run --down on a project that was never built is a quiet no-op', async () =
   assert.match(r.out, /nothing to stop/);
 });
 
+test('run reports a missing docker instead of a stack trace', async () => {
+  const dir = await tempDir('arcod-run-nodocker-');
+  await cp(new URL('../examples/onetimemessage', import.meta.url), dir, { recursive: true });
+  const empty = join(dir, 'empty-bin');
+  await mkdir(empty);
+
+  const before = process.env.PATH;
+  process.env.PATH = empty;
+  try {
+    const r = await run(['run', dir]);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /docker is not running or unavailable/);
+    assert.doesNotMatch(r.err, /\n\s+at /, 'no stack trace');
+  } finally {
+    process.env.PATH = before;
+  }
+});
+
 test('run --detach starts the project and prints how to stop it', async () => {
   const dir = await tempDir('arcod-run-detach-');
   await cp(new URL('../examples/onetimemessage', import.meta.url), dir, { recursive: true });
