@@ -176,9 +176,6 @@ export interface ServiceNode {
   metaEntryLocs?: Loc[];
   uses: CapUse[];
   contract: OpNode[];
-  // The contract keyword. The block is not a node, so a comment written above
-  // it had no anchor and slid inside the block, onto the first operation.
-  contractLoc?: Loc;
   sagas: SagaNode[];
   rules: RuleNode[];
   // The role vocabulary the service understands; operations reference it via
@@ -192,6 +189,9 @@ export interface ServiceNode {
   // keyword. fmt needs them to keep a comment written after the brace on that
   // brace instead of dropping it.
   blockCloses?: Partial<Record<'contract' | 'rules' | 'effects' | 'examples' | 'budget', Loc>>;
+  // Keywords of the blocks that are not nodes. Without an anchor a comment
+  // written above the block slid inside it, onto the first child.
+  blockOpens?: Partial<Record<'contract' | 'rules' | 'examples', Loc>>;
   loc: Loc;
 }
 

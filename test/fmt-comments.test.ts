@@ -694,3 +694,45 @@ test('fmt keeps a comment above contract outside the block', () => {
   assert.match(out, /contract \{\n    \/\/ listing\n    op list/m);
   assert.equal(formatSource(out, 'main.arc'), out, 'formatting is idempotent');
 });
+
+test('fmt keeps a comment above rules and examples blocks', () => {
+  // Same class as contract: neither block is a node, so its leading comment
+  // used to attach to the first rule/example and print inside the braces.
+  const source = [
+    'module m @0.1.0 {}',
+    '',
+    'type T = { id: uuid, name: string }',
+    '',
+    'service S : http {',
+    '  uses store: kv',
+    '',
+    '  // rules for humans',
+    '  rules {',
+    '    unique T.name',
+    '  }',
+    '',
+    '  // worked examples',
+    '  examples {',
+    '    example ok {',
+    '      when {',
+    '        let r = list()',
+    '      }',
+    '      then {',
+    '        r.items != null',
+    '      }',
+    '    }',
+    '  }',
+    '',
+    '  contract {',
+    '    op list() -> { items: list<T> } {',
+    '      route: "GET /v1/list"',
+    '      effects: store.find',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+  const out = formatSource(source, 'main.arc');
+  assert.match(out, /^  \/\/ rules for humans\n  rules \{$/m);
+  assert.match(out, /^  \/\/ worked examples\n  examples \{$/m);
+  assert.equal(formatSource(out, 'main.arc'), out);
+});

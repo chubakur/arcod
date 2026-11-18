@@ -268,7 +268,7 @@ class Parser {
       }
       if (this.accept('uses')) { svc.uses.push(this.parseCapUse()); continue; }
       if (this.is('contract')) {
-        svc.contractLoc = locOf(this.next());
+        (svc.blockOpens ??= {}).contract = locOf(this.next());
         this.parseContract(svc);
         closeBlock('contract');
         continue;
@@ -281,9 +281,19 @@ class Parser {
         }
         continue;
       }
-      if (this.accept('rules')) { this.parseRules(svc); closeBlock('rules'); continue; }
+      if (this.is('rules')) {
+        (svc.blockOpens ??= {}).rules = locOf(this.next());
+        this.parseRules(svc);
+        closeBlock('rules');
+        continue;
+      }
       if (this.accept('effects')) { svc.effects = this.parseEffects(); closeBlock('effects'); continue; }
-      if (this.accept('examples')) { this.parseExamples(svc); closeBlock('examples'); continue; }
+      if (this.is('examples')) {
+        (svc.blockOpens ??= {}).examples = locOf(this.next());
+        this.parseExamples(svc);
+        closeBlock('examples');
+        continue;
+      }
       if (this.is('saga')) { this.next(); svc.sagas.push(this.parseSaga()); continue; }
       if (this.accept('budget')) { svc.budget = this.parseBudget(); closeBlock('budget'); continue; }
       if (this.is('lifecycle')) this.error('`lifecycle` is not supported in v0.1');

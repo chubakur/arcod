@@ -242,7 +242,7 @@ function collectCloseEnds(m: ModuleNode, out: Map<number, number>): void {
 
 function collectService(s: ServiceNode, out: number[]): void {
   out.push(s.loc.offset);
-  if (s.contractLoc) out.push(s.contractLoc.offset);
+  for (const loc of Object.values(s.blockOpens ?? {})) if (loc) out.push(loc.offset);
   for (const loc of s.metaEntryLocs ?? []) out.push(loc.offset);
   for (const c of s.uses) out.push(c.loc.offset);
   if (s.effects) {
@@ -508,10 +508,10 @@ class Printer {
     if (s.uses.length > 0) body.push(() => { for (const c of s.uses) this.capUse(c); });
     if (s.roles.length > 0) body.push(() => this.raw(1, 'roles: ' + s.roles.join(', ')));
     if (s.effects) body.push(() => this.effects(s.effects!, s.blockCloses?.effects));
-    if (s.rules.length > 0) body.push(() => this.rules(s.rules, s.blockCloses?.rules));
-    if (s.contract.length > 0) body.push(() => this.contract(s.contract, s.blockCloses?.contract, s.contractLoc));
+    if (s.rules.length > 0) body.push(() => this.rules(s.rules, s.blockCloses?.rules, s.blockOpens?.rules));
+    if (s.contract.length > 0) body.push(() => this.contract(s.contract, s.blockCloses?.contract, s.blockOpens?.contract));
     for (const sg of s.sagas) body.push(() => this.saga(sg));
-    if (s.examples.length > 0) body.push(() => this.examples(s.examples, s.blockCloses?.examples));
+    if (s.examples.length > 0) body.push(() => this.examples(s.examples, s.blockCloses?.examples, s.blockOpens?.examples));
     if (s.budget) body.push(() => this.budget(s.budget!, s.blockCloses?.budget));
     for (let i = 0; i < body.length; i++) {
       if (i > 0) this.blank();
@@ -553,7 +553,8 @@ class Printer {
     this.closeLine(1, '}', close?.offset ?? -1);
   }
 
-  private rules(rs: RuleNode[], close?: Loc): void {
+  private rules(rs: RuleNode[], close?: Loc, head?: Loc): void {
+    if (head) this.emitComments(head.offset, 1);
     this.raw(1, 'rules {');
     for (const r of rs) {
       this.emitComments(r.loc.offset, 2);
@@ -643,7 +644,8 @@ class Printer {
     this.closeLine(1, '}', sg.loc.end);
   }
 
-  private examples(exs: ExampleNode[], close?: Loc): void {
+  private examples(exs: ExampleNode[], close?: Loc, head?: Loc): void {
+    if (head) this.emitComments(head.offset, 1);
     this.raw(1, 'examples {');
     for (const ex of exs) {
       this.blank();
