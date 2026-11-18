@@ -212,3 +212,20 @@ environment dev {
   assert.equal(paths['/v1/shelf/{id}'].get.description, 'Requires an authenticated actor.');
   assert.equal(paths['/v1/home'].get.description, undefined);
 });
+
+test('openapi: a path is canonical, the way the router matches it', () => {
+  const source = `module canon @0.1.0 {}
+
+service Canon : http {
+  contract {
+    public op items() -> list<string> {
+      route: "GET /v1//items/"
+    }
+  }
+}
+`;
+  const mod = parse(source, 'main.arc');
+  assert.deepEqual(check(mod).filter((d) => d.severity === 'error'), []);
+  const paths = emitOpenapi(mod).paths as Record<string, any>;
+  assert.deepEqual(Object.keys(paths), ['/v1/items']);
+});

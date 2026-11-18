@@ -222,11 +222,15 @@ function routeInfo(op: OpNode): RouteInfo {
   return { method: (method || 'GET').toUpperCase(), path: toOpenapiPath(path || '/') };
 }
 
+// The router drops empty segments when it matches (check A069 does the same),
+// so `/v1//x/` and `/v1/x` are one route. The document lists the canonical
+// spelling, or a client would call a path the server only reaches by accident.
 function toOpenapiPath(path: string): string {
-  return path
+  const segments = path
     .split('/')
-    .map((segment) => (segment.startsWith(':') ? '{' + segment.slice(1) + '}' : segment))
-    .join('/');
+    .filter(Boolean)
+    .map((segment) => (segment.startsWith(':') ? '{' + segment.slice(1) + '}' : segment));
+  return '/' + segments.join('/');
 }
 
 function paramLocation(route: RouteInfo, param: Param): 'path' | 'query' | 'body' {
