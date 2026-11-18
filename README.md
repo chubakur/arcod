@@ -1185,9 +1185,13 @@ Errors:
 - `A041` a presentation without slides;
 - `A042` slides on a page whose `layout` is not `presentation` — the page
   would drop them, so the text never reaches the browser;
-- `A066` two declarations of one name (a record field, an operation, a
-  service, a type, an enum, an error, a workflow or an environment) — every
-  emitter keys by name, so the second would silently replace the first;
+- `A066` two declarations of one name (a record or error field, an enum
+  value, an operation, a service, a type, an enum, an error, a workflow or an
+  environment) — every emitter keys by name, so the second would silently
+  replace the first;
+- `A067` one operation declares the same clause twice (`route`, `effects`,
+  `retry`, `on error E`): the AST keeps both, every reader takes the first,
+  and the second would do nothing at all;
 - `A045` `--env` names an environment the module does not declare (the hint
   lists the declared ones, instead of reporting every binding as missing);
 - `A044` an `allow`/`deny` entry that names no effect of the declared

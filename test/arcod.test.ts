@@ -874,6 +874,51 @@ test('a uses parameter nothing reads is flagged, ttl included only on storage', 
   assert.match(diags[1].message, /prefix/);
 });
 
+test('a duplicate enum value or error field is A066, not a silent overwrite', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'enum E { a, b, a }',
+    'error Bad { x: int, x: string }',
+  ].join('\n');
+  const diags = check(parse(src, 'main.arc')).filter((item) => item.code === 'A066');
+  assert.deepEqual(diags.map((item) => item.path), ['enums.E', 'errors.Bad.fields.x']);
+  assert.match(diags[0].message, /value a is declared twice/);
+  assert.match(diags[1].message, /field x is declared twice/);
+});
+
+test('a clause declared twice on one operation is A067', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'error Conflict',
+    'service S : http {',
+    '  uses store: kv',
+    '  contract {',
+    '    public op a() -> int {',
+    '      route: "GET /a"',
+    '      route: "GET /b"',
+    '      retry: 1',
+    '      retry: 2',
+    '      on error Conflict: true',
+    '      on error Conflict: false',
+    '      effects: store.get',
+    '    }',
+    '  }',
+    '  effects { allow store.* }',
+    '}',
+    'environment dev {',
+    '  bind store -> redis(host: "kv")',
+    '}',
+  ].join('\n');
+  const diags = check(parse(src, 'main.arc')).filter((item) => item.code === 'A067');
+  assert.deepEqual(diags.map((item) => item.message), [
+    'clause route is declared twice',
+    'clause retry is declared twice',
+    'clause on error Conflict is declared twice',
+  ]);
+  const alone = src.replace('      route: "GET /b"\n', '').replace('      retry: 2\n', '').replace('      on error Conflict: false\n', '');
+  assert.deepEqual(check(parse(alone, 'main.arc')).filter((item) => item.code === 'A067'), [], 'one clause each is fine');
+});
+
 test('a name declared twice is an error, not a silent overwrite', () => {
   const src = [
     'module m @0.1.0 {}',

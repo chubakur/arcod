@@ -106,6 +106,51 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     }
   }
 
+  // The same rule inside an error body: a second field would overwrite the
+  // first in the response, and the first would never be filled.
+  for (const decl of mod.errors) {
+    const fieldNames = new Set<string>();
+    for (const field of decl.fields) {
+      if (fieldNames.has(field.name)) {
+        diags.push(diag('A066', 'error', mod.file, field.loc, 'errors.' + decl.name + '.fields.' + field.name,
+          'field ' + field.name + ' is declared twice in ' + decl.name, 'rename one of them'));
+      }
+      fieldNames.add(field.name);
+    }
+  }
+
+  // ...and inside an enum: `enum E { a, b, a }` generated a switch with two
+  // arms for the same name, and fmt printed both.
+  for (const decl of mod.enums) {
+    const seenValues = new Set<string>();
+    decl.values.forEach((value, index) => {
+      if (seenValues.has(value)) {
+        diags.push(diag('A066', 'error', mod.file, decl.valueLocs?.[index] ?? decl.loc, 'enums.' + decl.name,
+          'value ' + value + ' is declared twice in ' + decl.name, 'rename one of them'));
+      }
+      seenValues.add(value);
+    });
+  }
+
+  // A067 — one operation declares the same clause twice. The AST keeps both,
+  // every reader takes the first, and the second silently does nothing.
+  for (const svc of mod.services) {
+    for (const op of svc.contract) {
+      const seenClauses = new Map<string, number>();
+      for (const clause of op.clauses) {
+        const key = clause.kind === 'onerror' ? 'on error ' + clause.error : clause.kind;
+        const first = seenClauses.get(key);
+        if (first !== undefined) {
+          diags.push(diag('A067', 'error', mod.file, clause.loc, 'services.' + svc.name + '.ops.' + op.name,
+            'clause ' + key + ' is declared twice',
+            'keep one: the generated service reads the first, so the second never takes effect'));
+          continue;
+        }
+        seenClauses.set(key, clause.loc.offset);
+      }
+    }
+  }
+
 
   // W032 — a bind guarantee is a promise written for the reader. Nothing
   // checks it and no adapter enforces it, so a typo would look like a real
