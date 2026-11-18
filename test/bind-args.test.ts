@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
-import { registryFromScan, type ProviderRegistry } from '../src/registry.ts';
+import { builtinRegistry, providerRows, registryFromScan, type ProviderRegistry } from '../src/registry.ts';
 import { BIND_ARGS, PROVIDERS } from '../src/providers.ts';
 
 function specOf(bindLine: string): ReturnType<typeof parse> {
@@ -82,3 +82,18 @@ function pluginRegistry(providers: Array<Record<string, unknown>>): ProviderRegi
     }],
   });
 }
+
+test('provider discovery exposes the same allowlist', () => {
+  // W035 names the options in its hint; the table has to agree with it, or an
+  // author is told about an argument they cannot discover.
+  const rows = providerRows(builtinRegistry());
+  const row = (name: string) => rows.find((item) => item.provider === name)!;
+  assert.deepEqual(row('redis').options, ['version']);
+  assert.deepEqual(row('clickhouse').options, []);
+  assert.deepEqual(row('endpoint').options, ['network', 'url']);
+
+  const declared = pluginRegistry([{ name: 'faxapi', capability: 'fax', args: { url: 'base url', token: 'api token' } }]);
+  assert.deepEqual(providerRows(declared).find((item) => item.provider === 'faxapi')!.options, ['token', 'url']);
+  const naked = pluginRegistry([{ name: 'faxnaked', capability: 'fax' }]);
+  assert.deepEqual(providerRows(naked).find((item) => item.provider === 'faxnaked')!.options, []);
+});

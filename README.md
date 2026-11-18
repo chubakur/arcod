@@ -145,7 +145,7 @@ format name (`A061`). Full example: `examples/signup`.
 | `arcod make [dir]` | the whole cycle in one command: check → prompts → bodies → build → test |
 | `arcod run [dir]` | build + `docker compose up --build` |
 | `arcod run --down` | stop what this project started (`docker compose down --remove-orphans`); no rebuild, the `.arcod/build` artifacts stay |
-| `arcod providers` | capability and provider table with ports and the declaring package (`origin`, `-` for built-ins); `--json`; `--plugins` lists manifests found on `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
+| `arcod providers` | capability and provider table with ports and the declaring package (`origin`, `-` for built-ins); `--json` also carries each provider's declared bind `options`; `--plugins` lists manifests found on `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
 | `arcod deploy [dir]` | deployment target and `deploy.<env>.json` manifest; `--env`, `--json` |
 | `arcod k8s [dir]` | Kubernetes objects for the compose topology (namespace, configmap, provider deployments, app, ingress); `--helm` for a chart, `--out dir` to write files |
 | `arcod terraform [dir]` | Terraform for the cloud view: network, managed services for the binds, secrets as variables; `--env`, `--out dir`; Yandex Cloud |

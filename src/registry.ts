@@ -122,6 +122,10 @@ export interface ProviderRow {
   oneShot: boolean;
   external: boolean;
   requires: string[];
+  // Provider-specific bind arguments, sorted; empty when it takes none and
+  // for a plugin that declared no args map. The universal ones (host, port,
+  // expose, import) belong to every binding and are not repeated here.
+  options: string[];
 }
 
 // One table for the CLI and its tests: a plugin provider is a row like any
@@ -140,6 +144,7 @@ export function providerRows(registry: ProviderRegistry): ProviderRow[] {
       oneShot: spec.oneShot === true,
       external: spec.external === true,
       requires: spec.requires ?? [],
+      options: spec.options ? [...spec.options].sort() : [],
     };
   });
 }
