@@ -1223,6 +1223,9 @@ Errors:
   value, an operation, a service, a type, an enum, an error, a workflow or an
   environment) — every emitter keys by name, so the second would silently
   replace the first;
+- `A072` the same `:name` twice in one route (`/v1/locks/:name/:name`):
+  the router assigns captures in segment order, so the last segment wins and
+  the earlier value is read by nobody — a two-segment key needs two names;
 - `A071` a route segment `:name` that is not a parameter of the operation:
   the router captures a value nobody reads and the argument the body uses is
   never bound (a typo such as `:tid` for `id`);

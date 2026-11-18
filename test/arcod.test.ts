@@ -2000,3 +2000,29 @@ test('a path segment without an argument is A071', () => {
   assert.deepEqual(code('GET /v1/t/:id', 'id: string'), []);
   assert.deepEqual(code('GET /v1/t', 'id: string'), [], 'an argument absent from the path is a query/body parameter');
 });
+
+test('a path segment repeated twice in one route is A072', () => {
+  const spec = (route: string) => [
+    'module r @0.1.0 {}',
+    '',
+    'service Locks : http {',
+    '  contract {',
+    '    public op release(name: string, fence: string) -> string {',
+    '      route: "' + route + '"',
+    '      post: result != null',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+  const code = (route: string) => check(parse(spec(route), 'main.arc')).filter((d) => d.code === 'A072');
+
+  const twice = code('GET /v1/locks/:name/:name');
+  assert.equal(twice.length, 1, 'one diagnostic per repeated name, not per extra segment');
+  assert.equal(twice[0].severity, 'error');
+  assert.match(twice[0].message, /route parameter :name appears twice/);
+  assert.match(twice[0].hint ?? '', /last capture/);
+
+  assert.equal(code('GET /v1/locks/:name/:fence/:name/:name').length, 1, 'a triple repeat is still one report');
+  assert.deepEqual(code('GET /v1/locks/:name/:fence'), [], 'distinct names are the normal case');
+  assert.deepEqual(code('GET /v1/locks'), [], 'no segments, nothing to repeat');
+});

@@ -709,6 +709,30 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // A072 — the same :name twice in one route. matchRoute assigns captures
+    // in segment order, so the last segment wins and the earlier value is read
+    // by nobody: "/v1/locks/:name/:name" matches "/v1/locks/a/b" and the body
+    // sees name = "b". A two-segment key needs two names, and a repeated one
+    // is almost always a copy-paste slip in the route.
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      const route = routeOf(op);
+      if (!route) continue;
+      const path = route.trim().split(/\s+/)[1] ?? "";
+      const seen = new Set<string>();
+      const reported = new Set<string>();
+      for (const segment of path.split("/")) {
+        if (!segment.startsWith(":")) continue;
+        const name = segment.slice(1);
+        if (!seen.has(name)) { seen.add(name); continue; }
+        if (reported.has(name)) continue;
+        reported.add(name);
+        diags.push(diag('A072', 'error', mod.file, op.loc, 'services.' + svc.name + '.contract.' + op.name,
+          'route parameter :' + name + ' appears twice in ' + JSON.stringify(route),
+          'keep one segment: the router binds the last capture, so the earlier one is dropped'));
+      }
+    }
+
     // A069 — two operations of one service answer the same method and path.
     // The generated router keeps the first and the second is unreachable, and
     // nothing else would report it. The method is compared case-insensitively,
