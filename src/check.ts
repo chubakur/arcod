@@ -228,6 +228,16 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           `alias ${bind.alias} is bound twice`, 'keep a single provider'));
       }
       aliases.add(bind.alias);
+      // W034 — a bind argument reaches an emitter as a literal or not at all:
+      // `host`, `port`, `expose` and provider options are read from literal
+      // expressions, so `redis(host: someName)` fell back to the default host
+      // and the container silently talked to the wrong address.
+      for (const [key, expr] of Object.entries(bind.args)) {
+        if (expr.kind === 'literal') continue;
+        diags.push(diag('W034', 'warning', mod.file, expr.loc, subject,
+          `bind argument ${key} is not a literal and no emitter reads it`,
+          'write a string, number or true/false; provider options are static'));
+      }
       if (bind.provider === 'local') continue;
       const spec = registry.get(bind.provider);
       if (!spec) {

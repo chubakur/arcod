@@ -603,6 +603,37 @@ service Items : http {
   assert.match(noDsn[0].message, /requires argument dsn/);
 });
 
+test('a bind argument that is not a literal is called out', () => {
+  const mod = parse(`module envs @0.1.0 {
+  meta { owner: "@dev" }
+}
+
+use capability arcod.std.kv @1
+
+type Item = { id: uuid, name: string }
+
+environment dev {
+  bind store -> redis(host: kv)
+}
+
+service Items : http {
+  uses store: kv
+
+  contract {
+    public op list() -> { items: list<Item> } {
+      route: "GET /v1/items"
+      effects: store.find
+      post: result.items != null
+    }
+  }
+}
+`, 'envs.arc');
+  const warn = check(mod).filter((item) => item.code === 'W034');
+  assert.equal(warn.length, 1);
+  assert.equal(warn[0].path, 'environments.dev.binds.store');
+  assert.match(warn[0].message, /bind argument host is not a literal/);
+});
+
 test('unknown provider and capability mismatch are errors', () => {
   const unknown = parse(infraSource.replace('bind store -> redis(host: "kv")', 'bind store -> nats(host: "kv")'), 'infra.arc');
   assert.ok(check(unknown).some((item) => item.code === 'A023'));
