@@ -30,6 +30,7 @@ service Kanban : http {
   uses files: blob
 
   effects {
+    // What the board touches: its own cards, ids, the caller, card images.
     allow store.get, store.set, store.del, store.scan, uuid.new, auth.actor, files.put, files.get, files.del
     deny net, fs, exec
   }
@@ -118,6 +119,7 @@ environment dev {
 }
 
 ui Web {
+  // A single page: the board is drawn client-side from the four operations.
   kind: spa
   route: "/"
   title: "Kanban"
