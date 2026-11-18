@@ -2,7 +2,8 @@
 // .arc module: schemas become types (or enums), each path+method becomes an op
 // with a route, parameters/requestBody become params, a 200 schema becomes the
 // return type. Best-effort: unsupported JSON-schema corners fall back to a
-// conservative named type or `string`, and security/models are dropped.
+// conservative named type or `string`; security/models are read only as far as
+// `auth op` (a bearer requirement) and are otherwise dropped.
 
 import type {
   Loc, ModuleNode, OpNode, Param, ServiceNode, TypeDecl, TypeExpr,
@@ -85,13 +86,27 @@ function buildTypes(components: any): { types: TypeDecl[]; enumDecls: { kind: st
   return { types, enumDecls };
 }
 
-function buildOps(paths: Record<string, any>): OpNode[] {
+// OpenAPI spells a capture as `{id}`; Arcod spells it `:id`. Without this the
+// adopted route is a literal segment, so the service would answer a URL that
+// contains braces and ignore the parameter the contract declares.
+function arcodPath(path: string): string {
+  return path
+    .split('/')
+    .map((segment) => (/^\{[^{}]+\}$/.test(segment) ? ':' + ident(segment.slice(1, -1)) : segment))
+    .join('/');
+}
+
+function buildOps(paths: Record<string, any>, documentSecurity: any[] | null): OpNode[] {
   const ops: OpNode[] = [];
   for (const [path, item] of Object.entries<any>(paths ?? {})) {
     for (const method of METHODS) {
       const spec = item?.[method];
       if (!spec) continue;
       const opName = ident(spec.operationId ?? (method + '_' + path));
+      // An operation without its own `security` inherits the document default;
+      // an explicit `security: []` is how a public operation opts out.
+      const security = spec.security !== undefined ? spec.security : documentSecurity;
+      const guarded = Array.isArray(security) && security.length > 0;
       const params: Param[] = [];
       const paramSpecs: any[] = Array.isArray(spec.parameters) ? spec.parameters : [];
       for (const p of paramSpecs) {
@@ -109,17 +124,19 @@ function buildOps(paths: Record<string, any>): OpNode[] {
       }
       let returns: TypeExpr | null = null;
       const ok = spec.responses?.['200'] ?? spec.responses?.['201'] ?? spec.responses?.['default'];
-      const okSchema = ok?.content?.['application/json']?.schema ?? ok?.schema;
+      // A string result is emitted as text/plain, not JSON; both are the same
+      // declared return type to the model.
+      const okSchema = ok?.content?.['application/json']?.schema ?? ok?.content?.['text/plain']?.schema ?? ok?.schema;
       if (okSchema) returns = schemaType(okSchema, new Set());
 
       ops.push({
         kind: 'op',
         name: opName,
-        isPublic: true,
-        auth: false,
+        isPublic: !guarded,
+        auth: guarded,
         params,
         returns,
-        clauses: [{ kind: 'route', value: method.toUpperCase() + ' ' + path, loc: loc() }],
+        clauses: [{ kind: 'route', value: method.toUpperCase() + ' ' + arcodPath(path), loc: loc() }],
         loc: loc(),
       });
     }
@@ -130,7 +147,9 @@ function buildOps(paths: Record<string, any>): OpNode[] {
 export function adoptOpenapi(doc: any): string {
   const title = doc?.info?.title ? ident(doc.info.title) : 'service';
   const { types, enumDecls } = buildTypes(doc?.components);
-  const ops = buildOps(doc?.paths);
+  const documentSecurity = Array.isArray(doc?.security) ? doc.security : null;
+  const ops = buildOps(doc?.paths, documentSecurity);
+  const guarded = ops.some((op) => op.auth);
 
   const svc: ServiceNode = {
     kind: 'service',
@@ -138,7 +157,7 @@ export function adoptOpenapi(doc: any): string {
     impl: 'http',
     external: false,
     meta: {},
-    uses: [],
+    uses: guarded ? [{ kind: 'uses', alias: 'auth', capability: 'identity', params: {}, loc: loc() }] : [],
     contract: ops,
     sagas: [],
     rules: [],
@@ -154,13 +173,21 @@ export function adoptOpenapi(doc: any): string {
     name: title,
     version: '0.1.0',
     meta: {},
-    uses: [],
+    uses: guarded ? [{ kind: 'use', what: 'capability', name: 'arcod.std.identity', version: '1', loc: loc() }] : [],
     types,
     errors: [],
     enums: enumDecls as any,
     services: [svc],
     workflows: [],
-    environments: [],
+    environments: guarded
+      ? [{
+          kind: 'environment',
+          name: 'dev',
+          binds: [{ kind: 'bind', alias: 'auth', provider: 'keycloak', args: {}, guarantees: [], loc: loc() }],
+          deploy: null,
+          loc: loc(),
+        }]
+      : [],
     uis: [],
     file: 'main.arc',
     source: '',

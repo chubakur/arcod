@@ -162,7 +162,7 @@ format name (`A061`). Full example: `examples/signup`.
 | `arcod diff <a> <b>` | structural diff of two specs (both canonicalized first), `-`/`+` hunks |
 | `arcod graphql [dir]` | GraphQL SDL for the same contract: `GET` → Query, other methods → Mutation, `<Name>Input` twins for arguments, the HTTP route and error statuses in each field description; `--service <name>`, `--out <file>` |
 | `arcod grpc [dir]` | proto3 for the same contract: one rpc per routed op, `<Op>Request`/`<Op>Response`, types mapped without silent widening, HTTP route and gRPC error codes in comments; `--service <name>`, `--out <file>` |
-| `arcod adopt <openapi.json>` | reverse of `openapi`: reads an OpenAPI 3.x JSON doc and emits an `.arc` spec (schemas→types/enums, paths→ops) |
+| `arcod adopt <openapi.json>` | reverse of `openapi`: reads an OpenAPI 3.x JSON doc and emits an `.arc` spec (schemas→types/enums, paths→ops with `{id}`→`:id`, a bearer requirement→`auth op`) |
 | `arcod upgrade [dir]` | language-version migration: `--to <version>`, `--write`; v0.1.0 is the only version today, so it reports identity or rejects unknown targets |
 | `arcod new <name>` | scaffold a minimal, valid service: `<name>/main.arc`, `.gitignore`, `impl/README.md` (the generated spec parses and checks clean); refuses a non-empty target unless `--force` |
 | `arcod lsp` | run the Language Server over stdio for editors (VS Code, Neovim, JetBrains) |

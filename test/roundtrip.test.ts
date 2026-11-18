@@ -105,3 +105,48 @@ test('a spec never differs from itself, and a diff is symmetric in existence', a
   assert.ok(diffSpecs(a, 'a.arc', b, 'b.arc').length > 0, 'different specs differ');
   assert.ok(diffSpecs(b, 'b.arc', a, 'a.arc').length > 0, 'and differ in both directions');
 });
+
+test('adopt: an OpenAPI capture becomes an arcod path parameter', async () => {
+  const mod = parse(await readFile(example('onetimemessage'), 'utf8'), 'main.arc');
+  const adopted = adoptOpenapi(emitOpenapi(mod));
+
+  assert.match(adopted, /route: "GET \/api\/messages\/:id"/);
+  assert.equal(adopted.includes('{id}'), false, 'no literal braces left in a route');
+
+  const errors = check(parse(adopted, 'adopted.arc')).filter((item) => item.severity === 'error');
+  assert.deepEqual(errors.map((item) => item.code + ' ' + item.message), []);
+});
+
+test('adopt: a bearer requirement comes back as auth ops', () => {
+  const source = `module guarded @0.1.0 {}
+
+service Vault : http {
+  uses auth: identity
+
+  contract {
+    public op status() -> string {
+      route: "GET /v1/status"
+    }
+
+    auth op peek(id: uuid) -> string {
+      route: "GET /v1/secret/:id"
+    }
+  }
+}
+
+environment dev {
+  bind auth -> keycloak(host: "idp", port: 8080)
+}
+`;
+  const adopted = adoptOpenapi(emitOpenapi(parse(source, 'main.arc')));
+
+  assert.match(adopted, /use capability arcod.std.identity @1/);
+  assert.match(adopted, /uses auth: identity/);
+  assert.match(adopted, /auth op Vault_peek/);
+  assert.match(adopted, /public op Vault_status/);
+  assert.match(adopted, /bind auth -> keycloak\n/);
+  assert.match(adopted, /public op Vault_status\(\) -> string/);
+
+  const errors = check(parse(adopted, 'adopted.arc')).filter((item) => item.severity === 'error');
+  assert.deepEqual(errors.map((item) => item.code + ' ' + item.message), []);
+});
