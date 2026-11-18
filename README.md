@@ -1223,6 +1223,10 @@ Errors:
   value, an operation, a service, a type, an enum, an error, a workflow or an
   environment) — every emitter keys by name, so the second would silently
   replace the first;
+- `A073` a literal route declared after a capture route of the same shape:
+  the router tries routes in declaration order and `:id` matches any segment,
+  so `GET /v1/t/new` after `GET /v1/t/:id` never runs — declare the literal
+  route first or move it to a segment the capture cannot match;
 - `A072` the same `:name` twice in one route (`/v1/locks/:name/:name`):
   the router assigns captures in segment order, so the last segment wins and
   the earlier value is read by nobody — a two-segment key needs two names;

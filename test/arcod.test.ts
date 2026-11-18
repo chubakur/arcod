@@ -2011,6 +2011,38 @@ test('A069 drops empty path segments like the router does', () => {
   assert.deepEqual(dups('GET /v1/X'), [], 'static segments stay case-sensitive');
 });
 
+test('A073 reports a literal route shadowed by an earlier capture route', () => {
+  const spec = (routes: string[]) => [
+    'module shadow @0.1.0 {}',
+    '',
+    'service S : http {',
+    '  contract {',
+    ...routes.map((route, i) => [
+      '    public op op' + i + '(id: string) -> string {',
+      '      route: "' + route + '"',
+      '      post: result != null',
+      '    }',
+      '',
+    ]).flat(),
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const shadowed = (routes: string[]) => check(parse(spec(routes), 'main.arc')).filter((d) => d.code === 'A073');
+
+  const afterCapture = shadowed(['GET /v1/t/:id', 'GET /v1/t/new']);
+  assert.equal(afterCapture.length, 1, 'the literal op after the capture op never runs');
+  assert.equal(afterCapture[0].severity, 'error');
+  assert.match(afterCapture[0].message, /S\.op1 can never run: S\.op0 answers the same requests first/);
+  assert.match(afterCapture[0].hint ?? '', /declare the literal route before/);
+
+  assert.deepEqual(shadowed(['GET /v1/t/new', 'GET /v1/t/:id']), [], 'literal first is the normal order');
+  assert.deepEqual(shadowed(['GET /v1/t/:id', 'POST /v1/t/new']), [], 'another method is another route');
+  assert.deepEqual(shadowed(['GET /v1/t/:id', 'GET /v1/t/new/x']), [], 'a different segment count cannot collide');
+  assert.deepEqual(shadowed(['GET /v1/t/:id', 'GET /v1/t/:other']), [], 'two names for one capture is A069, not A073');
+  assert.deepEqual(shadowed(['GET /v1/t/:id/x', 'GET /v1/t/new/:id']), [], 'the literal must be at the captured position');
+});
+
 test('a route names a known method and a path, A070', () => {
   const spec = (route: string) => [
     'module r @0.1.0 {}',

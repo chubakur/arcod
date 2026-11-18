@@ -763,6 +763,34 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // A073 — a literal route declared after a matching capture route never
+    // runs: matchRoute walks ROUTES in declaration order and a capture segment
+    // accepts anything, so "GET /v1/t/:id" answers "/v1/t/new" before the
+    // literal operation is even compared. A069 cannot see it because the two
+    // patterns are different; the operation just answers nothing, ever.
+    if (!svc.external) {
+      const ordered: Array<{ op: string; method: string; segments: string[] }> = [];
+      for (const op of svc.contract) {
+        if (op.kind !== 'op') continue;
+        const route = routeOf(op);
+        if (!route) continue;
+        const parts = route.trim().split(/\s+/);
+        const method = (parts[0] ?? '').toUpperCase();
+        const segments = parts.slice(1).join(' ').split('/').filter((segment) => segment.length > 0);
+        const shadow = ordered.find((prev) =>
+          prev.method === method &&
+          prev.segments.length === segments.length &&
+          prev.segments.every((segment, i) => segment.startsWith(':') || segment === segments[i]) &&
+          segments.some((segment, i) => !segment.startsWith(':') && prev.segments[i].startsWith(':')));
+        if (shadow) {
+          diags.push(diag('A073', 'error', mod.file, op.loc, 'services.' + svc.name + '.contract.' + op.name,
+            svc.name + '.' + op.name + ' can never run: ' + svc.name + '.' + shadow.op + ' answers the same requests first: ' + route,
+            'declare the literal route before the capture route, or give it a segment the capture cannot match'));
+        }
+        ordered.push({ op: op.name, method, segments });
+      }
+    }
+
     // Access control: `auth`, `roles:` and `owner:` are enforced by the
     // generated runtime before the body runs, so the model has to be sound.
     const identityAliases = svc.uses
