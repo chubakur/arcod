@@ -262,6 +262,23 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // W033 — a `uses` parameter is a note for the reader unless an adapter
+    // reads it. Today only `ttl` on a storage capability is executed (it sets
+    // the record expiry); anything else — say `consistency: strong` — is
+    // silently ignored, and silence reads as a guarantee.
+    for (const use of svc.uses) {
+      const capability = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
+      const storage = capability === 'kv' || capability === 'sql';
+      for (const name of Object.keys(use.params)) {
+        if (storage && name === 'ttl') continue;
+        diags.push(diag('W033', 'warning', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`,
+          `parameter ${name} on uses ${use.alias} is declarative: nothing reads it`,
+          storage
+            ? 'storage reads only ttl; move provider options to bind(...)'
+            : 'no adapter reads uses parameters; move provider options to bind(...)'));
+      }
+    }
+
     // A009 — duplicate alias
     const seen = new Set<string>();
     // An external service is a callable alias without a local capability.

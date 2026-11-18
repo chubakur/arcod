@@ -21,7 +21,7 @@ error Invalid
 error WrongPassword
 
 service GuardedMessage : http {
-  uses store: kv(ttl: 999s, consistency: strong)
+  uses store: kv(ttl: 999s)
   uses uuid: ids
   uses passwords: hash
 

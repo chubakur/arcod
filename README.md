@@ -929,6 +929,12 @@ uses store: kv(ttl: 999s)     // redis
 uses store: sql(ttl: 999s)    // mysql, postgres
 ```
 
+`ttl` is the only `uses` parameter an adapter executes: it sets the record
+expiry. Any other name (`consistency: strong`, for instance) is kept in the
+spec and printed by `fmt`, but nothing reads it — `W033` says so. Provider
+options belong to `bind alias -> provider(args)`, where they configure the
+backend connection.
+
 The `io` adapter is what changes: the MySQL client parameterises queries so a
 value from a request never concatenates into SQL; `take` runs as a transaction
 with `SELECT … FOR UPDATE`.
@@ -1239,6 +1245,9 @@ Warnings:
 - `W032` a bind declares `guarantees [...]`: the clause is kept in the spec and
   printed by `fmt`, but nothing checks or enforces it — it reads like a
   durability contract, so the checker says what it is.
+- `W033` a `uses` declares a parameter nothing reads (`consistency: strong`):
+  only `ttl` on `kv`/`sql` is executed; every other name stays a note for the
+  reader, so the checker says so instead of letting it read as a guarantee.
 
 ### Examples are tests
 

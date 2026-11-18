@@ -12,7 +12,7 @@ type NoteText = string
 type Note = { id: uuid, text: NoteText }
 
 service Notes : http {
-  uses store: kv(ttl: 31536000s, consistency: strong)
+  uses store: kv(ttl: 31536000s)
 
   effects {
     allow store.get, store.set, store.scan, store.del

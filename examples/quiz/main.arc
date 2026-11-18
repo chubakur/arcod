@@ -24,7 +24,7 @@ error Forbidden
 error Unavailable
 
 service Live : http {
-  uses store: kv(ttl: 86400s, consistency: strong)
+  uses store: kv(ttl: 86400s)
   uses uuid: ids
   uses stream: stream
 

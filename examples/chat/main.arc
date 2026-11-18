@@ -20,7 +20,7 @@ error Invalid
 error Unavailable
 
 service Chat : http {
-  uses store: sql(ttl: 31536000s, consistency: strong)
+  uses store: sql(ttl: 31536000s)
   uses uuid: ids
   uses llm: llm
 

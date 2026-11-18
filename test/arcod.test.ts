@@ -67,7 +67,7 @@ test('reports an unbound capability', () => {
 });
 
 test('reports a provider mentioned in the model', () => {
-  const broken = parse(source.replace('uses store: kv(ttl: 999s, consistency: strong)', 'uses store: kv(ttl: 999s, consistency: strong) // redis'), 'main.arc');
+  const broken = parse(source.replace('uses store: kv(ttl: 999s)', 'uses store: kv(ttl: 999s) // redis'), 'main.arc');
   const codes = check(broken).map((d) => d.code);
   assert.ok(codes.includes('A003'));
 });
@@ -79,7 +79,7 @@ test('a name that merely contains a provider word is not a mention', () => {
 });
 
 test('a provider mention next to punctuation still counts', () => {
-  const withUrl = parse(source.replace('uses store: kv(ttl: 999s, consistency: strong)', 'uses store: kv(ttl: 999s, consistency: strong) // see redis://cache:6379'), 'main.arc');
+  const withUrl = parse(source.replace('uses store: kv(ttl: 999s)', 'uses store: kv(ttl: 999s) // see redis://cache:6379'), 'main.arc');
   const codes = check(withUrl).map((d) => d.code);
   assert.ok(codes.includes('A003'), 'a real host still trips the guard');
 });
@@ -848,6 +848,30 @@ test('bind guarantees are kept but flagged as declarative', () => {
   assert.match(diags[0].message, /durable, total_order/);
   assert.match(diags[0].hint ?? '', /nothing checks or enforces/);
   assert.match(formatSource(src, 'main.arc'), /guarantees \[durable, total_order\]/, 'fmt does not drop the clause');
+});
+
+test('a uses parameter nothing reads is flagged, ttl included only on storage', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  uses store: kv(ttl: 999s, consistency: strong)',
+    '  uses uuid: ids(prefix: "u")',
+    '  contract {',
+    '    public op ping() -> int { route: "GET /ping" effects: store.get }',
+    '  }',
+    '  effects { allow store.* }',
+    '}',
+    'environment dev {',
+    '  bind store -> redis(host: "kv")',
+    '  bind uuid -> local',
+    '  deploy docker',
+    '}',
+  ].join('\n');
+  const diags = check(parse(src, 'main.arc')).filter((item) => item.code === 'W033');
+  assert.deepEqual(diags.map((item) => item.path), ['services.S.uses.store', 'services.S.uses.uuid']);
+  assert.match(diags[0].message, /consistency/);
+  assert.match(diags[0].hint ?? '', /ttl/);
+  assert.match(diags[1].message, /prefix/);
 });
 
 test('a name declared twice is an error, not a silent overwrite', () => {

@@ -23,7 +23,7 @@ error NotFound
 error Invalid
 
 service FileShare : http {
-  uses store: sql(ttl: 31536000s, consistency: strong)
+  uses store: sql(ttl: 31536000s)
   uses uuid: ids
   uses auth: identity
   uses files: blob

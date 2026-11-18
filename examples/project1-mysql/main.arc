@@ -18,7 +18,7 @@ error Gone
 error Invalid
 
 service OneTimeMessage : http {
-  uses store: sql(ttl: 999s, consistency: strong)
+  uses store: sql(ttl: 999s)
   uses uuid: ids
 
   effects {
