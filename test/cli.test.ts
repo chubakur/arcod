@@ -803,3 +803,23 @@ test('every example is already in canonical form', async () => {
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /15 file\(s\), 0 not formatted, 0 failed/);
 });
+
+test('a numeric flag is refused instead of publishing NaN', async () => {
+  // --replicas abc used to reach the manifest as "replicas: NaN" with exit 0.
+  const replicas = await run(['k8s', signupUrl.pathname, '--replicas', 'abc']);
+  assert.equal(replicas.code, 2, replicas.out);
+  assert.match(replicas.err, /invalid value for --replicas: "abc" \(expected an integer 1\.\.1000\)/);
+  assert.match(replicas.err, /hint: arcod k8s --help/);
+
+  const port = await run(['build', signupUrl.pathname, '--port', '70000']);
+  assert.equal(port.code, 2);
+  assert.match(port.err, /invalid value for --port/);
+
+  const tokens = await run(['prompts', signupUrl.pathname, '--max-tokens', '0']);
+  assert.equal(tokens.code, 2);
+  assert.match(tokens.err, /invalid value for --max-tokens/);
+
+  const ok = await run(['k8s', signupUrl.pathname, '--replicas', '3']);
+  assert.equal(ok.code, 0, ok.out);
+  assert.match(ok.out, /replicas: 3/);
+});
