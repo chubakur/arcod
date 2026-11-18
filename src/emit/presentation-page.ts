@@ -112,7 +112,7 @@ function build(op, values) {
   });
   if (query.toString()) url += '?' + query.toString();
   var init = { method: op.method, headers: headers() };
-  if (op.method !== 'GET' && op.method !== 'DELETE') init.body = JSON.stringify(body);
+  if (op.method !== 'GET' && op.method !== 'DELETE' && op.method !== 'HEAD') init.body = JSON.stringify(body);
   return { url: url, init: init };
 }
 async function call(op, values) {

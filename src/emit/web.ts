@@ -572,7 +572,8 @@ function describeOp(mod: ModuleNode, op: OpNode): UiOp {
   const route = routeOfOp(op);
   const segments = route.path.split('/');
   const pathNames = segments.filter((item) => item.startsWith(':')).map((item) => item.slice(1));
-  const readsQuery = route.method === 'GET' || route.method === 'DELETE';
+  // HEAD is body-less too: its parameters belong in the query string.
+  const readsQuery = route.method === 'GET' || route.method === 'DELETE' || route.method === 'HEAD';
   const params = op.params.map((param) => {
     const where = pathNames.includes(param.name) ? 'path' : readsQuery ? 'query' : 'body';
     return uiParam(mod, param, where);
