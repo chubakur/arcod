@@ -37,3 +37,26 @@
 
 Сервер — это обычный LSP: Neovim (lspconfig), JetBrains, Emacs и другие клиенты
 подключаются к arcod lsp тем же протоколом. См. README репозитория.
+
+## Разработка и тесты
+
+```bash
+cd editors/vscode
+npm ci            # lockfile в репозитории; CI ставит так же
+npm run compile   # tsc в out/
+node --test test/grammar.test.mjs test/lsp-client.test.mjs
+```
+
+- `grammar.test.mjs` гоняет грамматику через vscode-textmate/oniguruma на
+  настоящих примерах, `lsp-client.test.mjs` поднимает `bin/arcod-lsp.mjs` из
+  корня репозитория и проходит initialize → diagnostics → symbols →
+  definition → completion. Каталог расширения должен лежать внутри клона
+  arcod: тест ищет сервер по относительному пути.
+- Позиции в тестах вычисляются из исходника, а не зашиты номерами строк:
+  `arcod fmt` переставляет пустые строки, и жёсткая пара (line, character)
+  однажды уже уронила CI в вечное «in_progress».
+- Каждый запрос `LspClient.request` ограничен таймаутом по умолчанию (15 с), а
+  `dispose()` убивает сервер, который игнорирует shutdown/exit — иначе
+  `node --test` не завершается и job висит до лимита.
+- CI (`.github/workflows/ci.yml`, job `extension`) прогоняет ровно эти тесты на
+  каждый push; у job'а есть `timeout-minutes`.
