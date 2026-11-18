@@ -1,5 +1,5 @@
 import type { Diagnostic } from './diagnostics.ts';
-import type { Expr, Loc, ModuleNode, OpNode, Param, ServiceNode, UiNode } from './ast.ts';
+import type { Expr, Loc, ModuleNode, OpNode, Param, ServiceNode, TypeExpr, UiNode } from './ast.ts';
 import { templateFor } from './templates.ts';
 import { providerImplements } from './providers.ts';
 import { builtinRegistry, type ProviderRegistry } from './registry.ts';
@@ -466,6 +466,9 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           `consumer source ${source} is not a declared queue`, 'add uses ' + alias + ': queue to ' + svc.name));
       }
     }
+
+    // A063 — an example argument that cannot match the parameter
+    checkExampleArguments(mod, svc, diags);
 
     // W012 — operation without examples
     const mentioned = collectMentionedOps(svc);
@@ -1053,6 +1056,72 @@ function collectHandledErrors(svc: ServiceNode): Set<string> {
     }
   }
   return out;
+}
+
+// A063 — an example passes a literal the parameter can never accept. Examples
+// are executed by arcod test, but a wrong-shaped literal should be a
+// diagnostic where it is written, not a confusing runtime failure.
+function checkExampleArguments(mod: ModuleNode, svc: ServiceNode, diags: Diagnostic[]): void {
+  const ops = new Map(svc.contract.map((op) => [op.name, op]));
+  for (const example of svc.examples) {
+    for (const stmt of [...example.given, ...example.when, ...example.then]) {
+      const call = stmt.expr;
+      if (call.kind !== 'call' || call.callee.kind !== 'ident') continue;
+      const op = ops.get(call.callee.name);
+      if (!op) continue;
+      call.args.forEach((arg, index) => {
+        const param = op.params[index];
+        if (!param) return;
+        if (!exampleMismatch(param.type, arg.value)) return;
+        diags.push(diag('A063', 'error', mod.file, arg.loc, 'services.' + svc.name + '.contract.' + op.name,
+          'example ' + example.name + ': argument ' + (index + 1) + ' of ' + op.name + ' expects ' + typeLabel(param.type) + ', got ' + valueLabel(arg.value)));
+      });
+    }
+  }
+}
+
+function typeLabel(type: TypeExpr): string {
+  if (type.kind === 'named') {
+    const args = type.args.filter((arg) => arg.isType).map((arg) => typeLabel(arg.value as TypeExpr));
+    return type.name + (args.length > 0 ? '<' + args.join(', ') + '>' : '');
+  }
+  if (type.kind === 'optional') return typeLabel(type.inner) + '?';
+  if (type.kind === 'union') return type.variants.map((variant) => typeLabel(variant)).join(' | ');
+  return 'record';
+}
+
+function valueLabel(expr: Expr): string {
+  if (expr.kind === 'literal') return expr.value === null ? 'null' : JSON.stringify(expr.value);
+  if (expr.kind === 'list') return 'a list';
+  if (expr.kind === 'duration') return 'a duration';
+  return 'a computed value';
+}
+
+function exampleMismatch(type: TypeExpr, expr: Expr): boolean {
+  if (type.kind === 'optional') {
+    if (expr.kind === 'literal' && expr.value === null) return false;
+    return exampleMismatch(type.inner, expr);
+  }
+  if (type.kind === 'union') return type.variants.every((variant) => exampleMismatch(variant, expr));
+  if (expr.kind === 'list') {
+    if (type.kind !== 'named' || type.name !== 'list') return true;
+    const element = type.args[0];
+    if (!element || !element.isType) return false;
+    return expr.items.some((item) => exampleMismatch(element.value as TypeExpr, item));
+  }
+  if (expr.kind !== 'literal') return false;
+  if (expr.value === null) return true;
+  if (type.kind !== 'named') return false;
+  if (type.name === 'list') return true;
+  const name = type.name.toLowerCase();
+  if (name === 'string' || name === 'uuid' || name === 'url' || name === 'email' || name === 'datetime') {
+    return typeof expr.value !== 'string';
+  }
+  if (name === 'int' || name === 'number' || name === 'float' || name === 'decimal') {
+    return typeof expr.value !== 'number';
+  }
+  if (name === 'bool') return typeof expr.value !== 'boolean';
+  return false;
 }
 
 function collectMentionedOps(svc: ServiceNode): Set<string> {

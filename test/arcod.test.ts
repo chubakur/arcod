@@ -331,6 +331,12 @@ test('a list literal in an example parses, checks, formats and runs', async () =
   assert.match(formatted, /count\(\["ann", "bob"\]\)/, 'fmt prints the literal back');
   assert.equal(printModule(parse(formatted, 'main.arc')), formatted, 'fmt is idempotent');
 
+  // A wrong-shaped literal is a diagnostic with the parameter type in it.
+  const bad = parse(spec.replace('count(["ann", "bob"])', 'count(42)'), 'main.arc');
+  const badErrors = check(bad).filter((d) => d.code === 'A063');
+  assert.equal(badErrors.length, 1);
+  assert.match(badErrors[0].message, /expects list<string>, got 42/);
+
   await mkdir(join(dir, 'impl'), { recursive: true });
   await writeFile(join(dir, 'impl', 'count.mjs'),
     'export async function count(input, io) { return { result: { total: input.labels.length } }; }\n');

@@ -1177,7 +1177,10 @@ Errors:
 - `A058` a job's `saga:` names an undeclared saga;
 - `A059` a field default is not a literal of the field type;
 - `A060` a field default violates the constrained type (`email`, `url`, `enum`);
-- `A061` `string(format: ...)` names an unknown format.
+- `A061` `string(format: ...)` names an unknown format;
+- `A063` an example passes a literal the parameter cannot accept (a list where
+  a `string` is declared, a number where a `list<T>` is, `null` for a
+  non-optional parameter).
 
 Warnings:
 
