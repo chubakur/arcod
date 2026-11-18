@@ -226,7 +226,8 @@ arcod deploy . --env prod  # deployment target and manifest
 (redis), `sql` (postgres, mysql, mariadb), `blob` (s3), `identity` (keycloak),
 `llm` (ollama, openai), `stream` (websocket, redis), `queue` (redis — publish,
 consume, retry, dead letter) and `ids`/`hash`, which bind to
-`local` — a provider that provisions nothing.
+`local` — the compiler's own runtime. `local` provisions nothing and serves
+only those two: binding `kv`, `sql` or `queue` to it is `A068`.
 
 `rabbitmq` and `kafka` also satisfy `queue` and are provisioned, but the
 emitted adapter speaks only the Redis list protocol. Bind `queue` to Redis for

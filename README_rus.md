@@ -211,7 +211,8 @@ arcod deploy . --env prod  # target развёртывания и манифес
 `sql` (postgres, mysql, mariadb), `blob` (s3), `identity` (keycloak),
 `llm` (ollama, openai), `stream` (websocket, redis), `queue` (redis —
 публикация, потребление, повторы, dead letter), `ids` и `hash` — привязываются к
-`local`: это специальный провайдер «ничего не нужно», инфраструктуры у него нет.
+`local`: это собственный рантайм компилятора. Он ничего не поднимает и умеет
+только эти две возможности; `kv`, `sql` или `queue` на `local` — это `A068`.
 
 `rabbitmq` и `kafka` тоже удовлетворяют `queue` и провижинятся, но сгенерированный
 адаптер говорит только по протоколу redis-списков. Привязывайте `queue` к redis:
