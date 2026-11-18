@@ -675,3 +675,26 @@ test('deploy explains what it would write for each provider, and what is missing
   assert.equal(unknown.code, 1);
   assert.match(unknown.err, /unknown deploy provider nope; available: /);
 });
+
+test('fmt --write keeps a comment written inside a ui block', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'main.arc');
+  const src = [
+    'module m @0.1.0 {}',
+    'ui Board {',
+    '  kind: spa',
+    '  route: "/board"',
+    '  // dark by default',
+    '  theme: dark',
+    '}',
+    '',
+  ].join('\n');
+  await writeFile(file, src, 'utf8');
+  const written = await run(['fmt', file, '--write']);
+  assert.equal(written.code, 0, JSON.stringify(written.err));
+  const out = await readFile(file, 'utf8');
+  assert.match(out, /^  \/\/ dark by default\n  theme: dark$/m);
+  const check = await run(['fmt', file, '--check']);
+  assert.equal(check.code, 0, JSON.stringify(check.err));
+});
+
