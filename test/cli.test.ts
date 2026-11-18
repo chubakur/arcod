@@ -211,6 +211,10 @@ test('check accepts a pattern across projects', async () => {
   const deep = await run(['check', join(root, '**', 'main.arc')]);
   assert.equal(deep.code, 1, '** finds the broken project too');
 
+  const dirs = await run(['check', join(root, 'a*')]);
+  assert.equal(dirs.code, 0, dirs.out);
+  assert.match(dirs.out, /1 file\(s\), 0 with errors/, 'a matched directory resolves to its spec');
+
   const json = await run(['check', join(root, 'alpha', '*.arc'), '--json']);
   assert.equal(json.code, 0);
   const report = JSON.parse(json.out);

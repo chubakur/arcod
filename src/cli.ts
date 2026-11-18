@@ -261,7 +261,7 @@ async function runCheckPattern(flags: Flags, pattern: string): Promise<void> {
     }
   }
   if (flags.json) console.log(JSON.stringify(reports, null, 2));
-  else if (specs.length > 1) console.log('\n' + specs.length + ' file(s), ' + failed + ' with errors');
+  else console.log('\n' + specs.length + ' file(s), ' + failed + ' with errors');
   process.exitCode = failed > 0 ? 1 : 0;
 }
 
