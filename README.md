@@ -413,6 +413,13 @@ attaches the container to an existing network (`external: true`), and
 `gateway: true` adds `host-gateway` for Linux. An external service never
 appears in the manifest's `services` and gets no scheduler tasks.
 
+The method decides where a parameter goes: a name that matches a `:path`
+capture fills the path (percent-encoded), `GET`, `HEAD` and `DELETE` put the
+rest in the query string, every other method sends a JSON body with
+`content-type: application/json`. `HEAD` is a `GET` without a response body, so
+the call is body-less on both sides and the answer is still `{ status, body }`
+with `body: null`.
+
 Checks: `A037` no `route`; `A038` `uses` or effects declared for a foreign
 service; `A039` bound to something other than `endpoint`; `W026` called but no
 address configured.
