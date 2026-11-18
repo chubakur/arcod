@@ -674,6 +674,10 @@ async function runGraphql(flags: Flags): Promise<void> {
     return;
   }
   const path = isAbsolute(target) ? target : join(loaded.dir, target);
+  // Writing a file into a fresh build directory is the normal case; k8s --out
+  // already creates its tree, so the single-file emitters must too instead of
+  // failing with a raw ENOENT.
+  await mkdir(dirname(path), { recursive: true });
   await writeFile(path, sdl);
   console.log('wrote ' + path);
 }
@@ -693,6 +697,7 @@ async function runGrpc(flags: Flags): Promise<void> {
     return;
   }
   const path = isAbsolute(target) ? target : join(loaded.dir, target);
+  await mkdir(dirname(path), { recursive: true });
   await writeFile(path, proto);
   console.log('wrote ' + path);
 }

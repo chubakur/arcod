@@ -823,3 +823,18 @@ test('a numeric flag is refused instead of publishing NaN', async () => {
   assert.equal(ok.code, 0, ok.out);
   assert.match(ok.out, /replicas: 3/);
 });
+
+test('graphql/grpc --out create the directory they write into', async () => {
+  const dir = await tempDir('arcod-out-');
+  // A build script normally points --out at a directory that does not exist yet.
+  const out = join(dir, 'build', 'schema.graphql');
+  const sdl = await run(['graphql', signupUrl.pathname, '--out', out]);
+  assert.equal(sdl.code, 0, sdl.err);
+  assert.match(sdl.out, /wrote /);
+  assert.match(await readFile(out, 'utf8'), /^type /m);
+
+  const proto = join(dir, 'deep', 'api.proto');
+  const grpc = await run(['grpc', signupUrl.pathname, '--out', proto]);
+  assert.equal(grpc.code, 0, grpc.err);
+  assert.match(await readFile(proto, 'utf8'), /^syntax = "proto3";/m);
+});
