@@ -923,6 +923,15 @@ function sendError(res, name, values) {
 }
 
 function matchRoute(method, pathname) {
+  const found = findRoute(method, pathname);
+  // RFC 9110: a HEAD response is the GET response without a body, and Node
+  // already drops the body of a HEAD reply. Without the fallback every health
+  // check and proxy probe (curl -I) on a declared GET route answered 404.
+  if (!found && method === 'HEAD') return findRoute('GET', pathname);
+  return found;
+}
+
+function findRoute(method, pathname) {
   const actual = pathname.split('/').filter(Boolean);
   for (const route of ROUTES) {
     if (route.method !== method) continue;

@@ -48,3 +48,20 @@ test('a lowercase route method still reaches its operation', async () => {
     await svc.stop();
   }
 });
+
+test('a HEAD probe is answered by the GET route without a body', async () => {
+  const svc = await startService(SPEC, { impl: IMPL });
+  try {
+    // RFC 9110: HEAD is the GET response minus the body; Node drops the body of
+    // a HEAD reply itself. Health checks and `curl -I` used to get 404 here.
+    const head = await fetch(svc.base + '/v1/peek', { method: 'HEAD' });
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), '', 'HEAD carries no body');
+
+    // A route that exists only as POST is still a miss for HEAD.
+    const missing = await fetch(svc.base + '/v1/poke', { method: 'HEAD' });
+    assert.equal(missing.status, 404);
+  } finally {
+    await svc.stop();
+  }
+});

@@ -1071,6 +1071,9 @@ Routes, TTL, limits and infrastructure are identical.
   chat for `llm`, a websocket hub and pub/sub for `stream`, a queue runtime
   with retry and dead letters for `queue` (Redis lists, or in-process when no
   broker is bound);
+- the router matches a path by segment: a `:name` capture is a position, not a
+  name, the method is case-insensitive, and a `HEAD` request is answered by the
+  `GET` route with the same headers and no body (RFC 9110);
 - `.arcod/build/web/` — a static frontend and nginx proxying the roots of
   declared routes (`/api`, `/v1`) and `/ws` when `stream` is used (only when a
   `ui` block is declared);
