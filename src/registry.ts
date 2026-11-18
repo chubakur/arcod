@@ -64,6 +64,10 @@ export function pluginProviderSpec(provider: PluginProvider, args: Record<string
   return {
     name: provider.name,
     capability: provider.capability,
+    // The manifest's args map is the allowlist: its keys are exactly what the
+    // provider's appEnv may interpolate. No map means no declaration, and
+    // check then has nothing to compare a binding against.
+    options: provider.args ? Object.keys(provider.args) : undefined,
     external: true,
     requires: Object.keys(declarations),
     secrets: provider.secrets ?? [],

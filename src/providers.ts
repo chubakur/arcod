@@ -16,6 +16,10 @@ export function endpointEnv(alias: string): string {
 export interface ProviderSpec {
   name: string;
   capability: string;
+  // Bind arguments this provider reads beyond the universal BIND_ARGS.
+  // Undefined means "not declared" (a plugin manifest without an args map):
+  // check cannot call an argument unknown, so it stays silent.
+  options?: string[];
   // Capabilities beyond the primary one this provider can also satisfy.
   // Redis is the reference zero-dependency broker: kv, stream pub/sub and
   // queue lists ride one process.
@@ -47,12 +51,18 @@ export interface ProviderSpec {
   appEnv?: (ctx: ProviderContext) => Record<string, string>;
 }
 
+// Arguments every binding may carry: the address, the container port, whether
+// compose publishes it, and a file copied into the provider. Anything else is
+// a provider option and has to be declared by that provider.
+export const BIND_ARGS = ['expose', 'host', 'import', 'port'] as const;
+
 const pgHealth = { test: '["CMD-SHELL", "pg_isready -U arcod"]', interval: '2s', timeout: '2s', retries: 30 };
 
 export const PROVIDERS: Record<string, ProviderSpec> = {
   redis: {
     name: 'redis',
     capability: 'kv',
+    options: ['version'],
     extraCapabilities: ['stream', 'queue'],
     image: 'redis:7-alpine',
     port: 6379,
@@ -62,6 +72,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   postgres: {
     name: 'postgres',
+    options: ['version'],
     secrets: ['POSTGRES_PASSWORD', 'DATABASE_URL'],
     capability: 'sql',
     image: 'postgres:16-alpine',
@@ -132,6 +143,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   endpoint: {
     name: 'endpoint',
     capability: 'endpoint',
+    options: ['network', 'url'],
     external: true,
     appEnv: ({ alias, args }) => {
       const name = typeof alias === 'string' && alias.length > 0 ? alias : 'external';
@@ -148,6 +160,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   ollama: {
     name: 'ollama',
     capability: 'llm',
+    options: ['model'],
     external: true,
     port: 11434,
     appEnv: ({ host, port, args }) => ({
@@ -158,6 +171,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   openai: {
     name: 'openai',
+    options: ['baseUrl', 'model'],
     secrets: ['LLM_API_KEY'],
     capability: 'llm',
     external: true,
@@ -257,6 +271,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
 
   sentry: {
     name: 'sentry',
+    options: ['dsn', 'environment'],
     secrets: ['SENTRY_DSN'],
     capability: 'errors',
     external: true,
@@ -301,6 +316,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   vault: {
     name: 'vault',
     secrets: ['VAULT_TOKEN'],
+    options: ['path', 'store'],
     capability: 'secrets',
     image: 'hashicorp/vault:1.18',
     port: 8200,
@@ -310,6 +326,11 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
     appEnv: ({ host, port }) => ({ VAULT_ADDR: 'http://' + host + ':' + port, VAULT_TOKEN: 'root' }),
   },
 };
+
+// A built-in that declares nothing takes nothing: a typo in a binding is then
+// a warning, not a silent no-op. A plugin provider without an args map stays
+// undefined above and is exempt.
+for (const spec of Object.values(PROVIDERS)) if (!spec.options) spec.options = [];
 
 export function providerFor(name: string): ProviderSpec | null {
   return PROVIDERS[name] ?? null;

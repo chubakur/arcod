@@ -1,7 +1,7 @@
 import type { Diagnostic } from './diagnostics.ts';
 import type { Expr, Loc, ModuleNode, OpNode, Param, ServiceNode, TypeExpr, UiNode } from './ast.ts';
 import { templateFor } from './templates.ts';
-import { providerImplements } from './providers.ts';
+import { BIND_ARGS, providerImplements } from './providers.ts';
 import { builtinRegistry, type ProviderRegistry } from './registry.ts';
 import { capabilityFor, storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
@@ -285,6 +285,19 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           diags.push(diag('A026', 'error', mod.file, bind.loc, subject,
             `provider ${bind.provider} requires argument ${required}`,
             `add ${required}: "..." to bind`));
+        }
+      }
+
+      // W035 — a provider reads a fixed set of options. An argument it does
+      // not know was accepted and dropped: redis(bogus: 1) looked configured
+      // and changed nothing. A plugin without an args map is exempt.
+      if (spec.options) {
+        const allowed = new Set<string>([...BIND_ARGS, ...spec.options]);
+        for (const [key, expr] of Object.entries(bind.args)) {
+          if (allowed.has(key)) continue;
+          diags.push(diag('W035', 'warning', mod.file, expr.loc, subject,
+            'provider ' + bind.provider + ' does not read bind argument ' + key,
+            'known arguments: ' + [...allowed].sort().join(', ')));
         }
       }
 

@@ -1266,6 +1266,12 @@ Warnings:
   read `host`, `port`, `expose` and provider options from literals only, so
   the expression would silently fall back to a default or to the string
   `'<expr>'`.
+- `W035` a bind passes an argument its provider does not read
+  (`bind store -> redis(host: "kv", bogus: 1)`): every provider declares a
+  fixed option set, so the argument was accepted and dropped. The hint lists
+  the known ones; `host`, `port`, `expose` and `import` belong to every
+  binding. A plugin provider without an `args` map is exempt, because there is
+  nothing to compare against.
 
 ### Examples are tests
 
