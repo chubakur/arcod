@@ -106,6 +106,20 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     }
   }
 
+
+  // W032 — a bind guarantee is a promise written for the reader. Nothing
+  // checks it and no adapter enforces it, so a typo would look like a real
+  // durability contract; say what it is instead of dropping it.
+  for (const environment of mod.environments) {
+    for (const bind of environment.binds) {
+      if (bind.guarantees.length === 0) continue;
+      diags.push(diag('W032', 'warning', mod.file, bind.loc,
+        'environments.' + environment.name + '.binds.' + bind.alias,
+        'bind guarantees are declarative: ' + bind.guarantees.join(', '),
+        'nothing checks or enforces them; keep them for the reader or drop the clause'));
+    }
+  }
+
   // A028 — unknown deploy provider; W019 — unknown deploy argument.
   // Every environment is checked, not only the selected one.
   for (const environment of mod.environments) {

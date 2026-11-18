@@ -1236,6 +1236,9 @@ Warnings:
 - `W028` a presentation without `stream`: the page will poll state;
 - `W029` a plugin provider ships a runtime adapter but its capability declares no signatures (the service cannot dispatch it).
 - `W030` `ui { render: ssr }` has no first-screen data: no public `GET` operation without a path parameter can be rendered into the page.
+- `W032` a bind declares `guarantees [...]`: the clause is kept in the spec and
+  printed by `fmt`, but nothing checks or enforces it — it reads like a
+  durability contract, so the checker says what it is.
 
 ### Examples are tests
 

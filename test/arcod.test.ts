@@ -817,6 +817,28 @@ test('slides on a page without layout: presentation are an error', () => {
 });
 
 
+
+test('bind guarantees are kept but flagged as declarative', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  uses store: kv',
+    '  contract { public op a() -> int { route: "GET /x" effects: store.get } }',
+    '  effects { allow store.* }',
+    '}',
+    'environment dev {',
+    '  bind store -> redis(host: "kv") guarantees [durable, total_order]',
+    '  deploy docker',
+    '}',
+  ].join('\n');
+  const diags = check(parse(src, 'main.arc')).filter((item) => item.code === 'W032');
+  assert.equal(diags.length, 1);
+  assert.equal(diags[0].severity, 'warning');
+  assert.match(diags[0].message, /durable, total_order/);
+  assert.match(diags[0].hint ?? '', /nothing checks or enforces/);
+  assert.match(formatSource(src, 'main.arc'), /guarantees \[durable, total_order\]/, 'fmt does not drop the clause');
+});
+
 test('a name declared twice is an error, not a silent overwrite', () => {
   const src = [
     'module m @0.1.0 {}',
