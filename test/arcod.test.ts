@@ -401,6 +401,29 @@ test('a record literal in an example is typed against the entity', async () => {
   assert.equal(unknownErrors.length, 1);
 });
 
+test('an optional parameter accepts null but not the wrong scalar', () => {
+  const spec = [
+    'module opt @0.1.0 {}',
+    '',
+    'service S : http {',
+    '  contract {',
+    '    public op note(text: string?) -> string {',
+    '      route: "POST /v1/n"',
+    '    }',
+    '  }',
+    '',
+    '  examples {',
+    '    example fine { when { note(null) } then { true } }',
+    '    example wrong { when { note(42) } then { true } }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const errors = check(parse(spec, 'main.arc')).filter((d) => d.code === 'A063');
+  assert.equal(errors.length, 1, 'null is fine for string?, 42 is not');
+  assert.match(errors[0].message, /expects string, got 42/);
+});
+
 test('fmt keeps a comment written inside a record', () => {
   const source = ['module card @0.1.0 {}', '', 'type Card = {', '  // the name printed on the card',
     '  name: string,', '  age: int', '}', ''].join('\n');
