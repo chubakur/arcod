@@ -238,7 +238,7 @@ export function localEnvironment(mod: ModuleNode): EnvironmentNode | undefined {
 export function composeModel(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry(), dialect: 'mysql' | 'postgres' = 'mysql'): ComposeModel {
   const name = 'arcod-' + kebab(mod.name);
   const environment = localEnvironment(mod);
-  const bound = (environment?.binds ?? [])
+  const all = (environment?.binds ?? [])
     .filter((bind) => registry.get(bind.provider) !== null)
     .map((bind) => renderProvider(bind, registry))
     .filter((item): item is RenderedProvider => item !== null);
@@ -253,7 +253,7 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
       const provider = providerFor(dialect === 'postgres' ? 'postgres' : 'mysql')!;
       const host = provider.name;
       const port = provider.port ?? 3306;
-      bound.push({
+      all.push({
         alias: 'store',
         host,
         spec: { ...provider, name: provider.name },
@@ -265,7 +265,7 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
         volume: null,
       });
     } else {
-      bound.push({
+      all.push({
         alias: 'store',
         host: 'kv',
         spec: { ...providerFor('redis')!, name: 'redis' },
@@ -280,7 +280,7 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
   }
 
   const appEnv: Record<string, string> = {};
-  for (const item of bound) {
+  for (const item of all) {
     for (const [key, value] of Object.entries(item.appEnv)) {
       // Two binds of the same capability would otherwise clash on DATABASE_URL.
       const name = key in appEnv ? key + '_' + item.alias.toUpperCase() : key;
@@ -295,7 +295,20 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
     }
   }
 
-  return { name, providers: bound, appEnv, hasUi };
+  // Two binds may name the same container — a saga that keeps its store and
+  // its broker in one redis sends `redis(host: "kv")` twice. Compose has one
+  // key per service, so collapse the duplicates by image, host and port; every
+  // bind keeps its own appEnv above, which is where the tangle is resolved.
+  const seen = new Set<string>();
+  const providers: RenderedProvider[] = [];
+  for (const item of all) {
+    const key = [providerImage(item) ?? item.spec.name, item.host, String(item.port)].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    providers.push(item);
+  }
+
+  return { name, providers, appEnv, hasUi };
 }
 
 export function composeYaml(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry(), dialect: 'mysql' | 'postgres' = 'mysql'): string {
