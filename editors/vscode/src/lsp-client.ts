@@ -41,6 +41,8 @@ export class LspClient {
       this.stderr += chunk.toString();
     });
     this.proc.on('exit', (code) => {
+      this.proc = null;
+      this.rejectPending(new Error('arcod lsp exited' + (code === null ? '' : ' with code ' + code)));
       for (const h of this.exitHandlers) h(code);
     });
     this.proc.on('error', (error) => {
@@ -50,14 +52,31 @@ export class LspClient {
     });
   }
 
-  request<T = unknown>(method: string, params?: unknown): Promise<T> {
+  request<T = unknown>(method: string, params?: unknown, timeoutMs = 15000): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       if (!this.proc) {
         reject(new Error('arcod lsp is not running'));
         return;
       }
       const id = this.nextId++;
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      // A wedged server must surface as a failed request, not as a test (or an
+      // editor command) that never settles. The timer is unref'd so a pending
+      // request cannot keep the process alive on its own (node --test).
+      const timer = setTimeout(() => {
+        if (!this.pending.delete(id)) return;
+        reject(new Error('arcod lsp did not answer ' + method + ' within ' + timeoutMs + 'ms'));
+      }, timeoutMs);
+      if (typeof timer.unref === 'function') timer.unref();
+      this.pending.set(id, {
+        resolve: (value: unknown) => {
+          clearTimeout(timer);
+          resolve(value as T);
+        },
+        reject: (error: Error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
       this.send({ jsonrpc: '2.0', id, method, params });
     });
   }
@@ -77,21 +96,36 @@ export class LspClient {
   }
 
   dispose(): void {
-    if (this.proc) {
-      try {
-        this.notify('shutdown');
-        this.notify('exit');
-      } catch {
-        // ignore
-      }
-      this.proc.kill();
-      this.proc = null;
+    const proc = this.proc;
+    this.proc = null;
+    this.rejectPending(new Error('arcod lsp is not running'));
+    if (!proc) return;
+    try {
+      proc.stdin.write(this.frame({ jsonrpc: '2.0', method: 'shutdown' }));
+      proc.stdin.write(this.frame({ jsonrpc: '2.0', method: 'exit' }));
+    } catch {
+      // the pipe is already gone; the kill below is what matters
     }
+    proc.kill();
+    // Do not wait forever for a server that ignores shutdown/exit.
+    const hard = setTimeout(() => {
+      if (!proc.killed) proc.kill('SIGKILL');
+    }, 500);
+    if (typeof hard.unref === 'function') hard.unref();
+  }
+
+  private rejectPending(error: Error): void {
+    for (const [, pending] of this.pending) pending.reject(error);
+    this.pending.clear();
   }
 
   private send(message: Message): void {
+    this.proc?.stdin.write(this.frame(message));
+  }
+
+  private frame(message: Message): string {
     const body = JSON.stringify(message);
-    this.proc?.stdin.write('Content-Length: ' + Buffer.byteLength(body) + '\r\n\r\n' + body);
+    return 'Content-Length: ' + Buffer.byteLength(body) + '\r\n\r\n' + body;
   }
 
   private onData(chunk: Buffer): void {

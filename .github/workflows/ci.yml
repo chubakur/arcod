@@ -6,6 +6,9 @@ on:
 jobs:
   extension:
     runs-on: ubuntu-latest
+    # A wedged LSP child used to keep this job "in_progress" for hours; the cap
+    # turns any future hang into a fast failure that names the culprit.
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: editors/vscode
@@ -23,6 +26,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
