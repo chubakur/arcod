@@ -724,6 +724,23 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         'declare the value as a parameter instead of ' + mark));
     }
 
+    // A075 — an OpenAPI-style {name} capture in a route. Arcod spells a
+    // capture :name, so a hand-copied path is a literal segment with braces:
+    // the declared parameter is never bound and the operation answers a URL
+    // nobody meant to expose.
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      const route = routeOf(op);
+      if (!route) continue;
+      const path = route.trim().split(/\s+/)[1] ?? '';
+      const braces = path.split('/').filter((segment) => /^\{[^{}]+\}$/.test(segment));
+      if (braces.length === 0) continue;
+      const name = braces[0].slice(1, -1);
+      diags.push(diag('A075', 'error', mod.file, op.loc, 'services.' + svc.name + '.contract.' + op.name,
+        'route ' + JSON.stringify(route) + ' uses OpenAPI capture syntax {' + name + '}: arcod spells it :' + name,
+        'write :' + name + ' — `arcod adopt` converts an OpenAPI document for you'));
+    }
+
     // A072 — the same :name twice in one route. matchRoute assigns captures
     // in segment order, so the last segment wins and the earlier value is read
     // by nobody: "/v1/locks/:name/:name" matches "/v1/locks/a/b" and the body

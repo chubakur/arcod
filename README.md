@@ -1233,6 +1233,10 @@ Errors:
 - `A074` a route path with a query string or fragment (`GET /v1/x?limit=10`):
   the router matches `url.pathname`, which carries neither, so no client can
   ever reach the operation — declare the value as a parameter;
+- `A075` an OpenAPI-style capture in a route (`GET /v1/items/{id}`): arcod
+  spells a capture `:id`, so the braces are a literal segment, the parameter is
+  never bound and the operation answers 404 — write `:id` (`arcod adopt`
+  converts an OpenAPI document for you);
 - `A073` a literal route declared after a capture route of the same shape:
   the router tries routes in declaration order and `:id` matches any segment,
   so `GET /v1/t/new` after `GET /v1/t/:id` never runs — declare the literal
