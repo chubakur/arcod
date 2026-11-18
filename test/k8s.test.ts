@@ -236,3 +236,19 @@ test('secrets: a secrets capability turns the Secret into an ExternalSecret', ()
   const everything = files.map((file) => file.content).join('\n');
   assert.equal(everything.includes('postgres://arcod:arcod'), false);
 });
+
+test('helm: an untagged image means latest and a registry port is not a tag', async () => {
+  const ast = await onetime();
+  const read = (image: string) =>
+    helmChart(ast, { image }).find((file) => file.path === 'values.yaml')!.content;
+
+  const plain = read('acme/app');
+  assert.match(plain, /repository: acme\/app\n/);
+  assert.match(plain, /tag: latest/);
+
+  // `registry.local:5000/acme/app` — the colon belongs to the registry, not
+  // to a tag; splitting on it would invent repository `registry.local`.
+  const ported = read('registry.local:5000/acme/app');
+  assert.match(ported, /repository: registry.local:5000\/acme\/app\n/);
+  assert.match(ported, /tag: latest/);
+});
