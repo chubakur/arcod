@@ -716,17 +716,19 @@ class Parser {
     const start = this.prev();
     const name = this.expectIdent('step name').value;
     this.expect('{');
-    const step: SagaStepNode = { name, call: null, compensate: null, retry: null, loc: locOf(start) };
+    const step: SagaStepNode = { name, call: null, compensate: null, retry: null, clauseLocs: {}, loc: locOf(start) };
     while (!this.is('}')) {
       if (this.accept(';')) continue;
-      const key = this.expectIdent('step clause').value;
+      const keyTok = this.expectIdent('step clause');
+      const key = keyTok.value;
+      step.clauseLocs![key] = locOf(keyTok);
       this.expect(':');
       if (key === 'call') { step.call = this.parseQName(); continue; }
       if (key === 'compensate') { step.compensate = this.parseQName(); continue; }
       if (key === 'retry') { step.retry = this.parseIntLiteral('retry'); continue; }
       this.error('unexpected saga step clause ' + JSON.stringify(key));
     }
-    this.expect('}');
+    step.closeLoc = locOf(this.expect('}'));
     return step;
   }
 

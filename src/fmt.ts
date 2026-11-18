@@ -197,7 +197,11 @@ function collectService(s: ServiceNode, out: number[]): void {
   }
   for (const sg of s.sagas) {
     out.push(sg.loc.offset);
-    for (const st of sg.steps) out.push(st.loc.offset);
+    for (const st of sg.steps) {
+      out.push(st.loc.offset);
+      for (const loc of Object.values(st.clauseLocs ?? {})) out.push(loc.offset);
+      if (st.closeLoc) out.push(st.closeLoc.offset);
+    }
   }
   for (const ex of s.examples) {
     out.push(ex.loc.offset);
@@ -517,11 +521,25 @@ class Printer {
     this.raw(1, 'saga ' + sg.name + ' {');
     for (const st of sg.steps) {
       this.emitComments(st.loc.offset, 2);
-      const parts: string[] = [];
-      if (st.call) parts.push('call: ' + st.call);
-      if (st.compensate) parts.push('compensate: ' + st.compensate);
-      if (st.retry !== null) parts.push('retry: ' + st.retry);
-      this.raw(2, 'step ' + st.name + ' { ' + parts.join(' ') + ' }');
+      // A saga step is one line until a comment needs a line of its own.
+      const clauseKeys = Object.keys(st.clauseLocs ?? {});
+      const commented = clauseKeys.some((k) => this.comments.has(st.clauseLocs![k].offset) || this.trailing.has(st.clauseLocs![k].offset)) ||
+        (st.closeLoc !== undefined && this.comments.has(st.closeLoc.offset));
+      if (!commented) {
+        const parts: string[] = [];
+        if (st.call) parts.push('call: ' + st.call);
+        if (st.compensate) parts.push('compensate: ' + st.compensate);
+        if (st.retry !== null) parts.push('retry: ' + st.retry);
+        this.raw(2, 'step ' + st.name + ' { ' + parts.join(' ') + ' }');
+        continue;
+      }
+      this.raw(2, 'step ' + st.name + ' {');
+      const sc = (key: string): void => { this.clauseComments(st.clauseLocs, key, 3); };
+      if (st.call) { sc('call'); this.raw(3, 'call: ' + st.call); }
+      if (st.compensate) { sc('compensate'); this.raw(3, 'compensate: ' + st.compensate); }
+      if (st.retry !== null) { sc('retry'); this.raw(3, 'retry: ' + st.retry); }
+      this.blockTail(st.closeLoc, 3);
+      this.raw(2, '}');
     }
     this.raw(1, '}');
   }

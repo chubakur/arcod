@@ -323,3 +323,45 @@ test('a comment after the last step clause stays inside the step', () => {
   assert.equal(formatSource(out, 'main.arc'), out);
 });
 
+
+
+const sagaSpec = [
+  'module m @0.1.0 {}',
+  'type Task = { name: string }',
+  'service Api : http {',
+  '  contract {',
+  '    public op a() -> Task { route: "POST /a" }',
+  '    public op b() -> Task { route: "POST /b" }',
+  '  }',
+  '  saga Checkout {',
+  '    // reserve first',
+  '    step reserve {',
+  '      call: a',
+  '      // undo it',
+  '      compensate: b',
+  '      retry: 2',
+  '    }',
+  '  }',
+  '}',
+].join('\n');
+
+test('a commented saga step goes multi-line and keeps its comments', () => {
+  const out = formatSource(sagaSpec, 'main.arc');
+  assert.match(out, /^    step reserve \{$/m);
+  assert.match(out, /^      call: a\n      \/\/ undo it\n      compensate: b\n      retry: 2$/m);
+  assert.match(out, /^      \/\/ undo it$/m);
+  assert.equal(formatSource(out, 'main.arc'), out, 'stable on a second pass');
+});
+
+test('an uncommented saga step stays on one line', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service Api : http {',
+    '  contract { public op a() -> string { route: "POST /a" } }',
+    '  saga S { step one { call: a retry: 1 } }',
+    '}',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^    step one \{ call: a retry: 1 \}$/m);
+});
+

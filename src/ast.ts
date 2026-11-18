@@ -141,6 +141,11 @@ export interface SagaStepNode {
   // The compensating operation, run when a later step fails, in reverse order.
   compensate: string | null;
   retry: number | null;
+  // Clause keywords and the closing brace. A saga step prints on one line
+  // until a comment lands on a clause; then it goes multi-line, as a record
+  // with a commented field does.
+  clauseLocs?: Record<string, Loc>;
+  closeLoc?: Loc;
   loc: Loc;
 }
 
