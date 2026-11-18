@@ -17,7 +17,7 @@ function strip(x: unknown): unknown {
   // test compares.
   return JSON.parse(JSON.stringify(x, (k, v) => (
     k === 'loc' || k === 'clauseLocs' || k === 'closeLoc' || k === 'bodyLoc' || k === 'nameLocs' ||
-    k === 'blockCloses' || k === 'source' || k === 'file' ? undefined : v
+    k === 'blockCloses' || k === 'contractLoc' || k === 'source' || k === 'file' ? undefined : v
   )));
 }
 

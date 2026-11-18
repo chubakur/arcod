@@ -176,6 +176,9 @@ export interface ServiceNode {
   metaEntryLocs?: Loc[];
   uses: CapUse[];
   contract: OpNode[];
+  // The contract keyword. The block is not a node, so a comment written above
+  // it had no anchor and slid inside the block, onto the first operation.
+  contractLoc?: Loc;
   sagas: SagaNode[];
   rules: RuleNode[];
   // The role vocabulary the service understands; operations reference it via

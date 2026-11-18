@@ -671,3 +671,26 @@ test('a comment in every block kind survives one format pass', () => {
   }
 });
 
+
+test('fmt keeps a comment above contract outside the block', () => {
+  // The contract block is not a node: without an anchor on the keyword its
+  // leading comment attached to the first operation and slid inside, merging
+  // with that operation's own comment.
+  const source = [
+    'module m @0.1.0 {}',
+    '',
+    'service S : http {',
+    '  // the only block',
+    '  contract {',
+    '    // listing',
+    '    op list() -> string {',
+    '      route: "GET /v1/list"',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+  const out = formatSource(source, 'main.arc');
+  assert.match(out, /^  \/\/ the only block\n  contract \{$/m);
+  assert.match(out, /contract \{\n    \/\/ listing\n    op list/m);
+  assert.equal(formatSource(out, 'main.arc'), out, 'formatting is idempotent');
+});

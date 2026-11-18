@@ -267,7 +267,12 @@ class Parser {
         continue;
       }
       if (this.accept('uses')) { svc.uses.push(this.parseCapUse()); continue; }
-      if (this.accept('contract')) { this.parseContract(svc); closeBlock('contract'); continue; }
+      if (this.is('contract')) {
+        svc.contractLoc = locOf(this.next());
+        this.parseContract(svc);
+        closeBlock('contract');
+        continue;
+      }
       if (this.accept('roles')) {
         this.expect(':');
         while (true) {

@@ -242,6 +242,7 @@ function collectCloseEnds(m: ModuleNode, out: Map<number, number>): void {
 
 function collectService(s: ServiceNode, out: number[]): void {
   out.push(s.loc.offset);
+  if (s.contractLoc) out.push(s.contractLoc.offset);
   for (const loc of s.metaEntryLocs ?? []) out.push(loc.offset);
   for (const c of s.uses) out.push(c.loc.offset);
   if (s.effects) {
@@ -508,7 +509,7 @@ class Printer {
     if (s.roles.length > 0) body.push(() => this.raw(1, 'roles: ' + s.roles.join(', ')));
     if (s.effects) body.push(() => this.effects(s.effects!, s.blockCloses?.effects));
     if (s.rules.length > 0) body.push(() => this.rules(s.rules, s.blockCloses?.rules));
-    if (s.contract.length > 0) body.push(() => this.contract(s.contract, s.blockCloses?.contract));
+    if (s.contract.length > 0) body.push(() => this.contract(s.contract, s.blockCloses?.contract, s.contractLoc));
     for (const sg of s.sagas) body.push(() => this.saga(sg));
     if (s.examples.length > 0) body.push(() => this.examples(s.examples, s.blockCloses?.examples));
     if (s.budget) body.push(() => this.budget(s.budget!, s.blockCloses?.budget));
@@ -567,7 +568,9 @@ class Printer {
     this.closeLine(1, '}', close?.offset ?? -1);
   }
 
-  private contract(ops: OpNode[], close?: Loc): void {
+  private contract(ops: OpNode[], close?: Loc, head?: Loc): void {
+    // A comment above the keyword belongs to the block, not to its first op.
+    if (head) this.emitComments(head.offset, 1);
     this.raw(1, 'contract {');
     // No blank line right after `contract {`: the first operation starts the
     // block, as it does in every other clause.
