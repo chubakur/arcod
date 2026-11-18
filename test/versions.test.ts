@@ -55,3 +55,57 @@ test('the chain is empty today and an identity migration still round-trips', () 
   const source = 'module demo @0.1.0 {\n  meta { owner: "@you" }\n}\n';
   assert.equal(migrateSpec(source, LANG_VERSION, LANG_VERSION), source);
 });
+
+// A future bump adds versions and rewrite rules to the same tables; the tests
+// above cannot reach the chain while only 0.1.0 exists, so simulate one bump.
+function withFutureVersions(run: () => void): void {
+  const versions = [...VERSIONS];
+  const migrations = { ...MIGRATIONS };
+  try {
+    run();
+  } finally {
+    VERSIONS.splice(0, VERSIONS.length, ...versions);
+    for (const key of Object.keys(MIGRATIONS)) delete MIGRATIONS[key];
+    Object.assign(MIGRATIONS, migrations);
+  }
+}
+
+test('a multi-version chain applies each rewrite in order', () => {
+  const source = 'module demo @0.1.0 {\n  meta { owner: "@you" }\n}\n';
+  withFutureVersions(() => {
+    const steps: string[] = [];
+    VERSIONS.push('0.2.0', '0.3.0');
+    MIGRATIONS['0.1.0->0.2.0'] = (src) => {
+      steps.push('0.1.0->0.2.0');
+      return src.replace('@0.1.0', '@0.2.0');
+    };
+    MIGRATIONS['0.2.0->0.3.0'] = (src) => {
+      steps.push('0.2.0->0.3.0');
+      return src.replace('@0.2.0', '@0.3.0');
+    };
+    assert.doesNotThrow(() => assertVersionOrder(), 'an ascending chain is accepted');
+
+    const upgraded = migrateSpec(source, '0.1.0', '0.3.0');
+    assert.deepEqual(steps, ['0.1.0->0.2.0', '0.2.0->0.3.0'], 'rewrites run oldest version first');
+    assert.match(upgraded, /@0\.3\.0/, 'the header lands on the target version');
+
+    assert.throws(() => migrateSpec(source, '0.3.0', '0.1.0'), /downgrade 0\.3\.0 -> 0\.1\.0 is not supported/);
+  });
+  assert.deepEqual(VERSIONS, ['0.1.0'], 'the shipped table is restored');
+  assert.deepEqual(Object.keys(MIGRATIONS), [], 'the shipped chain is restored');
+});
+
+test('a version added without its rewrite rule fails loudly', () => {
+  const source = 'module demo @0.1.0 {\n  meta { owner: "@you" }\n}\n';
+  withFutureVersions(() => {
+    VERSIONS.push('0.2.0');
+    assert.throws(
+      () => migrateSpec(source, '0.1.0', '0.2.0'),
+      /no migration from 0\.1\.0 to 0\.2\.0/,
+      'a missing step names both ends of the gap',
+    );
+
+    VERSIONS.push('0.0.9');
+    assert.throws(() => assertVersionOrder(), /VERSIONS is not ascending/);
+  });
+});
