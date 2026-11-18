@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { parse, ParseError } from '../src/parser.ts';
 import { check } from '../src/check.ts';
+import { printModule } from '../src/fmt.ts';
 import { buildPlan } from '../src/plan.ts';
 import { emitService, pickService, routeOf, statusForError } from '../src/emit/service.ts';
 import { checksumOf, migrationPlan } from '../src/migrate.ts';
@@ -268,6 +269,75 @@ test('impl mode falls back to 501 for operations without a body', async () => {
   assert.match(code, /const HANDLERS = \{/);
   assert.match(code, /create: handleCreate/);
   assert.ok(!code.includes('read: handleRead'), 'read has no body, so it is absent from the table');
+});
+
+test('a list literal in an example parses, checks, formats and runs', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-list-'));
+  const spec = [
+    'module tags @0.1.0 {}',
+    '',
+    'use capability arcod.std.kv @1',
+    '',
+    'type Count = { total: int }',
+    '',
+    'service Tags : http {',
+    '  uses store: kv',
+    '',
+    '  effects {',
+    '    allow store.find',
+    '  }',
+    '',
+    '  contract {',
+    '    public op count(labels: list<string>) -> Count {',
+    '      route: "POST /v1/count"',
+    '      effects: store.find',
+    '    }',
+    '  }',
+    '',
+    '  examples {',
+    '    example count_two {',
+    '      when {',
+    '        count(["ann", "bob"])',
+    '      }',
+    '      then {',
+    '        true',
+    '      }',
+    '    }',
+    '  }',
+    '}',
+    '',
+    'environment dev {',
+    '  bind store -> redis(host: "kv")',
+    '  deploy docker',
+    '}',
+    '',
+  ].join('\n');
+  await writeFile(join(dir, 'main.arc'), spec);
+
+  const listAst = parse(spec, 'main.arc');
+  const op = listAst.services[0].contract[0];
+  const example = listAst.services[0].examples[0];
+  const call = example.when[0].expr;
+  assert.equal(call.kind, 'call');
+  const argument = call.kind === 'call' ? call.args[0].value : null;
+  assert.equal(argument?.kind, 'list', 'the argument is a list, not an ident');
+  assert.equal(op.params[0].type.kind, 'named', 'list<string> stays a named type');
+
+  const errors = check(listAst).filter((d) => d.severity === 'error');
+  assert.deepEqual(errors, [], 'a list literal is not a type error');
+
+  const formatted = printModule(listAst);
+  assert.match(formatted, /count\(labels: list<string>\)/, 'the parameter type survives');
+  assert.match(formatted, /count\(\["ann", "bob"\]\)/, 'fmt prints the literal back');
+  assert.equal(printModule(parse(formatted, 'main.arc')), formatted, 'fmt is idempotent');
+
+  await mkdir(join(dir, 'impl'), { recursive: true });
+  await writeFile(join(dir, 'impl', 'count.mjs'),
+    'export async function count(input, io) { return { result: { total: input.labels.length } }; }\n');
+  const built = await buildExample(listAst, dir, { implDir: join(dir, 'impl') });
+  const report = await runExamples(listAst, built.dir);
+  assert.equal(report.examples.length, 1);
+  assert.ok(report.examples.every((item) => item.ok), JSON.stringify(report.examples));
 });
 
 const infraSource = `module infra @0.1.0 {}

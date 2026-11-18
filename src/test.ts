@@ -198,6 +198,12 @@ async function evalExpr(expr: Expr, env: Map<string, Value>, ctx: Context): Prom
     case 'duration':
       return expr.value;
 
+    case 'list': {
+      const items: Value[] = [];
+      for (const item of expr.items) items.push(await evalExpr(item, env, ctx));
+      return items;
+    }
+
     case 'ident':
       return env.has(expr.name) ? env.get(expr.name) : expr.name;
 

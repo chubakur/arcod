@@ -1230,7 +1230,9 @@ service OneTimeMessage : http {
 ```
 
 `given` (state setup) and `when` call operations and bind results with `let`;
-`then` asserts a comparison, `is <Error>`, `&&`, `||`, `!`. `given` runs before
+`then` asserts a comparison, `is <Error>`, `&&`, `||`, `!`. Arguments are the
+literals the contract knows — strings, numbers, `true`/`false`, `null` and list
+literals such as `["ann", "bob"]` for a `list<string>` parameter. `given` runs before
 `when` and shares its bindings, so a seeded value can be read in `when`/`then`.
 An operation without an example is `W012`; a declared error that is neither
 handled nor covered by an example is `A007`.

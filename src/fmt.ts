@@ -47,6 +47,7 @@ function expr(e: Expr, minPrec = 0): string {
       return e.raw || String(e.value);
     }
     case 'duration': return e.value + e.unit;
+    case 'list': return '[' + e.items.map((item) => expr(item)).join(', ') + ']';
     case 'ident': return e.name;
     case 'member': return expr(e.object, 8) + '.' + e.property;
     case 'call': {

@@ -994,6 +994,19 @@ class Parser {
       this.next();
       return { kind: 'ident', name: tok.value, loc: locOf(tok) };
     }
+    if (this.is('[')) {
+      // A list literal: ["ann", "bob"]. It is the one value shape a list<T>
+      // parameter can carry in an example, so the parser has to know it.
+      const loc = locOf(tok);
+      this.next();
+      const items: Expr[] = [];
+      while (!this.is(']')) {
+        items.push(this.parseExpr());
+        if (!this.accept(',')) break;
+      }
+      this.expect(']');
+      return { kind: 'list', items, loc };
+    }
     if (this.accept('(')) {
       const expr = this.parseExpr();
       this.expect(')');

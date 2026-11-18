@@ -960,6 +960,7 @@ export function walkExpr(expr: Expr, fn: (expr: Expr) => void): void {
       walkExpr(expr.callee, fn);
       for (const arg of expr.args) walkExpr(arg.value, fn);
       break;
+    case 'list': for (const item of expr.items) walkExpr(item, fn); break;
     case 'unary': walkExpr(expr.operand, fn); break;
     case 'binary': walkExpr(expr.left, fn); walkExpr(expr.right, fn); break;
     case 'is': walkExpr(expr.expr, fn); break;

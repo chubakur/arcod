@@ -238,6 +238,7 @@ export type Expr =
   | { kind: 'ident'; name: string; loc: Loc }
   | { kind: 'member'; object: Expr; property: string; loc: Loc }
   | { kind: 'call'; callee: Expr; args: Arg[]; loc: Loc }
+  | { kind: 'list'; items: Expr[]; loc: Loc }
   | { kind: 'unary'; op: string; operand: Expr; loc: Loc }
   | { kind: 'binary'; op: string; left: Expr; right: Expr; loc: Loc }
   | { kind: 'is'; expr: Expr; error: string; loc: Loc };
