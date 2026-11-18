@@ -1232,7 +1232,8 @@ Errors:
 - `A070` a `route` is not `"METHOD /path"` with a known HTTP method (GET,
   POST, PUT, PATCH, DELETE, HEAD, OPTIONS): a bare path used to fall through
   to `GET /` in OpenAPI and in the router, so the operation answered a URL
-  nobody wrote;
+  nobody wrote. The method is matched case-insensitively and emitted
+  uppercased, so `route: "post /v1/x"` serves `POST`;
 - `A069` two operations of one service answer the same method and path: the
   generated router keeps the first and the second is unreachable, so the
   second op never runs and no other diagnostic mentions it. The path is

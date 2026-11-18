@@ -1381,7 +1381,11 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
       const route = routeOf(op);
       if (!route) throw new Error('op ' + op.name + ' has no route');
       const parts = route.split(' ');
-      return { method: parts[0], path: parts[1], op: op.name };
+      // matchRoute compares against the uppercased request method, and check
+      // accepts "post /v1/x" (A070 looks the method up case-insensitively).
+      // Emitting the written casing made such a route answer 404 forever; the
+      // remote client and OpenAPI already normalize the same way.
+      return { method: (parts[0] ?? 'GET').toUpperCase(), path: parts[1], op: op.name };
     });
 
   // An error may declare payload fields (error Conflict { fence: int }). The
