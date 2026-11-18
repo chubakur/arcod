@@ -811,6 +811,10 @@ export function printModule(mod: ModuleNode): string {
 }
 
 export function formatSource(source: string, file: string): string {
+  // A BOM is a file-encoding artifact, so the canonical form never carries it.
+  // Dropping it here keeps extractComments and the AST offsets in one
+  // coordinate system (the lexer skips it too).
+  if (source.charCodeAt(0) === 0xfeff) source = source.slice(1);
   const mod = parse(source, file);
   const comments = extractComments(source);
   const offsets = collectOffsets(mod);

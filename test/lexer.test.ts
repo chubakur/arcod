@@ -98,3 +98,11 @@ test('token coordinates stay stable across lines', () => {
   assert.equal(eof.kind, 'eof');
   assert.equal(kinds('').length, 1, 'an empty source is just eof');
 });
+
+test('a UTF-8 BOM is encoding, not a character of the spec', () => {
+  const plain = lex('module m @0.1.0 {\n}\n');
+  const bom = lex('\uFEFFmodule m @0.1.0 {\n}\n');
+  const shape = (tokens: typeof plain) => tokens.map((t) => [t.kind, t.value, t.line, t.col]);
+  assert.deepEqual(shape(bom), shape(plain), 'the first token starts at 1:1 either way');
+  assert.equal(bom[0].offset, plain[0].offset + 1, 'offsets stay real positions in the file');
+});

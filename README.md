@@ -1441,6 +1441,9 @@ This is a vertical slice, not a finished language.
   capabilities.
 - `kv` in a real environment is Redis; the in-memory driver exists only for
   `arcod test`.
+- A UTF-8 BOM at the start of a spec is ignored (a Windows editor adds one),
+  and the canonical form never carries it: a file saved with a BOM is clean to
+  `check` and "not formatted" to `fmt --check` until `--write` drops it.
 - `arcod fmt` is canonical and idempotent, but it re-lays out record types on one
   line. Comments above declarations, fields, enum values, example statements,
   service `uses` lines, `allow`/`deny` lines, `budget` items and workflow step

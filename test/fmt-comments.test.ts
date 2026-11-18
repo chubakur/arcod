@@ -736,3 +736,12 @@ test('fmt keeps a comment above rules and examples blocks', () => {
   assert.match(out, /^  \/\/ worked examples\n  examples \{$/m);
   assert.equal(formatSource(out, 'main.arc'), out);
 });
+
+test('a BOM is dropped and does not steal the leading comment', () => {
+  const source = '\uFEFF// header note\nmodule m @0.1.0 {\n  meta { title: "x" }\n}\n';
+  const formatted = formatSource(source, 'm.arc');
+  assert.ok(formatted.startsWith('// header note\nmodule m @0.1.0 {'), formatted);
+  assert.equal(formatted.includes('\uFEFF'), false, 'the canonical form never carries a BOM');
+  // Idempotent from the written form onwards.
+  assert.equal(formatSource(formatted, 'm.arc'), formatted);
+});

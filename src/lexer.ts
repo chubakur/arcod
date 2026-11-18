@@ -37,6 +37,11 @@ export function lex(source: string): Token[] {
   let line = 1;
   let col = 1;
 
+  // A UTF-8 BOM is a file-encoding artifact, not a character of the spec. An
+  // editor (or PowerShell's redirect) that writes one must not turn the first
+  // line into "unexpected character"; the offsets stay real for the comments.
+  if (source.charCodeAt(0) === 0xfeff) i = 1;
+
   const advance = (n = 1) => {
     for (let k = 0; k < n; k++) {
       if (source[i] === '\n') {
