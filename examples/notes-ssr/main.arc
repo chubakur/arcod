@@ -20,7 +20,6 @@ service Notes : http {
   }
 
   contract {
-
     public op list() -> list<Note> {
       route: "GET /api/notes"
     }

@@ -34,7 +34,6 @@ service FileShare : http {
   }
 
   contract {
-
     auth op upload(name: FileName, body: Contents, visibility: Visibility, allowed: list<UserId>) -> FileId {
       route: "POST /v1/files"
       effects: store.set, uuid.new, auth.actor, files.put

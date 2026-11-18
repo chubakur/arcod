@@ -35,7 +35,6 @@ service Signup : http {
   }
 
   contract {
-
     public op create(email: email, website: url?, plan: Plan?) -> Account {
       route: "POST /v1/accounts"
       effects: store.insert, uuid.new

@@ -1410,10 +1410,10 @@ This is a vertical slice, not a finished language.
   (or at the end of that block, also when the clause itself is a dropped default
   such as `theme: auto`), a comment written inside a `slide` stays in that
   slide (above its `body`, or after it before the closing brace), a comment
-  after the last declaration is printed at the end of the file, and a comment that trails
+  after the last declaration is printed at the end of the file, a comment that trails
   code on the same line stays there (it is re-attached to the deepest node that
-  starts on that line); only a trailing comment after a closing brace has no
-  owner and is dropped. `arcod diff`
+  starts on that line), and a comment after a closing brace stays on that brace
+  (`}  // end service`, also for a one-line record, enum or saga step). `arcod diff`
   compares canonicalized specs; `arcod adopt` imports OpenAPI 3.x JSON only.
 - of the rule predicates `arcod test` supports only `once`.
 - `unique` is checked and enforced (`A054`–`A056`, a duplicate returns the

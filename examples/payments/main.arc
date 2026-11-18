@@ -21,7 +21,6 @@ error Unavailable
 // No container, no bodies, no tests are generated for it.
 external service Ledger : http {
   contract {
-
     op record(entry: Entry) -> Receipt {
       route: "POST /v1/entries"
     }
@@ -36,7 +35,6 @@ service Orders : http {
   }
 
   contract {
-
     public op charge(amount: Amount) -> Receipt {
       route: "POST /v1/orders"
       effects: store.set, uuid.new, Ledger.record

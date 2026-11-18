@@ -36,7 +36,6 @@ service GuardedMessage : http {
   }
 
   contract {
-
     public op create(body: Body, password: Password?) -> MessageId {
       route: "POST /api/messages"
       errors: Invalid

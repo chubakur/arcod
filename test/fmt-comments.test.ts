@@ -49,11 +49,51 @@ test('fmt keeps leading comments before declarations alongside trailing ones', (
   assert.match(out, /^\/\/ a task is a unit of work\ntype Task = \{$/m);
 });
 
-test('a trailing comment on a closing brace is dropped, not moved', () => {
+test('a trailing comment on a closing brace stays on that brace', () => {
   const src = ['module m @0.1.0 {}', 'type T = {', '  x: int', '} // the task record'].join('\n');
   const out = formatSource(src, 'main.arc');
-  assert.match(out, /type T = \{ x: int \}/);
-  assert.doesNotMatch(out, /the task record/);
+  assert.match(out, /^type T = \{ x: int \}  \/\/ the task record$/m);
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
+
+test('a trailing comment on a service block stays on its brace', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  contract {',
+    '    op list() -> list<T> {',
+    '      route: "/v1/t"',
+    '    } // the only op',
+    '  }',
+    '} // the whole service',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^    \}  \/\/ the only op$/m);
+  assert.match(out, /^\}  \/\/ the whole service$/m);
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
+
+test('a trailing comment on a workflow or a step stays on its brace', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'workflow W {',
+    '  trigger cron("* * * * *")',
+    '',
+    '  step one() {',
+    '    call: S.list',
+    '  } // the step',
+    '} // the flow',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^  \}  \/\/ the step$/m);
+  assert.match(out, /^\}  \/\/ the flow$/m);
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
+
+test('a closing-brace comment does not expand a one-line record', () => {
+  const src = ['module m @0.1.0 {}', 'enum E { a, b } // colors'].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^enum E \{ a, b \}  \/\/ colors$/m);
 });
 
 test('a trailing block comment is flattened onto its line', () => {

@@ -36,7 +36,6 @@ service Kanban : http {
   }
 
   contract {
-
     // A card is always created for the signed-in caller; there is no owner input.
     auth op create(text: CardText, image: Image?) -> Card {
       route: "POST /v1/cards"

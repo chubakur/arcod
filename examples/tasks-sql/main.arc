@@ -46,7 +46,6 @@ service TaskBoard : http {
   }
 
   contract {
-
     public op create(title: string, priority: Priority, dueAt: datetime?) -> Task {
       route: "POST /v1/tasks"
       effects: store.insert, uuid.new

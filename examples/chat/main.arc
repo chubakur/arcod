@@ -29,7 +29,6 @@ service Chat : http {
   }
 
   contract {
-
     public op start() -> ConversationId {
       route: "POST /v1/conversations"
       effects: store.set, uuid.new

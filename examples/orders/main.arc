@@ -30,7 +30,6 @@ service Orders : http {
   }
 
   contract {
-
     public op create(sku: string, qty: int) -> Order {
       route: "POST /v1/orders"
       effects: store.insert, uuid.new, events.publish

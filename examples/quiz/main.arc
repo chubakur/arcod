@@ -33,7 +33,6 @@ service Live : http {
   }
 
   contract {
-
     // The host opens a room: one short code, one presenter token.
     public op start() -> Session {
       route: "POST /v1/sessions"

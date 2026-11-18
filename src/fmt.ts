@@ -185,6 +185,52 @@ function collectOffsets(m: ModuleNode): number[] {
   return out;
 }
 
+// Ends of the nodes whose printed form closes with a brace (or, for an alias,
+// with its last token). A comment written after that closing brace on the same
+// line has no node starting on its line; these ends give it an anchor, so
+// `} // end service` survives a format instead of being dropped.
+function collectEnds(m: ModuleNode, out: number[]): void {
+  for (const t of m.types) out.push(t.loc.end);
+  for (const e of m.errors) out.push(e.loc.end);
+  for (const e of m.enums) out.push(e.loc.end);
+  for (const s of m.services) {
+    out.push(s.loc.end);
+    for (const op of s.contract) out.push(op.loc.end);
+    for (const sg of s.sagas) {
+      out.push(sg.loc.end);
+      for (const st of sg.steps) out.push(st.loc.end);
+    }
+    for (const ex of s.examples) out.push(ex.loc.end);
+  }
+  for (const w of m.workflows) {
+    out.push(w.loc.end);
+    for (const st of w.steps) out.push(st.loc.end);
+  }
+  for (const e of m.environments) out.push(e.loc.end);
+  for (const u of m.uis) {
+    out.push(u.loc.end);
+    for (const s of u.slides) out.push(s.loc.end);
+  }
+}
+
+// Offsets of recorded closing braces mapped to the end of the node they close.
+// A trailing comment on such a line reaches the brace offset before the node
+// end, so both anchors must name the same block.
+function collectCloseEnds(m: ModuleNode, out: Map<number, number>): void {
+  const add = (loc: Loc | undefined, end: number): void => {
+    if (loc) out.set(loc.offset, end);
+  };
+  for (const s of m.services) for (const sg of s.sagas) for (const st of sg.steps) add(st.closeLoc, st.loc.end);
+  for (const w of m.workflows) {
+    add(w.closeLoc, w.loc.end);
+    for (const st of w.steps) add(st.closeLoc, st.loc.end);
+  }
+  for (const u of m.uis) {
+    add(u.closeLoc, u.loc.end);
+    for (const s of u.slides) add(s.closeLoc, s.loc.end);
+  }
+}
+
 function collectService(s: ServiceNode, out: number[]): void {
   out.push(s.loc.offset);
   for (const loc of s.metaEntryLocs ?? []) out.push(loc.offset);
@@ -267,13 +313,24 @@ class Printer {
   // Trailing comments wait for the next emitted line: the node that owns them
   // prints exactly one line right after its emitComments call.
   private pending: string[] = [];
+  // Comments written after a closing brace on its own line, keyed by the
+  // closing node's end. The block prints them back on that brace line.
+  private braceTrailing: Map<number, string[]>;
 
-  constructor(comments: Map<number, string[]>, trailing: Map<number, string[]> = new Map(), moduleComments: string[] = [], tailComments: string[] = [], metaTail: string[] = []) {
+  constructor(comments: Map<number, string[]>, trailing: Map<number, string[]> = new Map(), moduleComments: string[] = [], tailComments: string[] = [], metaTail: string[] = [], braceTrailing: Map<number, string[]> = new Map()) {
     this.comments = comments;
     this.trailing = trailing;
     this.moduleComments = moduleComments;
     this.tailComments = tailComments;
     this.metaTail = metaTail;
+    this.braceTrailing = braceTrailing;
+  }
+
+  // The last line of a block, with the comment that trailed its closing brace.
+  private closeLine(indent: number, text: string, end: number): void {
+    const cs = this.braceTrailing.get(end);
+    if (cs && cs.length > 0) this.raw(indent, text + '  ' + cs.join(' '));
+    else this.raw(indent, text);
   }
 
   private raw(indent: number, text: string): void {
@@ -374,23 +431,23 @@ class Printer {
         this.emitComments(fields[i].loc.offset, 1);
         this.raw(1, param(fields[i]) + (i < fields.length - 1 ? ',' : ''));
       }
-      this.raw(0, '}');
+      this.closeLine(0, '}', t.loc.end);
       return;
     }
-    this.raw(0, 'type ' + t.name + ' = ' + type(t.type));
+    this.closeLine(0, 'type ' + t.name + ' = ' + type(t.type), t.loc.end);
   }
 
   private errorDecl(e: ErrorDecl): void {
     this.emitComments(e.loc.offset, 0);
     if (e.fields.length === 0) {
-      this.raw(0, 'error ' + e.name);
+      this.closeLine(0, 'error ' + e.name, e.loc.end);
       return;
     }
     const commented = e.fields.some((field) => this.comments.has(field.loc.offset) || this.trailing.has(field.loc.offset));
     if (!commented) {
       this.raw(0, 'error ' + e.name + ' {');
       for (const f of e.fields) this.raw(1, param(f));
-      this.raw(0, '}');
+      this.closeLine(0, '}', e.loc.end);
       return;
     }
     // Same rule as a record: a commented field needs a line of its own.
@@ -399,7 +456,7 @@ class Printer {
       this.emitComments(f.loc.offset, 1);
       this.raw(1, param(f));
     }
-    this.raw(0, '}');
+    this.closeLine(0, '}', e.loc.end);
   }
 
   private enumDecl(e: { kind: string; name: string; values: string[]; valueLocs?: Loc[]; loc: Loc }): void {
@@ -408,7 +465,7 @@ class Printer {
     const commented = locs.length === e.values.length &&
       e.values.some((_, index) => this.comments.has(locs[index].offset) || this.trailing.has(locs[index].offset));
     if (!commented) {
-      this.raw(0, 'enum ' + e.name + ' { ' + e.values.join(', ') + ' }');
+      this.closeLine(0, 'enum ' + e.name + ' { ' + e.values.join(', ') + ' }', e.loc.end);
       return;
     }
     // A commented value needs its own line, exactly like a commented field.
@@ -417,7 +474,7 @@ class Printer {
       this.emitComments(locs[index].offset, 1);
       this.raw(1, e.values[index] + (index < e.values.length - 1 ? ',' : ''));
     }
-    this.raw(0, '}');
+    this.closeLine(0, '}', e.loc.end);
   }
 
   private service(s: ServiceNode): void {
@@ -450,7 +507,7 @@ class Printer {
       if (i > 0) this.blank();
       body[i]();
     }
-    this.raw(0, '}');
+    this.closeLine(0, '}', s.loc.end);
   }
 
   private capUse(c: CapUse): void {
@@ -503,9 +560,11 @@ class Printer {
 
   private contract(ops: OpNode[]): void {
     this.raw(1, 'contract {');
-    for (const op of ops) {
-      this.blank();
-      this.op(op, 2);
+    // No blank line right after `contract {`: the first operation starts the
+    // block, as it does in every other clause.
+    for (let i = 0; i < ops.length; i++) {
+      if (i > 0) this.blank();
+      this.op(ops[i], 2);
     }
     this.raw(1, '}');
   }
@@ -522,7 +581,7 @@ class Printer {
       this.emitComments(c.loc.offset, indent + 1);
       this.clause(c, indent + 1);
     }
-    this.raw(indent, '}');
+    this.closeLine(indent, '}', op.loc.end);
   }
 
   private clause(c: Clause, indent: number): void {
@@ -558,7 +617,7 @@ class Printer {
         if (st.call) parts.push('call: ' + st.call);
         if (st.compensate) parts.push('compensate: ' + st.compensate);
         if (st.retry !== null) parts.push('retry: ' + st.retry);
-        this.raw(2, 'step ' + st.name + ' { ' + parts.join(' ') + ' }');
+        this.closeLine(2, 'step ' + st.name + ' { ' + parts.join(' ') + ' }', st.loc.end);
         continue;
       }
       this.raw(2, 'step ' + st.name + ' {');
@@ -567,9 +626,9 @@ class Printer {
       if (st.compensate) { sc('compensate'); this.raw(3, 'compensate: ' + st.compensate); }
       if (st.retry !== null) { sc('retry'); this.raw(3, 'retry: ' + st.retry); }
       this.blockTail(st.closeLoc, 3);
-      this.raw(2, '}');
+      this.closeLine(2, '}', st.loc.end);
     }
-    this.raw(1, '}');
+    this.closeLine(1, '}', sg.loc.end);
   }
 
   private examples(exs: ExampleNode[]): void {
@@ -581,7 +640,7 @@ class Printer {
       if (ex.given.length) this.section('given', ex.given, 3);
       if (ex.when.length) this.section('when', ex.when, 3);
       if (ex.then.length) this.section('then', ex.then, 3);
-      this.raw(2, '}');
+      this.closeLine(2, '}', ex.loc.end);
     }
     this.raw(1, '}');
   }
@@ -657,10 +716,10 @@ class Printer {
       if (st.retry !== null) { sc('retry'); this.raw(2, 'retry: ' + st.retry); }
       if (st.timeout) { sc('timeout'); this.raw(2, 'timeout: ' + expr(st.timeout)); }
       this.blockTail(st.closeLoc, 2);
-      this.raw(1, '}');
+      this.closeLine(1, '}', st.loc.end);
     }
     this.blockTail(w.closeLoc, 1);
-    this.raw(0, '}');
+    this.closeLine(0, '}', w.loc.end);
   }
 
   private trigger(t: TriggerNode): string {
@@ -687,7 +746,7 @@ class Printer {
       if (keys.length > 0) s += '(' + keys.map((k) => k + ': ' + expr(d.args[k])).join(', ') + ')';
       this.raw(1, s);
     }
-    this.raw(0, '}');
+    this.closeLine(0, '}', e.loc.end);
   }
 
   private ui(u: UiNode): void {
@@ -724,10 +783,10 @@ class Printer {
         this.raw(2, 'body: ' + quoteStr(s.body));
       }
       this.blockTail(s.closeLoc, 2);
-      this.raw(1, '}');
+      this.closeLine(1, '}', s.loc.end);
     }
     this.blockTail(u.closeLoc, 1);
-    this.raw(0, '}');
+    this.closeLine(0, '}', u.loc.end);
   }
 }
 
@@ -741,6 +800,11 @@ export function formatSource(source: string, file: string): string {
   const mod = parse(source, file);
   const comments = extractComments(source);
   const offsets = collectOffsets(mod);
+  const ends: number[] = [];
+  collectEnds(mod, ends);
+  ends.sort((a, b) => b - a);
+  const closeEnds = new Map<number, number>();
+  collectCloseEnds(mod, closeEnds);
   const lineStarts = [0];
   for (let i = 0; i < source.length; i++) if (source[i] === '\n') lineStarts.push(i + 1);
   const lineOf = (pos: number): number => {
@@ -758,6 +822,8 @@ export function formatSource(source: string, file: string): string {
   const moduleComments: string[] = [];
   const tailComments: string[] = [];
   const metaTail: string[] = [];
+  // Comments after a closing brace, anchored on the node that brace closes.
+  const braceTrailing = new Map<number, string[]>();
   for (const c of comments) {
     // A comment written between the module header braces belongs to the block,
     // not to the first declaration after it. Trailing ones keep the normal path
@@ -777,9 +843,18 @@ export function formatSource(source: string, file: string): string {
       continue;
     }
     if (c.trailing) {
-      // The deepest node that starts on the comment's own line owns it. A
-      // comment after a closing brace has no such node and is dropped.
+      // A comment written after a block's closing brace belongs to that block,
+      // even when a child node started on the same line (a one-line record).
+      // The brace printer puts it back on the line it came from.
       const line = lineOf(c.start);
+      const braceEnd = ends.find((end) => end <= c.start && lineOf(end - 1) === line);
+      if (braceEnd !== undefined) {
+        const br = braceTrailing.get(braceEnd) ?? [];
+        br.push(c.text.replace(/\s+/g, ' ').trim());
+        braceTrailing.set(braceEnd, br);
+        continue;
+      }
+      // Otherwise the deepest node that starts on the comment's own line owns it.
       let target = -1;
       for (let i = offsets.length - 1; i >= 0; i--) {
         const o = offsets[i];
@@ -788,7 +863,26 @@ export function formatSource(source: string, file: string): string {
         if (oLine === line) { target = o; break; }
         if (oLine < line) break;
       }
-      if (target < 0) continue;
+      if (target < 0) {
+        // Nothing starts on this line: the comment trails a closing brace.
+        // Anchor it on the innermost node that ends on the line, so the brace
+        // printer can put it back on that same line.
+        const anchor = ends.find((end) => end <= c.start && lineOf(end - 1) === line);
+        if (anchor === undefined) continue;
+        const br = braceTrailing.get(anchor) ?? [];
+        br.push(c.text.replace(/\s+/g, ' ').trim());
+        braceTrailing.set(anchor, br);
+        continue;
+      }
+      // A recorded closing brace anchors the comment on the block it closes,
+      // not on an inner line of the printer.
+      const blockEnd = closeEnds.get(target);
+      if (blockEnd !== undefined) {
+        const br = braceTrailing.get(blockEnd) ?? [];
+        br.push(c.text.replace(/\s+/g, ' ').trim());
+        braceTrailing.set(blockEnd, br);
+        continue;
+      }
       const arr = trailing.get(target) ?? [];
       arr.push(c.text.replace(/\s+/g, ' ').trim());
       trailing.set(target, arr);
@@ -808,5 +902,5 @@ export function formatSource(source: string, file: string): string {
     arr.push(c.text);
     leading.set(target, arr);
   }
-  return new Printer(leading, trailing, moduleComments, tailComments, metaTail).module(mod);
+  return new Printer(leading, trailing, moduleComments, tailComments, metaTail, braceTrailing).module(mod);
 }

@@ -31,7 +31,6 @@ service OneTimeMessage : http {
   }
 
   contract {
-
     public op create(body: Body) -> MessageId {
       route: "POST /api/messages"
       errors: Invalid

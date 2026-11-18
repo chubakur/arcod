@@ -24,7 +24,6 @@ service Checkout : http {
   }
 
   contract {
-
     public op mark(label: string) -> Marker {
       route: "POST /v1/mark"
       effects: store.insert, uuid.new
