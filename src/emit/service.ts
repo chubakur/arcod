@@ -2147,8 +2147,10 @@ async function remoteCall(service, op, input) {
   const body = {};
   const query = new URLSearchParams();
   for (const key of Object.keys(values)) {
-    if (route.path.includes(':' + key)) {
-      path = path.split(':' + key).join(encodeURIComponent(String(values[key])));
+    // ':item' must not match the capture ':itemId' — the name has to end here.
+    const capture = new RegExp(':' + key + '(?![A-Za-z0-9_])');
+    if (capture.test(route.path)) {
+      path = path.replace(new RegExp(capture.source, 'g'), () => encodeURIComponent(String(values[key])));
     } else if (route.method === 'GET' || route.method === 'DELETE' || route.method === 'HEAD') {
       query.append(key, String(values[key]));
     } else {
