@@ -1913,3 +1913,37 @@ test('guarded examples pass: wrong password does not consume', async () => {
   assert.equal(report.rules.length, 2);
   assert.ok(report.rules.every((item) => item.ok), JSON.stringify(report.rules));
 });
+
+test('two operations on one method and path are refused, A069', () => {
+  const src = [
+    'module dup @0.1.0 {}',
+    '',
+    'service S : http {',
+    '  contract {',
+    '    public op a() -> string {',
+    '      route: "GET /v1/x"',
+    '      post: result != null',
+    '    }',
+    '',
+    '    public op b() -> string {',
+    '      route: "GET /v1/x"',
+    '      post: result != null',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const diags = check(parse(src, 'main.arc'));
+  const a069 = diags.filter((d) => d.code === 'A069');
+  assert.equal(a069.length, 1, JSON.stringify(diags));
+  assert.equal(a069[0].severity, 'error');
+  assert.match(a069[0].message, /S\.b answers the same route as S\.a: GET \/v1\/x/);
+  assert.match(a069[0].hint ?? '', /distinct method or path/);
+
+  // The same path with another method is a different route, and the method
+  // casing does not create a duplicate.
+  const ok = src
+    .replace('route: "GET /v1/x"\n      post: result != null\n    }\n  }', 'route: "POST /v1/x"\n      post: result != null\n    }\n  }')
+    .replace('route: "GET /v1/x"', 'route: "get /v1/x"');
+  assert.deepEqual(check(parse(ok, 'main.arc')).filter((d) => d.code === 'A069'), []);
+});

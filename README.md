@@ -1208,6 +1208,9 @@ Errors:
   value, an operation, a service, a type, an enum, an error, a workflow or an
   environment) — every emitter keys by name, so the second would silently
   replace the first;
+- `A069` two operations of one service answer the same method and path: the
+  generated router keeps the first and the second is unreachable, so the
+  second op never runs and no other diagnostic mentions it;
 - `A068` `bind alias -> local` for a capability the bundled runtime does not
   serve: `local` is the compiler's own runtime (ids, hash), so a storage or
   queue alias bound to it provisions nothing and the service starts without an

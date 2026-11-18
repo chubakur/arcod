@@ -658,6 +658,29 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // A069 — two operations of one service answer the same method and path.
+    // The generated router keeps the first and the second is unreachable, and
+    // nothing else would report it. The method is compared case-insensitively,
+    // the path verbatim: /v1/x and /v1/X are two different routes.
+    if (!svc.external) {
+      const routes = new Map<string, string>();
+      for (const op of svc.contract) {
+        if (op.kind !== 'op') continue;
+        const route = routeOf(op);
+        if (!route) continue;
+        const parts = route.trim().split(/\s+/);
+        const key = (parts[0] ?? '').toUpperCase() + ' ' + parts.slice(1).join(' ');
+        const first = routes.get(key);
+        if (first !== undefined) {
+          diags.push(diag('A069', 'error', mod.file, op.loc, 'services.' + svc.name + '.contract.' + op.name,
+            svc.name + '.' + op.name + ' answers the same route as ' + svc.name + '.' + first + ': ' + route,
+            'give one of them a distinct method or path'));
+          continue;
+        }
+        routes.set(key, op.name);
+      }
+    }
+
     // Access control: `auth`, `roles:` and `owner:` are enforced by the
     // generated runtime before the body runs, so the model has to be sound.
     const identityAliases = svc.uses
