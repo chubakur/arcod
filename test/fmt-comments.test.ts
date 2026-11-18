@@ -286,3 +286,40 @@ test('workflow and ui formatting with clause comments is idempotent', () => {
   assert.equal(formatSource(once, 'main.arc'), once);
 });
 
+
+
+test('a comment inside a workflow step stays on its own clause', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'workflow W {',
+    '  step one() {',
+    '    // what it calls',
+    '    call: a.b',
+    '    // and what it needs',
+    '    needs: zero',
+    '    onfail: skip // fails soft',
+    '  }',
+    '}',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^    \/\/ what it calls\n    call: a\.b$/m);
+  assert.match(out, /^    \/\/ and what it needs\n    needs: zero$/m);
+  assert.match(out, /^    onFail: skip  \/\/ fails soft$/m);
+  assert.equal(formatSource(out, 'main.arc'), out, 'stable on a second pass');
+});
+
+test('a comment after the last step clause stays inside the step', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'workflow W {',
+    '  step one() {',
+    '    call: a.b',
+    '    // nothing else to say',
+    '  }',
+    '}',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^    \/\/ nothing else to say\n  \}$/m);
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
+

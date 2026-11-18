@@ -16,6 +16,13 @@ export class ParseError extends Error {
   }
 }
 
+// The step clause has three accepted spellings but one name in the AST; the
+// comment anchors use the name fmt prints, so a comment cannot depend on
+// whether the author wrote `onFail` or `on_fail`.
+function canonicalStepClause(key: string): string {
+  return key === 'onfail' || key === 'on_fail' ? 'onFail' : key;
+}
+
 export function parse(source: string, file = '<input>'): ModuleNode {
   try {
     return new Parser(source, file).parseModule();
@@ -787,11 +794,13 @@ class Parser {
     this.expect('{');
     const step: WorkflowStepNode = {
       name, params, returns, call: null, needs: [], effects: [], onFail: null,
-      retry: null, timeout: null, loc: locOf(start),
+      retry: null, timeout: null, clauseLocs: {}, loc: locOf(start),
     };
     while (!this.is('}')) {
       if (this.accept(';')) continue;
-      const key = this.expectIdent('step clause').value;
+      const keyTok = this.expectIdent('step clause');
+      const key = keyTok.value;
+      step.clauseLocs![canonicalStepClause(key)] = locOf(keyTok);
       this.expect(':');
       if (key === 'call') { step.call = this.parseQName(); continue; }
       if (key === 'needs') {
@@ -825,6 +834,7 @@ class Parser {
       this.error('unexpected step clause ' + JSON.stringify(key));
     }
     const end = this.expect('}');
+    step.closeLoc = locOf(end);
     step.loc = this.loc(start, end);
     return step;
   }

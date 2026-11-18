@@ -212,7 +212,11 @@ function collectWorkflow(w: WorkflowNode, out: number[]): void {
   // the first step, and the one above the last clause left the block entirely.
   for (const loc of Object.values(w.clauseLocs ?? {})) out.push(loc.offset);
   if (w.closeLoc) out.push(w.closeLoc.offset);
-  for (const st of w.steps) out.push(st.loc.offset);
+  for (const st of w.steps) {
+    out.push(st.loc.offset);
+    for (const loc of Object.values(st.clauseLocs ?? {})) out.push(loc.offset);
+    if (st.closeLoc) out.push(st.closeLoc.offset);
+  }
 }
 
 function collectEnv(e: EnvironmentNode, out: number[]): void {
@@ -598,12 +602,14 @@ class Printer {
       let head = 'step ' + st.name + params(st.params);
       if (st.returns) head += ' -> ' + type(st.returns);
       this.raw(1, head + ' {');
-      if (st.call) this.raw(2, 'call: ' + st.call);
-      if (st.needs.length) this.raw(2, 'needs: ' + st.needs.join(', '));
-      if (st.effects.length) this.raw(2, 'effects: ' + st.effects.join(', '));
-      if (st.onFail) this.raw(2, 'onFail: ' + st.onFail);
-      if (st.retry !== null) this.raw(2, 'retry: ' + st.retry);
-      if (st.timeout) this.raw(2, 'timeout: ' + expr(st.timeout));
+      const sc = (key: string): void => { this.clauseComments(st.clauseLocs, key, 2); };
+      if (st.call) { sc('call'); this.raw(2, 'call: ' + st.call); }
+      if (st.needs.length) { sc('needs'); this.raw(2, 'needs: ' + st.needs.join(', ')); }
+      if (st.effects.length) { sc('effects'); this.raw(2, 'effects: ' + st.effects.join(', ')); }
+      if (st.onFail) { sc('onFail'); this.raw(2, 'onFail: ' + st.onFail); }
+      if (st.retry !== null) { sc('retry'); this.raw(2, 'retry: ' + st.retry); }
+      if (st.timeout) { sc('timeout'); this.raw(2, 'timeout: ' + expr(st.timeout)); }
+      this.blockTail(st.closeLoc, 2);
       this.raw(1, '}');
     }
     this.blockTail(w.closeLoc, 1);

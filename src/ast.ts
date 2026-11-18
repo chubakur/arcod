@@ -124,6 +124,11 @@ export interface WorkflowStepNode {
   onFail: 'stop' | 'skip' | 'retry' | 'continue' | null;
   retry: number | null;
   timeout: Expr | null;
+  // Locations of the clause keywords, keyed by the canonical name (onFail,
+  // whatever the source spelling). fmt keeps a comment on its own clause.
+  clauseLocs?: Record<string, Loc>;
+  // The closing brace, for a comment written after the last clause.
+  closeLoc?: Loc;
   loc: Loc;
 }
 

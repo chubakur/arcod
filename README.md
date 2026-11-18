@@ -1384,7 +1384,9 @@ This is a vertical slice, not a finished language.
   survive, a comment written inside the module header braces stays inside the
   block (printed after `meta` when one is declared), a comment inside
   `meta { ... }` stays with the entry it precedes (or at the end of the block),
-  a comment after the last
+  a comment inside a `workflow` or `ui` block stays on the clause it precedes
+  (or at the end of that block, also when the clause itself is a dropped default
+  such as `theme: auto`), a comment after the last
   declaration is printed at the end of the file, and a comment that trails
   code on the same line stays there (it is re-attached to the deepest node that
   starts on that line); only a trailing comment after a closing brace has no
