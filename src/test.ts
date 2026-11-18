@@ -278,18 +278,22 @@ async function invoke(op: OpNode, args: Value[], ctx: Context): Promise<Value> {
   const route = routeOf(op);
   if (!route) throw new Error('op ' + op.name + ' has no route');
   const space = route.indexOf(' ');
-  const method = route.slice(0, space);
+  // Route clauses may be written in any case (A070), the wire wants upper.
+  const method = route.slice(0, space).toUpperCase();
+  // HEAD is a GET without a response body: query, no body. Only these three
+  // methods keep their parameters out of the payload.
+  const bodyless = method === 'GET' || method === 'DELETE' || method === 'HEAD';
   let path = route.slice(space + 1);
 
   const pathParams = Array.from(path.matchAll(/:([A-Za-z0-9_]+)/g)).map((m) => m[1]);
   for (const name of pathParams) {
     const index = op.params.findIndex((param) => param.name === name);
     if (index < 0) throw new Error('no parameter ' + name + ' in ' + op.name);
-    path = path.replace(':' + name, encodeURIComponent(String(unwrap(args[index]))));
+    path = path.replace(':' + name, () => encodeURIComponent(String(unwrap(args[index]))));
     args = args.filter((_, i) => i !== index);
   }
 
-  if (method === 'GET' || method === 'DELETE') {
+  if (bodyless) {
     const query = new URLSearchParams();
     const remaining = op.params.filter((param) => !pathParams.includes(param.name));
     remaining.forEach((param, index) => {
@@ -300,7 +304,7 @@ async function invoke(op: OpNode, args: Value[], ctx: Context): Promise<Value> {
   }
 
   let body: string | undefined;
-  if (method !== 'GET' && method !== 'DELETE') {
+  if (!bodyless) {
     const payload: Record<string, unknown> = {};
     const remaining = op.params.filter((param) => !pathParams.includes(param.name));
     remaining.forEach((param, index) => {
@@ -319,9 +323,18 @@ async function invoke(op: OpNode, args: Value[], ctx: Context): Promise<Value> {
   });
 
   if (response.ok) {
+    // A HEAD answer has no body at all; JSON.parse('') would fail the example.
+    const raw = await response.text();
+    if (raw === '') return null;
     const type = response.headers.get('content-type') || '';
-    if (type.includes('application/json')) return await response.json();
-    return await response.text();
+    if (type.includes('application/json')) {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return raw;
+      }
+    }
+    return raw;
   }
 
   const name = ctx.statusToError.get(response.status) ?? 'HTTP_' + response.status;
