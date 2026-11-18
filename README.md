@@ -80,6 +80,13 @@ arcod run --down   # stop
 node ../../bin/arcod.mjs run   # without npm link
 ```
 
+A spec file is a module header followed by declarations. The header braces hold
+one `meta { ... }` block and nothing else: `type`, `enum`, `error`, `service`,
+`environment` and `ui` go after the closing brace. A token that is not `meta`
+inside the braces — a declaration written one brace too deep, a second `meta`
+block, or a repeated meta key — is a located parse error, so a misplaced
+declaration can never become a silently ignored line.
+
 ## Types
 
 Types are part of the contract, not decoration: JSON schemas for parameters and

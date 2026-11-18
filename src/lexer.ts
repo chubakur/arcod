@@ -22,6 +22,9 @@ export class LexError extends Error {
 
   constructor(message: string, line: number, col: number, offset = 0) {
     super(message);
+    // Errors that carry a location should name themselves in a stack trace;
+    // the default "Error" hides which gate refused the spec.
+    this.name = 'LexError';
     this.line = line;
     this.col = col;
     this.offset = offset;

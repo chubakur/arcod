@@ -12,6 +12,7 @@ export class ParseError extends Error {
 
   constructor(message: string, loc: Loc) {
     super(message);
+    this.name = 'ParseError';
     this.loc = loc;
   }
 }
@@ -71,16 +72,25 @@ class Parser {
     let metaLoc: ModuleNode['metaLoc'];
     let metaEntryLocs: Loc[] = [];
     this.expect('{');
+    let sawMeta = false;
     while (!this.is('}')) {
       if (this.peek().kind === 'eof') this.error('unexpected end of file: missing closing `}` for the module header');
       if (this.accept('meta')) {
+        // One header carries one meta block: a second one would merge silently,
+        // and a repeated key inside it would win silently.
+        if (sawMeta) this.error('duplicate `meta` block in the module header');
+        sawMeta = true;
         const parsed = this.parseMeta();
         Object.assign(meta, parsed.values);
         metaLoc = parsed.loc;
         metaEntryLocs = parsed.locs;
-      } else {
-        this.next();
+        continue;
       }
+      // The header braces hold meta only. Skipping anything else would turn a
+      // declaration written one brace too deep into a no-op that check calls
+      // clean, which is the worst possible answer for a typo.
+      this.error('unexpected token ' + JSON.stringify(this.peek().value) +
+        ' in the module header: only `meta { ... }` goes inside the braces, declarations go after the closing `}`');
     }
     const end = this.expect('}');
 
@@ -116,6 +126,9 @@ class Parser {
     while (!this.is('}')) {
       const keyTok = this.expectIdent('meta key');
       this.expect(':');
+      if (Object.hasOwn(values, keyTok.value)) {
+        throw new ParseError('duplicate meta key ' + JSON.stringify(keyTok.value), locOf(keyTok));
+      }
       const tok = this.next();
       values[keyTok.value] = tok.value;
       locs.push(locOf(keyTok));
