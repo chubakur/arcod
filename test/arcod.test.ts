@@ -1948,6 +1948,38 @@ test('two operations on one method and path are refused, A069', () => {
   assert.deepEqual(check(parse(ok, 'main.arc')).filter((d) => d.code === 'A069'), []);
 });
 
+test('A069 compares captures by position, not by name', () => {
+  // matchRoute walks the path segments and assigns each capture in turn, so
+  // "/v1/t/:id" and "/v1/t/:tid" are one route to the router: the second
+  // operation can never run. Comparing the paths verbatim missed it.
+  const src = [
+    'module dup @0.1.0 {}',
+    '',
+    'service S : http {',
+    '  contract {',
+    '    public op a(id: string) -> string {',
+    '      route: "GET /v1/t/:id"',
+    '      post: result != null',
+    '    }',
+    '',
+    '    public op b(tid: string) -> string {',
+    '      route: "GET /v1/t/:tid"',
+    '      post: result != null',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const a069 = check(parse(src, 'main.arc')).filter((d) => d.code === 'A069');
+  assert.equal(a069.length, 1);
+  assert.match(a069[0].message, /S\.b answers the same route as S\.a/);
+  assert.match(a069[0].hint ?? '', /one parameter name/);
+
+  // Different positions are different routes even with the same names.
+  const distinct = src.replace('route: "GET /v1/t/:tid"', 'route: "GET /v1/u/:tid"');
+  assert.deepEqual(check(parse(distinct, 'main.arc')).filter((d) => d.code === 'A069'), []);
+});
+
 test('a route names a known method and a path, A070', () => {
   const spec = (route: string) => [
     'module r @0.1.0 {}',
