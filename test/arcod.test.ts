@@ -601,6 +601,14 @@ service Items : http {
   assert.equal(noDsn.length, 1);
   assert.equal(noDsn[0].path, 'environments.prod.binds.errors');
   assert.match(noDsn[0].message, /requires argument dsn/);
+
+  // A provider that exists but does not implement the capability is the same
+  // trap: kafka in prod is a valid provider and a broken binding for kv.
+  const mismatch = check(parse(source('  bind store -> kafka(host: "kv")'), 'envs.arc'))
+    .filter((item) => item.code === 'A024');
+  assert.equal(mismatch.length, 1);
+  assert.equal(mismatch[0].path, 'environments.prod.binds.store');
+  assert.match(mismatch[0].message, /kafka does not implement kv/);
 });
 
 test('a bind argument that is not a literal is called out', () => {

@@ -252,6 +252,36 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
             `add ${required}: "..." to bind`));
         }
       }
+
+      // A024 — the provider does not implement the capability the alias is
+      // used for; W029 — a plugin adapter nothing can dispatch. Both depend on
+      // a `uses`, not on the environment being deployed, so they are checked
+      // for every environment as well.
+      // Two services may share one alias with different capabilities; the
+      // provider has to satisfy every one of them.
+      const capabilities = new Map<string, string>();
+      for (const item of mod.services) {
+        if (item.external) continue;
+        for (const use of item.uses) {
+          if (use.alias !== bind.alias) continue;
+          const short = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
+          capabilities.set(short, use.capability);
+        }
+      }
+      if (capabilities.size === 0) continue;
+      for (const [capability, declared] of capabilities) {
+        if (spec.runtime && registry.signaturesFor(capability).length === 0) {
+          diags.push(diag('W029', 'warning', mod.file, bind.loc, subject,
+            `${bind.provider} ships a runtime adapter but ${capability} declares no signatures`,
+            'add signatures to the capability manifest; without them the generated service cannot dispatch the adapter'));
+        }
+        if (!providerImplements(spec, capability)) {
+          const alternatives = registry.forCapability(capability);
+          diags.push(diag('A024', 'error', mod.file, bind.loc, subject,
+            `${bind.provider} does not implement ${declared}`,
+            alternatives.length > 0 ? `available for ${capability}: ` + alternatives.join(', ') : `${capability} has no providers`));
+        }
+      }
     }
   }
 
@@ -322,36 +352,6 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
-    // A024 — provider does not implement the capability; W029 — a plugin
-    // adapter nothing can dispatch. A023/A025/A026 run once per environment
-    // above, so a binding in another environment is not silently skipped.
-    for (const bind of env?.binds ?? []) {
-      if (bind.provider === 'local') continue;
-      const use = svc.uses.find((item) => item.alias === bind.alias);
-      if (!use) continue;
-      const spec = registry.get(bind.provider);
-      if (!spec) continue;
-
-      const capability = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
-      // W029 — a plugin provider ships a runtime adapter, but its capability
-      // declares no signatures: the service would load the adapter and never
-      // call it, because nothing names the method. Say so at the bind.
-      if (spec.runtime && registry.signaturesFor(capability).length === 0) {
-        diags.push(
-          diag('W029', 'warning', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
-            `${bind.provider} ships a runtime adapter but ${capability} declares no signatures`,
-            'add signatures to the capability manifest; without them the generated service cannot dispatch the adapter'),
-        );
-      }
-      if (!providerImplements(spec, capability)) {
-        const alternatives = registry.forCapability(capability);
-        diags.push(
-          diag('A024', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
-            `${bind.provider} does not implement ${use.capability}`,
-            alternatives.length > 0 ? `available for ${capability}: ` + alternatives.join(', ') : `${capability} has no providers`),
-        );
-      }
-    }
 
     // W033 — a `uses` parameter is a note for the reader unless an adapter
     // reads it. Today only `ttl` on a storage capability is executed (it sets

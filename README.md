@@ -1171,8 +1171,8 @@ Errors:
 - `A022` `once(..., else: E)` references an error outside the contract;
 - `A023` unknown provider; `A024` provider does not implement the capability;
   `A025` one alias bound twice; `A026` a provider requires an argument the
-  bind omits — `A023`/`A025`/`A026` are checked in every environment, not only
-  the one `--env` selects;
+  bind omits — all four are checked in every environment, not only the one
+  `--env` selects;
 - `A027` an operation names an effect whose alias is not declared in `uses`;
 - `A028` unknown deployment provider; `W019` unknown provider argument;
 - `A029` `needs` references an unknown step;
