@@ -531,6 +531,11 @@ carries the trigger as data: `kind`, `args`, and for the delayed forms
 `at` (the instant) or `afterSeconds` (the delay), so a runner schedules
 without re-parsing the spec.
 
+A delayed trigger is a declaration for a runner, **not a timer**: v0.1 does
+not fire `at`/`after` by itself, and work that must happen on a deadline stays
+the application's responsibility until a runner exists. An impossible instant,
+a missing zone or a non-positive delay is rejected at build time (`A034`).
+
 ### Files, sign-in and rights
 
 `examples/files` — a service where a user signs in through Keycloak, uploads a
