@@ -93,6 +93,27 @@ test('a header comment prints after the meta block and keeps its order', () => {
   assert.equal(formatSource(out, 'main.arc'), out);
 });
 
+test('a comment after the last declaration is kept at the end of the file', () => {
+  const src = ['module m @0.1.0 {}', 'type T = { x: int }', '// end of the model', ''].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.equal(out, 'module m @0.1.0 {\n}\n\ntype T = { x: int }\n\n// end of the model\n');
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
+
+test('a header note and an end note are kept on both ends', () => {
+  const src = [
+    'module m @0.1.0 {',
+    '  // about the module',
+    '}',
+    'type T = { x: int }',
+    '// about the whole model',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^  \/\/ about the module$/m);
+  assert.match(out, /^\/\/ about the whole model$/m);
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
+
 test('a spec without comments still formats canonically', () => {
   const src = 'module m @0.1.0 {}\ntype T = { x: int }\n';
   const out = formatSource(src, 'main.arc');

@@ -1382,7 +1382,8 @@ This is a vertical slice, not a finished language.
 - `arcod fmt` is canonical and idempotent, but it re-lays out record types on one
   line. Comments above declarations, fields, enum values and example statements
   survive, a comment written inside the module header braces stays inside the
-  block (printed after `meta` when one is declared), and a comment that trails
+  block (printed after `meta` when one is declared), a comment after the last
+  declaration is printed at the end of the file, and a comment that trails
   code on the same line stays there (it is re-attached to the deepest node that
   starts on that line); only a trailing comment after a closing brace has no
   owner and is dropped. `arcod diff`

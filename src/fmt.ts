@@ -228,14 +228,18 @@ class Printer {
   // nodes of its own, so a leading comment there would otherwise slide to the
   // first declaration after the block.
   private moduleComments: string[];
+  // Comments that follow the last declaration: no node starts after them, so
+  // they are printed at the end of the file instead of being dropped.
+  private tailComments: string[];
   // Trailing comments wait for the next emitted line: the node that owns them
   // prints exactly one line right after its emitComments call.
   private pending: string[] = [];
 
-  constructor(comments: Map<number, string[]>, trailing: Map<number, string[]> = new Map(), moduleComments: string[] = []) {
+  constructor(comments: Map<number, string[]>, trailing: Map<number, string[]> = new Map(), moduleComments: string[] = [], tailComments: string[] = []) {
     this.comments = comments;
     this.trailing = trailing;
     this.moduleComments = moduleComments;
+    this.tailComments = tailComments;
   }
 
   private raw(indent: number, text: string): void {
@@ -294,6 +298,14 @@ class Printer {
     for (let g = 0; g < groups.length; g++) {
       this.blank();
       groups[g][1]();
+    }
+
+    if (this.tailComments.length > 0) {
+      this.blank();
+      for (const c of this.tailComments) {
+        if (c.startsWith('//')) this.raw(0, c);
+        else for (const line of c.split('\n')) this.raw(0, line);
+      }
     }
 
     return this.out.join('\n') + '\n';
@@ -618,6 +630,7 @@ export function formatSource(source: string, file: string): string {
   const leading = new Map<number, string[]>();
   const trailing = new Map<number, string[]>();
   const moduleComments: string[] = [];
+  const tailComments: string[] = [];
   for (const c of comments) {
     // A comment written between the module header braces belongs to the block,
     // not to the first declaration after it. Trailing ones keep the normal path
@@ -649,10 +662,14 @@ export function formatSource(source: string, file: string): string {
     for (const o of offsets) {
       if (o >= c.end) { target = o; break; }
     }
-    if (target < 0) continue;
+    if (target < 0) {
+      // Nothing starts after this comment: it closes the file.
+      tailComments.push(c.text);
+      continue;
+    }
     const arr = leading.get(target) ?? [];
     arr.push(c.text);
     leading.set(target, arr);
   }
-  return new Printer(leading, trailing, moduleComments).module(mod);
+  return new Printer(leading, trailing, moduleComments, tailComments).module(mod);
 }
