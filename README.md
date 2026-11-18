@@ -936,7 +936,10 @@ uses store: sql(ttl: 999s)    // mysql, postgres
 expiry. Any other name (`consistency: strong`, for instance) is kept in the
 spec and printed by `fmt`, but nothing reads it — `W033` says so. Provider
 options belong to `bind alias -> provider(args)`, where they configure the
-backend connection.
+backend connection. A provider reads a fixed set of them: `arcod providers
+--json` lists the names under `options`, and `W035` reports an argument no
+provider reads. `host`, `port`, `expose` and `import` are accepted by every
+binding.
 
 The `io` adapter is what changes: the MySQL client parameterises queries so a
 value from a request never concatenates into SQL; `take` runs as a transaction

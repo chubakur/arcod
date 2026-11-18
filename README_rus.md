@@ -894,6 +894,11 @@ uses store: sql(ttl: 999s)    bind store -> mysql(host: "store")
 значение из запроса никогда не склеивалось с SQL; `take` выполняется
 транзакцией с `SELECT … FOR UPDATE`.
 
+Опции провайдера — это аргументы `bind alias -> provider(args)`. Набор у
+каждого провайдера фиксированный: `arcod providers --json` перечисляет имена в
+`options`, а `W035` сообщает об аргументе, которого провайдер не читает.
+`host`, `port`, `expose` и `import` принимает любой bind.
+
 Живые примеры: `examples/project1` (Redis) и `examples/project1-mysql` (MySQL) —
 одна и та же спека, отличие в двух строках.
 
