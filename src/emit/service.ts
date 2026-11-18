@@ -788,13 +788,16 @@ __PLUGIN_WIRE__
 
 // A body never names a provider; it names an entity. The adapter owns the key
 // layout, the unique index and the ordering, so the same body runs on kv or sql.
-class ArcodError extends Error {
-  constructor(name) {
-    super(name);
-    this.name = name;
-    this.error = name;
+function ArcodError(name, fields) {
+  this.name = name;
+  this.error = name;
+  this.message = name;
+  if (fields && typeof fields === 'object') {
+    for (const key of Object.keys(fields)) this[key] = fields[key];
   }
 }
+ArcodError.prototype = Object.create(Error.prototype);
+ArcodError.prototype.constructor = ArcodError;
 
 function recordOf(raw) {
   try {
@@ -909,9 +912,14 @@ function send(res, status, body, type) {
   res.end(body);
 }
 
-function sendError(res, name) {
-  const info = ERRORS[name] || { status: 500, message: 'internal error' };
-  send(res, info.status, JSON.stringify({ error: name, message: info.message }));
+function sendError(res, name, values) {
+  const info = ERRORS[name] || { status: 500, message: 'internal error', fields: [] };
+  const body = { error: name, message: info.message };
+  for (const field of info.fields || []) {
+    const value = values && typeof values === 'object' ? values[field] : undefined;
+    if (value !== undefined) body[field] = value;
+  }
+  send(res, info.status, JSON.stringify(body));
 }
 
 function matchRoute(method, pathname) {
@@ -1376,11 +1384,18 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
       return { method: parts[0], path: parts[1], op: op.name };
     });
 
-  const errors: Record<string, { status: number; message: string }> = {};
+  // An error may declare payload fields (error Conflict { fence: int }). The
+  // response echoes the declared names only, so a body cannot smuggle extra
+  // properties into the error document.
+  const errorFields: Record<string, string[]> = {};
+  for (const decl of mod.errors) {
+    if (decl.fields.length > 0) errorFields[decl.name] = decl.fields.map((field) => field.name);
+  }
+  const errors: Record<string, { status: number; message: string; fields: string[] }> = {};
   for (const op of svc.contract) {
     for (const clause of op.clauses) {
       if (clause.kind !== 'errors') continue;
-      for (const name of clause.names) errors[name] = errorInfo(name);
+      for (const name of clause.names) errors[name] = { ...errorInfo(name), fields: errorFields[name] ?? [] };
     }
   }
 
@@ -2037,11 +2052,11 @@ function implHandlers(
     '    if (tx) await store.rollback();',
     '    // The adapter raises named errors (Conflict from a unique index,',
     '    // Invalid from a missing key); they travel as the declared error.',
-    '    if (error && error.error) return sendError(res, String(error.error));',
+    '    if (error && error.error) return sendError(res, String(error.error), error.fields || error);',
     '    console.error(error);',
     "    return sendError(res, 'Internal');",
     '  }',
-    '  if (out && out.error) return sendError(res, out.error);',
+    '  if (out && out.error) return sendError(res, out.error, out);',
     "  if (!out) return sendError(res, 'Internal');",
     '  const result = out.result;',
     "  if (typeof result === 'string') {",

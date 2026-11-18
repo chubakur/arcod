@@ -896,6 +896,12 @@ A unique rule may name a tuple: `unique Fence.(name, fence)` (also written
 another `fence` is fine while the same pair is `Conflict`. The kv claim is keyed
 by the tuple and SQL emits one composite `UNIQUE KEY (name, fence)`.
 
+An error may declare payload fields: `error Conflict { fence: int }`. A body
+that returns `{ error: 'Conflict', fence: lease.fence }` gets a 409 carrying
+`fence` next to `error`/`message`; only declared names are copied, so a body
+cannot add arbitrary properties, and an error without fields keeps the classic
+two-key body.
+
 `io.insert`, `io.fetch`, `io.update` and `io.remove` keep the unique claim in
 step with the record (claiming the new value before releasing the old one).
 `io.find` filters (`eq`, `ne`, `in`, `gt`/`gte`/`lt`/`lte`, `contains`), sorts,

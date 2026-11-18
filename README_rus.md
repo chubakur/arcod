@@ -856,6 +856,12 @@ const page = await io.find('Task', {
 на другом `fence` допустимо, а та же пара — `Conflict`. В kv claim ключуется
 кортежем, в SQL генерируется один составной `UNIQUE KEY (name, fence)`.
 
+Ошибка может объявлять поля ответа: `error Conflict { fence: int }`. Тело,
+вернувшее `{ error: 'Conflict', fence: lease.fence }`, даёт 409 с `fence` рядом
+с `error`/`message`; копируются только объявленные имена, поэтому тело не
+может добавить произвольные свойства, а ошибка без полей сохраняет классическое
+тело из двух ключей.
+
 `io.insert`, `io.fetch`, `io.update`, `io.remove` держат unique-claim в согласии
 с записью: новое значение захватывается до освобождения старого. `io.find`
 фильтрует (`eq`, `ne`, `in`, `gt`/`gte`/`lt`/`lte`, `contains`), сортирует и
