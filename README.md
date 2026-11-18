@@ -891,6 +891,11 @@ const page = await io.find('Task', {
 // { items: [ …records… ], next: 'eyJ2Ijpb…' | null }
 ```
 
+A unique rule may name a tuple: `unique Fence.(name, fence)` (also written
+`unique Fence.name, Fence.fence`) makes the pair unique, so the same `name` on
+another `fence` is fine while the same pair is `Conflict`. The kv claim is keyed
+by the tuple and SQL emits one composite `UNIQUE KEY (name, fence)`.
+
 `io.insert`, `io.fetch`, `io.update` and `io.remove` keep the unique claim in
 step with the record (claiming the new value before releasing the old one).
 `io.find` filters (`eq`, `ne`, `in`, `gt`/`gte`/`lt`/`lte`, `contains`), sorts,

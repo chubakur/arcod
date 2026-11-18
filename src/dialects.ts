@@ -19,7 +19,9 @@ export interface SqlDialect {
   tableSuffix: string;
   migrationsTable: string;
   primaryKey(field: string): string;
-  uniqueKey(table: string, field: string): string;
+  // One or more columns: a tuple key enforces the pair, a single key names
+  // uq_<table>_<field> exactly as before.
+  uniqueKey(table: string, fields: string[]): string;
   // Returns a statement to append after CREATE TABLE, or null when the
   // dialect spells an index inside the table body.
   indexStatement(table: string, field: string): string | null;
@@ -76,7 +78,7 @@ export const MYSQL: SqlDialect = {
   migrationsTable:
     'CREATE TABLE IF NOT EXISTS arcod_migrations (version VARCHAR(16) NOT NULL PRIMARY KEY, checksum VARCHAR(64) NOT NULL, applied_at BIGINT NOT NULL) ENGINE=InnoDB',
   primaryKey: (field) => 'PRIMARY KEY (' + MYSQL.quote(field) + ')',
-  uniqueKey: (table, field) => 'UNIQUE KEY ' + MYSQL.quote('uq_' + table + '_' + field) + ' (' + MYSQL.quote(field) + ')',
+  uniqueKey: (table, fields) => 'UNIQUE KEY ' + MYSQL.quote('uq_' + table + '_' + fields.join('_')) + ' (' + fields.map((field) => MYSQL.quote(field)).join(', ') + ')',
   indexStatement: (table, field) =>
     'KEY ' + MYSQL.quote('idx_' + table + '_' + field) + ' (' + MYSQL.quote(field) + ')',
 };
@@ -98,7 +100,7 @@ export const POSTGRES: SqlDialect = {
   migrationsTable:
     'CREATE TABLE IF NOT EXISTS arcod_migrations (version VARCHAR(16) PRIMARY KEY, checksum VARCHAR(64) NOT NULL, applied_at BIGINT NOT NULL)',
   primaryKey: (field) => 'PRIMARY KEY (' + POSTGRES.quote(field) + ')',
-  uniqueKey: (table, field) => 'CONSTRAINT ' + POSTGRES.quote('uq_' + table + '_' + field) + ' UNIQUE (' + POSTGRES.quote(field) + ')',
+  uniqueKey: (table, fields) => 'CONSTRAINT ' + POSTGRES.quote('uq_' + table + '_' + fields.join('_')) + ' UNIQUE (' + fields.map((field) => POSTGRES.quote(field)).join(', ') + ')',
   // Postgres indexes are their own statements; CREATE TABLE has no KEY clause.
   indexStatement: (table, field) =>
     'CREATE INDEX IF NOT EXISTS ' + POSTGRES.quote('idx_' + table + '_' + field) + ' ON ' + POSTGRES.quote(table) + ' (' + POSTGRES.quote(field) + ')',

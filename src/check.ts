@@ -212,12 +212,13 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     // claim, otherwise the rule would be decoration.
     for (const rule of svc.rules) {
       if (rule.kind !== 'unique') continue;
-      const parts = rule.path.split('.');
-      const decl = parts.length === 2 ? mod.types.find((type) => type.name === parts[0]) : undefined;
-      const field = decl && decl.type.kind === 'record'
-        ? decl.type.fields.find((item) => item.name === parts[1])
-        : undefined;
-      if (!decl || decl.type.kind !== 'record' || !field) {
+      const entity = rule.path.split('.')[0];
+      const decl = mod.types.find((type) => type.name === entity);
+      const record = decl && decl.type.kind === 'record' ? decl.type : null;
+      const missing = record
+        ? rule.fields.find((name) => !record.fields.some((item) => item.name === name))
+        : rule.path;
+      if (!record || missing || rule.fields.length === 0) {
         diags.push(diag('A054', 'error', mod.file, rule.loc, `services.${svc.name}.rules.unique`,
           `unique ${rule.path} does not name a field of a record type`,
           'declare type Task = { … } and write unique Task.title'));

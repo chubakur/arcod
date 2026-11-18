@@ -455,8 +455,26 @@ class Parser {
         continue;
       }
       if (this.accept('unique')) {
-        const path = this.parseQName();
-        svc.rules.push({ kind: 'unique', path, loc: locOf(this.prev()) });
+        const entity = this.expectIdent('record type').value;
+        this.expect('.');
+        const fields: string[] = [];
+        if (this.accept('(')) {
+          while (!this.is(')')) {
+            fields.push(this.expectIdent('field').value);
+            if (!this.accept(',')) break;
+          }
+          this.expect(')');
+        } else {
+          fields.push(this.expectIdent('field').value);
+          while (this.accept(',')) {
+            const other = this.expectIdent('record type').value;
+            this.expect('.');
+            fields.push(this.expectIdent('field').value);
+            if (other !== entity) this.error('a unique tuple must stay on one record type');
+          }
+        }
+        const path = entity + '.' + (fields.length === 1 ? fields[0] : '(' + fields.join(', ') + ')');
+        svc.rules.push({ kind: 'unique', path, fields, loc: locOf(this.prev()) });
         continue;
       }
       if (this.accept('index')) {

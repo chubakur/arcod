@@ -664,17 +664,16 @@ class MemoryStore {
     return rec && typeof rec === 'object' ? rec : null;
   }
 
-  async entityInsert(table, columns, record) {
+  async entityInsert(table, columns, record, groups) {
     const value = Object.assign({}, record || {});
     if (value.id == null || value.id === '') throw new ArcodError('Invalid');
     const key = this.entityKey(table, value.id);
     if (await this.exists(key)) throw new ArcodError('Conflict');
     const claimed = [];
-    for (const col of columns) {
-      if (!col.unique) continue;
-      const fieldValue = value[col.name];
-      if (fieldValue == null) continue;
-      const claim = uniqueKey(table, col.name, fieldValue);
+    for (const group of groups || []) {
+      const values = group.map((field) => value[field]);
+      if (values.some((item) => item == null)) continue;
+      const claim = uniqueKey(table, group.join(','), values);
       if (!(await this.claim(claim))) {
         for (const item of claimed) await this.del(item);
         throw new ArcodError('Conflict');
@@ -685,7 +684,7 @@ class MemoryStore {
     return value;
   }
 
-  async entityUpdate(table, columns, id, patch) {
+  async entityUpdate(table, columns, id, patch, groups) {
     const key = this.entityKey(table, id);
     const raw = await this.get(key);
     if (raw == null) throw new ArcodError('NotFound');
@@ -694,45 +693,42 @@ class MemoryStore {
     const value = Object.assign({}, base, patch || {}, { id: String(id) });
     const claimed = [];
     const released = [];
-    for (const col of columns) {
-      if (!col.unique) continue;
-      const before = base[col.name];
-      const after = value[col.name];
-      if (String(before) === String(after)) continue;
-      if (before != null) {
-        await this.del(uniqueKey(table, col.name, before));
-        released.push({ col, before });
+    for (const group of groups || []) {
+      const before = group.map((field) => base[field]);
+      const after = group.map((field) => value[field]);
+      if (JSON.stringify(before) === JSON.stringify(after)) continue;
+      if (before.some((item) => item != null)) {
+        await this.del(uniqueKey(table, group.join(','), before));
+        released.push({ group, before });
       }
     }
-    for (const col of columns) {
-      if (!col.unique) continue;
-      const before = base[col.name];
-      const after = value[col.name];
-      if (String(before) === String(after)) continue;
-      if (after != null) {
-        const claim = uniqueKey(table, col.name, after);
-        if (!(await this.claim(claim))) {
-          for (const item of claimed) await this.del(item);
-          for (const rel of released) await this.claim(uniqueKey(table, rel.col.name, rel.before));
-          throw new ArcodError('Conflict');
-        }
-        claimed.push(claim);
+    for (const group of groups || []) {
+      const before = group.map((field) => base[field]);
+      const after = group.map((field) => value[field]);
+      if (JSON.stringify(before) === JSON.stringify(after)) continue;
+      if (after.some((item) => item == null)) continue;
+      const claim = uniqueKey(table, group.join(','), after);
+      if (!(await this.claim(claim))) {
+        for (const item of claimed) await this.del(item);
+        for (const rel of released) await this.claim(uniqueKey(table, rel.group.join(','), rel.before));
+        throw new ArcodError('Conflict');
       }
+      claimed.push(claim);
     }
     await this.set(key, JSON.stringify({ b: value, h: null }), Infinity);
     return value;
   }
 
-  async entityRemove(table, columns, id) {
+  async entityRemove(table, columns, id, groups) {
     const key = this.entityKey(table, id);
     const raw = await this.get(key);
     if (raw == null) return false;
     const current = recordOf(raw);
     await this.del(key);
-    for (const col of columns) {
-      if (!col.unique) continue;
-      const fieldValue = current && current[col.name];
-      if (fieldValue != null) await this.del(uniqueKey(table, col.name, fieldValue));
+    for (const group of groups || []) {
+      const values = group.map((field) => current && current[field]);
+      if (values.some((item) => item == null)) continue;
+      await this.del(uniqueKey(table, group.join(','), values));
     }
     return true;
   }
@@ -811,7 +807,8 @@ function recordOf(raw) {
 }
 
 function uniqueKey(entity, field, value) {
-  return 'unique:' + entity + ':' + field + ':' + String(value);
+  const text = Array.isArray(value) ? JSON.stringify(value) : String(value);
+  return 'unique:' + entity + ':' + field + ':' + text;
 }
 
 function sortValue(value) {
@@ -1605,18 +1602,18 @@ function sqlEntityIoLines(): string[] {
     '      const meta = requestEntity(entity);',
     '      const value = withDefaults(meta, record);',
     "      if (value.id == null || value.id === '') throw new ArcodError('Invalid');",
-    '      await store.entityInsert(meta.table, meta.columns, value);',
+    '      await store.entityInsert(meta.table, meta.columns, value, meta.uniqueGroups);',
     '      return value;',
     '    },',
     '    async update(entity, id, patch) {',
     '      metricCapability("store.update");',
     '      const meta = requestEntity(entity);',
-    '      return await store.entityUpdate(meta.table, meta.columns, id, patch);',
+    '      return await store.entityUpdate(meta.table, meta.columns, id, patch, meta.uniqueGroups);',
     '    },',
     '    async remove(entity, id) {',
     '      metricCapability("store.remove");',
     '      const meta = requestEntity(entity);',
-    '      await store.entityRemove(meta.table, meta.columns, id);',
+    '      await store.entityRemove(meta.table, meta.columns, id, meta.uniqueGroups);',
     '      return true;',
     '    },',
     '    async find(entity, query) {',
@@ -1746,10 +1743,10 @@ function implHandlers(
     "      const key = meta.prefix + String(value.id);",
     "      if (await store.exists(key)) throw new ArcodError('Conflict');",
     '      const claimed = [];',
-    '      for (const field of meta.unique) {',
-    '        const fieldValue = value[field];',
-    '        if (fieldValue == null) continue;',
-    '        const claim = uniqueKey(entity, field, fieldValue);',
+    '      for (const group of meta.uniqueGroups) {',
+    '        const values = group.map((field) => value[field]);',
+    '        if (values.some((item) => item == null)) continue;',
+    "        const claim = uniqueKey(entity, group.join(','), values);",
     '        if (!(await store.claim(claim))) {',
     '          for (const item of claimed) await store.del(item);',
     "          throw new ArcodError('Conflict');",
@@ -1771,19 +1768,18 @@ function implHandlers(
     '      if (value.id == null) value.id = id;',
     '      const claimed = [];',
     '      const released = [];',
-    '      for (const field of meta.unique) {',
-    '        const before = base[field];',
-    '        const after = value[field];',
-    '        if (String(before) === String(after)) continue;',
-    '        if (after != null) {',
-    '          const claim = uniqueKey(entity, field, after);',
-    '          if (!(await store.claim(claim))) {',
-    '            for (const item of claimed) await store.del(item);',
-    "            throw new ArcodError('Conflict');",
-    '          }',
-    '          claimed.push(claim);',
+    '      for (const group of meta.uniqueGroups) {',
+    '        const before = group.map((field) => base[field]);',
+    '        const after = group.map((field) => value[field]);',
+    '        if (JSON.stringify(before) === JSON.stringify(after)) continue;',
+    '        if (after.some((item) => item == null)) continue;',
+    "        const claim = uniqueKey(entity, group.join(','), after);",
+    '        if (!(await store.claim(claim))) {',
+    '          for (const item of claimed) await store.del(item);',
+    "          throw new ArcodError('Conflict');",
     '        }',
-    '        if (before != null) released.push(uniqueKey(entity, field, before));',
+    '        claimed.push(claim);',
+    '        if (before.every((item) => item != null)) released.push(uniqueKey(entity, group.join(','), before));',
     '      }',
     '      await store.set(key, JSON.stringify({ b: value, h: null }), CONFIG.ttlMs);',
     '      for (const item of released) await store.del(item);',
@@ -1797,9 +1793,10 @@ function implHandlers(
     '      if (raw == null) return false;',
     '      const current = recordOf(raw);',
     '      await store.del(key);',
-    '      for (const field of meta.unique) {',
-    '        const fieldValue = current && current[field];',
-    '        if (fieldValue != null) await store.del(uniqueKey(entity, field, fieldValue));',
+    '      for (const group of meta.uniqueGroups) {',
+    '        const values = group.map((field) => current && current[field]);',
+    '        if (values.some((item) => item == null)) continue;',
+    "        await store.del(uniqueKey(entity, group.join(','), values));",
     '      }',
     '      return true;',
     '    },',
@@ -2194,41 +2191,39 @@ function entityDefaults(mod: ModuleNode, decl: TypeDecl): Record<string, Default
   return defaults;
 }
 
-function entityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { prefix: string; unique: string[]; defaults: Record<string, DefaultValue> }> {
-  const table: Record<string, { prefix: string; unique: string[]; defaults: Record<string, DefaultValue> }> = {};
-  const uniques: Array<[string, string]> = [];
+function entityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { prefix: string; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
+  const table: Record<string, { prefix: string; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
+  const uniques: Array<[string, string[]]> = [];
   for (const rule of svc.rules) {
     if (rule.kind !== 'unique') continue;
-    const parts = rule.path.split('.');
-    if (parts.length === 2) uniques.push([parts[0], parts[1]]);
+    uniques.push([rule.path.split('.')[0], rule.fields]);
   }
   for (const decl of mod.types) {
     // Only record shapes are storable; aliases point at one.
     if (decl.type.kind !== 'record') continue;
     table[decl.name] = {
       prefix: decl.name.toLowerCase() + ':',
-      unique: uniques.filter(([entity]) => entity === decl.name).map(([, field]) => field),
+      uniqueGroups: uniques.filter(([entity]) => entity === decl.name).map(([, fields]) => fields),
       defaults: entityDefaults(mod, decl),
     };
   }
   return table;
 }
 
-function sqlEntityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { table: string; columns: unknown[]; unique: string[]; defaults: Record<string, DefaultValue> }> {
-  const table: Record<string, { table: string; columns: unknown[]; unique: string[]; defaults: Record<string, DefaultValue> }> = {};
-  const uniquesByEntity: Record<string, string[]> = {};
+function sqlEntityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { table: string; columns: unknown[]; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
+  const table: Record<string, { table: string; columns: unknown[]; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
+  const uniquesByEntity: Record<string, string[][]> = {};
   for (const rule of svc.rules) {
     if (rule.kind !== 'unique') continue;
-    const parts = rule.path.split('.');
-    if (parts.length === 2) (uniquesByEntity[parts[0]] ??= []).push(parts[1]);
+    (uniquesByEntity[rule.path.split('.')[0]] ??= []).push(rule.fields);
   }
   for (const decl of mod.types) {
     if (decl.type.kind !== 'record') continue;
-    const unique = uniquesByEntity[decl.name] ?? [];
+    const groups = uniquesByEntity[decl.name] ?? [];
     table[decl.name] = {
       table: decl.name.toLowerCase(),
-      columns: recordColumns(mod, decl, unique),
-      unique,
+      columns: recordColumns(mod, decl, groups),
+      uniqueGroups: groups,
       defaults: entityDefaults(mod, decl),
     };
   }

@@ -851,6 +851,11 @@ const page = await io.find('Task', {
 // { items: [ …записи… ], next: 'eyJ2Ijpb…' | null }
 ```
 
+Правило unique может называть кортеж: `unique Fence.(name, fence)` (или
+`unique Fence.name, Fence.fence`) делает уникальной пару, поэтому то же `name`
+на другом `fence` допустимо, а та же пара — `Conflict`. В kv claim ключуется
+кортежем, в SQL генерируется один составной `UNIQUE KEY (name, fence)`.
+
 `io.insert`, `io.fetch`, `io.update`, `io.remove` держат unique-claim в согласии
 с записью: новое значение захватывается до освобождения старого. `io.find`
 фильтрует (`eq`, `ne`, `in`, `gt`/`gte`/`lt`/`lte`, `contains`), сортирует и

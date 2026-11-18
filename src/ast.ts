@@ -208,7 +208,9 @@ export type RuleNode =
   | { kind: 'invariant'; name: string; expr: Expr; loc: Loc }
   | { kind: 'atomic'; name: string; steps: string[]; loc: Loc }
   | { kind: 'ordering'; pairs: Array<[string, string]>; loc: Loc }
-  | { kind: 'unique'; path: string; loc: Loc }
+  // One field or a tuple on the same record: unique Fence.name and
+  // unique Fence.(name, fence) / unique Fence.name, Fence.fence.
+  | { kind: 'unique'; path: string; fields: string[]; loc: Loc }
   // A non-unique index: same Type.field path, no claim, no error.
   | { kind: 'index'; path: string; loc: Loc };
 

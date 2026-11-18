@@ -129,11 +129,12 @@ export interface Column {
 // Column metadata shared by the DDL emitter and the sql runtime codec: the
 // same resolution that picks a column type decides how a value is written and
 // read back, so a field can never drift between schema and runtime.
-export function recordColumns(mod: ModuleNode, decl: TypeDecl, uniques: string[], dialect: SqlDialect = MYSQL): Column[] {
+export function recordColumns(mod: ModuleNode, decl: TypeDecl, uniques: string[][], dialect: SqlDialect = MYSQL): Column[] {
   const fields = decl.type.kind === 'record' ? decl.type.fields : [];
   return fields.map((field) => {
     const base = baseType(mod, field.type);
-    const unique = uniques.includes(field.name);
+    // A field in any unique tuple is indexed, so its string type is bounded.
+    const unique = uniques.some((tuple) => tuple.includes(field.name));
     return {
       name: field.name,
       base,
@@ -158,7 +159,7 @@ function columnDef(mod: ModuleNode, field: Param, unique: boolean, dialect: SqlD
 function entityTable(
   mod: ModuleNode,
   decl: TypeDecl,
-  uniques: string[],
+  uniques: string[][],
   indexes: string[] = [],
   dialect: SqlDialect = MYSQL,
 ): { up: string; down: string } {
@@ -166,19 +167,21 @@ function entityTable(
   const table = decl.name.toLowerCase();
   const cols: string[] = [];
   for (const field of fields) {
-    cols.push('  ' + columnDef(mod, field, uniques.includes(field.name), dialect));
+    const indexed = uniques.some((tuple) => tuple.includes(field.name));
+    cols.push('  ' + columnDef(mod, field, indexed, dialect));
   }
   if (fields.some((f) => f.name === 'id')) cols.push('  ' + dialect.primaryKey('id'));
-  for (const field of uniques) {
-    if (!fields.some((f) => f.name === field)) continue;
-    cols.push('  ' + dialect.uniqueKey(table, field));
+  for (const tuple of uniques) {
+    if (tuple.length === 0) continue;
+    if (!tuple.every((field) => fields.some((f) => f.name === field))) continue;
+    cols.push('  ' + dialect.uniqueKey(table, tuple));
   }
   // A plain index is a query fact: find/order predicates read this column.
   // Unique fields already carry a b-tree, so they are skipped here. MySQL
   // spells it inside CREATE TABLE, Postgres as a separate statement.
   const after: string[] = [];
   for (const field of indexes) {
-    if (uniques.includes(field)) continue;
+    if (uniques.some((tuple) => tuple.length === 1 && tuple[0] === field)) continue;
     if (!fields.some((f) => f.name === field)) continue;
     const statement = dialect.indexStatement(table, field);
     if (statement === null) continue;
@@ -212,14 +215,17 @@ export function migrationPlan(mod: ModuleNode, svc: ServiceNode, options: { dial
   // keeps .arcod/build/migrations from pretending otherwise.
   if (storageUse(svc) === null) return { service: svc.name, migrations };
 
-  const uniquesByEntity: Record<string, string[]> = {};
+  const uniquesByEntity: Record<string, string[][]> = {};
   const indexesByEntity: Record<string, string[]> = {};
   for (const rule of svc.rules) {
-    if (rule.kind !== 'unique' && rule.kind !== 'index') continue;
+    if (rule.kind === 'unique') {
+      const entity = rule.path.split('.')[0];
+      (uniquesByEntity[entity] ??= []).push(rule.fields);
+      continue;
+    }
+    if (rule.kind !== 'index') continue;
     const parts = rule.path.split('.');
-    if (parts.length !== 2) continue;
-    if (rule.kind === 'unique') (uniquesByEntity[parts[0]] ??= []).push(parts[1]);
-    else (indexesByEntity[parts[0]] ??= []).push(parts[1]);
+    if (parts.length === 2) (indexesByEntity[parts[0]] ??= []).push(parts[1]);
   }
 
   // Base blob store: what the runtime uses today for kv records and unique
