@@ -1974,3 +1974,29 @@ test('a route names a known method and a path, A070', () => {
     assert.deepEqual(code(good), [], good);
   }
 });
+
+test('a path segment without an argument is A071', () => {
+  const spec = (route: string, params: string) => [
+    'module r @0.1.0 {}',
+    '',
+    'service S : http {',
+    '  contract {',
+    '    public op get(' + params + ') -> string {',
+    '      route: "' + route + '"',
+    '      post: result != null',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+  const code = (route: string, params: string) =>
+    check(parse(spec(route, params), 'main.arc')).filter((d) => d.code === 'A071');
+
+  const typo = code('GET /v1/t/:tid', 'id: string');
+  assert.equal(typo.length, 1);
+  assert.match(typo[0].message, /route parameter :tid is not an argument of get/);
+  assert.match(typo[0].hint ?? '', /declare tid as a parameter/);
+
+  assert.equal(code('GET /v1/t/:id', '').length, 1, 'no parameters at all is still a mismatch');
+  assert.deepEqual(code('GET /v1/t/:id', 'id: string'), []);
+  assert.deepEqual(code('GET /v1/t', 'id: string'), [], 'an argument absent from the path is a query/body parameter');
+});

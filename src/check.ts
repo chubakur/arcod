@@ -676,6 +676,24 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         'for example "GET /v1/tasks" or "POST /v1/tasks"'));
     }
 
+    // A071 — every :name in the route has to be an operation parameter. A
+    // typo (:tid instead of id) captures a value nobody reads and leaves the
+    // argument unbound, and the runtime has nothing to report.
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      const route = routeOf(op);
+      if (!route) continue;
+      const path = route.trim().split(/\s+/)[1] ?? "";
+      const names = path.split("/").filter((segment) => segment.startsWith(":")).map((segment) => segment.slice(1));
+      if (names.length === 0) continue;
+      for (const name of names) {
+        if (op.params.some((param) => param.name === name)) continue;
+        diags.push(diag('A071', 'error', mod.file, op.loc, 'services.' + svc.name + '.contract.' + op.name,
+          'route parameter :' + name + ' is not an argument of ' + op.name,
+          'rename the path segment or declare ' + name + ' as a parameter'));
+      }
+    }
+
     // A069 — two operations of one service answer the same method and path.
     // The generated router keeps the first and the second is unreachable, and
     // nothing else would report it. The method is compared case-insensitively,
