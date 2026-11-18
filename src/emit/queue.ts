@@ -78,6 +78,21 @@ function createRedisQueueDriver(url) {
       if (buf.length < start + len + 2) return null;
       return { value: buf.toString('utf8', start, start + len), next: start + len + 2 };
     }
+    if (type === '*') {
+      // LRANGE and friends answer with an array; a nested array or a null
+      // element ($-1) is legal RESP, so the walk is recursive.
+      const count = Number(line);
+      if (count === -1) return { value: null, next: lineEnd + 2 };
+      const values = [];
+      let next = lineEnd + 2;
+      for (let index = 0; index < count; index++) {
+        const item = parseReply(buf, next);
+        if (!item) return null;
+        values.push(item.value);
+        next = item.next;
+      }
+      return { value: values, next };
+    }
     throw new Error('unexpected RESP type: ' + type);
   }
 
@@ -192,7 +207,14 @@ let consumersDrained = Promise.resolve();
 
 function consumerInput(spec, payload) {
   if (spec.params.length === 0) return {};
-  if (spec.params.length === 1) return { [spec.params[0]]: payload };
+  if (spec.params.length === 1) {
+    const name = spec.params[0];
+    // A publisher usually sends the object the body wrote, so the single
+    // parameter is the field with that name. A bare scalar is the parameter
+    // itself, and an object without that key stays whole (fallback).
+    const named = payload && typeof payload === 'object' && !Array.isArray(payload) && Object.prototype.hasOwnProperty.call(payload, name);
+    return { [name]: named ? payload[name] : payload };
+  }
   const values = payload && typeof payload === 'object' ? payload : { [spec.params[0]]: payload };
   const input = {};
   for (const name of spec.params) input[name] = name in values ? values[name] : null;
