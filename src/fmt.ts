@@ -149,7 +149,12 @@ function extractComments(source: string): Comment[] {
 function collectOffsets(m: ModuleNode): number[] {
   const out: number[] = [m.loc.offset];
   for (const u of m.uses) out.push(u.loc.offset);
-  for (const t of m.types) out.push(t.loc.offset);
+  for (const t of m.types) {
+    out.push(t.loc.offset);
+    // A field can carry a comment written inside the record; without its
+    // offset the printer has nowhere to put it and the comment disappears.
+    if (t.type.kind === 'record') for (const field of t.type.fields) out.push(field.loc.offset);
+  }
   for (const e of m.errors) out.push(e.loc.offset);
   for (const e of m.enums) out.push(e.loc.offset);
   for (const s of m.services) collectService(s, out);
@@ -260,6 +265,18 @@ class Printer {
 
   private typeDecl(t: TypeDecl): void {
     this.emitComments(t.loc.offset, 0);
+    const fields = t.type.kind === 'record' ? t.type.fields : [];
+    if (fields.some((field) => this.comments.has(field.loc.offset))) {
+      // One commented field turns the record multi-line, so the comment keeps
+      // the field it describes instead of floating above the declaration.
+      this.raw(0, 'type ' + t.name + ' = {');
+      for (let i = 0; i < fields.length; i++) {
+        this.emitComments(fields[i].loc.offset, 1);
+        this.raw(1, param(fields[i]) + (i < fields.length - 1 ? ',' : ''));
+      }
+      this.raw(0, '}');
+      return;
+    }
     this.raw(0, 'type ' + t.name + ' = ' + type(t.type));
   }
 

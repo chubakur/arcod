@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { parse, ParseError } from '../src/parser.ts';
 import { check } from '../src/check.ts';
-import { printModule } from '../src/fmt.ts';
+import { formatSource, printModule } from '../src/fmt.ts';
 import { buildPlan } from '../src/plan.ts';
 import { emitService, pickService, routeOf, statusForError } from '../src/emit/service.ts';
 import { checksumOf, migrationPlan } from '../src/migrate.ts';
@@ -399,6 +399,14 @@ test('a record literal in an example is typed against the entity', async () => {
   const unknown = parse(spec.replace('age: 30', 'nickname: "ann"'), 'main.arc');
   const unknownErrors = check(unknown).filter((d) => d.code === 'A063');
   assert.equal(unknownErrors.length, 1);
+});
+
+test('fmt keeps a comment written inside a record', () => {
+  const source = ['module card @0.1.0 {}', '', 'type Card = {', '  // the name printed on the card',
+    '  name: string,', '  age: int', '}', ''].join('\n');
+  const formatted = formatSource(source, 'main.arc');
+  assert.match(formatted, /type Card = \{\n  \/\/ the name printed on the card\n  name: string,\n  age: int\n\}/);
+  assert.equal(formatSource(formatted, 'main.arc'), formatted, 'the multi-line form stays stable');
 });
 
 const infraSource = `module infra @0.1.0 {}
