@@ -1166,6 +1166,9 @@ arcod migrate examples/tasks
 - `A041` в презентации нет слайдов;
 - `A042` слайды объявлены на странице, у которой `layout` не `presentation` —
   страница их отбросит, и текст не дойдёт до браузера;
+- `A043` клауза `ui`, которую выбранный layout не читает (`history`/`send` —
+  только `layout: chat`; `start` — chat или presentation; `join`/`state`/
+  `advance` — только presentation): клауза была бы молча проигнорирована;
 - `A046` `auth`/`roles`/`owner` у операции сервиса без возможности
   `identity` — охраннику нужен источник актора;
 - `A047` роль в `roles:` вне словаря `roles:` сервиса;

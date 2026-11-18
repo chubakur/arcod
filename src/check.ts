@@ -572,6 +572,22 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     if (ui.impl !== 'spa') {
       diags.push(diag('A019', 'error', mod.file, ui.loc, 'ui.' + ui.name, 'ui kind ' + ui.impl + ' is not supported in v0.1', 'use kind: spa'));
     }
+    // A043 — every layout reads its own clauses. A clause written for another
+    // layout used to parse and be ignored, so the page lost the author's link
+    // between the markup and an operation without a word.
+    const layoutClauses: Array<[keyof UiNode & ('history' | 'send' | 'start' | 'join' | 'state' | 'advance'), string[]]> = [
+      ['history', ['chat']], ['send', ['chat']],
+      ['start', ['chat', 'presentation']],
+      ['join', ['presentation']], ['state', ['presentation']], ['advance', ['presentation']],
+    ];
+    for (const [key, layouts] of layoutClauses) {
+      const ref = ui[key];
+      if (!ref || layouts.includes(ui.layout ?? 'forms')) continue;
+      const loc = ui.clauseLocs?.[key] ?? ui.loc;
+      diags.push(diag('A043', 'error', mod.file, loc, 'ui.' + ui.name + '.' + key,
+        key + ' is only read by layout: ' + layouts.join(' or '),
+        'add layout: ' + layouts[0] + ' or remove the clause'));
+    }
     // A036 — a chat layout must say which operation is the transcript and
     // which one sends a message; the page is not allowed to guess by name.
     if (ui.layout === 'chat') {

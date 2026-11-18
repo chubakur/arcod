@@ -816,6 +816,37 @@ test('slides on a page without layout: presentation are an error', () => {
   assert.equal(diags[0].range.line, quizSource.split('\n').findIndex((line) => line.trim().startsWith('slide "')) + 1);
 });
 
+test('a ui clause its layout does not read is an error', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  uses store: kv',
+    '  contract {',
+    '    public op a() -> int {',
+    '      route: "POST /a"',
+    '      effects: store.set',
+    '      post: result != null',
+    '    }',
+    '  }',
+    '  effects { allow store.set }',
+    '}',
+    'ui P {',
+    '  kind: spa',
+    '  history: S.a',
+    '  state: S.a',
+    '}',
+    'environment dev {',
+    '  bind store -> redis(host: "kv")',
+    '  deploy docker',
+    '}',
+  ].join('\n');
+  const diags = check(parse(src, 'main.arc')).filter((item) => item.code === 'A043');
+  assert.deepEqual(diags.map((item) => item.range.line), [15, 16], 'the clause line, not the ui line');
+  assert.match(diags[0].message, /^history is only read by layout: chat$/);
+  assert.match(diags[1].message, /^state is only read by layout: presentation$/);
+  assert.match(diags[1].hint ?? '', /add layout: presentation/);
+});
+
 test('the presentation page carries the deck and a real QR encoder', () => {
   const html = emitWeb(quizAst, { maxBytes: 2_000_000 });
   assert.ok(!/__[A-Z]+__/.test(html), 'no unexpanded placeholders');
