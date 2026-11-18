@@ -581,7 +581,7 @@ class Parser {
       kind: 'ui', name, impl: 'spa', route: '/', title: null, uses: [],
       layout: null, history: null, send: null, start: null,
       join: null, state: null, advance: null, locale: null, locales: null, theme: 'auto', render: 'static',
-      slides: [], loc: locOf(start),
+      slides: [], clauseLocs: {}, loc: locOf(start),
     };
     this.expect('{');
     while (!this.is('}')) {
@@ -590,7 +590,9 @@ class Parser {
         this.accept(';');
         continue;
       }
-      const key = this.expectIdent('ui property').value;
+      const keyTok = this.expectIdent('ui property');
+      const key = keyTok.value;
+      ui.clauseLocs![key] = locOf(keyTok);
       if (key === 'uses') {
         while (true) {
           ui.uses.push(this.parseQName());
@@ -653,6 +655,7 @@ class Parser {
     if (ui.locales && ui.locale && !ui.locales.includes(ui.locale)) {
       this.error('locale must be one of the declared locales');
     }
+    ui.closeLoc = locOf(end);
     ui.loc = this.loc(start, end);
     return ui;
   }
@@ -735,13 +738,19 @@ class Parser {
     this.expect('{');
     const wf: WorkflowNode = {
       kind: 'workflow', name, trigger: null, overlap: null, catchup: null,
-      retry: null, timeout: null, steps: [], loc: locOf(start),
+      retry: null, timeout: null, steps: [], clauseLocs: {}, loc: locOf(start),
     };
     while (!this.is('}')) {
       if (this.accept(';')) continue;
       if (this.is('step')) { wf.steps.push(this.parseWorkflowStep()); continue; }
-      if (this.accept('trigger')) { wf.trigger = this.parseTrigger(); continue; }
-      const key = this.expectIdent('workflow clause').value;
+      if (this.accept('trigger')) {
+        wf.clauseLocs!.trigger = locOf(this.prev());
+        wf.trigger = this.parseTrigger();
+        continue;
+      }
+      const keyTok = this.expectIdent('workflow clause');
+      const key = keyTok.value;
+      wf.clauseLocs![key] = locOf(keyTok);
       this.expect(':');
       if (key === 'overlap') {
         const value = this.expectIdent('overlap policy').value;
@@ -764,6 +773,7 @@ class Parser {
       this.error('unexpected workflow clause ' + JSON.stringify(key));
     }
     const end = this.expect('}');
+    wf.closeLoc = locOf(end);
     wf.loc = this.loc(start, end);
     return wf;
   }

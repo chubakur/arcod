@@ -205,3 +205,84 @@ test('a service meta block without comments prints canonically', () => {
   assert.match(formatted, /  meta \{\n    owner: "@you"\n    status: "live"\n  \}\n\n/);
   assert.equal(formatSource(formatted, 'm.arc'), formatted);
 });
+
+
+const workflowSpec = [
+  'module m @0.1.0 {}',
+  '',
+  'workflow Nightly {',
+  '  // runs at midnight',
+  '  trigger cron("0 0 * * *")',
+  '  // never doubled',
+  '  overlap: skip',
+  '  retry: 3',
+  '',
+  '  // the only step',
+  '  step one() {',
+  '    call: a.b',
+  '  }',
+  '  // last word',
+  '}',
+].join('\n');
+
+test('a comment above a workflow clause stays on that clause', () => {
+  const out = formatSource(workflowSpec, 'main.arc');
+  assert.match(out, /^  \/\/ runs at midnight\n  trigger cron\("0 0 \* \* \*"\)$/m);
+  assert.match(out, /^  \/\/ never doubled\n  overlap: skip$/m);
+  assert.doesNotMatch(out, /\/\/ runs at midnight\n  \/\/ never doubled\n  step/, 'the comments do not pile up on the first step');
+});
+
+test('a workflow comment after the last step stays inside the block', () => {
+  const out = formatSource(workflowSpec, 'main.arc');
+  assert.match(out, /  \/\/ last word\n\}$/m);
+});
+
+test('a trailing comment on a workflow clause stays on its line', () => {
+  const src = ['module m @0.1.0 {}', 'workflow W {', '  trigger cron("0 0 * * *")', '  overlap: skip // never doubled', '}'].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^  overlap: skip  \/\/ never doubled$/m);
+});
+
+test('comments inside a ui block stay in the block, on their properties', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'ui Board {',
+    '  // the board page',
+    '  kind: spa',
+    '  route: "/board"',
+    '  // dark by default',
+    '  theme: dark',
+    '  // printed by the service',
+    '  render: ssr',
+    '}',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^  \/\/ the board page\n  kind: spa$/m);
+  assert.match(out, /^  \/\/ dark by default\n  theme: dark$/m);
+  assert.match(out, /^  \/\/ printed by the service\n  render: ssr$/m);
+  assert.doesNotMatch(out, /\n\n\/\/ the board page/, 'nothing but the header precedes the block');
+});
+
+test('a comment on a default-valued ui property stays inside the block', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'ui Plain {',
+    '  kind: spa',
+    '  route: "/"',
+    '  // keeps the default look',
+    '  theme: auto',
+    '}',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  const lines = out.split('\n');
+  const open = lines.indexOf('ui Plain {');
+  const note = lines.findIndex((l) => l.includes('keeps the default look'));
+  assert.ok(note > open && note < lines.indexOf('}', open), 'the comment stays between the braces: ' + JSON.stringify(out));
+  assert.equal(formatSource(out, 'main.arc'), out, 'stable on a second pass');
+});
+
+test('workflow and ui formatting with clause comments is idempotent', () => {
+  const once = formatSource(workflowSpec, 'main.arc');
+  assert.equal(formatSource(once, 'main.arc'), once);
+});
+

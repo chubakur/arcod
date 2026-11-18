@@ -208,6 +208,10 @@ function collectService(s: ServiceNode, out: number[]): void {
 
 function collectWorkflow(w: WorkflowNode, out: number[]): void {
   out.push(w.loc.offset);
+  // Clause keywords: without their offsets a comment above `trigger` slid onto
+  // the first step, and the one above the last clause left the block entirely.
+  for (const loc of Object.values(w.clauseLocs ?? {})) out.push(loc.offset);
+  if (w.closeLoc) out.push(w.closeLoc.offset);
   for (const st of w.steps) out.push(st.loc.offset);
 }
 
@@ -219,6 +223,10 @@ function collectEnv(e: EnvironmentNode, out: number[]): void {
 
 function collectUi(u: UiNode, out: number[]): void {
   out.push(u.loc.offset);
+  // The same for ui properties: their comments used to be dumped past the
+  // closing brace, at the end of the file.
+  for (const loc of Object.values(u.clauseLocs ?? {})) out.push(loc.offset);
+  if (u.closeLoc) out.push(u.closeLoc.offset);
   for (const s of u.slides) out.push(s.loc.offset);
 }
 
@@ -550,14 +558,40 @@ class Printer {
     this.raw(1, '}');
   }
 
+  // Comments attached to a clause keyword are printed right before that
+  // clause's line; the printer prints exactly one line after each call, so the
+  // comment cannot drift to a neighbour. Returns whether the key was written.
+  private clauseComments(locs: Record<string, Loc> | undefined, key: string, indent: number): boolean {
+    const loc = locs?.[key];
+    if (!loc) return false;
+    this.emitComments(loc.offset, indent);
+    return true;
+  }
+
+  // Comments written after the last clause of a block still belong inside it.
+  // A trailing comment on the closing brace itself is dropped, as everywhere
+  // else: it has no line of its own anymore.
+  private blockTail(loc: Loc | undefined, indent: number): void {
+    if (!loc) return;
+    const cs = this.comments.get(loc.offset);
+    if (!cs || cs.length === 0) return;
+    this.pending = [];
+    for (const c of cs) {
+      if (c.startsWith('//')) this.raw(indent, c);
+      else for (const line of c.split('\n')) this.raw(indent, line);
+    }
+    this.pending = [];
+  }
+
   private workflow(w: WorkflowNode): void {
     this.emitComments(w.loc.offset, 0);
     this.raw(0, 'workflow ' + w.name + ' {');
-    if (w.trigger) this.raw(1, 'trigger ' + this.trigger(w.trigger));
-    if (w.overlap) this.raw(1, 'overlap: ' + w.overlap);
-    if (w.catchup) this.raw(1, 'catchup: ' + w.catchup);
-    if (w.retry !== null) this.raw(1, 'retry: ' + w.retry);
-    if (w.timeout) this.raw(1, 'timeout: ' + expr(w.timeout));
+    const clause = (key: string): void => { this.clauseComments(w.clauseLocs, key, 1); };
+    if (w.trigger) { clause('trigger'); this.raw(1, 'trigger ' + this.trigger(w.trigger)); }
+    if (w.overlap) { clause('overlap'); this.raw(1, 'overlap: ' + w.overlap); }
+    if (w.catchup) { clause('catchup'); this.raw(1, 'catchup: ' + w.catchup); }
+    if (w.retry !== null) { clause('retry'); this.raw(1, 'retry: ' + w.retry); }
+    if (w.timeout) { clause('timeout'); this.raw(1, 'timeout: ' + expr(w.timeout)); }
     for (const st of w.steps) {
       this.blank();
       this.emitComments(st.loc.offset, 1);
@@ -572,6 +606,7 @@ class Printer {
       if (st.timeout) this.raw(2, 'timeout: ' + expr(st.timeout));
       this.raw(1, '}');
     }
+    this.blockTail(w.closeLoc, 1);
     this.raw(0, '}');
   }
 
@@ -605,27 +640,36 @@ class Printer {
   private ui(u: UiNode): void {
     this.emitComments(u.loc.offset, 0);
     this.raw(0, 'ui ' + u.name + ' {');
-    this.raw(1, 'kind: ' + u.impl);
-    this.raw(1, 'route: ' + quoteStr(u.route));
-    if (u.title !== null) this.raw(1, 'title: ' + quoteStr(u.title));
-    if (u.layout) this.raw(1, 'layout: ' + u.layout);
-    if (u.locale !== null) this.raw(1, 'locale: ' + quoteStr(u.locale));
-    if (u.locales) this.raw(1, 'locales: ' + quoteStr(u.locales.join(', ')));
-    if (u.theme && u.theme !== 'auto') this.raw(1, 'theme: ' + u.theme);
-    if (u.render && u.render !== 'static') this.raw(1, 'render: ' + u.render);
-    if (u.start) this.raw(1, 'start: ' + u.start);
-    if (u.join) this.raw(1, 'join: ' + u.join);
-    if (u.state) this.raw(1, 'state: ' + u.state);
-    if (u.advance) this.raw(1, 'advance: ' + u.advance);
-    if (u.history) this.raw(1, 'history: ' + u.history);
-    if (u.send) this.raw(1, 'send: ' + u.send);
-    if (u.uses.length) this.raw(1, 'uses ' + u.uses.join(', '));
+    // `kind` and `impl` fill the same field; the source may use either word.
+    const clause = (key: string): void => {
+      if (!this.clauseComments(u.clauseLocs, key, 1) && key === 'kind') this.clauseComments(u.clauseLocs, 'impl', 1);
+    };
+    clause('kind'); this.raw(1, 'kind: ' + u.impl);
+    clause('route'); this.raw(1, 'route: ' + quoteStr(u.route));
+    if (u.title !== null) { clause('title'); this.raw(1, 'title: ' + quoteStr(u.title)); }
+    if (u.layout) { clause('layout'); this.raw(1, 'layout: ' + u.layout); }
+    if (u.locale !== null) { clause('locale'); this.raw(1, 'locale: ' + quoteStr(u.locale)); }
+    if (u.locales) { clause('locales'); this.raw(1, 'locales: ' + quoteStr(u.locales.join(', '))); }
+    // A default-valued property is not printed, but its comment still belongs
+    // inside the block: print it where the line would have gone.
+    if (u.theme && u.theme !== 'auto') { clause('theme'); this.raw(1, 'theme: ' + u.theme); }
+    else clause('theme');
+    if (u.render && u.render !== 'static') { clause('render'); this.raw(1, 'render: ' + u.render); }
+    else clause('render');
+    if (u.start) { clause('start'); this.raw(1, 'start: ' + u.start); }
+    if (u.join) { clause('join'); this.raw(1, 'join: ' + u.join); }
+    if (u.state) { clause('state'); this.raw(1, 'state: ' + u.state); }
+    if (u.advance) { clause('advance'); this.raw(1, 'advance: ' + u.advance); }
+    if (u.history) { clause('history'); this.raw(1, 'history: ' + u.history); }
+    if (u.send) { clause('send'); this.raw(1, 'send: ' + u.send); }
+    if (u.uses.length) { clause('uses'); this.raw(1, 'uses ' + u.uses.join(', ')); }
     for (const s of u.slides) {
       this.emitComments(s.loc.offset, 1);
       this.raw(1, 'slide ' + quoteStr(s.title) + ' {');
       if (s.body !== null) this.raw(2, 'body: ' + quoteStr(s.body));
       this.raw(1, '}');
     }
+    this.blockTail(u.closeLoc, 1);
     this.raw(0, '}');
   }
 }

@@ -97,6 +97,13 @@ export interface WorkflowNode {
   retry: number | null;
   timeout: Expr | null;
   steps: WorkflowStepNode[];
+  // Locations of the clause keywords (trigger/overlap/...), keyed by keyword.
+  // fmt needs them to keep a comment written above a clause on that clause's
+  // line instead of sliding it onto the first step or out of the block.
+  clauseLocs?: Record<string, Loc>;
+  // The closing brace: a comment written after the last step belongs to the
+  // block and must not slide past it to the end of the file.
+  closeLoc?: Loc;
   loc: Loc;
 }
 
@@ -302,6 +309,13 @@ export interface UiNode {
   // Where the page is rendered: statically at build (default) or by the
   // service at request time (server-side rendering, B12.6).
   render: 'static' | 'ssr';
+  // Locations of the property keywords, keyed by keyword as written in the
+  // source ('kind' stays 'kind' even though it fills `impl`). fmt keeps a
+  // comment above a property on that property's line.
+  clauseLocs?: Record<string, Loc>;
+  // The closing brace, for a comment trailing the last property (or a dropped
+  // default like `theme: auto`): it stays inside the block.
+  closeLoc?: Loc;
   loc: Loc;
 }
 
