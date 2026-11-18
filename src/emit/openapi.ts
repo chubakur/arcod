@@ -308,7 +308,8 @@ function operationFor(mod: ModuleNode, svc: ServiceNode, op: OpNode): Record<str
   const route = routeInfo(op);
 
   const responses: Record<string, unknown> = {};
-  const successStatus = route.method === 'GET' || route.method === 'DELETE' ? '200' : '201';
+  // A read is 200; a write (POST/PUT/PATCH) is 201 in the generated runtime.
+  const successStatus = route.method === 'GET' || route.method === 'DELETE' || route.method === 'HEAD' ? '200' : '201';
   const success: Record<string, unknown> = { description: 'ok' };
   if (op.returns && !(op.returns.kind === 'named' && (op.returns.name === 'void' || op.returns.name === 'null'))) {
     const schema = schemaFor(mod, op.returns);

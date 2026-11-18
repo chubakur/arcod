@@ -2100,7 +2100,8 @@ function implHandlers(
     const names = op.params.map((param) => param.name);
     const route = op.clauses.find((clause) => clause.kind === 'route');
     const method = route && route.kind === 'route' ? route.value.split(' ')[0].toUpperCase() : 'GET';
-    const status = method === 'GET' ? 200 : 201;
+    // A HEAD answer mirrors GET: 200, and Node drops the body.
+    const status = method === 'GET' || method === 'HEAD' ? 200 : 201;
     parts.push(
       'async function handle' + cap + '(req, res, params) {',
       "  return callImpl(req, res, params, impl" + cap + ', [' + names.map((name) => "'" + name + "'").join(', ') + '], ' + status + ", '" + op.name + "');",
