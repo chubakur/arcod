@@ -639,3 +639,39 @@ service Bad : http {
   assert.equal(r.code, 1);
   assert.match(r.out + r.err, /error/);
 });
+
+test('deploy explains what it would write for each provider, and what is missing', async () => {
+  const dir = await tempDir('arcod-cli-deploy-');
+  await cp(new URL('../examples/tasks-sql', import.meta.url), dir, { recursive: true });
+  const spec = join(dir, 'main.arc');
+
+  // dev binds docker: the text output points at the compose artifact.
+  const compose = await run(['deploy', spec]);
+  assert.equal(compose.code, 0, JSON.stringify(compose.err));
+  assert.match(compose.out, /artifact: docker-compose\.yml — local build/);
+  assert.match(compose.out, /run: arcod run /);
+
+  // prod binds yandex: the manifest is the artifact, nothing is called.
+  const managed = await run(['deploy', spec, '--env', 'prod']);
+  assert.equal(managed.code, 0, JSON.stringify(managed.err));
+  assert.match(managed.out, /artifact: deploy\.prod\.json — manifest, written by arcod build/);
+  assert.match(managed.out, /no credentials, no API calls/);
+
+  const missingEnv = await run(['deploy', spec, '--env', 'staging']);
+  assert.equal(missingEnv.code, 1);
+  assert.match(missingEnv.err, /no environment to deploy: staging/);
+
+  // An environment without `deploy` gets the hint instead of an empty table.
+  const original = await readFile(spec, 'utf8');
+  await writeFile(spec, original.replace('  deploy docker\n', ''), 'utf8');
+  const undeclared = await run(['deploy', spec]);
+  assert.equal(undeclared.code, 0, JSON.stringify(undeclared.err));
+  assert.match(undeclared.out, /dev: deploy is not declared \(docker is assumed by default\)/);
+  assert.match(undeclared.out, /available providers: /);
+
+  // A typo in the provider name is a one-line refusal, not a stack trace.
+  await writeFile(spec, original.replace('  deploy docker\n', '  deploy nope\n'), 'utf8');
+  const unknown = await run(['deploy', spec]);
+  assert.equal(unknown.code, 1);
+  assert.match(unknown.err, /unknown deploy provider nope; available: /);
+});
