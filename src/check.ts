@@ -237,6 +237,44 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+
+    // A064 — an on error expression names a member field the error does not
+    // declare; A065 — every declared error field has to be filled by an on
+    // error clause, otherwise the response would always omit it.
+    for (const decl of mod.errors) {
+      if (decl.fields.length === 0) continue;
+      const declaredFields = new Set(decl.fields.map((field) => field.name));
+      for (const op of svc.contract) {
+        if (op.kind !== 'op') continue;
+        const handled = op.clauses
+          .filter((clause) => clause.kind === 'errors')
+          .flatMap((clause) => (clause.kind === 'errors' ? clause.names : []));
+        if (!handled.includes(decl.name)) continue;
+        const filled = new Set<string>();
+        for (const clause of op.clauses) {
+          if (clause.kind !== 'onerror' || clause.error !== decl.name) continue;
+          walkExpr(clause.expr, (expr) => {
+            if (expr.kind === 'ident' && declaredFields.has(expr.name)) filled.add(expr.name);
+            if (expr.kind !== 'member') return;
+            if (declaredFields.has(expr.property)) {
+              filled.add(expr.property);
+              return;
+            }
+            if (expr.object.kind !== 'ident') return;
+            diags.push(diag('A064', 'error', mod.file, expr.loc, `services.${svc.name}.contract.${op.name}.onerror`,
+              `on error ${decl.name} names ${expr.object.name}.${expr.property}, which ${decl.name} does not declare`,
+              'declare the field on the error or fill a declared one'));
+          });
+        }
+        for (const field of decl.fields) {
+          if (filled.has(field.name)) continue;
+          diags.push(diag('A065', 'error', mod.file, decl.loc, `services.${svc.name}.contract.${op.name}.onerror`,
+            `on error ${decl.name} does not fill field ${field.name}`,
+            `write on error ${decl.name}: ${field.name} != null`));
+        }
+      }
+    }
+
     // A062 — an index names a field of a record type, exactly like unique.
     // An index on a missing field would be a migration that fails at deploy
     // time, so it is caught where the model is read.

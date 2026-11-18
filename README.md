@@ -1194,7 +1194,11 @@ Errors:
 - `A061` `string(format: ...)` names an unknown format;
 - `A063` an example passes a literal the parameter cannot accept (a list where
   a `string` is declared, a number where a `list<T>` is, `null` for a
-  non-optional parameter).
+  non-optional parameter);
+- `A064` an `on error E` expression names a member field that `E` does not
+  declare;
+- `A065` an error declares a payload field that its `on error` clause never
+  fills (the response would always omit it).
 
 Warnings:
 

@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startService } from './harness.ts';
+import { parse } from '../src/parser.ts';
+import { check } from '../src/check.ts';
+import { emitOpenapi } from '../src/emit/openapi.ts';
 
 // An error may declare payload fields. The 409 body carries exactly the
 // declared names the body provided — nothing else, so a body cannot smuggle
@@ -30,6 +33,22 @@ const SPEC = [
   '}',
   '',
 ].join('\n');
+
+
+test('on error must fill every declared field and may not invent one', () => {
+  const missing = check(parse(SPEC.replace('on error Conflict: fence != null', 'on error Conflict: other != null'), 'main.arc'));
+  assert.ok(missing.some((item) => item.code === 'A065'), 'an unfilled field is A065');
+  const unknown = check(parse(SPEC.replace('on error Conflict: fence != null', 'on error Conflict: lease.wall != null'), 'main.arc'));
+  assert.ok(unknown.some((item) => item.code === 'A064'), 'an undeclared member is A064');
+});
+
+test('openapi describes the declared error payload', () => {
+  const doc: any = emitOpenapi(parse(SPEC, 'main.arc'));
+  const operation = doc.paths['/v1/locks'].post;
+  const schema = operation.responses['409'].content['application/json'].schema;
+  assert.equal(schema.properties.fence.type, 'integer');
+  assert.deepEqual(schema.required, ['error', 'message']);
+});
 
 test('a declared error field reaches the 409 body, undeclared ones do not', async () => {
   const impl = {
