@@ -246,7 +246,34 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           `bind argument ${key} is not a literal and no emitter reads it`,
           'write a string, number or true/false; provider options are static'));
       }
-      if (bind.provider === 'local') continue;
+      // Capabilities any service asks of this alias; two services may share
+      // one alias with different capabilities, and a provider has to satisfy
+      // every one of them.
+      const capabilities = new Map<string, string>();
+      for (const item of mod.services) {
+        if (item.external) continue;
+        for (const use of item.uses) {
+          if (use.alias !== bind.alias) continue;
+          const short = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
+          capabilities.set(short, use.capability);
+        }
+      }
+
+      // A068 — `local` is the compiler's own runtime: it serves ids and hash
+      // and nothing else. Bound to kv/sql/queue it provisions no container,
+      // check stayed clean, and the generated service failed on first use with
+      // no address to talk to.
+      if (bind.provider === 'local') {
+        for (const capability of capabilities.keys()) {
+          if (capability === 'ids' || capability === 'hash') continue;
+          const alternatives = registry.forCapability(capability);
+          diags.push(diag('A068', 'error', mod.file, bind.loc, subject,
+            `provider local does not serve ${capability}`,
+            alternatives.length > 0 ? 'bind one of: ' + alternatives.join(', ') : `no provider declares ${capability}`));
+        }
+        continue;
+      }
+
       const spec = registry.get(bind.provider);
       if (!spec) {
         diags.push(diag('A023', 'error', mod.file, bind.loc, subject,
@@ -262,20 +289,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
 
       // A024 — the provider does not implement the capability the alias is
-      // used for; W029 — a plugin adapter nothing can dispatch. Both depend on
-      // a `uses`, not on the environment being deployed, so they are checked
-      // for every environment as well.
-      // Two services may share one alias with different capabilities; the
-      // provider has to satisfy every one of them.
-      const capabilities = new Map<string, string>();
-      for (const item of mod.services) {
-        if (item.external) continue;
-        for (const use of item.uses) {
-          if (use.alias !== bind.alias) continue;
-          const short = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
-          capabilities.set(short, use.capability);
-        }
-      }
+      // used for; W029 — a plugin adapter nothing can dispatch.
       if (capabilities.size === 0) continue;
       for (const [capability, declared] of capabilities) {
         if (spec.runtime && registry.signaturesFor(capability).length === 0) {

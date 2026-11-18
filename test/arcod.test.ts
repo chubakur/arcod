@@ -668,6 +668,48 @@ environment dev {
   assert.match(deployWarn[0].message, /deploy argument region is not a literal/);
 });
 
+// `local` is the runtime the compiler ships, not a wildcard: it serves ids and
+// hash. Bound to a storage capability it provisions nothing, and the service
+// starts without an address.
+test('local serves ids and hash, not a storage capability', () => {
+  const mod = parse(`module envs @0.1.0 {
+  meta { owner: "@dev" }
+}
+
+use capability arcod.std.kv @1
+use capability arcod.std.ids @1
+
+type Item = { id: uuid, name: string }
+
+environment dev {
+  bind store -> local
+  bind uuid -> local
+}
+
+service Items : http {
+  uses store: kv
+  uses uuid: ids
+
+  effects { allow store.find, uuid.new }
+
+  contract {
+    public op list() -> { items: list<Item> } {
+      route: "GET /v1/items"
+      effects: store.find
+      post: result.items != null
+    }
+  }
+}
+`, 'envs.arc');
+  const local = check(mod).filter((item) => item.code === 'A068');
+  assert.equal(local.length, 1);
+  assert.equal(local[0].path, 'environments.dev.binds.store');
+  assert.match(local[0].message, /local does not serve kv/);
+  assert.match(local[0].hint ?? '', /redis/);
+  // uuid -> local is the legitimate case and stays silent.
+  assert.ok(!local.some((item) => (item.path ?? '').endsWith('binds.uuid')));
+});
+
 test('unknown provider and capability mismatch are errors', () => {
   const unknown = parse(infraSource.replace('bind store -> redis(host: "kv")', 'bind store -> nats(host: "kv")'), 'infra.arc');
   assert.ok(check(unknown).some((item) => item.code === 'A023'));

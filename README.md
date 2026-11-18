@@ -1193,6 +1193,10 @@ Errors:
   value, an operation, a service, a type, an enum, an error, a workflow or an
   environment) — every emitter keys by name, so the second would silently
   replace the first;
+- `A068` `bind alias -> local` for a capability the bundled runtime does not
+  serve: `local` is the compiler's own runtime (ids, hash), so a storage or
+  queue alias bound to it provisions nothing and the service starts without an
+  address;
 - `A067` one operation declares the same clause twice (`route`, `effects`,
   `retry`, `on error E`): the AST keeps both, every reader takes the first,
   and the second would do nothing at all;
