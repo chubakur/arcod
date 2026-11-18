@@ -155,7 +155,10 @@ function collectOffsets(m: ModuleNode): number[] {
     // offset the printer has nowhere to put it and the comment disappears.
     if (t.type.kind === 'record') for (const field of t.type.fields) out.push(field.loc.offset);
   }
-  for (const e of m.errors) out.push(e.loc.offset);
+  for (const e of m.errors) {
+    out.push(e.loc.offset);
+    for (const field of e.fields) out.push(field.loc.offset);
+  }
   for (const e of m.enums) out.push(e.loc.offset);
   for (const s of m.services) collectService(s, out);
   for (const w of m.workflows) collectWorkflow(w, out);
@@ -284,11 +287,22 @@ class Printer {
     this.emitComments(e.loc.offset, 0);
     if (e.fields.length === 0) {
       this.raw(0, 'error ' + e.name);
-    } else {
+      return;
+    }
+    const commented = e.fields.some((field) => this.comments.has(field.loc.offset));
+    if (!commented) {
       this.raw(0, 'error ' + e.name + ' {');
       for (const f of e.fields) this.raw(1, param(f));
       this.raw(0, '}');
+      return;
     }
+    // Same rule as a record: a commented field needs a line of its own.
+    this.raw(0, 'error ' + e.name + ' {');
+    for (const f of e.fields) {
+      this.emitComments(f.loc.offset, 1);
+      this.raw(1, param(f));
+    }
+    this.raw(0, '}');
   }
 
   private enumDecl(e: { kind: string; name: string; values: string[]; loc: Loc }): void {

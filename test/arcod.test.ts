@@ -407,6 +407,12 @@ test('fmt keeps a comment written inside a record', () => {
   const formatted = formatSource(source, 'main.arc');
   assert.match(formatted, /type Card = \{\n  \/\/ the name printed on the card\n  name: string,\n  age: int\n\}/);
   assert.equal(formatSource(formatted, 'main.arc'), formatted, 'the multi-line form stays stable');
+
+  const withError = ['module card @0.1.0 {}', '', 'error TooBig {', '  // how big the value was', '  size: int',
+    '  limit: int', '}', ''].join('\n');
+  const errorFmt = formatSource(withError, 'main.arc');
+  assert.match(errorFmt, /error TooBig \{\n  \/\/ how big the value was\n  size: int\n  limit: int\n\}/);
+  assert.equal(formatSource(errorFmt, 'main.arc'), errorFmt);
 });
 
 const infraSource = `module infra @0.1.0 {}
