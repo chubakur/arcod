@@ -1,7 +1,8 @@
 // Canonical formatter: parse -> canonical AST -> canonical source.
 // fmt is a pure function of the AST, so it is idempotent and round-trips the
 // model exactly (parse(print(x)) === x structurally). Comments are re-attached
-// to the declaration they precede; anything the parser does not keep (comments
+// to the declaration or field they precede (a commented field turns its record
+// or error block multi-line); anything the parser does not keep (comments
 // between two statements, trailing comments) is dropped.
 
 import type {
