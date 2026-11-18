@@ -233,3 +233,21 @@ test('formatting a broken spec returns no edits instead of throwing', () => {
   assert.deepEqual(formatting(broken, 'broken.arc'), [], 'a half-written spec formats to nothing');
   assert.deepEqual(formatting('@@@ not arcod at all', 'broken.arc'), [], 'a lexer failure is not a crash');
 });
+
+test('formatting keeps a comment inside a ui block, not at the end of the file', () => {
+  const src = [
+    'module demo @0.1.0 {}',
+    'ui Board {',
+    '  kind: spa',
+    '  route: "/board"',
+    '  // dark by default',
+    '  theme: dark',
+    '}',
+  ].join('\n');
+  const edits = formatting(src, 'demo.arc');
+  assert.equal(edits.length, 1, 'the whole document is replaced');
+  const out = edits[0].newText;
+  assert.match(out, /^  \/\/ dark by default\n  theme: dark$/m);
+  assert.deepEqual(formatting(out, 'demo.arc'), [], 'a second format is a no-op');
+});
+
