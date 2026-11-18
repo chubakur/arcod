@@ -1381,9 +1381,11 @@ This is a vertical slice, not a finished language.
   `arcod test`.
 - `arcod fmt` is canonical and idempotent, but it re-lays out record types on one
   line. Comments above declarations, fields, enum values and example statements
-  survive, and a comment that trails code on the same line stays there (it is
-  re-attached to the deepest node that starts on that line); only a trailing
-  comment after a closing brace has no owner and is dropped. `arcod diff`
+  survive, a comment written inside the module header braces stays inside the
+  block (printed after `meta` when one is declared), and a comment that trails
+  code on the same line stays there (it is re-attached to the deepest node that
+  starts on that line); only a trailing comment after a closing brace has no
+  owner and is dropped. `arcod diff`
   compares canonicalized specs; `arcod adopt` imports OpenAPI 3.x JSON only.
 - of the rule predicates `arcod test` supports only `once`.
 - `unique` is checked and enforced (`A054`–`A056`, a duplicate returns the

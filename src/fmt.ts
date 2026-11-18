@@ -224,13 +224,18 @@ class Printer {
   private out: string[] = [];
   private comments: Map<number, string[]>;
   private trailing: Map<number, string[]>;
+  // Comments written inside the module header braces. The header has no child
+  // nodes of its own, so a leading comment there would otherwise slide to the
+  // first declaration after the block.
+  private moduleComments: string[];
   // Trailing comments wait for the next emitted line: the node that owns them
   // prints exactly one line right after its emitComments call.
   private pending: string[] = [];
 
-  constructor(comments: Map<number, string[]>, trailing: Map<number, string[]> = new Map()) {
+  constructor(comments: Map<number, string[]>, trailing: Map<number, string[]> = new Map(), moduleComments: string[] = []) {
     this.comments = comments;
     this.trailing = trailing;
+    this.moduleComments = moduleComments;
   }
 
   private raw(indent: number, text: string): void {
@@ -269,6 +274,10 @@ class Printer {
       this.raw(1, 'meta {');
       for (const [k, v] of Object.entries(m.meta)) this.raw(2, k + ': ' + quoteStr(v));
       this.raw(1, '}');
+    }
+    for (const c of this.moduleComments) {
+      if (c.startsWith('//')) this.raw(1, c);
+      else for (const line of c.split('\n')) this.raw(1, line);
     }
     this.raw(0, '}');
 
@@ -608,7 +617,15 @@ export function formatSource(source: string, file: string): string {
   };
   const leading = new Map<number, string[]>();
   const trailing = new Map<number, string[]>();
+  const moduleComments: string[] = [];
   for (const c of comments) {
+    // A comment written between the module header braces belongs to the block,
+    // not to the first declaration after it. Trailing ones keep the normal path
+    // and stay on the header line.
+    if (!c.trailing && c.start > mod.loc.offset && c.end <= mod.loc.end) {
+      moduleComments.push(c.text);
+      continue;
+    }
     if (c.trailing) {
       // The deepest node that starts on the comment's own line owns it. A
       // comment after a closing brace has no such node and is dropped.
@@ -637,5 +654,5 @@ export function formatSource(source: string, file: string): string {
     arr.push(c.text);
     leading.set(target, arr);
   }
-  return new Printer(leading, trailing).module(mod);
+  return new Printer(leading, trailing, moduleComments).module(mod);
 }

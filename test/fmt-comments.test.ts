@@ -62,6 +62,37 @@ test('a trailing block comment is flattened onto its line', () => {
   assert.match(out, /^  x: int  \/\* the x \*\/$/m);
 });
 
+test('a comment inside the module header stays inside the block', () => {
+  const src = ['module m @0.1.0 {', '  // the module note', '}', 'type T = { x: int }'].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.equal(out, 'module m @0.1.0 {\n  // the module note\n}\n\ntype T = { x: int }\n');
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
+
+test('a header comment prints after the meta block and keeps its order', () => {
+  const src = [
+    'module m @0.1.0 {',
+    '  // first note',
+    '  meta { stage: "beta" }',
+    '  // second note',
+    '}',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^module m @0\.1\.0 \{$/m);
+  assert.match(out, /^  meta \{$/m);
+  const lines = out.split('\n');
+  assert.deepEqual(lines.slice(0, 5), [
+    'module m @0.1.0 {',
+    '  meta {',
+    '    stage: "beta"',
+    '  }',
+    '  // first note',
+  ]);
+  assert.equal(lines[5], '  // second note');
+  assert.equal(lines[6], '}');
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
+
 test('a spec without comments still formats canonically', () => {
   const src = 'module m @0.1.0 {}\ntype T = { x: int }\n';
   const out = formatSource(src, 'main.arc');
