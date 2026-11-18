@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse, ParseError } from './parser.ts';
 import { check } from './check.ts';
@@ -245,6 +245,15 @@ async function expandSpecs(pattern: string): Promise<string[]> {
   return results.sort();
 }
 
+// A pattern usually matches several projects that all name their spec
+// main.arc: a bare basename would make their reports indistinguishable. Show
+// the path relative to the working directory, and the absolute one only when
+// the file lives outside it.
+function specLabel(specPath: string): string {
+  const rel = relative(process.cwd(), specPath);
+  return rel !== '' && !rel.startsWith('..') ? rel : specPath;
+}
+
 async function runCheckPattern(flags: Flags, pattern: string): Promise<void> {
   const specs = await expandSpecs(pattern);
   if (specs.length === 0) {
@@ -253,18 +262,40 @@ async function runCheckPattern(flags: Flags, pattern: string): Promise<void> {
     return;
   }
   let failed = 0;
-  const reports: Array<{ file: string; diagnostics: unknown[] }> = [];
+  const reports: Array<{
+    file: string;
+    diagnostics: unknown[];
+    error?: { message: string; line?: number; col?: number };
+  }> = [];
   for (const specPath of specs) {
+    const label = specLabel(specPath);
     const dir = join(specPath, '..');
-    const mod = parse(await readFile(specPath, 'utf8'), basename(specPath));
+    let mod: ModuleNode;
+    try {
+      mod = parse(await readFile(specPath, 'utf8'), label);
+    } catch (error) {
+      // One broken file must not abandon the other projects: report it with
+      // its location, count it as failed and keep going.
+      failed++;
+      const message = error instanceof Error ? error.message : String(error);
+      const loc = error instanceof ParseError ? error.loc : null;
+      if (flags.json) {
+        reports.push({ file: specPath, diagnostics: [], error: { message, line: loc?.line, col: loc?.col } });
+      } else if (loc) {
+        console.log(label + ':' + loc.line + ':' + loc.col + '  error  parse  ' + message);
+      } else {
+        console.log(label + '  error  ' + message);
+      }
+      continue;
+    }
     const diags = check(mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(dir) });
     if (diags.some((item) => item.severity === 'error')) failed++;
     if (flags.json) {
       reports.push({ file: specPath, diagnostics: diags });
     } else if (diags.length === 0) {
-      console.log(basename(specPath) + ': ok');
+      console.log(label + ': ok');
     } else {
-      printDiagnostics(diags, specPath);
+      printDiagnostics(diags, specPath, label);
     }
   }
   if (flags.json) console.log(JSON.stringify(reports, null, 2));
@@ -933,8 +964,8 @@ function compose(result: { composeFile: string; dir: string }, args: string[], f
   return child.status ?? 1;
 }
 
-function printDiagnostics(diags: Diagnostic[], specPath: string): void {
-  const name = basename(specPath);
+function printDiagnostics(diags: Diagnostic[], specPath: string, label?: string): void {
+  const name = label ?? basename(specPath);
   for (const d of diags) {
     console.log(name + ':' + d.range.line + ':' + d.range.col + '  ' + d.severity + '  ' + d.code + '  ' + d.message);
     if (d.hint) console.log('    hint: ' + d.hint);

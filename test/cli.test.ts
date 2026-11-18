@@ -723,3 +723,40 @@ test('fmt --write keeps a comment written inside a ui block', async () => {
   assert.equal(check.code, 0, JSON.stringify(check.err));
 });
 
+
+test('a pattern names each file and keeps going after a parse error', async () => {
+  const root = await tempDir('arcod-glob-broken-');
+  for (const name of ['alpha', 'beta']) {
+    await mkdir(join(root, name), { recursive: true });
+    await writeFile(join(root, name, 'main.arc'), signup);
+  }
+
+  // Two projects, one spec name: a bare basename would print "main.arc" twice
+  // and leave the reader guessing which project failed.
+  const both = await run(['check', join(root, '*', 'main.arc')]);
+  assert.equal(both.code, 0, both.out);
+  for (const name of ['alpha', 'beta']) {
+    assert.ok(both.out.includes(join(root, name, 'main.arc') + ':'), both.out);
+  }
+
+  // A declaration one brace too deep is a parse error now; the other project
+  // must still be checked and the run must end with a summary, not a stack.
+  await writeFile(join(root, 'beta', 'main.arc'),
+    ['module beta @0.1.0 {', '  type T = { x: int }', '}'].join('\n'));
+  const bad = await run(['check', join(root, '*', 'main.arc')]);
+  assert.equal(bad.code, 1);
+  assert.match(bad.out, /error {2}parse {2}unexpected token "type" in the module header/);
+  assert.ok(bad.out.includes(join(root, 'beta', 'main.arc') + ':2:3'), bad.out);
+  assert.ok(bad.out.includes(join(root, 'alpha', 'main.arc') + ':'), 'the healthy file is still checked');
+  assert.match(bad.out, /2 file\(s\), 1 with errors/);
+  assert.doesNotMatch(bad.out + bad.err, /\n\s+at /, 'no stack trace');
+
+  const json = await run(['check', join(root, '*', 'main.arc'), '--json']);
+  assert.equal(json.code, 1);
+  const report = JSON.parse(json.out) as Array<{ file: string; error?: { message: string; line?: number } }>;
+  assert.ok(report.length === 2, json.out);
+  const broken = report.find((item) => item.error !== undefined)?.error;
+  assert.ok(broken, json.out);
+  assert.match(broken.message, /module header/);
+  assert.equal(broken.line, 2);
+});
