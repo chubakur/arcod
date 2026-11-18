@@ -541,6 +541,68 @@ test('every provider in the registry renders a compose service', () => {
   assert.match(yaml, /SMTP_URL: "smtp:\/\/mail:1025"/);
 });
 
+// Every environment is a contract with a future deploy: a binding that only
+// fails there used to pass check for the default environment and break the
+// release, long after the merge.
+test('binds are checked in every environment, not only the selected one', () => {
+  const source = (prod: string) => `module envs @0.1.0 {
+  meta { owner: "@dev" }
+}
+
+use capability arcod.std.kv @1
+use capability arcod.std.ids @1
+
+type Item = { id: uuid, name: string }
+
+environment dev {
+  bind store -> redis(host: "kv")
+  bind uuid -> local
+}
+
+environment prod {
+${prod}
+  bind uuid -> local
+}
+
+service Items : http {
+  uses store: kv
+  uses uuid: ids
+
+  contract {
+    public op list() -> { items: list<Item> } {
+      route: "GET /v1/items"
+      effects: store.find
+      post: result.items != null
+    }
+  }
+}
+`;
+
+  const clean = parse(source('  bind store -> redis(host: "kv")'), 'envs.arc');
+  assert.deepEqual(
+    check(clean).filter((item) => ['A023', 'A025', 'A026'].includes(item.code)),
+    [],
+  );
+
+  const unknown = check(parse(source('  bind store -> nosuchprovider'), 'envs.arc'))
+    .filter((item) => item.code === 'A023');
+  assert.equal(unknown.length, 1);
+  assert.equal(unknown[0].path, 'environments.prod.binds.store');
+
+  const twice = check(parse(source('  bind store -> redis(host: "kv")\n  bind store -> redis(host: "kv")'), 'envs.arc'))
+    .filter((item) => item.code === 'A025');
+  assert.equal(twice.length, 1);
+  assert.equal(twice[0].path, 'environments.prod.binds.store');
+
+  // A provider that requires an argument is checked in the other environment
+  // even when no service of the model uses that alias.
+  const noDsn = check(parse(source('  bind store -> redis(host: "kv")\n  bind errors -> sentry()'), 'envs.arc'))
+    .filter((item) => item.code === 'A026');
+  assert.equal(noDsn.length, 1);
+  assert.equal(noDsn[0].path, 'environments.prod.binds.errors');
+  assert.match(noDsn[0].message, /requires argument dsn/);
+});
+
 test('unknown provider and capability mismatch are errors', () => {
   const unknown = parse(infraSource.replace('bind store -> redis(host: "kv")', 'bind store -> nats(host: "kv")'), 'infra.arc');
   assert.ok(check(unknown).some((item) => item.code === 'A023'));

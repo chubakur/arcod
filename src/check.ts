@@ -215,6 +215,36 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     }
   }
 
+  // A023 — unknown provider; A025 — one alias bound more than once; A026 — a
+  // provider requires an argument. Every environment is checked, not only the
+  // selected one: a spec that was clean for `dev` used to fail at
+  // `deploy --env prod`, long after the merge, on a binding nobody had read.
+  for (const environment of mod.environments) {
+    const aliases = new Set<string>();
+    for (const bind of environment.binds) {
+      const subject = `environments.${environment.name}.binds.${bind.alias}`;
+      if (bind.provider !== 'local' && aliases.has(bind.alias)) {
+        diags.push(diag('A025', 'error', mod.file, bind.loc, subject,
+          `alias ${bind.alias} is bound twice`, 'keep a single provider'));
+      }
+      aliases.add(bind.alias);
+      if (bind.provider === 'local') continue;
+      const spec = registry.get(bind.provider);
+      if (!spec) {
+        diags.push(diag('A023', 'error', mod.file, bind.loc, subject,
+          `unknown provider ${bind.provider}`, 'available: ' + registry.names().join(', ')));
+        continue;
+      }
+      for (const required of spec.requires ?? []) {
+        if (!(required in bind.args)) {
+          diags.push(diag('A026', 'error', mod.file, bind.loc, subject,
+            `provider ${bind.provider} requires argument ${required}`,
+            `add ${required}: "..." to bind`));
+        }
+      }
+    }
+  }
+
   const bound = new Map<string, string>();
   for (const bind of env?.binds ?? []) bound.set(bind.alias, bind.provider);
 
@@ -282,39 +312,15 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
-    // A023 — unknown provider; A024 — provider does not implement the capability;
-    // A025 — one alias bound more than once
-    const boundAliases = new Set<string>();
+    // A024 — provider does not implement the capability; W029 — a plugin
+    // adapter nothing can dispatch. A023/A025/A026 run once per environment
+    // above, so a binding in another environment is not silently skipped.
     for (const bind of env?.binds ?? []) {
-      if (bind.provider !== 'local' && boundAliases.has(bind.alias)) {
-        diags.push(
-          diag('A025', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
-            `alias ${bind.alias} is bound twice`, 'keep a single provider'),
-        );
-      }
-      boundAliases.add(bind.alias);
-
       if (bind.provider === 'local') continue;
       const use = svc.uses.find((item) => item.alias === bind.alias);
       if (!use) continue;
       const spec = registry.get(bind.provider);
-      if (!spec) {
-        diags.push(
-          diag('A023', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
-            `unknown provider ${bind.provider}`,
-            'available: ' + registry.names().join(', ')),
-        );
-        continue;
-      }
-      for (const required of spec.requires ?? []) {
-        if (!(required in bind.args)) {
-          diags.push(
-            diag('A026', 'error', mod.file, bind.loc, `environments.${env!.name}.binds.${bind.alias}`,
-              `provider ${bind.provider} requires argument ${required}`,
-              `add ${required}: "..." to bind`),
-          );
-        }
-      }
+      if (!spec) continue;
 
       const capability = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
       // W029 — a plugin provider ships a runtime adapter, but its capability

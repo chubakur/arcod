@@ -193,7 +193,9 @@ the container starts.
 The model names a capability (`kv`, `sql`, `blob`…), the environment names a
 provider (`redis`, `postgres`, `s3`…). The compiler knows which provider
 implements which capability and enforces it (`A023` unknown, `A024`
-incompatible, `A025` double bind).
+incompatible, `A025` double bind, `A026` a required argument is missing).
+Every environment is checked, so a typo in `prod` fails `check`, not the
+release.
 
 Capabilities and providers can also come from a package: a plugin manifest
 declares them and `arcod providers --plugins` shows what was found, where it
@@ -1168,7 +1170,9 @@ Errors:
 - `A021` a denied effect is used;
 - `A022` `once(..., else: E)` references an error outside the contract;
 - `A023` unknown provider; `A024` provider does not implement the capability;
-  `A025` one alias bound twice;
+  `A025` one alias bound twice; `A026` a provider requires an argument the
+  bind omits — `A023`/`A025`/`A026` are checked in every environment, not only
+  the one `--env` selects;
 - `A027` an operation names an effect whose alias is not declared in `uses`;
 - `A028` unknown deployment provider; `W019` unknown provider argument;
 - `A029` `needs` references an unknown step;
