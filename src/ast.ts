@@ -180,6 +180,10 @@ export interface ServiceNode {
   effects: EffectsNode | null;
   examples: ExampleNode[];
   budget: BudgetNode | null;
+  // Closing braces of the blocks that are not nodes of their own, keyed by
+  // keyword. fmt needs them to keep a comment written after the brace on that
+  // brace instead of dropping it.
+  blockCloses?: Partial<Record<'contract' | 'rules' | 'effects' | 'examples' | 'budget', Loc>>;
   loc: Loc;
 }
 

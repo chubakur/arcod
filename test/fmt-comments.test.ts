@@ -113,6 +113,45 @@ test('a trailing comment on a saga or an example brace stays there', () => {
   assert.equal(formatSource(out, 'main.arc'), out);
 });
 
+test('a trailing comment on a structural block brace stays there', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  uses store: kv',
+    '  effects {',
+    '    allow store.get',
+    '  } // the effects',
+    '',
+    '  rules {',
+    '    invariant one: once(S.list, by: x)',
+    '  } // the rules',
+    '',
+    '  contract {',
+    '    op list() -> list<T> {',
+    '      route: "GET /t"',
+    '    }',
+    '  } // the contract',
+    '',
+    '  examples {',
+    '    example ok {',
+    '      when {',
+    '        list()',
+    '      }',
+    '    }',
+    '  } // the examples',
+    '',
+    '  budget {',
+    '    latency: 200ms',
+    '  } // the budget',
+    '}',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  for (const name of ['effects', 'rules', 'contract', 'examples', 'budget']) {
+    assert.match(out, new RegExp('^  \\}  // the ' + name + '$', 'm'), name + ' brace keeps its comment');
+  }
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
+
 test('a closing-brace comment does not expand a one-line record', () => {
   const src = ['module m @0.1.0 {}', 'enum E { a, b } // colors'].join('\n');
   const out = formatSource(src, 'main.arc');

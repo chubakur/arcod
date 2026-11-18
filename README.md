@@ -1425,8 +1425,11 @@ This is a vertical slice, not a finished language.
   slide (above its `body`, or after it before the closing brace), a comment
   after the last declaration is printed at the end of the file, a comment that trails
   code on the same line stays there (it is re-attached to the deepest node that
-  starts on that line), and a comment after a closing brace stays on that brace
-  (`}  // end service`, also for a one-line record, enum or saga step). `arcod diff`
+  starts on that line), and a comment after a closing brace stays on that brace:
+  a service, an operation, a type or enum, a saga, an example and the
+  `effects`/`rules`/`contract`/`examples`/`budget` blocks inside a service all
+  keep `}  // note`, and a one-line record or enum keeps its shape instead of
+  expanding. `arcod diff`
   compares canonicalized specs; `arcod adopt` imports OpenAPI 3.x JSON only.
 - of the rule predicates `arcod test` supports only `once`.
 - `unique` is checked and enforced (`A054`–`A056`, a duplicate returns the

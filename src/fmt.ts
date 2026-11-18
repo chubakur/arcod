@@ -178,6 +178,7 @@ function collectOffsets(m: ModuleNode): number[] {
     for (const loc of e.valueLocs ?? []) out.push(loc.offset);
   }
   for (const s of m.services) collectService(s, out);
+  collectBlockCloses(m, out);
   for (const w of m.workflows) collectWorkflow(w, out);
   for (const e of m.environments) collectEnv(e, out);
   for (const u of m.uis) collectUi(u, out);
@@ -216,6 +217,14 @@ function collectEnds(m: ModuleNode, out: number[]): void {
 // Offsets of recorded closing braces mapped to the end of the node they close.
 // A trailing comment on such a line reaches the brace offset before the node
 // end, so both anchors must name the same block.
+// Block closings that are not node ends (contract, rules, effects, examples,
+// budget) are keyed by their own offset: the printer passes that number back.
+function collectBlockCloses(m: ModuleNode, out: number[]): void {
+  for (const s of m.services) {
+    for (const loc of Object.values(s.blockCloses ?? {})) if (loc) out.push(loc.offset);
+  }
+}
+
 function collectCloseEnds(m: ModuleNode, out: Map<number, number>): void {
   const add = (loc: Loc | undefined, end: number): void => {
     if (loc) out.set(loc.offset, end);
@@ -497,12 +506,12 @@ class Printer {
     const body: Array<() => void> = [];
     if (s.uses.length > 0) body.push(() => { for (const c of s.uses) this.capUse(c); });
     if (s.roles.length > 0) body.push(() => this.raw(1, 'roles: ' + s.roles.join(', ')));
-    if (s.effects) body.push(() => this.effects(s.effects!));
-    if (s.rules.length > 0) body.push(() => this.rules(s.rules));
-    if (s.contract.length > 0) body.push(() => this.contract(s.contract));
+    if (s.effects) body.push(() => this.effects(s.effects!, s.blockCloses?.effects));
+    if (s.rules.length > 0) body.push(() => this.rules(s.rules, s.blockCloses?.rules));
+    if (s.contract.length > 0) body.push(() => this.contract(s.contract, s.blockCloses?.contract));
     for (const sg of s.sagas) body.push(() => this.saga(sg));
-    if (s.examples.length > 0) body.push(() => this.examples(s.examples));
-    if (s.budget) body.push(() => this.budget(s.budget!));
+    if (s.examples.length > 0) body.push(() => this.examples(s.examples, s.blockCloses?.examples));
+    if (s.budget) body.push(() => this.budget(s.budget!, s.blockCloses?.budget));
     for (let i = 0; i < body.length; i++) {
       if (i > 0) this.blank();
       body[i]();
@@ -518,7 +527,7 @@ class Printer {
     this.raw(1, s);
   }
 
-  private effects(e: EffectsNode): void {
+  private effects(e: EffectsNode, close?: Loc): void {
     this.emitComments(e.loc.offset, 1);
     this.raw(1, 'effects {');
     const clause = (key: 'allow' | 'deny', list: string[]): void => {
@@ -540,10 +549,10 @@ class Printer {
     };
     clause('allow', e.allow);
     clause('deny', e.deny);
-    this.raw(1, '}');
+    this.closeLine(1, '}', close?.offset ?? -1);
   }
 
-  private rules(rs: RuleNode[]): void {
+  private rules(rs: RuleNode[], close?: Loc): void {
     this.raw(1, 'rules {');
     for (const r of rs) {
       this.emitComments(r.loc.offset, 2);
@@ -555,10 +564,10 @@ class Printer {
         case 'index': this.raw(2, 'index ' + r.path); break;
       }
     }
-    this.raw(1, '}');
+    this.closeLine(1, '}', close?.offset ?? -1);
   }
 
-  private contract(ops: OpNode[]): void {
+  private contract(ops: OpNode[], close?: Loc): void {
     this.raw(1, 'contract {');
     // No blank line right after `contract {`: the first operation starts the
     // block, as it does in every other clause.
@@ -566,7 +575,7 @@ class Printer {
       if (i > 0) this.blank();
       this.op(ops[i], 2);
     }
-    this.raw(1, '}');
+    this.closeLine(1, '}', close?.offset ?? -1);
   }
 
   private op(op: OpNode, indent: number): void {
@@ -631,7 +640,7 @@ class Printer {
     this.closeLine(1, '}', sg.loc.end);
   }
 
-  private examples(exs: ExampleNode[]): void {
+  private examples(exs: ExampleNode[], close?: Loc): void {
     this.raw(1, 'examples {');
     for (const ex of exs) {
       this.blank();
@@ -642,7 +651,7 @@ class Printer {
       if (ex.then.length) this.section('then', ex.then, 3);
       this.closeLine(2, '}', ex.loc.end);
     }
-    this.raw(1, '}');
+    this.closeLine(1, '}', close?.offset ?? -1);
   }
 
   private section(name: string, stmts: Stmt[], indent: number): void {
@@ -655,7 +664,7 @@ class Printer {
     this.raw(indent, '}');
   }
 
-  private budget(b: BudgetNode): void {
+  private budget(b: BudgetNode, close?: Loc): void {
     this.emitComments(b.loc.offset, 1);
     this.raw(1, 'budget {');
     for (const item of b.items) {
@@ -665,7 +674,7 @@ class Printer {
       s += expr(item.expr);
       this.raw(2, s);
     }
-    this.raw(1, '}');
+    this.closeLine(1, '}', close?.offset ?? -1);
   }
 
   // Comments attached to a clause keyword are printed right before that
@@ -803,6 +812,14 @@ export function formatSource(source: string, file: string): string {
   const ends: number[] = [];
   collectEnds(mod, ends);
   ends.sort((a, b) => b - a);
+  const blockCloses: number[] = [];
+  collectBlockCloses(mod, blockCloses);
+  // A closing brace is on its line through its first character; a node ends
+  // just past it. Both are anchors, keyed by what the printer looks up.
+  const anchors: Array<{ key: number; pos: number }> = [
+    ...ends.map((end) => ({ key: end, pos: end - 1 })),
+    ...blockCloses.map((offset) => ({ key: offset, pos: offset })),
+  ].sort((a, b) => b.key - a.key);
   const closeEnds = new Map<number, number>();
   collectCloseEnds(mod, closeEnds);
   const lineStarts = [0];
@@ -847,7 +864,8 @@ export function formatSource(source: string, file: string): string {
       // even when a child node started on the same line (a one-line record).
       // The brace printer puts it back on the line it came from.
       const line = lineOf(c.start);
-      const braceEnd = ends.find((end) => end <= c.start && lineOf(end - 1) === line);
+      const anchor = anchors.find((item) => item.key <= c.start && lineOf(item.pos) === line);
+      const braceEnd = anchor?.key;
       if (braceEnd !== undefined) {
         const br = braceTrailing.get(braceEnd) ?? [];
         br.push(c.text.replace(/\s+/g, ' ').trim());
@@ -867,11 +885,11 @@ export function formatSource(source: string, file: string): string {
         // Nothing starts on this line: the comment trails a closing brace.
         // Anchor it on the innermost node that ends on the line, so the brace
         // printer can put it back on that same line.
-        const anchor = ends.find((end) => end <= c.start && lineOf(end - 1) === line);
-        if (anchor === undefined) continue;
-        const br = braceTrailing.get(anchor) ?? [];
+        const late = anchors.find((item) => item.key <= c.start && lineOf(item.pos) === line);
+        if (late === undefined) continue;
+        const br = braceTrailing.get(late.key) ?? [];
         br.push(c.text.replace(/\s+/g, ' ').trim());
-        braceTrailing.set(anchor, br);
+        braceTrailing.set(late.key, br);
         continue;
       }
       // A recorded closing brace anchors the comment on the block it closes,

@@ -254,6 +254,10 @@ class Parser {
       rules: [], effects: null, examples: [], budget: null, roles: [], loc: locOf(start),
     };
 
+    const closeBlock = (key: 'contract' | 'rules' | 'effects' | 'examples' | 'budget'): void => {
+      (svc.blockCloses ??= {})[key] = locOf(this.prev());
+    };
+
     while (!this.is('}')) {
       if (this.accept('meta')) {
         const parsedMeta = this.parseMeta();
@@ -263,7 +267,7 @@ class Parser {
         continue;
       }
       if (this.accept('uses')) { svc.uses.push(this.parseCapUse()); continue; }
-      if (this.accept('contract')) { this.parseContract(svc); continue; }
+      if (this.accept('contract')) { this.parseContract(svc); closeBlock('contract'); continue; }
       if (this.accept('roles')) {
         this.expect(':');
         while (true) {
@@ -272,11 +276,11 @@ class Parser {
         }
         continue;
       }
-      if (this.accept('rules')) { this.parseRules(svc); continue; }
-      if (this.accept('effects')) { svc.effects = this.parseEffects(); continue; }
-      if (this.accept('examples')) { this.parseExamples(svc); continue; }
+      if (this.accept('rules')) { this.parseRules(svc); closeBlock('rules'); continue; }
+      if (this.accept('effects')) { svc.effects = this.parseEffects(); closeBlock('effects'); continue; }
+      if (this.accept('examples')) { this.parseExamples(svc); closeBlock('examples'); continue; }
       if (this.is('saga')) { this.next(); svc.sagas.push(this.parseSaga()); continue; }
-      if (this.accept('budget')) { svc.budget = this.parseBudget(); continue; }
+      if (this.accept('budget')) { svc.budget = this.parseBudget(); closeBlock('budget'); continue; }
       if (this.is('lifecycle')) this.error('`lifecycle` is not supported in v0.1');
       if (this.is('hint')) this.error('`hint` is not supported in v0.1 — the contract is the prompt');
       if (this.is('impl')) this.error('`impl` blocks are not supported in v0.1 — bodies live in impl/*.mjs');
