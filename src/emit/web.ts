@@ -377,7 +377,8 @@ async function run(op, form, out, button) {
   if (token) headers.authorization = 'Bearer ' + token;
 
   var init = { method: op.method, headers: headers };
-  if (op.method !== 'GET' && op.method !== 'DELETE') {
+  // HEAD is body-less: no payload and no content-type to describe it.
+  if (op.method !== 'GET' && op.method !== 'DELETE' && op.method !== 'HEAD') {
     headers['content-type'] = 'application/json';
     init.body = JSON.stringify(body);
   }

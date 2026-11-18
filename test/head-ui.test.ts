@@ -40,3 +40,8 @@ test('a HEAD operation in the SPA keeps its parameter in the query', () => {
   assert.ok(peek, 'peek is in the table');
   assert.deepEqual(peek.params.map((param: any) => [param.name, param.where]), [['tag', 'query']]);
 });
+
+test('the SPA submit sends no body for HEAD', () => {
+  const page = emitWeb(parse(SPEC, 'main.arc'), { maxBytes: 4096 });
+  assert.ok(page.includes("op.method !== 'HEAD'"), 'HEAD is excluded from the body branch');
+});
