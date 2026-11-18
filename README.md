@@ -151,7 +151,7 @@ format name (`A061`). Full example: `examples/signup`.
 | `arcod terraform [dir]` | Terraform for the cloud view: network, managed services for the binds, secrets as variables; `--env`, `--out dir`; Yandex Cloud |
 | `arcod prompts [dir]` | prompts only: `--max-tokens`, `--full` (no budget cut), `--json` |
 | `arcod impl [dir]` | generate operation bodies with a local model: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote` |
-| `arcod fmt [dir]` | canonical AST formatter on stdout; `--check` fails if not formatted; `--write` rewrites the spec; `--to <version>` migrates first. Comments are re-attached to the declaration or field they precede (a commented field makes the record multi-line) |
+| `arcod fmt [dir]` | canonical AST formatter on stdout; `--check` fails if not formatted; `--write` rewrites the spec; `--to <version>` migrates first. Comments are re-attached to the declaration or field they precede (a commented field makes the record multi-line) and a comment trailing code stays on its own line |
 | `arcod diff <a> <b>` | structural diff of two specs (both canonicalized first), `-`/`+` hunks |
 | `arcod graphql [dir]` | GraphQL SDL for the same contract: `GET` → Query, other methods → Mutation, `<Name>Input` twins for arguments, the HTTP route and error statuses in each field description; `--service <name>`, `--out <file>` |
 | `arcod grpc [dir]` | proto3 for the same contract: one rpc per routed op, `<Op>Request`/`<Op>Response`, types mapped without silent widening, HTTP route and gRPC error codes in comments; `--service <name>`, `--out <file>` |
@@ -1381,7 +1381,9 @@ This is a vertical slice, not a finished language.
   `arcod test`.
 - `arcod fmt` is canonical and idempotent, but it re-lays out record types on one
   line. Comments above declarations, fields, enum values and example statements
-  survive; a comment that trails code on the same line is dropped. `arcod diff`
+  survive, and a comment that trails code on the same line stays there (it is
+  re-attached to the deepest node that starts on that line); only a trailing
+  comment after a closing brace has no owner and is dropped. `arcod diff`
   compares canonicalized specs; `arcod adopt` imports OpenAPI 3.x JSON only.
 - of the rule predicates `arcod test` supports only `once`.
 - `unique` is checked and enforced (`A054`–`A056`, a duplicate returns the

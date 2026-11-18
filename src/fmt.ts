@@ -3,7 +3,8 @@
 // model exactly (parse(print(x)) === x structurally). Comments are re-attached
 // to the declaration, field, enum value or example statement they precede (a
 // commented element turns its block multi-line). A comment that trails code on
-// the same line is dropped: the parser keeps no column for it.
+// the same line stays on that line: it is re-attached to the deepest node that
+// starts there, so the printed form re-parses to the same attachment.
 
 import type {
   Arg, BindNode, BudgetNode, CapUse, Clause, DeployNode, EffectsNode, EnvironmentNode,
@@ -112,10 +113,19 @@ interface Comment {
   start: number;
   end: number;
   text: string;
+  trailing: boolean;
 }
 
 function extractComments(source: string): Comment[] {
   const out: Comment[] = [];
+  // A comment trails code when something other than blanks precedes it on its
+  // own line; that comment belongs to the line it ends, not to the next node.
+  const trailingAt = (pos: number): boolean => {
+    for (let j = pos - 1; j >= 0 && source[j] !== '\n'; j--) {
+      if (source[j] !== ' ' && source[j] !== '\t' && source[j] !== '\r') return true;
+    }
+    return false;
+  };
   let i = 0;
   while (i < source.length) {
     const ch = source[i];
@@ -131,7 +141,7 @@ function extractComments(source: string): Comment[] {
     if (ch === '/' && source[i + 1] === '/') {
       const start = i;
       while (i < source.length && source[i] !== '\n') i++;
-      out.push({ start, end: i, text: source.slice(start, i) });
+      out.push({ start, end: i, text: source.slice(start, i), trailing: trailingAt(start) });
       continue;
     }
     if (ch === '/' && source[i + 1] === '*') {
@@ -139,7 +149,7 @@ function extractComments(source: string): Comment[] {
       i += 2;
       while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) i++;
       i = Math.min(i + 2, source.length);
-      out.push({ start, end: i, text: source.slice(start, i) });
+      out.push({ start, end: i, text: source.slice(start, i), trailing: trailingAt(start) });
       continue;
     }
     i++;
@@ -213,13 +223,23 @@ function collectUi(u: UiNode, out: number[]): void {
 class Printer {
   private out: string[] = [];
   private comments: Map<number, string[]>;
+  private trailing: Map<number, string[]>;
+  // Trailing comments wait for the next emitted line: the node that owns them
+  // prints exactly one line right after its emitComments call.
+  private pending: string[] = [];
 
-  constructor(comments: Map<number, string[]>) {
+  constructor(comments: Map<number, string[]>, trailing: Map<number, string[]> = new Map()) {
     this.comments = comments;
+    this.trailing = trailing;
   }
 
   private raw(indent: number, text: string): void {
-    this.out.push('  '.repeat(indent) + text);
+    let line = '  '.repeat(indent) + text;
+    if (this.pending.length > 0) {
+      line += '  ' + this.pending.join(' ');
+      this.pending = [];
+    }
+    this.out.push(line);
   }
 
   private blank(): void {
@@ -227,15 +247,19 @@ class Printer {
   }
 
   private emitComments(offset: number, indent: number): void {
+    this.pending = [];
     const cs = this.comments.get(offset);
-    if (!cs) return;
-    for (const c of cs) {
-      if (c.startsWith('//')) {
-        this.raw(indent, c);
-      } else {
-        for (const line of c.split('\n')) this.raw(indent, line);
+    if (cs) {
+      for (const c of cs) {
+        if (c.startsWith('//')) {
+          this.raw(indent, c);
+        } else {
+          for (const line of c.split('\n')) this.raw(indent, line);
+        }
       }
     }
+    const trail = this.trailing.get(offset);
+    if (trail && trail.length > 0) this.pending = trail;
   }
 
   module(m: ModuleNode): string {
@@ -276,7 +300,7 @@ class Printer {
   private typeDecl(t: TypeDecl): void {
     this.emitComments(t.loc.offset, 0);
     const fields = t.type.kind === 'record' ? t.type.fields : [];
-    if (fields.some((field) => this.comments.has(field.loc.offset))) {
+    if (fields.some((field) => this.comments.has(field.loc.offset) || this.trailing.has(field.loc.offset))) {
       // One commented field turns the record multi-line, so the comment keeps
       // the field it describes instead of floating above the declaration.
       this.raw(0, 'type ' + t.name + ' = {');
@@ -296,7 +320,7 @@ class Printer {
       this.raw(0, 'error ' + e.name);
       return;
     }
-    const commented = e.fields.some((field) => this.comments.has(field.loc.offset));
+    const commented = e.fields.some((field) => this.comments.has(field.loc.offset) || this.trailing.has(field.loc.offset));
     if (!commented) {
       this.raw(0, 'error ' + e.name + ' {');
       for (const f of e.fields) this.raw(1, param(f));
@@ -315,7 +339,8 @@ class Printer {
   private enumDecl(e: { kind: string; name: string; values: string[]; valueLocs?: Loc[]; loc: Loc }): void {
     this.emitComments(e.loc.offset, 0);
     const locs = e.valueLocs ?? [];
-    const commented = locs.length === e.values.length && e.values.some((_, index) => this.comments.has(locs[index].offset));
+    const commented = locs.length === e.values.length &&
+      e.values.some((_, index) => this.comments.has(locs[index].offset) || this.trailing.has(locs[index].offset));
     if (!commented) {
       this.raw(0, 'enum ' + e.name + ' { ' + e.values.join(', ') + ' }');
       return;
@@ -569,17 +594,48 @@ export function formatSource(source: string, file: string): string {
   const mod = parse(source, file);
   const comments = extractComments(source);
   const offsets = collectOffsets(mod);
-  const map = new Map<number, string[]>();
+  const lineStarts = [0];
+  for (let i = 0; i < source.length; i++) if (source[i] === '\n') lineStarts.push(i + 1);
+  const lineOf = (pos: number): number => {
+    let lo = 0;
+    let hi = lineStarts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lineStarts[mid] <= pos) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+  const leading = new Map<number, string[]>();
+  const trailing = new Map<number, string[]>();
   for (const c of comments) {
-    // find the smallest node offset >= the comment's end
+    if (c.trailing) {
+      // The deepest node that starts on the comment's own line owns it. A
+      // comment after a closing brace has no such node and is dropped.
+      const line = lineOf(c.start);
+      let target = -1;
+      for (let i = offsets.length - 1; i >= 0; i--) {
+        const o = offsets[i];
+        if (o > c.start) continue;
+        const oLine = lineOf(o);
+        if (oLine === line) { target = o; break; }
+        if (oLine < line) break;
+      }
+      if (target < 0) continue;
+      const arr = trailing.get(target) ?? [];
+      arr.push(c.text.replace(/\s+/g, ' ').trim());
+      trailing.set(target, arr);
+      continue;
+    }
+    // A leading comment belongs to the first node that starts after it ends.
     let target = -1;
     for (const o of offsets) {
       if (o >= c.end) { target = o; break; }
     }
     if (target < 0) continue;
-    const arr = map.get(target) ?? [];
+    const arr = leading.get(target) ?? [];
     arr.push(c.text);
-    map.set(target, arr);
+    leading.set(target, arr);
   }
-  return new Printer(map).module(mod);
+  return new Printer(leading, trailing).module(mod);
 }
