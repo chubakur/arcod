@@ -64,6 +64,48 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         ? 'declared: ' + mod.environments.map((item) => item.name).join(', ')
         : 'declare an environment, or drop --env')];
   }
+
+  // A066 — two declarations of one name are ambiguous: every emitter keys by
+  // name, so the second silently replaced the first in the generated service.
+  const declaredNames = new Map<string, Loc>();
+  const declareOnce = (kind: string, name: string, loc: Loc): void => {
+    if (declaredNames.has(kind + ' ' + name)) {
+      diags.push(diag('A066', 'error', mod.file, loc, kind + 's.' + name,
+        kind + ' ' + name + ' is declared twice', 'rename one of them'));
+      return;
+    }
+    declaredNames.set(kind + ' ' + name, loc);
+  };
+  for (const decl of mod.types) declareOnce('type', decl.name, decl.loc);
+  for (const decl of mod.enums) declareOnce('enum', decl.name, decl.loc);
+  for (const decl of mod.errors) declareOnce('error', decl.name, decl.loc);
+  for (const decl of mod.services) declareOnce('service', decl.name, decl.loc);
+  for (const decl of mod.workflows) declareOnce('workflow', decl.name, decl.loc);
+  for (const decl of mod.environments) declareOnce('environment', decl.name, decl.loc);
+
+  for (const svc of mod.services) {
+    const opNames = new Set<string>();
+    for (const op of svc.contract) {
+      if (opNames.has(op.name)) {
+        diags.push(diag('A066', 'error', mod.file, op.loc, 'services.' + svc.name + '.ops.' + op.name,
+          'operation ' + op.name + ' is declared twice', 'rename one of them'));
+      }
+      opNames.add(op.name);
+    }
+  }
+
+  for (const decl of mod.types) {
+    if (decl.type.kind !== 'record') continue;
+    const fieldNames = new Set<string>();
+    for (const field of decl.type.fields) {
+      if (fieldNames.has(field.name)) {
+        diags.push(diag('A066', 'error', mod.file, field.loc, 'types.' + decl.name + '.fields.' + field.name,
+          'field ' + field.name + ' is declared twice in ' + decl.name, 'rename one of them'));
+      }
+      fieldNames.add(field.name);
+    }
+  }
+
   // A028 — unknown deploy provider; W019 — unknown deploy argument.
   // Every environment is checked, not only the selected one.
   for (const environment of mod.environments) {

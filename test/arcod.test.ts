@@ -816,6 +816,31 @@ test('slides on a page without layout: presentation are an error', () => {
   assert.equal(diags[0].range.line, quizSource.split('\n').findIndex((line) => line.trim().startsWith('slide "')) + 1);
 });
 
+
+test('a name declared twice is an error, not a silent overwrite', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'type T = { a: int, a: string }',
+    'service S : http {',
+    '  contract {',
+    '    public op ping() -> int { route: "GET /ping" }',
+    '    public op ping() -> int { route: "GET /pong" }',
+    '  }',
+    '}',
+    'service S : http {',
+    '  contract { public op other() -> int { route: "GET /other" } }',
+    '}',
+    'error Bad { }',
+    'error Bad { }',
+  ].join('\n');
+  const diags = check(parse(src, 'main.arc')).filter((item) => item.code === 'A066');
+  assert.deepEqual(diags.map((item) => item.range.line), [2, 6, 9, 13], 'one per duplicate, at the copy');
+  assert.match(diags[0].message, /^field a is declared twice in T$/);
+  assert.match(diags[1].message, /^operation ping is declared twice$/);
+  assert.match(diags[2].message, /^service S is declared twice$/);
+  assert.match(diags[3].message, /^error Bad is declared twice$/);
+});
+
 test('a ui clause its layout does not read is an error', () => {
   const src = [
     'module m @0.1.0 {}',

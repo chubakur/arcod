@@ -1179,6 +1179,9 @@ Errors:
 - `A041` a presentation without slides;
 - `A042` slides on a page whose `layout` is not `presentation` — the page
   would drop them, so the text never reaches the browser;
+- `A066` two declarations of one name (a record field, an operation, a
+  service, a type, an enum, an error, a workflow or an environment) — every
+  emitter keys by name, so the second would silently replace the first;
 - `A045` `--env` names an environment the module does not declare (the hint
   lists the declared ones, instead of reporting every binding as missing);
 - `A044` an `allow`/`deny` entry that names no effect of the declared
