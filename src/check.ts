@@ -709,6 +709,21 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // A074 — a query string or fragment in a route path. The router matches
+    // url.pathname, which never carries either, so "GET /v1/x?limit=10" is a
+    // URL nobody can request; the client's ?limit=10 belongs in a parameter.
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      const route = routeOf(op);
+      if (!route) continue;
+      const path = route.trim().split(/\s+/)[1] ?? '';
+      const mark = path.includes('?') ? '?' : path.includes('#') ? '#' : null;
+      if (mark === null) continue;
+      diags.push(diag('A074', 'error', mod.file, op.loc, 'services.' + svc.name + '.contract.' + op.name,
+        'route ' + JSON.stringify(route) + ' carries a query string or fragment: the router matches the path only',
+        'declare the value as a parameter instead of ' + mark));
+    }
+
     // A072 — the same :name twice in one route. matchRoute assigns captures
     // in segment order, so the last segment wins and the earlier value is read
     // by nobody: "/v1/locks/:name/:name" matches "/v1/locks/a/b" and the body

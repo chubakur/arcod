@@ -1226,6 +1226,9 @@ Errors:
   value, an operation, a service, a type, an enum, an error, a workflow or an
   environment) — every emitter keys by name, so the second would silently
   replace the first;
+- `A074` a route path with a query string or fragment (`GET /v1/x?limit=10`):
+  the router matches `url.pathname`, which carries neither, so no client can
+  ever reach the operation — declare the value as a parameter;
 - `A073` a literal route declared after a capture route of the same shape:
   the router tries routes in declaration order and `:id` matches any segment,
   so `GET /v1/t/new` after `GET /v1/t/:id` never runs — declare the literal

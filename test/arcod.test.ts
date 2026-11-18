@@ -2011,6 +2011,32 @@ test('A069 drops empty path segments like the router does', () => {
   assert.deepEqual(dups('GET /v1/X'), [], 'static segments stay case-sensitive');
 });
 
+test('A074 refuses a query string or fragment in a route path', () => {
+  const spec = (route: string) => [
+    'module q @0.1.0 {}',
+    '',
+    'service S : http {',
+    '  contract {',
+    '    public op list(limit: int, cursor: string) -> { items: list<string> } {',
+    '      route: "' + route + '"',
+    '      post: result != null',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const code = (route: string) => check(parse(spec(route), 'main.arc')).filter((d) => d.code === 'A074');
+
+  const query = code('GET /v1/x?limit=10');
+  assert.equal(query.length, 1, 'the router matches url.pathname, so the query can never match');
+  assert.match(query[0].message, /carries a query string or fragment/);
+  assert.match(query[0].hint ?? '', /declare the value as a parameter/);
+
+  assert.equal(code('GET /v1/x#top').length, 1, 'a fragment never reaches the server either');
+  assert.deepEqual(code('GET /v1/x'), [], 'a plain path is clean');
+  assert.deepEqual(code('GET /v1/x/:id'), [], 'a capture is the way to put a value in the path');
+});
+
 test('A073 reports a literal route shadowed by an earlier capture route', () => {
   const spec = (routes: string[]) => [
     'module shadow @0.1.0 {}',
