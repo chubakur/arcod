@@ -109,6 +109,7 @@ environment dev {
   bind stream -> websocket
   deploy docker
 }
+
 environment prod {
   bind store -> redis(host: "kv", port: 6379)
   bind uuid -> local

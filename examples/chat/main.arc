@@ -63,6 +63,7 @@ environment dev {
   bind llm -> ollama(host: "host.docker.internal", port: 11434, model: "qwen2.5-coder:7b")
   deploy docker
 }
+
 environment prod {
   bind store -> postgres(host: "pg", port: 5432)
   bind uuid -> local

@@ -360,6 +360,27 @@ class Printer {
     this.out.push('');
   }
 
+  // Declarations of one module group are printed back to back. For single-line
+  // declarations (type aliases, `error NotFound`, uses) that is the canonical
+  // layout of the specs in examples/. Blocks (`service … {`, `workflow … {`)
+  // are not: without a separator the closing brace of one declaration runs
+  // straight into the header of the next, which looks like a syntax error and
+  // makes the diff of an added workflow unreadable. A block therefore gets a
+  // blank line on both sides, and the line is inserted before the item's
+  // comments, not after them.
+  private declarations<T>(items: T[], print: (item: T) => void): void {
+    let prevBlock = false;
+    for (const item of items) {
+      const start = this.out.length;
+      print(item);
+      const block = this.out.length - start > 1;
+      if ((prevBlock || block) && start > 0 && this.out[start - 1] !== '') {
+        this.out.splice(start, 0, '');
+      }
+      prevBlock = block;
+    }
+  }
+
   private emitComments(offset: number, indent: number): void {
     this.pending = [];
     const cs = this.comments.get(offset);
@@ -402,14 +423,14 @@ class Printer {
     this.raw(0, '}');
 
     const groups: Array<[string, () => void]> = [];
-    if (m.uses.length) groups.push(['uses', () => { for (const u of m.uses) this.use(u); }]);
-    if (m.types.length) groups.push(['types', () => { for (const t of m.types) this.typeDecl(t); }]);
-    if (m.errors.length) groups.push(['errors', () => { for (const e of m.errors) this.errorDecl(e); }]);
-    if (m.enums.length) groups.push(['enums', () => { for (const e of m.enums) this.enumDecl(e); }]);
-    if (m.services.length) groups.push(['services', () => { for (const s of m.services) this.service(s); }]);
-    if (m.workflows.length) groups.push(['workflows', () => { for (const w of m.workflows) this.workflow(w); }]);
-    if (m.environments.length) groups.push(['environments', () => { for (const e of m.environments) this.environment(e); }]);
-    if (m.uis.length) groups.push(['uis', () => { for (const u of m.uis) this.ui(u); }]);
+    if (m.uses.length) groups.push(['uses', () => { this.declarations(m.uses, (u) => this.use(u)); }]);
+    if (m.types.length) groups.push(['types', () => { this.declarations(m.types, (t) => this.typeDecl(t)); }]);
+    if (m.errors.length) groups.push(['errors', () => { this.declarations(m.errors, (e) => this.errorDecl(e)); }]);
+    if (m.enums.length) groups.push(['enums', () => { this.declarations(m.enums, (e) => this.enumDecl(e)); }]);
+    if (m.services.length) groups.push(['services', () => { this.declarations(m.services, (s) => this.service(s)); }]);
+    if (m.workflows.length) groups.push(['workflows', () => { this.declarations(m.workflows, (w) => this.workflow(w)); }]);
+    if (m.environments.length) groups.push(['environments', () => { this.declarations(m.environments, (e) => this.environment(e)); }]);
+    if (m.uis.length) groups.push(['uis', () => { this.declarations(m.uis, (u) => this.ui(u)); }]);
 
     for (let g = 0; g < groups.length; g++) {
       this.blank();

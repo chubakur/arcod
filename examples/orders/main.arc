@@ -47,6 +47,7 @@ environment dev {
   bind events -> redis
   deploy docker
 }
+
 environment prod {
   bind store -> mysql
   bind uuid -> local

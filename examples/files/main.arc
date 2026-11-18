@@ -92,6 +92,7 @@ environment dev {
   bind uuid -> local
   deploy docker
 }
+
 environment prod {
   bind store -> postgres(host: "pg", port: 5432)
   bind auth -> keycloak(host: "idp", port: 8080)

@@ -12,6 +12,7 @@ use capability arcod.std.ids @1
 type TaskId = uuid
 type Status = string
 type Priority = int
+
 type Task = {
   id: TaskId,
   title: string,
@@ -103,6 +104,7 @@ environment dev {
   bind uuid -> local
   deploy docker
 }
+
 environment prod {
   bind store -> mysql
   bind uuid -> local

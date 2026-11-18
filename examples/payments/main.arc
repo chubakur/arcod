@@ -26,6 +26,7 @@ external service Ledger : http {
     }
   }
 }
+
 service Orders : http {
   uses store: kv(ttl: 86400s)
   uses uuid: ids
@@ -54,6 +55,7 @@ environment dev {
   bind Ledger -> endpoint(url: "http://localhost:9009")
   deploy docker
 }
+
 environment prod {
   // The service asks for kv with a ttl, so prod keeps a kv provider: a sql
   // binding here would only be discovered at deploy time.
