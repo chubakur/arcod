@@ -90,6 +90,29 @@ test('a trailing comment on a workflow or a step stays on its brace', () => {
   assert.equal(formatSource(out, 'main.arc'), out);
 });
 
+test('a trailing comment on a saga or an example brace stays there', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  saga flow {',
+    '    step a { call: list }',
+    '  } // the saga',
+    '',
+    '  examples {',
+    '    example ok {',
+    '      when {',
+    '        list()',
+    '      }',
+    '    } // the example',
+    '  }',
+    '}',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /^  \}  \/\/ the saga$/m);
+  assert.match(out, /^    \}  \/\/ the example$/m);
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
+
 test('a closing-brace comment does not expand a one-line record', () => {
   const src = ['module m @0.1.0 {}', 'enum E { a, b } // colors'].join('\n');
   const out = formatSource(src, 'main.arc');

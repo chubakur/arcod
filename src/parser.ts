@@ -556,7 +556,7 @@ class Parser {
   private parseExamples(svc: ServiceNode): void {
     this.expect('{');
     while (!this.is('}')) {
-      this.expect('example');
+      const start = this.expect('example');
       const name = this.expectIdent('example name').value;
       const example: ExampleNode = { kind: 'example', name, given: [], when: [], then: [], loc: locOf(this.prev()) };
       this.expect('{');
@@ -582,7 +582,8 @@ class Parser {
         this.expect('}');
         example[section as 'given' | 'when' | 'then'] = stmts;
       }
-      this.expect('}');
+      const end = this.expect('}');
+      example.loc = this.loc(start, end);
       svc.examples.push(example);
     }
     this.expect('}');
@@ -746,7 +747,10 @@ class Parser {
       this.expect('step');
       saga.steps.push(this.parseSagaStep());
     }
-    this.expect('}');
+    const end = this.expect('}');
+    // The location covers the whole block, not just the header: a diagnostic
+    // and fmt's closing-brace anchor both need the real end.
+    saga.loc = this.loc(start, end);
     return saga;
   }
 
