@@ -157,6 +157,29 @@ test('run --down on a project that was never built is a quiet no-op', async () =
   assert.match(r.out, /nothing to stop/);
 });
 
+test('check accepts a pattern across projects', async () => {
+  const root = await tempDir('arcod-glob-');
+  for (const name of ['alpha', 'beta']) {
+    await mkdir(join(root, name), { recursive: true });
+    await writeFile(join(root, name, 'main.arc'), signup);
+  }
+  const ok = await run(['check', join(root, '*', 'main.arc')]);
+  assert.equal(ok.code, 0, ok.out);
+  assert.equal((ok.out.match(/0 error\(s\)/g) ?? []).length, 2, 'both projects were checked');
+  assert.match(ok.out, /2 file\(s\), 0 with errors/);
+
+  const broken = ['module broken @0.1.0 {}', '', 'service Broken : http {', '  uses store: kv', '',
+    '  contract {', '    public op read(id: uuid) -> string { route: "GET /v1/x" }', '  }', '}', ''].join('\n');
+  await writeFile(join(root, 'beta', 'main.arc'), broken);
+  const bad = await run(['check', join(root, '*', 'main.arc')]);
+  assert.equal(bad.code, 1);
+  assert.match(bad.out, /1 with errors/);
+
+  const none = await run(['check', join(root, 'nope', '*', 'main.arc')]);
+  assert.equal(none.code, 2);
+  assert.match(none.err, /no files match/);
+});
+
 test('check says nothing on a clean spec and prints diagnostics as JSON', async () => {
   const quiet = await run(['check', signupUrl.pathname]);
   assert.equal(quiet.code, 0);

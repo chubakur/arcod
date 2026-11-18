@@ -170,7 +170,106 @@ export async function main(argv: string[]): Promise<void> {
   }
 }
 
+// A pattern is expanded here, not by the shell, so a quoted argument works
+// from a script and from CI. Only * and ? are wildcards, ** spans directories;
+// everything else is literal.
+function wildcardSource(part: string): string {
+  const escape = (ch: string) => (/[A-Za-z0-9 _.\-*?]/.test(ch) ? ch : '\\' + ch);
+  return '^' + part.split('').map((ch) => (ch === '*' ? '[^/]*' : ch === '?' ? '[^/]' : escape(ch))).join('') + '$';
+}
+
+async function expandSpecs(pattern: string): Promise<string[]> {
+  const absolute = resolve(pattern);
+  const parts = absolute.split('/').filter((part) => part.length > 0);
+  const root = absolute.startsWith('/') ? '/' : '.';
+  const results: string[] = [];
+
+  const pushFile = (path: string): void => {
+    if (!results.includes(path)) results.push(path);
+  };
+
+  const walk = async (dir: string, index: number): Promise<void> => {
+    if (index >= parts.length) return;
+    const part = parts[index];
+    const last = index === parts.length - 1;
+    if (part === '**') {
+      await walk(dir, index + 1);
+      const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        if (entry.isDirectory()) await walk(join(dir, entry.name), index);
+      }
+      return;
+    }
+    if (!/[*?]/.test(part)) {
+      const next = join(dir, part);
+      if (last) {
+        const info = await stat(next).catch(() => null);
+        if (info?.isFile()) pushFile(next);
+        if (info?.isDirectory()) {
+          const spec = await findSpec(next).catch(() => null);
+          if (spec) pushFile(spec);
+        }
+      } else {
+        await walk(next, index + 1);
+      }
+      return;
+    }
+    const matcher = new RegExp(wildcardSource(part));
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!matcher.test(entry.name)) continue;
+      const next = join(dir, entry.name);
+      if (last) {
+        if (entry.isFile()) {
+          pushFile(next);
+        } else if (entry.isDirectory()) {
+          const spec = await findSpec(next).catch(() => null);
+          if (spec) pushFile(spec);
+        }
+      } else if (entry.isDirectory()) {
+        await walk(next, index + 1);
+      }
+    }
+  };
+
+  // parts[] came from splitting an absolute path, so it is already relative to
+  // the root: the first segment is a real directory name, not the leading slash.
+  await walk(root, 0);
+  return results.sort();
+}
+
+async function runCheckPattern(flags: Flags, pattern: string): Promise<void> {
+  const specs = await expandSpecs(pattern);
+  if (specs.length === 0) {
+    console.error('arcod: no files match ' + pattern);
+    process.exitCode = 2;
+    return;
+  }
+  let failed = 0;
+  const reports: Array<{ file: string; diagnostics: unknown[] }> = [];
+  for (const specPath of specs) {
+    const dir = join(specPath, '..');
+    const mod = parse(await readFile(specPath, 'utf8'), basename(specPath));
+    const diags = check(mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(dir) });
+    if (diags.some((item) => item.severity === 'error')) failed++;
+    if (flags.json) {
+      reports.push({ file: specPath, diagnostics: diags });
+    } else if (diags.length === 0) {
+      console.log(basename(specPath) + ': ok');
+    } else {
+      printDiagnostics(diags, specPath);
+    }
+  }
+  if (flags.json) console.log(JSON.stringify(reports, null, 2));
+  else if (specs.length > 1) console.log('\n' + specs.length + ' file(s), ' + failed + ' with errors');
+  process.exitCode = failed > 0 ? 1 : 0;
+}
+
 async function runCheck(flags: Flags): Promise<void> {
+  if (flags.spec && /[*?]/.test(flags.spec)) {
+    await runCheckPattern(flags, flags.spec);
+    return;
+  }
   const loaded = await load(flags.spec);
   const diags = check(loaded.mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(loaded.dir) });
   if (flags.json) {
@@ -979,10 +1078,11 @@ async function findSpec(dir: string): Promise<string> {
 // Every subcommand answers for itself: "arcod <cmd> --help" prints this
 // string and exits 0, so a wrong flag never needs a guess from the full page.
 const COMMAND_USAGE: Record<string, string> = {
-  check: `usage: arcod check [dir|spec.arc] [--json] [--env name] [--strict]
+  check: `usage: arcod check [dir|spec.arc|pattern] [--json] [--env name] [--strict]
 
 Parse the spec and print diagnostics. --json prints a JSON report,
---strict treats warnings as errors, --env checks one environment.`,
+--strict treats warnings as errors, --env checks one environment. A quoted
+pattern is expanded here: 'examples/*/main.arc' checks every project.`,
   ast: `usage: arcod ast [dir|spec.arc] [--check] [--json]
 
 Print the parsed module (canonical AST). --check also prints the diagnostics.`,

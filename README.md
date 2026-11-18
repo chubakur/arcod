@@ -132,7 +132,7 @@ format name (`A061`). Full example: `examples/signup`.
 
 | Command | What it does |
 |---|---|
-| `arcod check [dir]` | parse, check types, bindings, effects and rules; `--json`; `--strict` turns on W013 (missing budget); `--env <name>` checks one environment |
+| `arcod check [dir]` | parse, check types, bindings, effects and rules; `--json`; `--strict` turns on W013 (missing budget); `--env <name>` checks one environment; a quoted pattern such as `'examples/*/main.arc'` checks every match and fails if any has an error |
 | `arcod ast [dir]` | print the canonical AST; `--check` also runs the checks |
 | `arcod plan [dir]` | deterministic task DAG: files, dependencies, acceptance criteria |
 | `arcod openapi [dir]` | OpenAPI 3.1 on stdout: paths from `route`, schemas from `types`, errors mapped as in the runtime, examples from the `examples` block; `--service <name>` picks one service |
