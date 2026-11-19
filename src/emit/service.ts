@@ -437,6 +437,9 @@ class RedisStore {
   connect() {
     if (this.socket && !this.socket.destroyed) return Promise.resolve();
     if (this.connecting) return this.connecting;
+    // A half-written reply from the previous connection means nothing on the
+    // new one.
+    this.buffer = Buffer.alloc(0);
     this.connecting = new Promise((resolve, reject) => {
       const socket = net.createConnection({ host: this.host, port: this.port }, () => {
         this.connecting = null;
@@ -445,20 +448,40 @@ class RedisStore {
       socket.on('data', (chunk) => this.onData(chunk));
       socket.on('error', (err) => {
         this.connecting = null;
+        this.failPending(err);
+        if (this.socket === socket) this.socket = null;
         reject(err);
       });
       socket.on('close', () => {
-        this.socket = null;
+        if (this.socket === socket) this.socket = null;
+        this.failPending(new Error('redis connection closed'));
       });
       this.socket = socket;
     });
     return this.connecting;
   }
 
+  // A broker restart must not leave a request waiting forever: every call in
+  // flight gets the failure, and the next one opens a fresh socket.
+  failPending(error) {
+    const waiting = this.pending;
+    this.pending = [];
+    for (const item of waiting) item.reject(error);
+  }
+
   onData(chunk) {
     this.buffer = Buffer.concat([this.buffer, chunk]);
-    while (true) {
-      const parsed = parseReply(this.buffer, 0);
+    for (;;) {
+      let parsed;
+      try {
+        parsed = parseReply(this.buffer, 0);
+      } catch (error) {
+        // Corrupt stream: nobody can resynchronise it, so fail the callers
+        // and drop the connection instead of throwing inside a socket event.
+        this.failPending(error);
+        if (this.socket) this.socket.destroy();
+        return;
+      }
       if (!parsed) break;
       this.buffer = this.buffer.subarray(parsed.next);
       const pending = this.pending.shift();
@@ -482,7 +505,8 @@ class RedisStore {
   }
 
   async get(key) {
-    return this.command('GET', key);
+    const value = await this.command('GET', key);
+    return value == null ? null : String(value);
   }
 
   async del(key) {
@@ -491,11 +515,6 @@ class RedisStore {
 
   async set(key, value, ttlMs) {
     return this.command('SET', key, value, 'PX', String(ttlMs));
-  }
-
-  async get(key) {
-    const value = await this.command('GET', key);
-    return value == null ? null : String(value);
   }
 
   async scan(prefix) {

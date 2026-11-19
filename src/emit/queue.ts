@@ -96,10 +96,27 @@ function createRedisQueueDriver(url) {
     throw new Error('unexpected RESP type: ' + type);
   }
 
+  // A broker restart must not leave a caller waiting forever: every command
+  // in flight gets the failure, and the next command opens a fresh socket.
+  function failPending(error) {
+    const waiting = state.pending;
+    state.pending = [];
+    for (const item of waiting) item.reject(error);
+  }
+
   function onData(chunk) {
     state.buffer = Buffer.concat([state.buffer, chunk]);
     for (;;) {
-      const parsed = parseReply(state.buffer, 0);
+      let parsed;
+      try {
+        parsed = parseReply(state.buffer, 0);
+      } catch (error) {
+        // Corrupt stream: nobody can resynchronise it, so fail the callers
+        // and drop the connection instead of throwing inside a socket event.
+        failPending(error);
+        if (state.socket) state.socket.destroy();
+        return;
+      }
       if (!parsed) break;
       state.buffer = state.buffer.subarray(parsed.next);
       const pending = state.pending.shift();
@@ -112,14 +129,25 @@ function createRedisQueueDriver(url) {
   function connect() {
     if (state.socket && !state.socket.destroyed) return Promise.resolve();
     if (state.connecting) return state.connecting;
+    // A half-written reply from the previous connection means nothing on the
+    // new one.
+    state.buffer = Buffer.alloc(0);
     state.connecting = new Promise((resolve, reject) => {
       const socket = net.createConnection({ host, port }, () => {
         state.connecting = null;
         resolve();
       });
       socket.on('data', onData);
-      socket.on('error', (err) => { state.connecting = null; reject(err); });
-      socket.on('close', () => { state.socket = null; });
+      socket.on('error', (err) => {
+        state.connecting = null;
+        failPending(err);
+        if (state.socket === socket) state.socket = null;
+        reject(err);
+      });
+      socket.on('close', () => {
+        if (state.socket === socket) state.socket = null;
+        failPending(new Error('redis connection closed'));
+      });
       state.socket = socket;
     });
     return state.connecting;

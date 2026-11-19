@@ -774,7 +774,10 @@ Semantics, enforced by the generated runtime rather than written in bodies:
 - without a redis binding the queue is in-process (memory driver); with
   `bind events -> redis(...)` messages live in the broker and any replica may
   consume them. The adapter speaks Redis lists — `rabbitmq` and `kafka` are
-  provisioned, but there is no zero-dependency client for them yet.
+  provisioned, but there is no zero-dependency client for them yet;
+- a broker restart does not stall the consumer: a closed socket fails the call
+  in flight (`redis connection closed`) and the next one opens a fresh
+  connection. The same rule holds for the `kv` Redis client.
 
 When a service uses `queue` on the `sql` driver, a publish in an operation that
 also writes a fact goes through the **outbox**: the body runs in a transaction,
