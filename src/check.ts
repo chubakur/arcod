@@ -685,6 +685,20 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // W039 — a handler for an error the contract does not list. Only `errors:`
+    // reaches OpenAPI and the generated status map, so the fields filled by
+    // `on error` would never be seen by a client.
+    for (const op of svc.contract) {
+      const listed = new Set(errorNames(op));
+      for (const clause of op.clauses) {
+        if (clause.kind !== 'onerror') continue;
+        if (listed.has(clause.error)) continue;
+        diags.push(diag('W039', 'warning', mod.file, clause.loc, `services.${svc.name}.contract.${op.name}.errors`,
+          `on error ${clause.error} is not listed in errors: ${op.name}`,
+          `add ${clause.error} to errors: or remove the handler`));
+      }
+    }
+
     // A007 — declared error is neither handled nor asserted
     const asserted = collectAssertedErrors(svc);
     const handled = collectHandledErrors(svc);

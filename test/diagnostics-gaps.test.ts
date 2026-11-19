@@ -107,6 +107,29 @@ test('A078: an error name nothing declares', () => {
   assert.ok(!codes(clean).has('A007'), 'and it is handled');
 });
 
+test('W039: a handler for an error the contract does not list', () => {
+  const body = (list: boolean) => service([
+    '  contract {',
+    '    public op read(k: string) -> string {',
+    '      route: "GET /v1/k"',
+    ...(list ? ['      errors: Gone'] : []),
+    '      on error Gone: k != null',
+    '      post: result != null',
+    '    }',
+    '  }',
+  ].join('\n'));
+
+  const diags = check(parse(body(false), 'gaps.arc'));
+  const w039 = diags.find((item) => item.code === 'W039');
+  assert.ok(w039, 'an unlisted handler is a warning');
+  assert.equal(w039!.severity, 'warning');
+  assert.match(w039!.message, /on error Gone is not listed in errors: read/);
+  assert.match(w039!.hint ?? '', /add Gone to errors:/);
+
+  const listed = check(parse(body(true), 'gaps.arc'));
+  assert.equal(listed.filter((item) => item.code === 'W039').length, 0, 'listing the error silences the warning');
+});
+
 test('A008: a budget line without a comparison', () => {
   const source = service([
     '  budget {',

@@ -1427,6 +1427,10 @@ Warnings:
   `gt`, `gte`, `lt`, `lte`: the store used to drop the condition and return
   every row. The runtime answers `400 Invalid` with the operator name; `check`
   reads the literal in `impl/` and warns before the request.
+- `W039` an `on error X` handler on an operation whose `errors:` does not
+  list `X`: only the list reaches OpenAPI and the status map, so the fields
+  filled by the handler are never shown to a client — list the error or drop
+  the handler.
 - `W037` an `io.insert` names a record type without an `id` field: the store
   keys every record by `id`, so each insert is a `400 Invalid` whose message now
   names the entity (`insert Room: missing id`). Add `id: string` (or a uuid) to
