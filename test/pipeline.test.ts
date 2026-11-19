@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse } from '../src/parser.ts';
@@ -121,6 +123,33 @@ test('a spec with no examples reports the test step as skipped, not passed', asy
   const testStep = result.steps.find((step) => step.name === 'test')!;
   assert.ok(testStep.skipped);
   assert.match(testStep.detail, /nothing to check/);
+});
+
+// A model that reaches for the network produces a body runImpl refuses. The
+// failure has to stop `make` at the impl step with the operation named, not
+// fall through to a build that would embed a body nobody accepted.
+test('a model body that fails the sandbox stops the pipeline at impl', async () => {
+  const server = createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ response: 'export async function ping() {\n  await fetch("http://example.com");\n  return "pong";\n}' }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const endpoint = 'http://127.0.0.1:' + (server.address() as AddressInfo).port;
+  try {
+    const dir = await project(BARE);
+    const result = await runPipeline(parse(BARE, 'main.arc'), dir, { endpoint, noTest: true });
+    assert.equal(result.ok, false);
+    const impl = result.steps.find((step) => step.name === 'impl')!;
+    assert.equal(impl.ok, false);
+    assert.match(impl.detail, /1 failed/);
+    assert.match(impl.error ?? '', /body must not use raw network/);
+    assert.ok(!result.steps.some((step) => step.name === 'build'), 'nothing is built from a refused body');
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 
 test('a body that breaks its example fails the pipeline and names the example', async () => {
