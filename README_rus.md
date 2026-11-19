@@ -274,10 +274,12 @@ environment prod {
 `llm: embedding dim N does not match declared dim 768`, а не ложится рядом с
 остальными. Без `dim` рантайм всё равно отвергает ответ, где векторы разной
 длины; `check` сообщает `A077`, если `dim` — не положительное целое. Полный пример — `examples/chat`: история диалога, ответы модели и
-страница с `layout: chat`.
+страница с `layout: chat`; `examples/vector` — заметки индексируются
+`io.embed`, поиск — косинус в теле, на bind стоит `dim: 768`.
 
 ```bash
 arcod build examples/chat --impl && arcod run examples/chat
+arcod build examples/vector --impl && arcod run examples/vector
 ```
 
 Локальная модель должна быть доступна контейнерам. На macOS Docker Desktop

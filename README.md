@@ -290,10 +290,12 @@ the operation with `llm: embedding dim N does not match declared dim 768`
 instead of being stored next to the rest. Without `dim` the runtime still
 rejects a response whose vectors disagree with each other; `check` reports
 `A077` when `dim` is not a positive integer. Full example: `examples/chat` — dialogue history, model answers and a
-page with `layout: chat`.
+page with `layout: chat`; `examples/vector` — notes indexed by `io.embed`
+and searched by cosine in the body, with `dim: 768` on the binding.
 
 ```bash
 arcod build examples/chat --impl && arcod run examples/chat
+arcod build examples/vector --impl && arcod run examples/vector
 ```
 
 The local model must be reachable from containers. On macOS Docker Desktop,

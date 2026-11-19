@@ -810,7 +810,13 @@ test('every example is already in canonical form', async () => {
   // equivalent, so an example cannot drift from what fmt prints.
   const r = await run(['fmt', 'examples/*/main.arc', '--check']);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /15 file\(s\), 0 not formatted, 0 failed/);
+  // Count the examples instead of hardcoding the number: a new example is a
+  // promise to keep it formatted, not a reason to edit this test.
+  const dirs = await readdir(new URL('../examples', import.meta.url), { withFileTypes: true });
+  const specs = await Promise.all(dirs.filter((entry) => entry.isDirectory())
+    .map((entry) => readFile(new URL('../examples/' + entry.name + '/main.arc', import.meta.url), 'utf8').catch(() => null)));
+  const count = specs.filter((source) => source !== null).length;
+  assert.ok(r.out.includes(count + ' file(s), 0 not formatted, 0 failed'), r.out);
 });
 
 test('a numeric flag is refused instead of publishing NaN', async () => {
