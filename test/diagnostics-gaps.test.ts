@@ -190,6 +190,33 @@ test('A010: a cycle in ordering', () => {
   assert.match(messages(source, 'A010')[0] ?? '', /cycle in ordering/);
 });
 
+test('A010: a chain of ordering rules is a DAG, not a cycle', () => {
+  // The other half of the cycle check: walking a graph that ends must finish
+  // nodes instead of reporting the first path it happened to take.
+  const source = service([
+    '  rules {',
+    '    ordering {',
+    '      read before write',
+    '      write before sync',
+    '      read before sync',
+    '    }',
+    '  }',
+    '',
+    '  contract {',
+    '    public op read() -> string {',
+    '      route: "GET /v1/read"',
+    '    }',
+    '    public op write() -> string {',
+    '      route: "POST /v1/write"',
+    '    }',
+    '    public op sync() -> string {',
+    '      route: "POST /v1/sync"',
+    '    }',
+    '  }',
+  ].join('\n'));
+  assert.deepEqual(messages(source, 'A010'), []);
+});
+
 test('A019: a ui kind other than spa', () => {
   const source = [
     'module gaps @0.1.0 {',
