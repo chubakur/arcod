@@ -50,7 +50,13 @@ function utf8Of(cell) {
 // field can never drift between schema and runtime.
 
 function normalizeDateTime(value) {
-  return String(value).replace('T', ' ').replace(/Z$/, '');
+  const text = String(value);
+  if (!/(Z|[+-]\\d{2}:?\\d{2})$/.test(text)) return text.replace('T', ' ');
+  const at = Date.parse(text.replace(/([+-]\\d{2})(\\d{2})$/, '$1:$2'));
+  if (Number.isNaN(at)) return text.replace('T', ' ').replace(/Z$/, '');
+  const iso = new Date(at).toISOString();
+  const fraction = iso.slice(20, 23);
+  return iso.slice(0, 19).replace('T', ' ') + (fraction === '000' ? '' : '.' + fraction);
 }
 
 function isoDateTime(value) {
