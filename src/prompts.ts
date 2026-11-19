@@ -1,9 +1,25 @@
 import { createHash } from 'node:crypto';
+import { readdir, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { Expr, ModuleNode, OpNode, ServiceNode, TypeExpr } from './ast.ts';
 import { buildPlan } from './plan.ts';
 import { isGuarded, pickService, routeOf } from './emit/service.ts';
 import { signatureFor, shortFor, storageUse } from './capabilities.ts';
 import { opEffects, payloadOf, planBody, planText } from './plan-body.ts';
+
+// The prompt folder is an artifact, so it may only hold the prompts the
+// current contract declares. A rerun after an operation is removed must drop
+// its <op>.md: a stale task tells the model to write a body for a route that no
+// longer exists. Everything that is not Markdown is left alone.
+export async function prunePromptFiles(dir: string, keep: Iterable<string>): Promise<void> {
+  const owned = new Set(keep);
+  const entries = await readdir(dir).catch(() => null);
+  if (!entries) return;
+  for (const name of entries) {
+    if (owned.has(name) || !name.endsWith('.md')) continue;
+    await rm(join(dir, name), { force: true });
+  }
+}
 
 export interface PromptTask {
   id: string;

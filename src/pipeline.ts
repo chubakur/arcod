@@ -2,7 +2,7 @@ import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ModuleNode } from './ast.ts';
 import { check } from './check.ts';
-import { buildPrompts } from './prompts.ts';
+import { buildPrompts, prunePromptFiles } from './prompts.ts';
 import { runImpl } from './impl.ts';
 import { buildExample } from './build.ts';
 import { runExamples } from './test.ts';
@@ -96,6 +96,7 @@ export async function runPipeline(
   const promptStep = await step('prompts', async () => {
     const promptDir = join(buildDir!, 'prompts');
     await mkdir(promptDir, { recursive: true });
+    await prunePromptFiles(promptDir, set.tasks.map((task) => task.op + '.md'));
     for (const task of set.tasks) {
       await writeFile(join(promptDir, task.op + '.md'), task.prompt, 'utf8');
     }

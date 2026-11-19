@@ -8,7 +8,7 @@ import { BuildError, buildExample, implBodiesFor, resolveDialect } from './build
 import { runExamples } from './test.ts';
 import type { Diagnostic } from './diagnostics.ts';
 import type { ModuleNode } from './ast.ts';
-import { buildPrompts, formatPrompts } from './prompts.ts';
+import { buildPrompts, formatPrompts, prunePromptFiles } from './prompts.ts';
 import { formatPipeline, runPipeline } from './pipeline.ts';
 import { DEFAULT_IMPL, formatImplReport, runImpl } from './impl.ts';
 import { PROVIDERS, providerNames } from './providers.ts';
@@ -870,12 +870,8 @@ async function runPrompts(flags: Flags): Promise<void> {
   }
 
   const set = buildPrompts(loaded.mod, { budget: flags.maxTokens, format: flags.full ? 'full' : 'compact' });
-  const dir = join(loaded.dir, '.arcod', 'build', 'prompts');
-  await mkdir(dir, { recursive: true });
-  for (const task of set.tasks) {
-    await writeFile(join(dir, task.op + '.md'), task.prompt, 'utf8');
-  }
-
+  const artifactDir = join(loaded.dir, '.arcod', 'build');
+  const dir = join(artifactDir, 'prompts');
   const manifest = {
     module: set.module,
     version: set.version,
@@ -890,7 +886,26 @@ async function runPrompts(flags: Flags): Promise<void> {
       unresolved: task.unresolved,
     })),
   };
-  await writeFile(join(loaded.dir, '.arcod', 'build', 'prompts.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+
+  // The prompt set is a projection of the contract, exactly like the
+  // migrations: a removed operation must not leave its prompt on disk, and a
+  // contract with no operations leaves no prompt and no manifest. Without this,
+  // a model that shrank keeps feeding the agent a prompt for an operation that
+  // no longer exists.
+  if (set.tasks.length === 0) {
+    await prunePromptFiles(dir, new Set());
+    await rm(join(artifactDir, 'prompts.json'), { force: true });
+    if (flags.json) console.log(JSON.stringify(manifest, null, 2));
+    else console.log('no operations in ' + loaded.mod.name + ' — no prompts to build');
+    return;
+  }
+
+  await mkdir(dir, { recursive: true });
+  await prunePromptFiles(dir, set.tasks.map((task) => task.op + '.md'));
+  for (const task of set.tasks) {
+    await writeFile(join(dir, task.op + '.md'), task.prompt, 'utf8');
+  }
+  await writeFile(join(artifactDir, 'prompts.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
 
   if (flags.json) {
     console.log(JSON.stringify(manifest, null, 2));
