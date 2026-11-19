@@ -683,6 +683,18 @@ async function runPlan(flags: Flags): Promise<void> {
   console.log(formatPlan(plan));
 }
 
+// Removes the migration files a plan no longer owns. Files that are not part of
+// the artifact (a README, a scratch note) are left alone.
+async function pruneMigrations(dir: string, owned: Set<string>): Promise<void> {
+  const entries = await readdir(dir).catch(() => null);
+  if (!entries) return;
+  for (const name of entries) {
+    if (owned.has(name)) continue;
+    if (name !== 'changelog.json' && !/^\d{4}_.+\.(up|down)\.sql$/.test(name)) continue;
+    await rm(join(dir, name), { force: true });
+  }
+}
+
 async function runMigrate(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
@@ -703,6 +715,9 @@ async function runMigrate(flags: Flags): Promise<void> {
   );
   const plan = migrationPlan(loaded.mod, svc, { dialect: dialectNamed(resolveDialect(loaded.mod, dialectFlag(flags))), entities });
   if (plan.migrations.length === 0) {
+    // A model that lost its last table must not leave the previous plan on
+    // disk: nothing would ever rewrite or remove those files.
+    await pruneMigrations(join(loaded.dir, '.arcod', 'build', 'migrations'), new Set());
     if (flags.json) console.log(JSON.stringify(plan, null, 2));
     else console.log('no stored entities in ' + svc.name + ' — nothing to migrate');
     return;
@@ -718,11 +733,7 @@ async function runMigrate(flags: Flags): Promise<void> {
     owned.add(migration.version + '_' + migration.name + '.up.sql');
     owned.add(migration.version + '_' + migration.name + '.down.sql');
   }
-  for (const name of await readdir(dir)) {
-    if (owned.has(name)) continue;
-    if (!/^\d{4}_.+\.(up|down)\.sql$/.test(name)) continue;
-    await rm(join(dir, name), { force: true });
-  }
+  await pruneMigrations(dir, owned);
   await writeFile(join(dir, 'changelog.json'), JSON.stringify(plan.migrations, null, 2));
   for (const migration of plan.migrations) {
     await writeFile(join(dir, migration.version + '_' + migration.name + '.up.sql'), migration.up);

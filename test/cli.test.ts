@@ -1151,6 +1151,15 @@ test('migrate removes SQL files the new plan no longer owns', async () => {
   assert.equal(after.some((name) => name.endsWith('_b.down.sql')), false, after.join(', '));
   const changelog = JSON.parse(await readFile(join(migrations, 'changelog.json'), 'utf8')) as Array<{ name: string }>;
   assert.equal(changelog.some((migration) => migration.name === 'b'), false);
+
+  // Losing the last table clears the artifact as well: nothing else would ever
+  // rewrite those files, and "nothing to migrate" must not leave SQL behind.
+  await writeFile(file, "module plain @0.1.0 {\n  meta {\n    owner: \"@me\"\n  }\n}\n\nservice Plain : http {\n  contract {\n    public op ping() -> string {\n      route: \"GET /v1/ping\"\n    }\n  }\n}\n", 'utf8');
+  const third = await run(['migrate', dir]);
+  assert.equal(third.code, 0, third.err);
+  assert.match(third.out, /nothing to migrate/);
+  const left = (await readdir(migrations)).filter((name) => name.endsWith('.sql') || name === 'changelog.json');
+  assert.deepEqual(left, [], left.join(', '));
 });
 
 test('test --json prints an empty report as JSON, not a sentence', async () => {
