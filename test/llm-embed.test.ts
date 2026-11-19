@@ -6,6 +6,7 @@ import { check } from '../src/check.ts';
 import { CAPABILITIES } from '../src/capabilities.ts';
 import { PROVIDERS } from '../src/providers.ts';
 import { composeYaml } from '../src/emit/compose.ts';
+import { formatSource } from '../src/fmt.ts';
 
 // Embeddings are a declared llm effect, not a homemade hashing function inside
 // the body: io.embed rides the same OpenAI-compatible endpoint, and vectors
@@ -172,4 +173,45 @@ test('an empty batch returns no vectors and asks nobody', async () => {
     await svc.stop();
     await llm.stop();
   }
+});
+
+test('fmt keeps dim on the binding and stays idempotent', () => {
+  // dim is spec state, not a comment: a formatter that dropped it would turn
+  // a declared width into an unchecked one on the next save.
+  const once = formatSource(SPEC_DIM, 'main.arc');
+  assert.match(once, /ollama\(model: "fake-embed", dim: 2\)/);
+  assert.equal(formatSource(once, 'main.arc'), once);
+  assert.deepEqual(check(parse(once, 'main.arc')).filter((d) => d.code === 'A077'), []);
+});
+
+test('A077 is about llm bindings; an option a provider does not read is W035', () => {
+  const source = [
+    'module m @0.1.0 {}',
+    '',
+    'use capability arcod.std.kv @1',
+    '',
+    'service S : http {',
+    '  uses store: kv',
+    '',
+    '  effects {',
+    '    allow store.find',
+    '  }',
+    '',
+    '  contract {',
+    '    public op list() -> int {',
+    '      route: "GET /v1/l"',
+    '      effects: store.find',
+    '    }',
+    '  }',
+    '}',
+    '',
+    'environment dev {',
+    '  bind store -> redis(host: "kv", dim: 2)',
+    '  deploy docker',
+    '}',
+    '',
+  ].join('\n');
+  const diags = check(parse(source, 'binds.arc'));
+  assert.deepEqual(diags.filter((d) => d.code === 'A077'), []);
+  assert.ok(diags.some((d) => d.code === 'W035'), 'redis does not read dim at all');
 });
