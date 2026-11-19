@@ -62,6 +62,15 @@ test('check names an unknown where operator', () => {
   assert.equal(check(mod, { impl: IMPL }).filter((item) => item.code === 'W038' && item.file === 'impl/atLeast.mjs').length, 0);
 });
 
+test('a brace inside a string does not hide the next operator', () => {
+  // The literal is read by hand: a "}" inside a quoted value would end the
+  // where object early, and every operator after it went unseen.
+  const quoted = 'export async function look(input, io) { return { result: await io.find(\'Room\', { where: { note: { eq: "}" }, seats: { nope: 1 } } }) }; }';
+  const found = check(parse(SPEC, 'main.arc'), { impl: { ...IMPL, look: quoted } })
+    .filter((item) => item.code === 'W038' && item.file === 'impl/look.mjs');
+  assert.deepEqual(found.map((item) => item.message), ['unknown where operator "nope"']);
+});
+
 test('the runtime answers 400 with the operator name', async () => {
   const service = await startService(SPEC, { impl: IMPL });
   try {
