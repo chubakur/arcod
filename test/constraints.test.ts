@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
+import { describeViolation } from '../src/constraints.ts';
 import { emitOpenapi } from '../src/emit/openapi.ts';
 import { migrationPlan } from '../src/migrate.ts';
 import { startService } from './harness.ts';
@@ -121,4 +122,48 @@ test('an omitted optional constrained field is not a violation', async () => {
   } finally {
     await svc.stop();
   }
+});
+
+// The url rule had no test through describeViolation: the service test above
+// exercises the copy inlined into the emitter, so a drift between the two
+// would go unnoticed until a default hit it. Pin the rule itself.
+test('describeViolation enforces a url scheme and rejects non-strings', () => {
+  const uri = { format: 'uri' as const, enumValues: null };
+  assert.equal(describeViolation(uri, 'https://example.com/a?b=c'), null);
+  assert.equal(describeViolation(uri, 'ftp://files.example.com'), null, 'any scheme is a url');
+  assert.equal(describeViolation(uri, 'example.com'), 'must be a url', 'a bare host has no scheme');
+  assert.equal(describeViolation(uri, 'https://exa mple.com'), 'must be a url', 'spaces are not a url');
+  assert.equal(describeViolation(uri, 42), 'must be a url', 'a non-string is not a url');
+  assert.equal(describeViolation(uri, null), null, 'absence is required-ness, not a violation');
+});
+
+// A default is the one place check() and the boundary read the same rule, so a
+// bad url default is a model error before it can ever reach a request.
+test('A060 rejects a url default without a scheme and accepts one with it', () => {
+  const source = `module urls @0.1.0 {
+  meta {
+    owner: "@test"
+    status: "draft"
+  }
+}
+
+type Site = {
+  bad: string(format: uri) = "example.com",
+  good: string(format: url) = "https://example.com",
+  alias: uri = "ftp://files.example.com"
+}
+
+service api : http {
+  contract {
+    public op add(site: Site) -> Site {
+      route: "POST /v1/sites"
+    }
+  }
+}
+`;
+  const diags = check(parse(source, 'main.arc'));
+  const a060 = diags.filter((item) => item.code === 'A060');
+  assert.equal(a060.length, 1, 'only the bad default is reported');
+  assert.equal(a060[0].path, 'types.Site.bad');
+  assert.match(a060[0].message, /must be a url/);
 });
