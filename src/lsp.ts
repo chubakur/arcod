@@ -7,7 +7,6 @@
 
 import type { Diagnostic } from './diagnostics.ts';
 import { check } from './check.ts';
-import { LexError } from './lexer.ts';
 import { parse, ParseError } from './parser.ts';
 import { formatSource } from './fmt.ts';
 import type {
@@ -437,15 +436,6 @@ export function diagnostics(text: string, file: string): LspDiagnostic[] {
         range: toLspRange(error.loc),
         severity: Severity.Error,
         code: 'parse',
-        source: 'arcod',
-        message: error.message,
-      }];
-    }
-    if (error instanceof LexError) {
-      return [{
-        range: { start: { line: error.line - 1, character: error.col - 1 }, end: { line: error.line - 1, character: error.col } },
-        severity: Severity.Error,
-        code: 'lex',
         source: 'arcod',
         message: error.message,
       }];

@@ -35,6 +35,17 @@ function pos(text: string, lineIdx: number, needle: string, offset = 0): { line:
   return { line: lineIdx, character: idx + offset };
 }
 
+test('diagnostics: a lexer failure is one parse error with a range', () => {
+  // parse() folds LexError into ParseError by design; the LSP must present the
+  // same single diagnostic and never show a raw "lex" code or an empty list.
+  const errs = diagnostics('module m @0.1.0 {\n  meta { owner: "unterminated }\n}\n', 'lex.arc');
+  assert.equal(errs.length, 1, JSON.stringify(errs));
+  assert.equal(errs[0].code, 'parse');
+  assert.equal(errs[0].severity, Severity.Error);
+  assert.equal(errs[0].range.start.line, 1);
+  assert.equal(errs[0].range.start.character > 0, true);
+});
+
 test('diagnostics: a valid spec has no errors, a broken one has a parse error', () => {
   const good = diagnostics(MINIMAL, 'demo.arc');
   assert.equal(good.some((d) => d.severity === Severity.Error), false, JSON.stringify(good));

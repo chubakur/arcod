@@ -12,35 +12,6 @@ export interface BodyPlan {
   unresolved: string[];
 }
 
-function callName(expr: Expr): string | null {
-  if (expr.kind !== 'call') return null;
-  const callee = expr.callee;
-  if (callee.kind !== 'member') return null;
-  return callee.property;
-}
-
-function assertsNonConsuming(expr: Expr): boolean {
-  // on error E: store.has(id) — the message must survive a failed attempt.
-  const seen = new Set<string>();
-  const visit = (node: Expr) => {
-    const name = callName(node);
-    if (name === 'has') seen.add(name);
-    if (node.kind === 'member') visit(node.object);
-    if (node.kind === 'call') {
-      visit(node.callee);
-      for (const arg of node.args) visit(arg.value);
-    }
-    if (node.kind === 'unary') visit(node.operand);
-    if (node.kind === 'binary') {
-      visit(node.left);
-      visit(node.right);
-    }
-    if (node.kind === 'is') visit(node.expr);
-  };
-  visit(expr);
-  return seen.has('has');
-}
-
 function rawName(type: { kind: string; name?: string; inner?: unknown }): string | null {
   if (type.kind === 'named' && type.name) return type.name;
   if (type.kind === 'optional' && type.inner) return rawName(type.inner as { kind: string; name?: string });
