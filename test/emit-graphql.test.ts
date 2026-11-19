@@ -98,6 +98,17 @@ test('graphql: the field description keeps the HTTP route and the error statuses
   assert.ok(sdl.includes('Errors: NotFound (404)'));
 });
 
+test('graphql: a service with no routed operation says so instead of inventing a root', () => {
+  // check reports A050 for the missing route, but the emitter is also called
+  // directly (SDK, editors): it says why the root is empty instead of
+  // printing an empty `type Query` that no field could ever fill.
+  const source = 'module m @0.1.0 {}\nservice S : http { contract { public op x() -> string { } } }';
+  const sdl = graphqlSchema(parse(source, 'm.arc'));
+  assert.match(sdl, /# No routed operation was found: the schema has no root fields\./);
+  assert.equal(sdl.includes('type Query'), false);
+  assert.equal(sdl.includes('type Mutation'), false);
+});
+
 test('graphql: output is deterministic for the same model', () => {
   assert.equal(schemaOf(tasksSource), schemaOf(tasksSource));
 });
