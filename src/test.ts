@@ -286,18 +286,21 @@ async function invoke(op: OpNode, args: Value[], ctx: Context): Promise<Value> {
   let path = route.slice(space + 1);
 
   const pathParams = Array.from(path.matchAll(/:([A-Za-z0-9_]+)/g)).map((m) => m[1]);
+  // Values are matched by name, not by position: filtering an earlier capture
+  // out of `args` shifted every later index, so a second capture took the
+  // first body value and the body took the ones after it.
+  const byName = new Map<string, Value>();
+  op.params.forEach((param, index) => byName.set(param.name, args[index]));
   for (const name of pathParams) {
-    const index = op.params.findIndex((param) => param.name === name);
-    if (index < 0) throw new Error('no parameter ' + name + ' in ' + op.name);
-    path = path.replace(':' + name, () => encodeURIComponent(String(unwrap(args[index]))));
-    args = args.filter((_, i) => i !== index);
+    if (!byName.has(name)) throw new Error('no parameter ' + name + ' in ' + op.name);
+    path = path.replace(':' + name, () => encodeURIComponent(String(unwrap(byName.get(name)))));
   }
 
   if (bodyless) {
     const query = new URLSearchParams();
     const remaining = op.params.filter((param) => !pathParams.includes(param.name));
-    remaining.forEach((param, index) => {
-      const value = unwrap(args[index]);
+    remaining.forEach((param) => {
+      const value = unwrap(byName.get(param.name));
       if (value !== null && value !== undefined && value !== '') query.set(param.name, String(value));
     });
     if (query.size > 0) path += '?' + query.toString();
@@ -307,8 +310,8 @@ async function invoke(op: OpNode, args: Value[], ctx: Context): Promise<Value> {
   if (!bodyless) {
     const payload: Record<string, unknown> = {};
     const remaining = op.params.filter((param) => !pathParams.includes(param.name));
-    remaining.forEach((param, index) => {
-      payload[param.name] = unwrap(args[index]);
+    remaining.forEach((param) => {
+      payload[param.name] = unwrap(byName.get(param.name));
     });
     body = JSON.stringify(payload);
   }
