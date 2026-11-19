@@ -386,6 +386,20 @@ test('diff renders a real difference between two specs', () => {
   assert.ok(r.out.length > 0, 'two different specs produce output');
 });
 
+test('diff accepts a directory and names a directory without a spec', async () => {
+  const signupDir = new URL('../examples/signup', import.meta.url).pathname;
+  const same = runChild(['diff', signupDir, signupDir]);
+  assert.equal(same.code, 0, same.err);
+  assert.match(same.out, /^--- .*main\.arc\n\+\+\+ .*main\.arc\n$/);
+  assert.equal(same.out.includes('@@'), false, 'an identical pair has no hunks');
+
+  const empty = await mkdtemp(join(tmpdir(), 'arcod-diff-empty-'));
+  const none = runChild(['diff', empty, signupDir]);
+  assert.equal(none.code, 1);
+  assert.match(none.err, /no \.arc file found in /);
+  assert.equal(none.out, '');
+});
+
 test('adopt rejects YAML with a pointer to JSON', async () => {
   const dir = await tempDir();
   const file = join(dir, 'openapi.yaml');
