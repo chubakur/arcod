@@ -1164,7 +1164,9 @@ arcod run --impl examples/onetimemessage-pwd
 - `.arcod/build/migrations/` — план, который сервис применяет на старте,
   записанный тем же вызовом, что и встроенная копия: `changelog.json` и
   `NNNN_<table>.up.sql` / `.down.sql`; пересборка заменяет каталог, поэтому
-  в нём не остаётся SQL от старой схемы;
+  в нём не остаётся SQL от старой схемы; у scaffold-сборки нет тел, поэтому
+  там таблицей становится каждый record — то же правило, что применяет
+  `arcod migrate` без доказательств;
 - `.arcod/build/prompts/` — по промпту на операцию и `manifest.json` с хешем
   модели и бюджетом токенов;
 - `.arcod/build/deploy.<env>.json` — манифест на каждое окружение с `deploy`.

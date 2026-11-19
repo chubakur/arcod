@@ -1087,6 +1087,23 @@ test('build --reference explains the demo gap instead of quoting the emitter', a
   assert.equal(bundle.includes('docker-compose.yml'), false, 'a failed build leaves no bundle');
 });
 
+test('build and migrate write the same migrations, byte for byte', async () => {
+  const dir = await tempDir('arcod-cli-migrate-same-');
+  await cp(new URL('../examples/tasks-sql', import.meta.url), dir, { recursive: true });
+  const built = await run(['build', dir, '--impl', '--json']);
+  assert.equal(built.code, 0, built.err);
+  const migrations = join(dir, '.arcod', 'build', 'migrations');
+  const before = new Map<string, string>();
+  for (const name of await readdir(migrations)) before.set(name, await readFile(join(migrations, name), 'utf8'));
+  assert.ok(before.size > 1, 'the build wrote migrations');
+  const migrated = await run(['migrate', dir]);
+  assert.equal(migrated.code, 0, migrated.err);
+  const after = new Map<string, string>();
+  for (const name of await readdir(migrations)) after.set(name, await readFile(join(migrations, name), 'utf8'));
+  assert.deepEqual([...after.keys()].sort(), [...before.keys()].sort(), 'no file appears or disappears');
+  for (const [name, text] of before) assert.equal(after.get(name), text, name + ' is unchanged by migrate');
+});
+
 test('build --json reports the build as one object, the human lines suppressed', async () => {
   const dir = await tempDir('arcod-cli-build-json-');
   await cp(new URL('../examples/tasks-sql', import.meta.url), dir, { recursive: true });
