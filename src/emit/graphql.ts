@@ -113,25 +113,7 @@ class Registry {
       return { ref: this.record(hint, type.fields, mode), nonNull: true };
     }
     if (type.kind === 'union') {
-      if (mode === 'in') {
-        // GraphQL has no input unions: the input carries the union of the
-        // variant fields, all optional. Reported here rather than guessed.
-        const fields: Param[] = [];
-        for (const variant of type.variants) {
-          const fieldsOf = variant.kind === 'record' ? variant.fields : [];
-          for (const field of fieldsOf) {
-            if (!fields.some((existing) => existing.name === field.name)) fields.push(field);
-          }
-        }
-        return { ref: this.record(hint, fields, mode), nonNull: true };
-      }
-      const name = hint;
-      if (!this.outputs.has(name)) {
-        this.outputs.set(name, '__union__');
-        const members = type.variants.map((variant, index) => this.ref(variant, hint + 'Variant' + (index + 1), 'out').ref);
-        this.outputs.set(name, '__union__' + members.join('|'));
-      }
-      return { ref: name, nonNull: true };
+      return { ref: this.union(hint, type.variants, mode), nonNull: true };
     }
     const name = type.name;
     if (name === 'list') {
@@ -151,6 +133,11 @@ class Registry {
       return { ref: this.record(name, this.recordFields(name), 'out'), nonNull: true };
     }
     const decl = this.declOf(name);
+    if (decl && decl.kind === 'union') {
+      // A named union keeps its declared name: `union Result = A | B`, not a
+      // hint-derived one and never the JSON hole below.
+      return { ref: this.union(name, decl.variants, mode), nonNull: true };
+    }
     if (decl && decl.kind === 'record') {
       return mode === 'in'
         ? { ref: this.record(name, decl.fields, 'in'), nonNull: true }
@@ -166,6 +153,37 @@ class Registry {
   private recordFields(name: string): Param[] {
     const decl = this.mod.types.find((item) => item.name === name);
     return decl && decl.type.kind === 'record' ? decl.type.fields : [];
+  }
+
+  // GraphQL has no input unions, so an input position carries the merged
+  // fields of every variant, each optional: a value of any variant satisfies it.
+  private variantFields(variant: TypeExpr): Param[] {
+    if (variant.kind === 'record') return variant.fields;
+    if (variant.kind === 'optional') return this.variantFields(variant.inner);
+    if (variant.kind === 'named') {
+      const decl = this.declOf(variant.name);
+      if (decl && decl.kind === 'record') return decl.fields;
+    }
+    return [];
+  }
+
+  private union(name: string, variants: TypeExpr[], mode: Mode): string {
+    if (mode === 'in') {
+      const fields: Param[] = [];
+      for (const variant of variants) {
+        for (const field of this.variantFields(variant)) {
+          if (fields.some((existing) => existing.name === field.name)) continue;
+          fields.push({ ...field, type: { kind: 'optional', inner: field.type, loc: field.type.loc }, default: undefined });
+        }
+      }
+      return this.record(name, fields, 'in');
+    }
+    if (!this.outputs.has(name)) {
+      this.outputs.set(name, '__union__');
+      const members = variants.map((variant, index) => this.ref(variant, name + 'Variant' + (index + 1), 'out').ref);
+      this.outputs.set(name, '__union__' + members.join('|'));
+    }
+    return name;
   }
 
   private record(name: string, fields: Param[], mode: Mode): string {

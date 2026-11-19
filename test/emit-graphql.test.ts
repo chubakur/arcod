@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildSchema } from 'graphql';
+import { buildSchema, isInputObjectType, isUnionType } from 'graphql';
 import { parse } from '../src/parser.ts';
 import { graphqlSchema } from '../src/emit/graphql.ts';
 
@@ -182,4 +182,62 @@ environment dev {
   assert.ok(sdl.includes('HTTP: GET /v1/shelf/:id\n  Requires an authenticated actor.'));
   // The public field carries the route and nothing else.
   assert.ok(sdl.includes('HTTP: GET /v1/home\n  \"\"\"\n  home: String!'));
+});
+
+const unionSource = `module u @0.1.0 {
+}
+use capability arcod.std.sql @1
+
+type OkBody = { ok: bool }
+type ErrBody = { message: string }
+type Result = OkBody | ErrBody
+
+service S : http {
+  uses db: sql
+  contract {
+    public op get(id: uuid) -> Result {
+      route: "GET /v1/x/:id"
+    }
+    public op put(r: Result) -> Result {
+      route: "POST /v1/x"
+    }
+    public op inline(id: uuid) -> OkBody | ErrBody {
+      route: "GET /v1/y/:id"
+    }
+  }
+}
+`;
+
+test('graphql: a named union is a real union, not a JSON hole', () => {
+  const sdl = schemaOf(unionSource);
+  const schema = buildSchema(sdl);
+  assert.ok(sdl.includes('union Result = OkBody | ErrBody'), sdl);
+  const result = schema.getType('Result');
+  assert.ok(isUnionType(result), 'Result must be a GraphQL union');
+  assert.deepEqual(result.getTypes().map((t) => t.name).sort(), ['ErrBody', 'OkBody']);
+  // Before the fix a named union fell through to the unknown-type hole.
+  assert.equal(sdl.includes('scalar JSON'), false);
+  assert.ok(sdl.includes('get(id: ID!): Result!'), sdl);
+});
+
+test('graphql: a union argument accepts every variant through optional input fields', () => {
+  const sdl = schemaOf(unionSource);
+  const schema = buildSchema(sdl);
+  const input = schema.getType('ResultInput');
+  assert.ok(isInputObjectType(input), 'ResultInput must be an input object');
+  assert.ok(sdl.includes('put(r: ResultInput!): Result!'), sdl);
+  const fields = input.getFields();
+  assert.deepEqual(Object.keys(fields).sort(), ['message', 'ok']);
+  // Either variant alone has to satisfy the input: no field is required.
+  for (const field of Object.values(fields)) {
+    assert.equal(String(field.type).endsWith('!'), false, field.name + ' is optional');
+  }
+});
+
+test('graphql: an inline union gets its own named union type', () => {
+  const sdl = schemaOf(unionSource);
+  const schema = buildSchema(sdl);
+  assert.ok(sdl.includes('union InlineResult = OkBody | ErrBody'), sdl);
+  assert.ok(isUnionType(schema.getType('InlineResult')));
+  assert.ok(sdl.includes('inline(id: ID!): InlineResult!'), sdl);
 });
