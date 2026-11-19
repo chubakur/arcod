@@ -1536,8 +1536,14 @@ function checkPresentation(
     const [svcName, opName] = ref.split('.');
     const svc = mod.services.find((item) => item.name === svcName);
     const op = svc?.contract.find((item) => item.name === opName && item.kind === 'op' && item.isPublic);
-    if (!op || !routeOf(op)) {
+    if (!op) {
       diags.push(diag('A018', 'error', mod.file, ui.loc, where, 'ui references a nonexistent operation ' + ref));
+      return false;
+    }
+    // The operation exists but has no route: the page cannot call it, and
+    // calling it "nonexistent" would send the reader looking for a typo.
+    if (!routeOf(op)) {
+      diags.push(diag('A018', 'error', mod.file, ui.loc, where, 'operation ' + ref + ' without a route cannot be called from ui'));
       return false;
     }
     return true;

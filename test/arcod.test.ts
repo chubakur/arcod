@@ -224,6 +224,35 @@ test('A018 catches a ui reference to a missing operation', () => {
   assert.ok(codes.includes('A018'));
 });
 
+test('A018 names a route as the reason when the presentation operation exists', () => {
+  // A slide deck names four operations. An operation that is right there in
+  // the contract but has no route is not "nonexistent": the reader looked for
+  // a typo instead of a missing route.
+  const noRoute = parse([
+    'module noroute @0.1.0 {}',
+    'service S : http {',
+    '  contract {',
+    '    public op x() -> string { }',
+    '  }',
+    '}',
+    'ui Deck {',
+    '  kind: spa',
+    '  route: "/"',
+    '  title: "T"',
+    '  layout: presentation',
+    '  start: S.x',
+    '  join: S.x',
+    '  state: S.x',
+    '  advance: S.x',
+    '  slide "One" {',
+    '    body: "b"',
+    '  }',
+    '}',
+  ].join('\n'), 'main.arc');
+  const messages = check(noRoute).filter((item) => item.code === 'A018').map((item) => item.message);
+  assert.deepEqual(messages, Array(4).fill('operation S.x without a route cannot be called from ui'));
+});
+
 test('budget reaches the plan and the runtime', () => {
   const task = buildPlan(ast).tasks.find((item) => item.kind === 'implement');
   assert.deepEqual(task?.budget, { tokens: 40000, time: '2h' });
