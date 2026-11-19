@@ -249,6 +249,25 @@ async function evalExpr(expr: Expr, env: Map<string, Value>, ctx: Context): Prom
     }
 
     case 'call': {
+      // `hits[0]` is a call whose callee is a member named `[]`. Only the
+      // index form is allowed here; any other method call stays unsupported.
+      if (expr.callee.kind === 'member' && expr.callee.property === '[]') {
+        const base = await evalExpr(expr.callee.object, env, ctx);
+        const failed = errorName(base);
+        if (failed) throw new Error('[] read from an error value: ' + failed);
+        if (!Array.isArray(base)) {
+          throw new Error('index on a non-list: ' + describe(expr.callee.object));
+        }
+        const raw = expr.args.length > 0 ? await evalExpr(expr.args[0].value, env, ctx) : null;
+        const index = Number(raw);
+        if (!Number.isInteger(index)) {
+          throw new Error('index is not an integer: ' + describe(expr.callee.object) + '[' + JSON.stringify(raw) + ']');
+        }
+        if (index < 0 || index >= base.length) {
+          throw new Error('index ' + index + ' out of range (len ' + base.length + ') in ' + describe(expr.callee.object));
+        }
+        return base[index] as Value;
+      }
       if (expr.callee.kind !== 'ident') throw new Error('unsupported call expression');
       const name = expr.callee.name;
       const args: Value[] = [];
@@ -370,6 +389,7 @@ function unwrap(value: Value): unknown {
 
 function describe(expr: Expr): string {
   if (expr.kind === 'call' && expr.callee.kind === 'ident') return expr.callee.name + '(...)';
+  if (expr.kind === 'call' && expr.callee.kind === 'member' && expr.callee.property === '[]') return describe(expr.callee.object) + '[...]';
   if (expr.kind === 'member') return describe(expr.object) + '.' + expr.property;
   if (expr.kind === 'is') return describe(expr.expr) + ' is ' + expr.error;
   if (expr.kind === 'binary') return describe(expr.left) + ' ' + expr.op + ' ' + describe(expr.right);

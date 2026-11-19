@@ -1393,7 +1393,9 @@ reference bodies, which cover only `create`/`read`. For any other operation
 building a service that cannot answer. A statement becomes a real request: a
 `:path` capture fills the path, `GET`, `HEAD` and `DELETE` put the rest in the
 query string, every other method sends a JSON body. A `HEAD` answer has no body,
-so the statement evaluates to `null`.
+so the statement evaluates to `null`. `page.hits[0].title` reads a list
+element; a negative or out-of-range index fails the example with a path
+(`index 99 out of range (len 3) in page.hits`).
 
 ```arcod
 service OneTimeMessage : http {
