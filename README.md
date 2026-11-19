@@ -1722,6 +1722,10 @@ This is a vertical slice, not a finished language.
   parser (`set` used to be parsed and dropped, so a change looked declared):
   they are not supported in v0.1 — a model must say what it means, not leave
   placeholders.
+- `pre:` and `post:` are contract statements, not runtime guards: they reach
+  the generated prompt and the examples, and `check` validates their shape and
+  effects, but the generated service does not evaluate them. A body must enforce
+  them itself (as the reference handlers do for `post: result != null`).
 - a `job` without an `on:` consumer is still parsed but not executed
   (`W017`): there is no state model or selection condition yet. Queue-backed
   consumers do run, with retry and dead letters.
