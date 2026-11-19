@@ -1291,7 +1291,9 @@ Print (or write) Terraform HCL for the topology.`,
 Render the topology as Kubernetes manifests; --helm wraps them in a chart.`,
   prompts: `usage: arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full]
 
-Write one deterministic prompt per operation into .arcod/build/prompts.`,
+Write one deterministic prompt per operation into .arcod/build/prompts.
+The compact form is the default; --full adds the task header, contract, io
+list and storage shape (a larger prompt for the same body).`,
   impl: `usage: arcod impl [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
                    [--dry-run] [--no-cache] [--allow-remote]
 
