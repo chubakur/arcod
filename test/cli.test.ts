@@ -1056,3 +1056,33 @@ test('--reference with --impl is a usage error, not a silent preference', async 
   assert.match(both.err, /--reference and --impl are alternatives; pass one/);
   assert.equal(await readdir(dir).then((names) => names.some((n) => n.startsWith('.arcod'))), false);
 });
+
+test('build --reference explains the demo gap instead of quoting the emitter', async () => {
+  const dir = await tempDir('arcod-cli-reference-');
+  const spec = join(dir, 'main.arc');
+  await writeFile(spec, [
+    'module refgap @0.1.0 {',
+    '  meta {',
+    '    owner: "@me"',
+    '  }',
+    '}',
+    'service Ping : http {',
+    '  contract {',
+    '    public op ping() -> string {',
+    '      route: "GET /ping"',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n'), 'utf8');
+
+  const r = await run(['build', spec, '--reference']);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /no operation bodies to build: --reference covers only create and read/);
+  assert.match(r.err, /arcod impl/);
+  assert.doesNotMatch(r.out + r.err, /templates only for/, 'the internal wording stays internal');
+  // The emitter throws before it writes: an empty .arcod skeleton may exist,
+  // but no bundle that `run` could pick up.
+  const bundle = await readdir(join(dir, '.arcod', 'build')).catch(() => [] as string[]);
+  assert.equal(bundle.includes('docker-compose.yml'), false, 'a failed build leaves no bundle');
+});

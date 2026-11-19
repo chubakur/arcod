@@ -932,6 +932,18 @@ function dialectFlag(flags: Flags): 'mysql' | 'postgres' | undefined {
   throw new UsageError('unknown dialect ' + flags.dialect + ' (mysql, postgres)');
 }
 
+// The demo handlers cover create/read only. Without a translation the emitter's
+// internal wording ("got: ping") is what the user sees, naming neither the fix
+// nor the flag that asked for it. build and test share the sentence, the verb.
+function explainReferenceGap(error: unknown, firstLine: string): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  if (!/templates only for/.test(message)) return false;
+  console.error(firstLine);
+  console.error('run `arcod impl` (or `arcod make`) first, or add impl/<op>.mjs by hand.');
+  process.exitCode = 1;
+  return true;
+}
+
 async function runBuild(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
@@ -941,21 +953,26 @@ async function runBuild(flags: Flags): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: flags.reference, implDir: flags.impl ? undefined : null, registry: loadRegistry(loaded.dir), dialect: dialectFlag(flags) });
-  const mode = result.impl.length > 0 ? 'impl' : result.reference ? 'reference' : 'scaffold';
-  console.log('arcod build (' + mode + '): ' + result.files.length + ' files in ' + result.dir);
-  // The tag is content-addressed: a changed body means a changed tag, which is
-  // what makes a plain `docker compose up` pick the new image up.
-  console.log('  images: ' + result.images.join(', '));
-  console.log('  dialect: ' + result.dialect);
-  if (mode === 'impl') {
-    console.log('  bodies: ' + result.impl.join(', '));
-  } else if (flags.impl) {
-    console.log('  no bodies in impl/; run arcod impl first');
-  } else if (mode === 'scaffold') {
-    console.log('  operation bodies are TODO; use --reference or --impl for a runnable demo');
+  try {
+    const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: flags.reference, implDir: flags.impl ? undefined : null, registry: loadRegistry(loaded.dir), dialect: dialectFlag(flags) });
+    const mode = result.impl.length > 0 ? 'impl' : result.reference ? 'reference' : 'scaffold';
+    console.log('arcod build (' + mode + '): ' + result.files.length + ' files in ' + result.dir);
+    // The tag is content-addressed: a changed body means a changed tag, which is
+    // what makes a plain `docker compose up` pick the new image up.
+    console.log('  images: ' + result.images.join(', '));
+    console.log('  dialect: ' + result.dialect);
+    if (mode === 'impl') {
+      console.log('  bodies: ' + result.impl.join(', '));
+    } else if (flags.impl) {
+      console.log('  no bodies in impl/; run arcod impl first');
+    } else if (mode === 'scaffold') {
+      console.log('  operation bodies are TODO; use --reference or --impl for a runnable demo');
+    }
+    for (const file of result.files) console.log('  ' + file);
+  } catch (error) {
+    if (explainReferenceGap(error, 'no operation bodies to build: --reference covers only create and read.')) return;
+    throw error;
   }
-  for (const file of result.files) console.log('  ' + file);
 }
 
 async function runTest(flags: Flags): Promise<void> {
@@ -992,16 +1009,7 @@ async function runTest(flags: Flags): Promise<void> {
       dialect: dialectFlag(flags),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    // The demo handlers only cover create/read. Anything else without bodies
-    // needs the model or a hand-written file, and the user should hear that
-    // instead of the emitter's internal wording.
-    if (/templates only for/.test(message)) {
-      console.error('no operation bodies to test: impl/ is empty and the demo handlers cover only create/read.');
-      console.error('run `arcod impl` (or `arcod make`) first, or add impl/<op>.mjs by hand.');
-      process.exitCode = 1;
-      return;
-    }
+    if (explainReferenceGap(error, 'no operation bodies to test: impl/ is empty and the demo handlers cover only create/read.')) return;
     throw error;
   }
   const report = await runExamples(loaded.mod, result.dir);
