@@ -1055,6 +1055,23 @@ test('a duplicate enum value or error field is A066, not a silent overwrite', ()
   assert.match(diags[1].message, /field x is declared twice/);
 });
 
+test('two parameters of one name are A066: one key, two OpenAPI entries', () => {
+  const src = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  contract {',
+    '    public op get(id: string, id: int) -> string {',
+    '      route: "GET /v1/x/:id"',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+  const diags = check(parse(src, 'main.arc')).filter((item) => item.code === 'A066');
+  assert.equal(diags.length, 1);
+  assert.equal(diags[0].path, 'services.S.contract.get.params.id');
+  assert.match(diags[0].message, /parameter id is declared twice in get/);
+});
+
 test('a clause declared twice on one operation is A067', () => {
   const src = [
     'module m @0.1.0 {}',

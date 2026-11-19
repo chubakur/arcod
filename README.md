@@ -1297,9 +1297,9 @@ Errors:
 - `A042` slides on a page whose `layout` is not `presentation` — the page
   would drop them, so the text never reaches the browser;
 - `A066` two declarations of one name (a record or error field, an enum
-  value, an operation, a service, a type, an enum, an error, a workflow or an
-  environment) — every emitter keys by name, so the second would silently
-  replace the first;
+  value, an operation, a parameter, a service, a type, an enum, an error, a
+  workflow or an environment) — every emitter keys by name, so the second
+  would silently replace the first;
 - `A078` an error name nothing declares (`errors: NotFound` with no
   `error NotFound`): the emitter would turn the typo into a handler target and
   an OpenAPI error — declare the error or fix the name;

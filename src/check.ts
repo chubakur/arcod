@@ -101,6 +101,16 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           'operation ' + op.name + ' is declared twice', 'rename one of them'));
       }
       opNames.add(op.name);
+      // Two parameters of one name are one key in the request object and two
+      // entries in OpenAPI, where the name is what binds the value.
+      const paramNames = new Set<string>();
+      for (const param of op.params) {
+        if (paramNames.has(param.name)) {
+          diags.push(diag('A066', 'error', mod.file, param.loc, `services.${svc.name}.contract.${op.name}.params.${param.name}`,
+            `parameter ${param.name} is declared twice in ${op.name}`, 'rename one of them'));
+        }
+        paramNames.add(param.name);
+      }
     }
   }
 
