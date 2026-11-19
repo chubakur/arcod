@@ -55,7 +55,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   graphql: ['--service', '--out'],
   grpc: ['--service', '--out'],
   migrate: ['--json', '--dialect'],
-  build: ['--reference', '--impl', '--port', '--dialect'],
+  build: ['--reference', '--impl', '--port', '--dialect', '--json'],
   test: ['--impl', '--reference', '--port', '--json'],
   make: ['--force', '--skip-impl', '--no-test', '--model', '--endpoint', '--max-tokens', '--allow-remote', '--reference', '--port', '--json'],
   run: ['--impl', '--scaffold', '--port', '--detach', '--down'],
@@ -956,6 +956,21 @@ async function runBuild(flags: Flags): Promise<void> {
   try {
     const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: flags.reference, implDir: flags.impl ? undefined : null, registry: loadRegistry(loaded.dir), dialect: dialectFlag(flags) });
     const mode = result.impl.length > 0 ? 'impl' : result.reference ? 'reference' : 'scaffold';
+    // A build is the step CI wants to gate and script; the same facts the human
+    // lines carry go out as one object, so no output has to be parsed.
+    if (flags.json) {
+      console.log(JSON.stringify({
+        mode,
+        dir: result.dir,
+        dialect: result.dialect,
+        port: result.port,
+        reference: result.reference,
+        files: result.files,
+        images: result.images,
+        bodies: result.impl,
+      }, null, 2));
+      return;
+    }
     console.log('arcod build (' + mode + '): ' + result.files.length + ' files in ' + result.dir);
     // The tag is content-addressed: a changed body means a changed tag, which is
     // what makes a plain `docker compose up` pick the new image up.
@@ -1399,7 +1414,7 @@ Ask a local Ollama-compatible model for the operation bodies.`,
 
 Run the loop: check, prompts, bodies, build, test. Stops at the first failure.`,
   build: `usage: arcod build [dir|spec.arc] [--reference | --impl] [--port 8080]
-                     [--dialect mysql|postgres]
+                     [--dialect mysql|postgres] [--json]
 
 Emit the service, migrations, compose and pages into .arcod/build.`,
   test: `usage: arcod test [dir|spec.arc] [--impl] [--reference] [--port 8080]

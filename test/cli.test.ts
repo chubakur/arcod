@@ -1087,6 +1087,27 @@ test('build --reference explains the demo gap instead of quoting the emitter', a
   assert.equal(bundle.includes('docker-compose.yml'), false, 'a failed build leaves no bundle');
 });
 
+test('build --json reports the build as one object, the human lines suppressed', async () => {
+  const dir = await tempDir('arcod-cli-build-json-');
+  await cp(new URL('../examples/tasks-sql', import.meta.url), dir, { recursive: true });
+  const r = await run(['build', dir, '--impl', '--json']);
+  assert.equal(r.code, 0, r.err);
+  const report = JSON.parse(r.out) as {
+    mode: string; dir: string; dialect: string; port: number; reference: boolean;
+    files: string[]; images: string[]; bodies: string[];
+  };
+  assert.equal(report.mode, 'impl');
+  assert.equal(report.dialect, 'mysql');
+  assert.equal(report.reference, false);
+  assert.equal(report.port, 8080);
+  assert.equal(report.dir, join(dir, '.arcod', 'build'));
+  assert.ok(report.files.some((file) => file.endsWith('service/index.mjs')), 'the service is listed');
+  assert.ok(report.files.some((file) => file.endsWith('migrations/changelog.json')), 'migrations are part of the report');
+  assert.ok(report.images.length > 0, 'the content-addressed tags are reported');
+  assert.ok(report.bodies.length > 0 && report.bodies.every((op) => typeof op === 'string'));
+  assert.doesNotMatch(r.out, /arcod build \(/, 'one object, no human preamble');
+});
+
 test('test --json prints an empty report as JSON, not a sentence', async () => {
   const dir = await tempDir('arcod-cli-json-empty-');
   const spec = join(dir, 'main.arc');
