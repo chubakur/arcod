@@ -171,6 +171,9 @@ class Registry {
     }
     const decl = this.declOf(name);
     if (decl && decl.kind === 'record') return { type: this.message(name, decl.fields), labels: [] };
+    // A named union keeps its declared name, so every operation that returns
+    // or accepts `Result` shares one message instead of a hint-named copy.
+    if (decl && decl.kind === 'union') return { type: this.union(name, decl.variants), labels: [] };
     if (decl && decl.kind === 'named' && decl.name !== name) return this.typeOf(decl, hint);
     if (decl && decl.kind !== 'named') return this.typeOf(decl, hint);
     // A hole in the contract: Value keeps the file compilable and the gap visible.

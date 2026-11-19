@@ -188,3 +188,46 @@ test('grpc CLI writes the proto to --out', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+const unionSource = `module u @0.1.0 {
+}
+type OkBody = { ok: bool }
+type ErrBody = { message: string }
+type Result = OkBody | ErrBody
+
+service S : http {
+  contract {
+    public op get(id: uuid) -> Result { route: "GET /v1/x/:id" }
+    public op put(r: Result) -> Result { route: "POST /v1/x" }
+  }
+}
+`;
+
+test('grpc: a named union is one message with a oneof, reused by every operation', () => {
+  const proto = grpcProto(parse(unionSource, 'main.arc'));
+  parseProto(proto);
+  const declarations = proto.match(/^message Result \{/gm) ?? [];
+  assert.equal(declarations.length, 1, 'one Result message, not one per hint: ' + proto);
+  assert.match(proto, /message Result \{\n  oneof value \{\n    OkBody okbody = 1;\n    ErrBody errbody = 2;\n  \}\n\}/);
+  assert.match(proto, /Result result = 1;/);
+  assert.match(proto, /Result r = 1;/);
+  // The old hint-derived copies are gone.
+  assert.equal(proto.includes('GetResponseResult'), false);
+  assert.equal(proto.includes('PutRequestR'), false);
+});
+
+test('grpc: a union that is not all records falls back to Value honestly', () => {
+  const source = `module u @0.1.0 {
+}
+type OkBody = { ok: bool }
+
+service S : http {
+  contract {
+    public op get(id: uuid) -> OkBody | string { route: "GET /v1/x/:id" }
+  }
+}
+`;
+  const proto = grpcProto(parse(source, 'main.arc'));
+  assert.match(proto, /google\.protobuf\.Value result = 1;/, proto);
+  assert.equal(proto.includes('oneof value'), false);
+});
