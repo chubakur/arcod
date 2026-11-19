@@ -973,3 +973,17 @@ test('deploy names the environments that exist when the one asked for does not',
   assert.equal(typo.code, 1);
   assert.match(typo.err, /no environment to deploy: staging — declared: dev, prod/);
 });
+
+test('a path that does not exist is missing, not a directory without a spec', async () => {
+  const dir = await tempDir('arcod-cli-missing-');
+  const missing = await run(['check', join(dir, 'nope.arc')]);
+  assert.equal(missing.code, 1);
+  assert.match(missing.err, /cannot read .*nope\.arc: no such file or directory/);
+  assert.doesNotMatch(missing.err, /no \.arc file found/);
+
+  // A directory that does exist but holds no spec keeps the directory wording,
+  // because there the missing thing really is the spec file.
+  const empty = await run(['check', dir]);
+  assert.equal(empty.code, 1);
+  assert.match(empty.err, /no \.arc file found in /);
+});

@@ -1210,6 +1210,10 @@ async function load(target?: string): Promise<Loaded> {
     specPath = resolved;
     dir = join(resolved, '..');
   } else {
+    // A path that does not exist is not a directory without a spec. The old
+    // branch answered a mistyped file name with "no .arc file found in
+    // /typo.arc", which reads like a broken directory, not a typo.
+    if (!info) throw new Error('cannot read ' + resolved + ': no such file or directory');
     dir = resolved;
     specPath = await findSpec(dir);
   }
