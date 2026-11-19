@@ -75,3 +75,60 @@ test('two parameters still spread the payload by name', () => {
   assert.deepEqual(input({ label: 'x', count: 2 }), { label: 'x', count: 2 });
   assert.deepEqual(input({ label: 'x' }), { label: 'x', count: null });
 });
+
+// The consumer loop acks a message when the body returns. A body that
+// looked up an id, got null and fell through used to ack: the work vanished
+// while the report stayed queued forever.
+function consumerRun(params: string[], retry: number, fn: (input: unknown) => Promise<unknown>) {
+  const src = consumerSource([{ topic: 'jobs', handler: 'process', params, retry }]);
+  const calls: Array<[string, string]> = [];
+  let delivered = false;
+  const queueDriver = {
+    async receive() {
+      if (delivered) return null;
+      delivered = true;
+      return JSON.stringify({ payload: { reportId: 'missing' }, attempts: 0 });
+    },
+    async requeue(_topic: string, raw: string) { calls.push(['requeue', raw]); },
+    async toDead(_topic: string, raw: string) { calls.push(['dead', raw]); },
+  };
+  const factory = new Function('queueDriver', 'makeIo', 'setTimeout', 'QUEUE_POLL_MS', 'process',
+    src + '\nreturn { runConsumer, stop() { consumersStopped = true; } };');
+  const loaded = factory(queueDriver, () => ({}), setTimeout, 1, fn) as {
+    runConsumer: (spec: unknown) => Promise<void>;
+    stop: () => void;
+  };
+  const run = loaded.runConsumer({ topic: 'jobs', fn, params, retry });
+  return { calls, run, stop: loaded.stop };
+}
+
+async function settle(job: { run: Promise<void>; stop: () => void }) {
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  job.stop();
+  await job.run;
+}
+
+test('a job that returns nothing for its input goes to dead letter', async () => {
+  const job = consumerRun(['reportId'], 0, async () => null);
+  await settle(job);
+  assert.equal(job.calls.length, 1);
+  assert.equal(job.calls[0][0], 'dead');
+  const dead = JSON.parse(job.calls[0][1]);
+  assert.equal(dead.payload.reportId, 'missing');
+  assert.match(dead.lastError, /no result for its input/);
+});
+
+test('a job that returns an error is retried and not acked', async () => {
+  const job = consumerRun(['reportId'], 0, async () => ({ error: 'NotFound' }));
+  await settle(job);
+  assert.equal(job.calls.length, 1);
+  assert.equal(job.calls[0][0], 'dead');
+  assert.match(JSON.parse(job.calls[0][1]).lastError, /returned error: NotFound/);
+});
+
+test('a job with a result is acked', async () => {
+  const job = consumerRun(['reportId'], 0, async () => ({ result: true }));
+  await settle(job);
+  assert.deepEqual(job.calls, []);
+});
+

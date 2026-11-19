@@ -725,6 +725,11 @@ Semantics, enforced by the generated runtime rather than written in bodies:
 - a failing body — an exception or `{ error: ... }` — is retried up to
   `retry` times (default 3), then moved to the dead letter queue, readable
   with `io.queueDead(topic)`;
+- the body receives named parameters: one parameter is the value of that field
+  (a bare scalar is the value itself), several are the fields by name;
+- a body that returns nothing while the job declares input is a failed attempt
+  too (`consumer returned no result for its input`): a lookup that returned
+  `null` must not ack the message and hide the work;
 - delivery is at-least-once; a consumer body should be idempotent;
 - without a redis binding the queue is in-process (memory driver); with
   `bind events -> redis(...)` messages live in the broker and any replica may

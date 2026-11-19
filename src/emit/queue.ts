@@ -238,6 +238,12 @@ async function runConsumer(spec) {
     try {
       const out = await spec.fn(consumerInput(spec, envelope.payload), makeIo({ headers: {} }));
       if (out && out.error) throw new Error('consumer returned error: ' + out.error);
+      // A job with input that returns nothing did nothing: io.fetch returned
+      // null, the body fell through, and the message would be acked with the
+      // work lost. Treat it as a failed attempt so retry/DLQ sees it.
+      if (spec.params.length > 0 && (out === null || out === undefined)) {
+        throw new Error('consumer returned no result for its input');
+      }
     } catch (error) {
       const attempts = Number(envelope.attempts || 0) + 1;
       if (attempts > spec.retry) {
