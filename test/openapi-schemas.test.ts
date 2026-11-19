@@ -254,3 +254,32 @@ environment dev {
   assert.equal('securitySchemes' in doc.components, false);
   assert.equal(doc.paths['/v1/home'].get.security, undefined);
 });
+
+test('openapi: a named union of records is an anyOf component reused by routes', () => {
+  const source = `module u @0.1.0 {
+}
+type OkBody = { ok: bool }
+type ErrBody = { message: string }
+type Result = OkBody | ErrBody
+
+service S : http {
+  contract {
+    public op get(id: uuid) -> Result { route: "GET /v1/x/:id" }
+    public op put(r: Result) -> Result { route: "POST /v1/x" }
+  }
+}
+`;
+  const doc = emitOpenapi(parse(source, 'main.arc')) as any;
+  assert.deepEqual(doc.components.schemas.Result, {
+    anyOf: [
+      { $ref: '#/components/schemas/OkBody' },
+      { $ref: '#/components/schemas/ErrBody' },
+    ],
+  });
+  // Both the response and the body point at the declared name, not at an
+  // inline copy: a client generates one type and uses it everywhere.
+  assert.deepEqual(doc.paths['/v1/x/{id}'].get.responses['200'].content['application/json'].schema,
+    { $ref: '#/components/schemas/Result' });
+  assert.deepEqual(doc.paths['/v1/x'].post.requestBody.content['application/json'].schema.properties.r,
+    { $ref: '#/components/schemas/Result' });
+});
