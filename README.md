@@ -855,6 +855,12 @@ type Mutation {
 }
 ```
 
+A union survives the trip: `type Result = OkBody | ErrBody` is emitted as
+`union Result = OkBody | ErrBody`, and a client selects on the concrete
+variant. GraphQL has no input unions, so in an argument position the same
+declaration becomes `input ResultInput` with the merged fields of every
+variant, all nullable: a value of any one variant satisfies the argument.
+
 Each field's description carries the HTTP route and the error codes mapped by
 the same table the runtime uses, so REST and GraphQL cannot drift apart. The
 emitted SDL is validated with `buildSchema` from the `graphql` package in the
