@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parse } from '../src/parser.ts';
-import { terraformFiles } from '../src/emit/terraform.ts';
+import { formatTerraform, terraformFiles } from '../src/emit/terraform.ts';
 import { PLUGIN_API } from '../src/plugins.ts';
 import { registryFromScan } from '../src/registry.ts';
 
@@ -12,6 +12,7 @@ import { registryFromScan } from '../src/registry.ts';
 // the owner's account, not to a unit test.
 
 const tasksUrl = new URL('../examples/tasks/main.arc', import.meta.url);
+const filesUrl = new URL('../examples/files/main.arc', import.meta.url);
 
 function bracesBalanced(text: string): boolean {
   let depth = 0;
@@ -224,6 +225,35 @@ test('every var.* reference in the plan is declared', async () => {
   for (const match of pluginMain.matchAll(/var\.([a-z0-9_]+)/g)) {
     assert.match(pluginVars, new RegExp('variable "' + match[1] + '"'), 'declared: ' + match[1]);
   }
+});
+
+test('an s3 bind renders a bucket whose keys are sensitive variables', async () => {
+  // Object storage is the one managed service whose credentials are not a
+  // password: the plan takes key/secret from variables, and the example file
+  // stays empty so no key can be committed by accident.
+  const mod = parse(await readFile(filesUrl, 'utf8'), 'main.arc');
+  const files = terraformFiles(mod, { environment: 'prod' });
+  const main = files.find((file) => file.path === 'main.tf')!.content;
+  assert.match(main, /resource "yandex_storage_bucket" "objects" \{/);
+  assert.match(main, /bucket     = "files-objects"/);
+  assert.match(main, /access_key = var\.s3_access_key/);
+  assert.match(main, /secret_key = var\.s3_secret_key/);
+  assert.doesNotMatch(main, /access_key\s*=\s*"/, 'a key is a variable, not a literal');
+  assert.ok(bracesBalanced(main));
+
+  const variables = files.find((file) => file.path === 'variables.tf')!.content;
+  assert.match(variables, /variable "s3_access_key" \{\n  type      = string\n  sensitive = true/);
+  assert.match(variables, /variable "s3_secret_key" \{\n  type      = string\n  sensitive = true/);
+});
+
+test('formatTerraform writes every file under its own path header', async () => {
+  const mod = parse(await readFile(filesUrl, 'utf8'), 'main.arc');
+  const text = formatTerraform(terraformFiles(mod, { environment: 'prod' }));
+  const blocks = text.split('\n---\n');
+  assert.equal(blocks.length, 3);
+  assert.match(blocks[0], /^# main\.tf\n/);
+  assert.match(blocks[1], /^# variables\.tf\n/);
+  assert.match(blocks[2], /^# terraform\.tfvars\.example\n/);
 });
 
 test('a non-yandex target is refused instead of half-rendered', () => {
