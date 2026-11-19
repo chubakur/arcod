@@ -43,26 +43,6 @@ export function baseType(mod: ModuleNode, type: TypeExpr, depth = 0): string {
   }
 }
 
-function sqlTypeOf(base: string, unique: boolean): string {
-  switch (base) {
-    case 'int': return 'BIGINT';
-    case 'float':
-    case 'number': return 'DOUBLE';
-    case 'decimal': return 'DECIMAL(30,6)';
-    case 'bool':
-    case 'boolean': return 'TINYINT(1)';
-    case 'uuid': return 'CHAR(36)';
-    case 'datetime': return 'DATETIME(3)';
-    case 'bytes': return 'LONGBLOB';
-    case 'enum': return 'VARCHAR(64)';
-    case 'string':
-    case 'email':
-    case 'url':
-    case 'uri': return unique ? 'VARCHAR(191)' : 'TEXT';
-    default: return 'JSON';
-  }
-}
-
 export type DefaultValue = string | number | boolean | null;
 
 // A field default is a static scalar. The DDL, the runtime insert and the
