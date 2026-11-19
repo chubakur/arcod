@@ -522,9 +522,11 @@ function uiParam(mod: ModuleNode, param: Param, where: 'path' | 'query' | 'body'
     if (resolved.name === 'list' || resolved.name === 'map' || resolved.name === 'json') kind = 'json';
     else if (resolved.name === 'bool') kind = 'bool';
     else if (resolved.name === 'int' || resolved.name === 'float' || resolved.name === 'number') kind = 'number';
-    else if (resolved.name === 'bytes') {
+    else if (resolved.name === 'bytes' || resolved.name === 'string') {
+      // Both refinements carry a character limit; only bytes is large enough
+      // to need a textarea, a string limit is a plain maxlength attribute.
       max = maxOf(resolved);
-      kind = max !== null && max > 512 ? 'textarea' : 'text';
+      kind = resolved.name === 'bytes' && max !== null && max > 512 ? 'textarea' : 'text';
     }
   }
 
