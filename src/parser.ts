@@ -89,7 +89,7 @@ class Parser {
       // The header braces hold meta only. Skipping anything else would turn a
       // declaration written one brace too deep into a no-op that check calls
       // clean, which is the worst possible answer for a typo.
-      this.error('unexpected token ' + JSON.stringify(this.peek().value) +
+      this.error('unexpected token ' + this.describe(this.peek()) +
         ' in the module header: only `meta { ... }` goes inside the braces, declarations go after the closing `}`');
     }
     const end = this.expect('}');
@@ -113,7 +113,7 @@ class Parser {
       if (this.is('unknown')) this.error('`unknown` is not supported in v0.1 — declare the concrete type/service instead');
       if (this.is('policy')) this.error('`policy` is not supported in v0.1 — use `roles:`/`owner:`/`auth` clauses');
       if (this.is('change')) this.error('`change` is not supported in v0.1 — the module version records change');
-      this.error('unexpected top-level token ' + JSON.stringify(this.peek().value));
+      this.error('unexpected top-level token ' + this.describe(this.peek()));
     }
 
     return mod;
@@ -313,7 +313,7 @@ class Parser {
       if (this.is('hint')) this.error('`hint` is not supported in v0.1 — the contract is the prompt');
       if (this.is('impl')) this.error('`impl` blocks are not supported in v0.1 — bodies live in impl/*.mjs');
       if (this.is('unknown')) this.error('`unknown` is not supported in v0.1');
-      this.error('unexpected member ' + JSON.stringify(this.peek().value));
+      this.error('unexpected member ' + this.describe(this.peek()));
     }
     const end = this.expect('}');
     svc.loc = this.loc(start, end);
@@ -353,7 +353,7 @@ class Parser {
         svc.contract.push(this.parseOp('job', false, false));
         continue;
       }
-      this.error('expected op or job');
+      this.error('expected op or job, got ' + this.describe(this.peek()));
     }
     this.expect('}');
   }
@@ -1192,7 +1192,7 @@ class Parser {
       this.expect(')');
       return expr;
     }
-    this.error('unexpected token in expression ' + JSON.stringify(tok.value));
+    this.error('unexpected token in expression ' + this.describe(tok));
   }
 
   private binary(op: string, left: Expr, right: Expr): Expr {
@@ -1217,14 +1217,20 @@ class Parser {
   private is(value: string): boolean { const t = this.peek(); return t.kind !== 'eof' && t.value === value; }
   private accept(value: string): boolean { if (!this.is(value)) return false; this.pos++; return true; }
 
+  // A token echoed back in an error is `""` at end of file, which reads like a
+  // typo in the message rather than a truncated spec. Name it once here.
+  private describe(tok: Token): string {
+    return tok.kind === 'eof' ? 'end of file' : JSON.stringify(tok.value);
+  }
+
   private expect(value: string): Token {
-    if (!this.is(value)) this.error('expected ' + JSON.stringify(value) + ', got ' + JSON.stringify(this.peek().value));
+    if (!this.is(value)) this.error('expected ' + JSON.stringify(value) + ', got ' + this.describe(this.peek()));
     return this.next();
   }
 
   private expectIdent(what: string): Token {
     const tok = this.peek();
-    if (tok.kind !== 'ident') this.error('expected ' + what + ', got ' + JSON.stringify(tok.value));
+    if (tok.kind !== 'ident') this.error('expected ' + what + ', got ' + this.describe(tok));
     this.pos++;
     return tok;
   }

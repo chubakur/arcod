@@ -85,7 +85,10 @@ one `meta { ... }` block and nothing else: `type`, `enum`, `error`, `service`,
 `environment` and `ui` go after the closing brace. A token that is not `meta`
 inside the braces — a declaration written one brace too deep, a second `meta`
 block, or a repeated meta key — is a located parse error, so a misplaced
-declaration can never become a silently ignored line.
+declaration can never become a silently ignored line. Parse errors quote the
+token they choked on; at end of file the token is named `end of file`, so a
+spec cut in half reads `expected "}", got end of file` instead of an empty
+`got ""`.
 
 ## Types
 
