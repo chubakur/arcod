@@ -757,6 +757,21 @@ test('deploy explains what it would write for each provider, and what is missing
   const unknown = await run(['deploy', spec]);
   assert.equal(unknown.code, 1);
   assert.match(unknown.err, /unknown deploy provider nope; available: /);
+
+  // A cluster target names the artifact directory and the preview command that
+  // writes it: the same objects, with --helm for a chart.
+  await writeFile(spec, original.replace('  deploy docker\n', '  deploy kubernetes\n'), 'utf8');
+  const k8s = await run(['deploy', spec]);
+  assert.equal(k8s.code, 0, JSON.stringify(k8s.err));
+  assert.match(k8s.out, /artifact: k8s\/ — manifests written by arcod build/);
+  assert.match(k8s.out, /preview: arcod k8s /);
+  assert.equal(k8s.out.includes('--helm'), false);
+
+  await writeFile(spec, original.replace('  deploy docker\n', '  deploy helm\n'), 'utf8');
+  const helm = await run(['deploy', spec]);
+  assert.equal(helm.code, 0, JSON.stringify(helm.err));
+  assert.match(helm.out, /artifact: helm\/ — manifests written by arcod build/);
+  assert.match(helm.out, /preview: arcod k8s .* --helm/);
 });
 
 test('fmt --write keeps a comment written inside a ui block', async () => {
@@ -841,6 +856,13 @@ test('fmt reads a pattern, --check gates it and --write repairs it', async () =>
   assert.equal(write.code, 0, 'a successful write is not a failure: ' + write.out);
   const clean = await run(['fmt', join(root, '*', 'main.arc'), '--check']);
   assert.equal(clean.code, 0, clean.out);
+
+  // A --to migration failure is one failed file, not a crash: the loop keeps
+  // going and the summary/exit code record it.
+  const migrate = await run(['fmt', join(root, '*', 'main.arc'), '--check', '--to', '0.0.1']);
+  assert.equal(migrate.code, 1, migrate.out);
+  assert.ok(migrate.out.includes(join(root, 'alpha', 'main.arc') + ': unknown target version 0.0.1'), migrate.out);
+  assert.match(migrate.out, /2 file\(s\), 0 not formatted, 2 failed/);
 
   // A file that does not parse is reported with its location and left alone;
   // the other match is still checked.
