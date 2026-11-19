@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cp, mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../src/cli.ts';
@@ -593,6 +595,43 @@ test('upgrade reports the current version and refuses an unknown target', async 
   const refused = await run(['upgrade', signupUrl.pathname, '--to', '9.9.9']);
   assert.equal(refused.code, 1);
   assert.match(refused.err, /unknown target version 9\.9\.9/);
+});
+
+// `arcod impl --json` is the machine-readable face of the model loop: one
+// object per operation with ok/provenance, and a non-zero exit when any body
+// was refused. The model is a local mock, so the test needs no Ollama.
+test('impl --json reports every generated body and its provenance', async () => {
+  const server = createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ response: 'export async function ping() {\n  return "pong";\n}' }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const endpoint = 'http://127.0.0.1:' + (server.address() as AddressInfo).port;
+  try {
+    const dir = await tempDir();
+    const spec = join(dir, 'main.arc');
+    await writeFile(spec, [
+      'module demo @0.1.0 {}',
+      'service Ping : http {',
+      '  contract {',
+      '    public op ping() -> string {',
+      '      route: "GET /v1/ping"',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n'), 'utf8');
+    const r = await run(['impl', spec, '--endpoint', endpoint, '--json', '--no-cache']);
+    assert.equal(r.code, 0, r.err);
+    const results = JSON.parse(r.out) as Array<{ id: string; ok: boolean; model?: string }>;
+    assert.equal(results.length, 1);
+    assert.equal(results[0].ok, true);
+    assert.match(await readFile(join(dir, 'impl', 'ping.mjs'), 'utf8'), /export async function ping/);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 
 test('test runs the bodies in impl/ and reports every example', async () => {
