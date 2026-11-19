@@ -1444,6 +1444,9 @@ Errors:
   declare;
 - `A065` an error declares a payload field that its `on error` clause never
   fills (the response would always omit it).
+- `A080` an example call passes more arguments than the operation has
+  parameters: `arcod test` invokes by position, so the extra ones were dropped
+  without a word.
 
 Warnings:
 
@@ -1496,6 +1499,10 @@ Warnings:
   (`oncee(read, ...)`) or a predicate v0.1 does not execute. `arcod test` now
   prints the rule as `skip` and counts it apart instead of dropping it from the
   report, so a green run never hides an invariant that was only a comment.
+- `W041` an example call omits a required argument: `arcod test` sends it as
+  `undefined`, so a deliberate "missing field" case and a typo look the same in
+  the report. A trailing parameter with a default or an optional type may be
+  omitted silently.
 - `W039` an `on error X` handler on an operation whose `errors:` does not
   list `X`: only the list reaches OpenAPI and the status map, so the fields
   filled by the handler are never shown to a client — list the error or drop

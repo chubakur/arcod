@@ -1753,12 +1753,34 @@ function checkExampleArguments(mod: ModuleNode, svc: ServiceNode, diags: Diagnos
       if (call.kind !== 'call' || call.callee.kind !== 'ident') continue;
       const op = ops.get(call.callee.name);
       if (!op) continue;
+      const where = 'services.' + svc.name + '.contract.' + op.name;
+      // A080 — the call and the operation disagree on how many arguments there
+      // are. `arcod test` invokes by position, so an extra argument is simply
+      // dropped and a missing one arrives as undefined: both are silent unless
+      // the count is checked here. A trailing parameter with a default or an
+      // optional type may be omitted.
+      if (call.args.length > op.params.length) {
+        diags.push(diag('A080', 'error', mod.file, call.loc, where,
+          `example ${example.name}: ${op.name} takes ${op.params.length} argument(s), the call passes ${call.args.length}`,
+          'an example call names every parameter by position; extra arguments are dropped'));
+      } else {
+        // W041 — a missing required argument. It may be deliberate (an example
+        // that tests a missing body), so it is a warning, not an error; but the
+        // call sends undefined and the reader should know before `arcod test`
+        // turns it into a confusing 400.
+        const missing = op.params.slice(call.args.length).find((param) => !param.default && param.type.kind !== 'optional');
+        if (missing) {
+          diags.push(diag('W041', 'warning', mod.file, call.loc, where,
+            `example ${example.name}: ${op.name} is missing argument ${missing.name}, which arcod test sends as undefined`,
+            'pass a value, or keep the omission if the example tests a missing field'));
+        }
+      }
       call.args.forEach((arg, index) => {
         const param = op.params[index];
         if (!param) return;
         const problem = exampleMismatch(param.type, arg.value, mod);
         if (!problem) return;
-        diags.push(diag('A063', 'error', mod.file, arg.loc, 'services.' + svc.name + '.contract.' + op.name,
+        diags.push(diag('A063', 'error', mod.file, arg.loc, where,
           'example ' + example.name + ': argument ' + (index + 1) + ' of ' + op.name + ': ' + problem));
       });
     }
