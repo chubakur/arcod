@@ -127,6 +127,18 @@ test('references include the declaration and its uses', () => {
   assert.ok(refs.length >= 2, 'expected declaration + at least one use, got ' + refs.length);
 });
 
+test('references find an error in errors: and on error clauses', async () => {
+  const signup = await readFile(new URL('../examples/signup/main.arc', import.meta.url), 'utf8');
+  const lines = signup.split('\n');
+  const line = lines.findIndex((l) => l.startsWith('error Invalid'));
+  assert.ok(line >= 0, 'the example declares error Invalid');
+  const refs = references(signup, line, 'error Invalid'.indexOf('Invalid'), 'file:///signup/main.arc');
+  const touched = refs.map((r) => lines[r.range.start.line].trim());
+  assert.ok(touched.some((l) => l.startsWith('error Invalid')), 'the declaration is a reference');
+  assert.ok(touched.some((l) => l.startsWith('errors:') && l.includes('Invalid')), 'errors: is a reference');
+  assert.ok(touched.some((l) => l.startsWith('on error Invalid')), 'on error is a reference');
+});
+
 test('hover returns the declaration source line', () => {
   const at = pos(MINIMAL, 3, 'UserId', 1);
   const h = hover(MINIMAL, at.line, at.character);
