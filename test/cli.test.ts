@@ -447,7 +447,16 @@ test('every emitter is reachable through the CLI', async () => {
   const mysqlMigrations = JSON.parse(await readFile(join(migrations, 'changelog.json'), 'utf8')) as Array<{ up: string }>;
   assert.ok(mysqlMigrations.some((m) => m.up.includes('CREATE TABLE IF NOT EXISTS `')), 'mysql backticks identifiers');
 
-  const postgres = await run(['migrate', spec, '--dialect', 'postgres']);
+  // The dialect follows the bind, so an explicit postgres on a mysql-bound spec
+  // is a usage error naming the bind; a postgres-bound copy is how you get
+  // postgres DDL out of the same model.
+  const conflict = await run(['migrate', spec, '--dialect', 'postgres']);
+  assert.equal(conflict.code, 2, 'a dialect that disagrees with the bind is a usage error');
+  assert.match(conflict.err, /bind store -> mysql/);
+
+  const pgSpec = join(dir, 'main-postgres.arc');
+  await writeFile(pgSpec, (await readFile(spec, 'utf8')).replaceAll('bind store -> mysql', 'bind store -> postgres'));
+  const postgres = await run(['migrate', pgSpec]);
   assert.equal(postgres.code, 0, JSON.stringify(postgres.err));
   const postgresMigrations = JSON.parse(await readFile(join(migrations, 'changelog.json'), 'utf8')) as Array<{ up: string }>;
   assert.ok(postgresMigrations.some((m) => m.up.includes('CREATE TABLE IF NOT EXISTS "')), 'postgres quotes identifiers');

@@ -93,7 +93,9 @@ test('a postgres build runs the tasks-sql examples on the memory driver', async 
   const { cp, mkdtemp, writeFile } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
-  const source = await readFile(spec, 'utf8');
+  // The build follows the bind, so the postgres run needs a spec whose local
+  // environment binds postgres; the body and the contract stay untouched.
+  const source = (await readFile(spec, 'utf8')).replaceAll('bind store -> mysql', 'bind store -> postgres');
   const mod = parse(source, 'main.arc');
   const dir = await mkdtemp(join(tmpdir(), 'arcod-pg-run-'));
   await writeFile(join(dir, 'main.arc'), source, 'utf8');

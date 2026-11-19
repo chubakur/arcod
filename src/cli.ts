@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { parse, ParseError } from './parser.ts';
 import { check } from './check.ts';
 import { buildPlan, formatPlan } from './plan.ts';
-import { BuildError, buildExample } from './build.ts';
+import { BuildError, buildExample, resolveDialect } from './build.ts';
 import { runExamples } from './test.ts';
 import type { Diagnostic } from './diagnostics.ts';
 import type { ModuleNode } from './ast.ts';
@@ -622,7 +622,9 @@ async function runMigrate(flags: Flags): Promise<void> {
   }
   const svc = pickService(loaded.mod);
   if (!svc) throw new Error('no service to migrate');
-  const plan = migrationPlan(loaded.mod, svc, { dialect: dialectNamed(flags.dialect) });
+  // The DDL follows the same rule as the build: the bound database decides,
+  // an explicit --dialect that disagrees is refused with the bind named.
+  const plan = migrationPlan(loaded.mod, svc, { dialect: dialectNamed(resolveDialect(loaded.mod, dialectFlag(flags))) });
   if (plan.migrations.length === 0) {
     if (flags.json) console.log(JSON.stringify(plan, null, 2));
     else console.log('no stored entities in ' + svc.name + ' — nothing to migrate');
@@ -806,7 +808,7 @@ async function runMake(flags: Flags): Promise<void> {
     noTest: flags.noTest,
     reference: flags.reference,
     port: flags.port,
-    dialect: flags.dialect === 'postgres' ? 'postgres' : undefined,
+    dialect: dialectFlag(flags),
     allowRemote: flags.allowRemote,
     budget: flags.maxTokens,
   });
@@ -844,6 +846,15 @@ async function runImplCmd(flags: Flags): Promise<void> {
   if (results.some((item) => !item.ok)) process.exitCode = 1;
 }
 
+// --dialect names a dialect the same way `arcod migrate` does. An unknown
+// value is a usage error, not a silent fall back to mysql.
+function dialectFlag(flags: Flags): 'mysql' | 'postgres' | undefined {
+  if (flags.dialect === undefined) return undefined;
+  if (flags.dialect === 'mysql') return 'mysql';
+  if (flags.dialect === 'postgres' || flags.dialect === 'postgresql') return 'postgres';
+  throw new UsageError('unknown dialect ' + flags.dialect + ' (mysql, postgres)');
+}
+
 async function runBuild(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
@@ -853,12 +864,13 @@ async function runBuild(flags: Flags): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: flags.reference, implDir: flags.impl ? undefined : null, registry: loadRegistry(loaded.dir), dialect: flags.dialect === 'postgres' ? 'postgres' : undefined });
+  const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: flags.reference, implDir: flags.impl ? undefined : null, registry: loadRegistry(loaded.dir), dialect: dialectFlag(flags) });
   const mode = result.impl.length > 0 ? 'impl' : result.reference ? 'reference' : 'scaffold';
   console.log('arcod build (' + mode + '): ' + result.files.length + ' files in ' + result.dir);
   // The tag is content-addressed: a changed body means a changed tag, which is
   // what makes a plain `docker compose up` pick the new image up.
   console.log('  images: ' + result.images.join(', '));
+  console.log('  dialect: ' + result.dialect);
   if (mode === 'impl') {
     console.log('  bodies: ' + result.impl.join(', '));
   } else if (flags.impl) {
@@ -900,7 +912,7 @@ async function runTest(flags: Flags): Promise<void> {
       reference: !useImpl,
       implDir: useImpl ? undefined : null,
       registry: loadRegistry(loaded.dir),
-      dialect: flags.dialect === 'postgres' ? 'postgres' : undefined,
+      dialect: dialectFlag(flags),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -990,7 +1002,7 @@ async function runRun(flags: Flags): Promise<void> {
     reference: !flags.scaffold && !flags.impl,
     implDir: flags.impl ? undefined : null,
     registry: loadRegistry(loaded.dir),
-    dialect: flags.dialect === 'postgres' ? 'postgres' : undefined,
+    dialect: dialectFlag(flags),
   });
   if (result.impl.length > 0) {
     console.log('arcod run: impl bodies (' + result.impl.join(', ') + ')');

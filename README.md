@@ -1182,6 +1182,16 @@ Postgres migration changelog, and defaults `DATABASE_URL` to
 `DATABASE_URL` of the other scheme stops startup with a named error. MySQL
 remains the default output, byte for byte. See `docs/postgres-runtime.md`.
 
+The dialect also follows the environment: a spec that binds
+`store -> postgres` builds the Postgres client, a bind to `postgres`, `mysql` or
+`mariadb` decides the DDL of `arcod migrate` without any flag, and
+`arcod build` prints the resolved dialect.
+An explicit `--dialect` that disagrees with a bind is refused
+(`--dialect mysql conflicts with bind store -> postgres`, exit 2) instead of
+shipping a client the database rejects; two sql binds of different dialects in
+one spec are refused the same way. A spec without an sql bind keeps the old
+default.
+
 ```bash
 arcod migrate examples/tasks
 # migrations for TaskBoard (2):

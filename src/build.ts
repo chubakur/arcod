@@ -1,13 +1,14 @@
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
-import type { ModuleNode } from './ast.ts';
+import type { EnvironmentNode, ModuleNode } from './ast.ts';
 import { emitService, maxBodyBytes } from './emit/service.ts';
 import { emitWeb, ssrFirstScreenOp } from './emit/web.ts';
-import { composeYaml, localImage, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
+import { composeYaml, localEnvironment, localImage, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
 import { buildPrompts } from './prompts.ts';
 import { deployManifest, deployProvider, literalMap } from './deploy.ts';
 import { helmChart, k8sManifests, type K8sOptions } from './emit/k8s.ts';
 import { sandboxViolation } from './impl.ts';
+import { providerFor } from './providers.ts';
 import type { ProviderRegistry } from './registry.ts';
 import { createHash } from 'node:crypto';
 
@@ -28,6 +29,8 @@ export interface BuildResult {
   composeFile: string;
   port: number;
   reference: boolean;
+  // The dialect the generated store and migrations actually speak.
+  dialect: 'mysql' | 'postgres';
   impl: string[];
   files: string[];
   // Plugin providers whose runtime adapter was copied into this build.
@@ -72,6 +75,46 @@ async function readImpl(dir: string): Promise<Record<string, string> | undefined
 // A usage-level build failure (bad impl bodies, conflicting names in them) is
 // the caller's fault: the CLI prints one line and exits 2, no stack trace.
 export class BuildError extends Error {}
+
+// The dialect a build speaks follows the bound database: a spec that binds
+// `store -> postgres` cannot run on a MySQL client, and a build that silently
+// shipped one died on start with "this build speaks mysql but DATABASE_URL uses
+// postgres://". An explicit --dialect still wins when the spec binds nothing;
+// when it disagrees with a bind the build refuses and names the bind.
+export function resolveDialect(mod: ModuleNode, explicit?: 'mysql' | 'postgres'): 'mysql' | 'postgres' {
+  const sqlBinds = (environment: EnvironmentNode | undefined) => (environment?.binds ?? []).flatMap((bind) => {
+    const spec = providerFor(bind.provider);
+    if (!spec || spec.capability !== 'sql') return [];
+    const dialect: 'mysql' | 'postgres' = spec.name === 'postgres' ? 'postgres' : 'mysql';
+    return [{ alias: bind.alias, provider: bind.provider, dialect }];
+  });
+  // One build produces one store, so the local environment — the one compose
+  // and `arcod run` use — decides. A spec that only binds the database in
+  // another environment still gets its dialect, as long as those agree.
+  let bound = sqlBinds(localEnvironment(mod));
+  if (bound.length === 0) {
+    for (const env of mod.environments) {
+      for (const item of sqlBinds(env)) {
+        if (!bound.some((seen) => seen.dialect === item.dialect)) bound.push(item);
+      }
+    }
+  }
+  const dialects = [...new Set(bound.map((item) => item.dialect))];
+  if (dialects.length > 1) {
+    throw new BuildError(
+      'sql binds disagree on the dialect: ' + bound.map((item) => 'bind ' + item.alias + ' -> ' + item.provider).join(', ') +
+      '; keep one database per service',
+    );
+  }
+  const inferred = dialects[0];
+  if (explicit && inferred && explicit !== inferred) {
+    const item = bound.find((item) => item.dialect === inferred)!;
+    throw new BuildError(
+      '--dialect ' + explicit + ' conflicts with bind ' + item.alias + ' -> ' + item.provider + ', which speaks ' + inferred,
+    );
+  }
+  return explicit ?? inferred ?? 'mysql';
+}
 
 // impl/*.mjs bodies are concatenated into one module. A top-level name declared
 // in two files is a SyntaxError only when the container starts, so buildExample
@@ -173,6 +216,9 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
 
   const hasUi = mod.uis.length > 0;
   const reference = options.reference === true;
+  // The store, the migrations and the compose provider all follow one dialect,
+  // so they are resolved once, before anything is emitted.
+  const dialect = resolveDialect(mod, options.dialect);
   const impl =
     options.implDir === null ? undefined : await readImpl(options.implDir ?? (await implDirFor(exampleDir)));
 
@@ -200,7 +246,7 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
   const pages = webHtml && firstUi && firstUi.render === 'ssr'
     ? [{ route: firstUi.route, html: webHtml, dataOp: ssrFirstScreenOp(mod) }]
     : [];
-  const service = emitService(mod, { reference, impl, registry: options.registry, dialect: options.dialect, pages });
+  const service = emitService(mod, { reference, impl, registry: options.registry, dialect, pages });
 
   const files: Array<[string, string]> = [
     [join(serviceDir, 'index.mjs'), service],
@@ -223,7 +269,7 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
   // The tag is computed from the very files written below, so compose derives
   // `up` behaviour from content, not from a timestamp or a cache.
   const revision = imageRevision(files, dir);
-  files.push([join(dir, 'docker-compose.yml'), composeYaml(mod, port, webContainer, options.registry, options.dialect, revision)]);
+  files.push([join(dir, 'docker-compose.yml'), composeYaml(mod, port, webContainer, options.registry, dialect, revision)]);
 
   // Deterministic prompts are part of the build output: one per operation,
   // each carrying only its own contract and the capability signatures.
@@ -298,7 +344,7 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
         replicas: args.replicas !== undefined ? Number(args.replicas) : undefined,
         host: args.host,
         ingressClass: args.ingressClass,
-        dialect: options.dialect,
+        dialect,
       };
       const emitted = spec.artifacts === 'helm' ? helmChart(mod, k8sOptions) : k8sManifests(mod, k8sOptions);
       // One environment keeps the plain directory; several get a suffix so
@@ -364,6 +410,7 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     composeFile: join(dir, 'docker-compose.yml'),
     port,
     reference,
+    dialect,
     impl: impl ? Object.keys(impl).sort() : [],
     files: files.map(([path]) => path),
     plugins: pluginEntries.map((entry) => entry.provider),

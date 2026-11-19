@@ -1170,6 +1170,14 @@ arcod migrate examples/tasks
 # artifact: .arcod/build/migrations/ — changelog.json + up/down .sql
 ```
 
+Диалект DDL следует за окружением: `bind store -> postgres` (или `mysql`,
+`mariadb`) выбирает диалект и для `arcod migrate`, и для сборки — без флага,
+и `arcod build` печатает получившийся диалект. Явный `--dialect`, который
+расходится с bind, отклоняется с именем bind (`--dialect mysql conflicts with
+bind store -> postgres`, exit 2), а не выпускает клиент, который база отвергнет;
+два sql-bind с разными диалектами в одной спеке отклоняются так же. Спека без
+sql-bind сохраняет прежний дефолт (mysql).
+
 На `sql`-драйвере рантайм пишет прямо в эти типизированные таблицы: запись —
 строка, `unique` — `UNIQUE KEY` таблицы (дубль — ER_DUP_ENTRY БД, объявленный
 `Conflict`), а `find` уходит в SQL (`WHERE`/`ORDER BY`/`LIMIT` с keyset-
