@@ -404,6 +404,9 @@ function fieldControl(p) {
   if (p.kind === 'textarea' || p.kind === 'json') {
     input = document.createElement('textarea');
     input.rows = 3;
+    // A bytes limit is a character ceiling on the field too, not only a size
+    // hint: the API rejects a longer body, and the form should say so first.
+    if (p.kind === 'textarea' && p.max) input.maxLength = p.max;
   } else if (p.kind === 'bool') {
     input = document.createElement('input');
     input.type = 'checkbox';

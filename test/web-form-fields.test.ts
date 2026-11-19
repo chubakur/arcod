@@ -47,6 +47,28 @@ test('a record parameter of a form becomes a JSON field', () => {
   assert.equal(field.where, 'body');
 });
 
+test('a textarea field carries the limit the API enforces', () => {
+  const html = emitWeb(parse(source, 'fields.arc'), { maxBytes: 65536 });
+  const body = html.match(/function fieldControl\(p\) \{[\s\S]*?\n\}/);
+  assert.ok(body, 'the page ships fieldControl');
+  // Run the emitted control builder against a minimal document: the form is
+  // plain DOM, so the check needs no browser.
+  const build = new Function('document', body![0] + '; return fieldControl;') as (doc: unknown) => (p: unknown) => Record<string, unknown>;
+  const doc = {
+    createElement: (tag: string) => ({
+      tag,
+      setAttribute(name: string, value: string) {
+        (this as Record<string, unknown>)[name] = value;
+      },
+    }),
+  };
+  const textarea = build(doc)({ name: 'body', kind: 'textarea', max: 2048, optional: false });
+  assert.equal(textarea.tag, 'textarea');
+  assert.equal(textarea.maxLength, 2048, '2kb is a character ceiling on the textarea too');
+  const plain = build(doc)({ name: 'small', kind: 'text', max: 12, optional: false });
+  assert.equal(plain.maxLength, 12);
+});
+
 test('a bytes limit is converted from its unit before it reaches maxlength', () => {
   const html = emitWeb(parse(source, 'fields.arc'), { maxBytes: 65536 });
   assert.equal(fields(html, 'body').max, 2048);
