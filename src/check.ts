@@ -665,12 +665,33 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // A078 — an error name nothing declares. It would reach the emitter as a
+    // handler target and an OpenAPI error, so a typo in `errors:` or
+    // `on error` would silently invent an error; A007 would then call it
+    // "declared but not handled", which is the wrong complaint.
+    const declaredErrorNames = new Set(mod.errors.map((error) => error.name));
+    for (const op of svc.contract) {
+      for (const clause of op.clauses) {
+        const names = clause.kind === 'errors' ? clause.names : clause.kind === 'onerror' ? [clause.error] : [];
+        for (const name of names) {
+          if (declaredErrorNames.has(name)) continue;
+          const where = `services.${svc.name}.contract.${op.name}`;
+          diags.push(diag('A078', 'error', mod.file, clause.loc, where,
+            `unknown error ${name}: no error ${name} is declared`,
+            declaredErrorNames.size > 0
+              ? 'declared: ' + [...declaredErrorNames].join(', ')
+              : 'declare it with `error ' + name + '`'));
+        }
+      }
+    }
+
     // A007 — declared error is neither handled nor asserted
     const asserted = collectAssertedErrors(svc);
     const handled = collectHandledErrors(svc);
     for (const op of svc.contract) {
       if (op.kind === 'job') continue;
       for (const errorName of errorNames(op)) {
+        if (!declaredErrorNames.has(errorName)) continue;
         if (!asserted.has(errorName) && !handled.has(errorName)) {
           diags.push(diag('A007', 'error', mod.file, op.loc, `services.${svc.name}.contract.${op.name}.errors`, `error ${errorName} is declared but not handled`, `add on error ${errorName} or an example with ${errorName}`));
         }

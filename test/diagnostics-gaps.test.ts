@@ -65,6 +65,48 @@ test('A007: a declared error that is neither handled nor asserted', () => {
   assert.match(messages(source, 'A007')[0] ?? '', /error NotFound is declared but not handled/);
 });
 
+test('A078: an error name nothing declares', () => {
+  const listed = service([
+    '  contract {',
+    '    public op read(k: string) -> string {',
+    '      route: "GET /v1/k"',
+    '      errors: Missing',
+    '      post: result != null',
+    '    }',
+    '  }',
+  ].join('\n'));
+  assert.ok(codes(listed).has('A078'), 'errors: names an undeclared error');
+  assert.match(messages(listed, 'A078')[0] ?? '', /unknown error Missing/);
+  const hinted = check(parse(listed, 'gaps.arc')).find((item) => item.code === 'A078');
+  assert.match(hinted?.hint ?? '', /declared: NotFound, Gone/, 'the hint lists what exists');
+  assert.ok(!codes(listed).has('A007'), 'A007 is about a declared error, not a typo');
+
+  const handled = service([
+    '  contract {',
+    '    public op read(k: string) -> string {',
+    '      route: "GET /v1/k"',
+    '      errors: NotFound',
+    '      on error Missing: k != null',
+    '      post: result != null',
+    '    }',
+    '  }',
+  ].join('\n'));
+  assert.ok(codes(handled).has('A078'), 'on error names an undeclared error too');
+
+  const clean = service([
+    '  contract {',
+    '    public op read(k: string) -> string {',
+    '      route: "GET /v1/k"',
+    '      errors: NotFound',
+    '      on error NotFound: k != null',
+    '      post: result != null',
+    '    }',
+    '  }',
+  ].join('\n'));
+  assert.ok(!codes(clean).has('A078'), 'a declared error passes');
+  assert.ok(!codes(clean).has('A007'), 'and it is handled');
+});
+
 test('A008: a budget line without a comparison', () => {
   const source = service([
     '  budget {',

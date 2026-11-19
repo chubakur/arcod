@@ -1300,6 +1300,9 @@ Errors:
   value, an operation, a service, a type, an enum, an error, a workflow or an
   environment) — every emitter keys by name, so the second would silently
   replace the first;
+- `A078` an error name nothing declares (`errors: NotFound` with no
+  `error NotFound`): the emitter would turn the typo into a handler target and
+  an OpenAPI error — declare the error or fix the name;
 - `A074` a route path with a query string or fragment (`GET /v1/x?limit=10`):
   the router matches `url.pathname`, which carries neither, so no client can
   ever reach the operation — declare the value as a parameter;
