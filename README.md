@@ -196,7 +196,9 @@ Numeric flags are checked where they are parsed: `--port` 1..65535, `--replicas`
 Flags are per command, not global: `--out` belongs to the file writers, so
 `arcod build --out dist` is a usage error (`unknown flag: --out`, exit 2)
 rather than a flag that is accepted and ignored. The same goes for
-`check --port` and every other flag another command owns.
+`check --port` and every other flag another command owns. Alternatives are
+enforced: `--reference --impl` on one line is an error, not a preference for
+whichever flag the code checked first.
 
 A missing environment is named too. `arcod deploy` on a module with none says so
 and shows the declaration to add; `--env staging` on a module that declares

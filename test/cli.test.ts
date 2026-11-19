@@ -1038,3 +1038,21 @@ test('adopt on a path that does not exist names the path, not ENOENT', async () 
   assert.equal(yaml.code, 1);
   assert.match(yaml.err, /only JSON OpenAPI documents are supported/);
 });
+
+test('--reference with --impl is a usage error, not a silent preference', async () => {
+  const dir = await tempDir('arcod-cli-modes-');
+  const spec = join(dir, 'main.arc');
+  await writeFile(spec, [
+    'module modes @0.1.0 {',
+    '  meta {',
+    '    owner: "@me"',
+    '  }',
+    '}',
+    '',
+  ].join('\n'), 'utf8');
+
+  const both = await run(['build', spec, '--reference', '--impl']);
+  assert.equal(both.code, 2);
+  assert.match(both.err, /--reference and --impl are alternatives; pass one/);
+  assert.equal(await readdir(dir).then((names) => names.some((n) => n.startsWith('.arcod'))), false);
+});

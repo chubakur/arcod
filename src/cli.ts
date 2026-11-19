@@ -82,6 +82,12 @@ function assertCommandFlags(command: string | undefined, args: string[]): void {
     const canonical = arg === '-d' ? '--detach' : arg === '-w' ? '--write' : arg;
     if (!set.has(canonical)) throw new UsageError('unknown flag: ' + arg);
   }
+  // The help writes `--reference | --impl`, but parsing both meant the second
+  // one silently lost: a reference build answered for a request that asked for
+  // impl bodies. Alternatives are now an error instead of a preference.
+  if (set.has('--reference') && set.has('--impl') && args.includes('--reference') && args.includes('--impl')) {
+    throw new UsageError('--reference and --impl are alternatives; pass one');
+  }
 }
 
 export async function main(argv: string[]): Promise<void> {
