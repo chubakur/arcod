@@ -396,3 +396,37 @@ test('W020: onFail skip starves a dependent step', () => {
   assert.match(warnings(source).get('W020')?.[0] ?? '', /onFail: skip, but these steps depend on it: second/);
 });
 
+test('A063: an example argument that fits no union variant names the union', () => {
+  // A union parameter is judged variant by variant: any variant accepting the
+  // value keeps the example clean, and a value no variant accepts reports the
+  // union spelling instead of the first variant it tried.
+  const source = [
+    'module gaps @0.1.0 {',
+    '}',
+    '',
+    'service S : http {',
+    '  contract {',
+    '    public op submit(value: int | string) -> string {',
+    '      route: "POST /v1/submit"',
+    '    }',
+    '  }',
+    '',
+    '  examples {',
+    '    example accepts_both {',
+    '      when {',
+    '        submit(1)',
+    '        submit("x")',
+    '      }',
+    '      then { true }',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+  assert.deepEqual(messages(source, 'A063'), []);
+
+  const broken = source.replace('submit(1)', 'submit(true)');
+  assert.deepEqual(messages(broken, 'A063'), [
+    'example accepts_both: argument 1 of submit: expects int | string, got true',
+  ]);
+});
+
