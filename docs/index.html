@@ -303,9 +303,9 @@
           <div class="card" style="padding:18px 22px">
             <div style="display:flex; gap:26px; flex-wrap:wrap; font:13px/1.5 var(--mono); color:var(--muted)">
               <span><b style="color:var(--text); font-size:18px">0</b><br>runtime deps</span>
-              <span><b style="color:var(--text); font-size:18px">63</b><br>diagnostics</span>
+              <span><b style="color:var(--text); font-size:18px">85</b><br>diagnostics</span>
               <span><b style="color:var(--text); font-size:18px">9</b><br>capabilities</span>
-              <span><b style="color:var(--text); font-size:18px">345</b><br>tests</span>
+              <span><b style="color:var(--text); font-size:18px">554</b><br>tests</span>
             </div>
           </div>
         </div>
@@ -316,33 +316,36 @@
   <section id="news">
     <div class="wrap">
       <div class="kicker">what shipped this week</div>
-      <h2>Three things shipped on 2026-11-17.</h2>
+      <h2>Three things shipped on 2026-11-18.</h2>
       <p class="sub">Each is covered by tests in the repository.</p>
       <div class="grid-3">
         <div class="card">
-          <span class="num">2026-11-17 · POSTGRES</span>
-          <h3>The same build, now on Postgres</h3>
-          <p><code>arcod build --dialect postgres</code> emits a service that carries its own
-          Postgres wire client, a <code>PgStore</code> for records, kv, outbox and keyset
-          pages, and Postgres migrations. Startup refuses a <code>DATABASE_URL</code> of the
-          wrong scheme. MySQL stays the default output.</p>
+          <span class="num">2026-11-18 · HTTP</span>
+          <h3>HEAD requests stopped falling through</h3>
+          <p>A HEAD probe — every health check, proxy probe and <code>curl -I</code> — used
+          to answer <code>404</code> when the same path had a GET route. It now gets the GET
+          headers, status <code>200</code> and no body, as RFC 9110 defines it. A declared
+          HEAD route still wins and a POST-only path stays <code>404</code>; OpenAPI and the
+          generated UI send HEAD parameters in the query, never a body.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-17 · SERVER-RENDERED UI</span>
-          <h3>The first screen arrives in the HTML</h3>
-          <p><code>render: ssr</code> serves the page from the service itself: the first
-          public <code>GET</code> runs in-process at request time, so its data is already in
-          the HTML and the browser hydrates it instead of fetching again. Compose drops the
-          nginx sidecar. New <code>examples/notes-ssr</code>.</p>
+          <span class="num">2026-11-18 · OPENAPI</span>
+          <h3>The contract matches the router</h3>
+          <p><code>arcod openapi</code> prints the canonical path (<code>/v1/x/</code> and
+          <code>//v1/x</code> become <code>/v1/x</code>), lists <code>bearerAuth</code> only
+          on operations that need a token, and carries <code>access</code> clauses into the
+          operation description. A HEAD parameter is documented as a query parameter with no
+          request body, so a client generator gets the document the service actually serves.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-17 · SAGAS</span>
-          <h3>Multi-step work that unwinds</h3>
-          <p>A <code>saga</code> names a compensating operation per step. The runtime runs
-          the steps in order, retries a failing one, and on final failure compensates the
-          completed steps in reverse. <code>A057</code> and <code>A058</code> catch a step
-          that names an operation the service does not have. New
-          <code>examples/saga</code>.</p>
+          <span class="num">2026-11-18 · CHECK</span>
+          <h3>Seven route mistakes now fail the check</h3>
+          <p><code>A069</code> two operations answering one route, <code>A070</code> a route
+          without a method or a leading slash, <code>A071</code> a <code>:segment</code> the
+          operation never declares, <code>A072</code> the same capture twice,
+          <code>A073</code> a literal route a capture shadows, <code>A074</code> a query
+          string in the path, <code>A075</code> an OpenAPI-style <code>{id}</code>. Each is
+          an error before deploy instead of a 404 after it.</p>
         </div>
       </div>
     </div>
@@ -385,7 +388,7 @@
       <h2>One file in. A running system out.</h2>
       <p class="sub"><code>arcod make</code> runs the same steps the standalone commands do, so the pipeline cannot drift from the CLI.</p>
       <div class="steps">
-        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, access, examples. 63 diagnostics, errors stop the build.</p></div>
+        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, access, routes, examples. 85 diagnostics, errors stop the build.</p></div>
         <div class="step"><h3>Plan</h3><p>A deterministic task DAG: files, dependencies, acceptance criteria, <code>--json</code>.</p></div>
         <div class="step"><h3>Prompts</h3><p>One prompt per operation with a token budget and a hash for caching.</p></div>
         <div class="step"><h3>Build &amp; test</h3><p>Service, UI, compose, manifests — then the model's own examples run against it.</p></div>
@@ -515,7 +518,9 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <p>Every service logs one JSON access line per request, echoes and
           propagates <code>x-request-id</code>, and serves <code>/metrics</code> in
           Prometheus format — RPS, latency histogram, errors, in-flight and
-          capability calls. Timeouts come from <code>ARCod_TIMEOUT_MS</code>.</p>
+          capability calls. Timeouts come from <code>ARCod_TIMEOUT_MS</code>, and a
+          <code>HEAD</code> probe is answered by the <code>GET</code> route with the same
+          headers and no body.</p>
         </div>
         <div class="card">
           <h3>Contracts that become behaviour</h3>
@@ -544,10 +549,12 @@ deploy.dev.json          deploy manifest per environment</code></pre>
         </div>
         <div class="card">
           <h3>A contract others can read</h3>
-          <p><code>arcod openapi</code> prints OpenAPI 3.1 on stdout: paths from <code>route</code>,
-          schemas from <code>types</code>, status codes from the same error mapping the runtime
-          uses, and the model's <code>examples</code> as named examples. No server, no host,
-          no provider in the document.</p>
+          <p><code>arcod openapi</code> prints OpenAPI 3.1 on stdout: canonical paths from
+          <code>route</code>, schemas from <code>types</code>, status codes from the same error
+          mapping the runtime uses, and the model's <code>examples</code> as named examples. A
+          service with <code>auth: identity</code> publishes a <code>bearerAuth</code> scheme and
+          lists the token only on operations that need it; <code>access</code> clauses travel as
+          descriptions. No server, no host, no provider in the document.</p>
         </div>
         <div class="card">
           <h3>Deploy as a declaration</h3>
@@ -690,7 +697,7 @@ deploy.dev.json          deploy manifest per environment</code></pre>
             <li><b>SSR embeds one first screen.</b> A page whose operations all need input cannot fill it and gets <code>W030</code>; later changes still come from the generated form, not from streamed updates.</li>
             <li><b>A unique claim on <code>kv</code> outlives the record</b>: the claim key has no TTL, so an expired record holds its value until removed or updated. On <code>sql</code>, uniqueness is the table constraint, so nothing to clean up.</li>
             <li><b>Workflows</b> are parsed, described and validated — no runner is generated (<code>W022</code>); a job runs only when it declares an <code>on:</code> queue consumer (<code>W017</code>).</li>
-            <li><b>Streams and queues are in-process</b> until you bind them to Redis; only then do replicas share events. OpenAPI publishes a <code>bearerAuth</code> scheme for a service that uses <code>auth: identity</code>; a <code>public</code> operation opts out with <code>security: []</code>.</li>
+            <li><b>Streams and queues are in-process</b> until you bind them to Redis; only then do replicas share events. OpenAPI publishes a <code>bearerAuth</code> scheme for a service that uses <code>auth: identity</code>, and the token requirement is listed only on operations that need it; a <code>public</code> operation opts out with <code>security: []</code>.</li>
             <li><b>JavaScript only.</b> PHP, Go and Python would be separate emitters.</li>
             <li><b><code>arcod terraform</code> targets Yandex Cloud only</b> and renders no state backend; <code>terraform validate</code> is not part of CI yet.</li>
           </ul>
