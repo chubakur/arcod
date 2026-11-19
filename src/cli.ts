@@ -1453,7 +1453,8 @@ Render the topology as Kubernetes manifests; --helm wraps them in a chart.`,
 
 Write one deterministic prompt per operation into .arcod/build/prompts.
 The compact form is the default; --full adds the task header, contract, io
-list and storage shape (a larger prompt for the same body).`,
+list and storage shape (a larger prompt for the same body). A rerun removes
+<op>.md files the contract no longer declares; an empty contract writes none.`,
   impl: `usage: arcod impl [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
                    [--dry-run] [--no-cache] [--allow-remote]
 
