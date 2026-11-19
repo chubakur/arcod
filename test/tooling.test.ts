@@ -133,6 +133,25 @@ test('adopt maps enums to enum declarations', () => {
   assert.doesNotMatch(out, /type Status = Status/);
 });
 
+// A Swagger 2.0 document parses far enough to produce a plausible spec, but
+// the prefix (basePath) and the models (definitions) would be dropped. Refuse
+// it by name instead of silently adopting half a document.
+test('adopt refuses Swagger 2.0 and unknown versions by name', () => {
+  const swagger = { swagger: '2.0', info: { title: 'Pet', version: '1' }, basePath: '/v1', paths: {} };
+  assert.throws(() => adoptOpenapi(swagger), /Swagger 2\.0.*OpenAPI 3/);
+
+  assert.throws(() => adoptOpenapi({ info: { title: 'S' }, paths: {} }), /no "openapi" version field/);
+
+  assert.throws(() => adoptOpenapi({ openapi: '4.0.0', info: { title: 'S' }, paths: {} }), /declares 4\.0\.0/);
+});
+
+test('adopt accepts every 3.x minor version', () => {
+  for (const openapi of ['3.0.3', '3.1.0']) {
+    const out = adoptOpenapi({ openapi, info: { title: 'S', version: '1' }, paths: {} });
+    assert.match(out, /^module S @0\.1\.0/m);
+  }
+});
+
 test('spec migration is identity at the only version', () => {
   const src = 'module m @0.1.0 { }\n';
   assert.equal(migrateSpec(src, '0.1.0', '0.1.0'), src);

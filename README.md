@@ -1611,7 +1611,7 @@ This is a vertical slice, not a finished language.
   `effects`/`rules`/`contract`/`examples`/`budget` blocks inside a service all
   keep `}  // note`, and a one-line record or enum keeps its shape instead of
   expanding. `arcod diff`
-  compares canonicalized specs; `arcod adopt` imports OpenAPI 3.x JSON only.
+  compares canonicalized specs; `arcod adopt` imports OpenAPI 3.x JSON only; a Swagger 2.0 document is refused with its version instead of being adopted without its `basePath` and `definitions`.
 - of the rule predicates `arcod test` supports only `once`.
 - `unique` is checked and enforced (`A054`–`A056`, a duplicate returns the
   declared `Conflict`) for one field or a tuple on the same record. `ordering`

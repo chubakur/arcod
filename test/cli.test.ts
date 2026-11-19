@@ -393,6 +393,16 @@ test('adopt rejects YAML with a pointer to JSON', async () => {
   assert.match(r.err, /only JSON OpenAPI documents/);
 });
 
+test('adopt refuses a Swagger 2.0 document in one line, not a stack trace', async () => {
+  const dir = await tempDir();
+  const file = join(dir, 'swagger.json');
+  await writeFile(file, JSON.stringify({ swagger: '2.0', info: { title: 'Pet' }, paths: {} }), 'utf8');
+  const r = await run(['adopt', file]);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /Swagger 2\.0/);
+  assert.doesNotMatch(r.err, /\n\s+at /, 'no stack trace');
+});
+
 test('new validates the name and scaffolds into the current directory', async () => {
   const missing = await run(['new']);
   assert.equal(missing.code, 2);

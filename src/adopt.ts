@@ -110,10 +110,6 @@ function buildOps(paths: Record<string, any>, documentSecurity: any[] | null): O
       const params: Param[] = [];
       const paramSpecs: any[] = Array.isArray(spec.parameters) ? spec.parameters : [];
       for (const p of paramSpecs) {
-        if (p.in === 'body') {
-          params.push({ name: 'body', type: schemaType(p.schema ?? {}, new Set()), loc: loc() });
-          continue;
-        }
         let t = schemaType(p.schema ?? {}, new Set());
         if (p.required !== true) t = { kind: 'optional', inner: t, loc: loc() };
         params.push({ name: ident(p.name), type: t, loc: loc() });
@@ -144,7 +140,22 @@ function buildOps(paths: Record<string, any>, documentSecurity: any[] | null): O
   return ops;
 }
 
+// `adopt` is the reverse of `arcod openapi`, which publishes OpenAPI 3.x.
+// Swagger 2.0 looks close enough to parse but differs where it matters: the
+// path prefix lives in basePath, models in definitions, and a JSON body is a
+// parameter with `in: body`. Adopting one as if it were 3.x would silently
+// drop the prefix and the models, so refuse it by name instead.
 export function adoptOpenapi(doc: any): string {
+  const version = typeof doc?.openapi === 'string' ? doc.openapi.trim() : '';
+  if (!version) {
+    if (typeof doc?.swagger === 'string') {
+      throw new Error('adopt reads OpenAPI 3.x; this document is Swagger ' + doc.swagger + ' (convert it to OpenAPI 3 first)');
+    }
+    throw new Error('adopt reads OpenAPI 3.x; the document has no "openapi" version field');
+  }
+  if (!/^3(\.|$)/.test(version)) {
+    throw new Error('adopt reads OpenAPI 3.x; this document declares ' + version);
+  }
   const title = doc?.info?.title ? ident(doc.info.title) : 'service';
   const { types, enumDecls } = buildTypes(doc?.components);
   const documentSecurity = Array.isArray(doc?.security) ? doc.security : null;
