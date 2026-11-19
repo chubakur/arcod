@@ -1278,6 +1278,11 @@ Errors:
   spells a capture `:id`, so the braces are a literal segment, the parameter is
   never bound and the operation answers 404 — write `:id` (`arcod adopt`
   converts an OpenAPI document for you);
+- `A076` a `uses` alias whose capability has no effects and no adapter
+  (`uses analytics: olap`): a provider can declare the capability
+  (`clickhouse`), but the generated service has nothing to call, so the alias
+  is dead weight and the container is provisioned for nothing — remove the
+  use or install a plugin that declares its effects;
 - `A073` a literal route declared after a capture route of the same shape:
   the router tries routes in declaration order and `:id` matches any segment,
   so `GET /v1/t/new` after `GET /v1/t/:id` never runs — declare the literal

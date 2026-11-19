@@ -409,6 +409,19 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     }
 
 
+    // A076 — a capability a provider declares can still have no effects and
+    // no adapter (`uses analytics: olap` with clickhouse bound): the alias was
+    // accepted, the container started, and the generated service knew nothing
+    // about it. A plugin that ships signatures is the only other owner.
+    for (const use of svc.uses) {
+      const short = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
+      if (capabilityFor(use.capability) !== null) continue;
+      if (registry.signaturesFor(short).length > 0) continue;
+      diags.push(diag('A076', 'error', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`,
+        `capability ${short} has no effects and no adapter`,
+        'a provider may declare it, but the generated service has nothing to call; remove the use or install a plugin that declares its effects'));
+    }
+
     // W033 — a `uses` parameter is a note for the reader unless an adapter
     // reads it. Today only `ttl` on a storage capability is executed (it sets
     // the record expiry); anything else — say `consistency: strong` — is
