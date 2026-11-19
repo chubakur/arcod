@@ -1129,7 +1129,11 @@ no dependencies, no config required:
 - **Structured access log.** One JSON line per request on stdout:
   `method`, `route` (the declared path template, not the concrete URL),
   `status`, `latency_ms`, `request_id`, `actor_id` (when identity is used)
-  and `operation`.
+  and `operation`. A 5xx also logs the stack (`request failed: <stack>`), so the
+  access line is never the only trace of a failure; the response keeps one
+  sentence from the service's own `Internal` error (for example
+  `unknown entity "Workflow"; declared: WorkflowRec`) and never echoes an
+  arbitrary exception message.
 - **Request id.** An incoming `x-request-id` header (or a generated UUID) is
   echoed on the response and propagated to every external call through
   `AsyncLocalStorage`, so one trace crosses service boundaries.
@@ -1368,6 +1372,12 @@ Warnings:
   the known ones; `host`, `port`, `expose` and `import` belong to every
   binding. A plugin provider without an `args` map is exempt, because there is
   nothing to compare against.
+- `W036` a body names an entity no record type declares
+  (`io.insert('Workflow', row)` with only `WorkflowRec` declared): the runtime
+  would answer `500 Internal` on the first request and write nothing. `check`
+  reads `impl/` (the only place a body names an entity) and reports the literal,
+  the body file and every declared record type. A block with `check --json`
+  carries the same message.
 
 ### Examples are tests
 

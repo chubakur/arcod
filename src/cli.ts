@@ -288,7 +288,7 @@ async function runCheckPattern(flags: Flags, pattern: string): Promise<void> {
       }
       continue;
     }
-    const diags = check(mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(dir) });
+    const diags = check(mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(dir), impl: await implBodiesFor(dir) });
     if (diags.some((item) => item.severity === 'error')) failed++;
     if (flags.json) {
       reports.push({ file: specPath, diagnostics: diags });
@@ -309,7 +309,9 @@ async function runCheck(flags: Flags): Promise<void> {
     return;
   }
   const loaded = await load(flags.spec);
-  const diags = check(loaded.mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(loaded.dir) });
+  // The bodies are where an entity is named, so a typo there is checkable only
+  // when check reads them; a project without impl simply has no such warning.
+  const diags = check(loaded.mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(loaded.dir), impl: await implBodiesFor(loaded.dir) });
   if (flags.json) {
     console.log(JSON.stringify(diags, null, 2));
   } else {
@@ -626,7 +628,10 @@ async function runMigrate(flags: Flags): Promise<void> {
   // an explicit --dialect that disagrees is refused with the bind named.
   // Tables come from the bodies, so a DTO (an ack, a receipt) never becomes one
   // even when a store effect sits on the operation returning it.
-  const entities = entitiesFromBodies(await implBodiesFor(loaded.dir));
+  const entities = entitiesFromBodies(
+    await implBodiesFor(loaded.dir),
+    loaded.mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name),
+  );
   const plan = migrationPlan(loaded.mod, svc, { dialect: dialectNamed(resolveDialect(loaded.mod, dialectFlag(flags))), entities });
   if (plan.migrations.length === 0) {
     if (flags.json) console.log(JSON.stringify(plan, null, 2));

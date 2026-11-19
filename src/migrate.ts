@@ -216,11 +216,17 @@ const ENTITY_CALL = /\bio\.(?:insert|fetch|update|remove|find)\(\s*(['"])([A-Za-
 // Entity names a set of impl bodies actually touches, or null when there is no
 // evidence at all: a scaffold build keeps the old "every record is a table"
 // behaviour rather than silently dropping tables the runtime may need.
-export function entitiesFromBodies(bodies: Record<string, string> | undefined): string[] | null {
+export function entitiesFromBodies(bodies: Record<string, string> | undefined, declared?: string[]): string[] | null {
   if (!bodies) return null;
   const names = new Set<string>();
   for (const body of Object.values(bodies)) {
     for (const match of body.matchAll(ENTITY_CALL)) names.add(match[2]);
+  }
+  // A literal that names no declared type is a typo, not evidence: it must not
+  // shrink the entity set to nothing (that would hide the very list the 500
+  // and the check error need to show).
+  if (declared) for (const name of [...names]) {
+    if (!declared.includes(name)) names.delete(name);
   }
   return names.size > 0 ? [...names].sort() : null;
 }

@@ -883,7 +883,15 @@ function matchesWhere(value, where) {
 
 function requestEntity(entity) {
   const meta = STORES[entity];
-  if (!meta) throw new ArcodError('Internal');
+  if (!meta) {
+    // A typo in a body used to be an anonymous 500: the operator had an access
+    // line and nothing else. The body names the literal and the declared set,
+    // so the mistake is readable from the response and the log alike.
+    const declared = Object.keys(STORES).sort();
+    throw new ArcodError('Internal', {
+      message: 'unknown entity "' + entity + '"' + (declared.length > 0 ? '; declared: ' + declared.join(', ') : '; no entity is declared'),
+    });
+  }
   return meta;
 }
 
@@ -914,7 +922,13 @@ function send(res, status, body, type) {
 
 function sendError(res, name, values) {
   const info = ERRORS[name] || { status: 500, message: 'internal error', fields: [] };
-  const body = { error: name, message: info.message };
+  // An Internal error may carry one sentence about what went wrong inside the
+  // service (an unknown entity, a missing adapter): it is ours, not the
+  // caller's, so it is safe to echo and it is the only clue the client gets.
+  const detail = name === 'Internal' && values && typeof values.message === 'string' && values.message !== 'Internal'
+    ? values.message
+    : info.message;
+  const body = { error: name, message: detail };
   for (const field of info.fields || []) {
     const value = values && typeof values === 'object' ? values[field] : undefined;
     if (value !== undefined) body[field] = value;
@@ -1131,8 +1145,12 @@ async function handleRequest(req, res, start) {
     await withSpan(opName || routeName, { route: route.path, method: req.method || 'GET' }, () => handler(req, res, route.params));
     finish(route.path, opName, res.statusCode, start, req);
   } catch (err) {
-    console.error('request failed:', err && err.message ? err.message : err);
-    send(res, 500, JSON.stringify({ error: 'Internal', message: 'internal error' }));
+    // A 5xx is a bug or a model mistake, not an answer: the stack belongs in
+    // the log, and only our own Internal message (which never carries user
+    // data) is echoed to the client.
+    console.error('request failed:', err && err.stack ? err.stack : err);
+    const message = err instanceof ArcodError && err.error === 'Internal' && err.message ? err.message : 'internal error';
+    send(res, 500, JSON.stringify({ error: 'Internal', message }));
     metricError(opName || routeName);
     finish(routeName, opName, 500, start, req);
   }
@@ -1468,7 +1486,8 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
 
   // Same entity set as the migrations: a DTO the bodies never store has no
   // table and no store entry, so the schema and the runtime cannot disagree.
-  const entities = entitiesFromBodies(options.impl);
+  const declaredRecords = mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name);
+  const entities = entitiesFromBodies(options.impl, declaredRecords);
   const stores = storageKind(svc) === 'sql' ? sqlEntityStores(mod, svc, entities) : entityStores(mod, svc, entities);
 
   return header + template

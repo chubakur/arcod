@@ -46,6 +46,9 @@ export interface CheckOptions {
   // Built-ins by default; the CLI passes a registry that also knows plugin
   // manifests, so bindings resolve the same way check and emitters see them.
   registry?: ProviderRegistry;
+  // Operation bodies, when the caller has them. They are the only place a body
+  // names an entity, so a typo there is checkable only with this evidence.
+  impl?: Record<string, string>;
 }
 
 // An ssr page is rendered from a parameterless GET: that is the only shape a
@@ -1051,8 +1054,31 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkExternalServices(mod, diags);
   checkWorkflows(mod, diags);
   checkSagas(mod, diags);
+  checkEntityLiterals(mod, diags, options.impl);
 
   return sortDiagnostics(diags);
+}
+
+// A body names an entity by a string literal, and the runtime answers an
+// unknown one with a 500 only when the request arrives. The declared record
+// types are the vocabulary, so a typo is a warning here with the literal, its
+// body file and every name the store actually knows.
+const ENTITY_CALL = /\bio\.(?:insert|fetch|update|remove|find)\(\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\1/g;
+
+export function checkEntityLiterals(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined): void {
+  if (!impl) return;
+  const entities = mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name);
+  if (entities.length === 0) return;
+  for (const op of Object.keys(impl).sort()) {
+    for (const match of impl[op].matchAll(ENTITY_CALL)) {
+      const name = match[2];
+      if (entities.includes(name)) continue;
+      const line = impl[op].slice(0, match.index).split('\n').length;
+      diags.push(diag('W036', 'warning', 'impl/' + op + '.mjs', { ...mod.loc, line, endLine: line }, 'impl.' + op,
+        'unknown entity "' + name + '"; declared: ' + entities.join(', '),
+        'rename the literal to a declared record type'));
+    }
+  }
 }
 
 // Workflows are graphs, so the interesting checks are structural: names,
