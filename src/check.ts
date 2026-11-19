@@ -1055,6 +1055,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkWorkflows(mod, diags);
   checkSagas(mod, diags);
   checkEntityLiterals(mod, diags, options.impl);
+  checkWhereOperators(mod, diags, options.impl);
 
   return sortDiagnostics(diags);
 }
@@ -1089,6 +1090,56 @@ export function checkEntityLiterals(mod: ModuleNode, diags: Diagnostic[], impl: 
         diags.push(diag('W037', 'warning', 'impl/' + op + '.mjs', { ...mod.loc, line, endLine: line }, 'impl.' + op,
           'insert ' + name + ': the type has no id field',
           'add id: string (or a uuid) to the record, or give io.insert a natural key'));
+      }
+    }
+  }
+}
+
+// W038 — `where` is a mini-language of names, and an unknown operator used to
+// be dropped silently: `{ nextAt: { before: now } }` returned every row and
+// looked like a working filter. The body is JS, so the check reads the literal
+// the same way it reads entity names: find `where: {`, match its braces, then
+// read the nested field conditions.
+const WHERE_OPERATORS = new Set(['eq', 'ne', 'in', 'contains', 'gt', 'gte', 'lt', 'lte']);
+
+function whereObjectEnd(text: string, open: number): number {
+  let depth = 0;
+  let quote = '';
+  for (let i = open; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') { quote = ch; continue; }
+    if (ch === '{') depth += 1;
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return text.length;
+}
+
+export function checkWhereOperators(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined): void {
+  if (!impl) return;
+  const newline = String.fromCharCode(10);
+  for (const op of Object.keys(impl).sort()) {
+    const text = impl[op];
+    for (const found of text.matchAll(/\bwhere\s*:\s*\{/g)) {
+      const open = (found.index ?? 0) + found[0].length - 1;
+      const body = text.slice(open + 1, whereObjectEnd(text, open));
+      for (const field of body.matchAll(/([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*\{([^{}]*)\}/g)) {
+        const cond = field[2];
+        for (const operator of cond.matchAll(/([A-Za-z_$][A-Za-z0-9_$]*)\s*:/g)) {
+          const name = operator[1];
+          if (WHERE_OPERATORS.has(name)) continue;
+          const offset = open + 1 + (field.index ?? 0) + (operator.index ?? 0);
+          const line = text.slice(0, offset).split(newline).length;
+          diags.push(diag('W038', 'warning', 'impl/' + op + '.mjs', { ...mod.loc, line, endLine: line }, 'impl.' + op,
+            'unknown where operator "' + name + '"',
+            'where operators are eq, ne, in, contains, gt, gte, lt, lte'));
+        }
       }
     }
   }

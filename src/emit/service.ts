@@ -858,6 +858,8 @@ function scalarOf(cond) {
   return cond === null || typeof cond !== 'object' || Array.isArray(cond);
 }
 
+const KNOWN_WHERE_OPERATORS = ['eq', 'ne', 'in', 'contains', 'gt', 'gte', 'lt', 'lte'];
+
 function matchesWhere(value, where) {
   for (const field of Object.keys(where || {})) {
     const cond = where[field];
@@ -867,6 +869,9 @@ function matchesWhere(value, where) {
       continue;
     }
     for (const op of Object.keys(cond)) {
+      if (!KNOWN_WHERE_OPERATORS.includes(op)) {
+        throw new ArcodError('Invalid', { message: 'unknown where operator "' + op + '"' });
+      }
       const expected = cond[op];
       if (op === 'eq' && actual != expected) return false;
       if (op === 'ne' && actual == expected) return false;

@@ -487,6 +487,9 @@ class SqlStore {
     const ops = (typeof cond === 'object' && cond !== null && !Array.isArray(cond)) ? cond : { eq: cond };
     for (const [op, value] of Object.entries(ops)) {
       const colSql = q(col.name);
+      if (!['eq', 'ne', 'in', 'contains', 'gt', 'gte', 'lt', 'lte'].includes(op)) {
+        throw new ArcodError('Invalid', { message: 'unknown where operator "' + op + '"' });
+      }
       if (op === 'eq') clauses.push(colSql + ' = ' + sqlLiteral(col.base, value));
       else if (op === 'ne') clauses.push(colSql + ' <> ' + sqlLiteral(col.base, value));
       else if (op === 'in' && Array.isArray(value)) clauses.push(colSql + ' IN (' + value.map((v) => sqlLiteral(col.base, v)).join(', ') + ')');

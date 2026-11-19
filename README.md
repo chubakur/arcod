@@ -952,7 +952,7 @@ two-key body.
 step with the record (claiming the new value before releasing the old one).
 `io.find` filters (`eq`, `ne`, `in`, `gt`/`gte`/`lt`/`lte`, `contains`), sorts,
 and pages by a keyset cursor — the last row's sort values and id, base64url
-encoded — so a page does not shift when rows are inserted above it.
+encoded — so a page does not shift when rows are inserted above it. An operator outside that list is `Invalid` at runtime (the message names it) and `W038` in `check`; on `kv` a filter is a namespace scan with an in-memory match, on SQL it becomes a `WHERE` clause.
 
 `examples/tasks` (Redis, with `KV_DRIVER=memory` for tests) and
 `examples/tasks-sql` (MySQL) share the same bodies and both pass
@@ -1383,6 +1383,10 @@ Warnings:
   reads `impl/` (the only place a body names an entity) and reports the literal,
   the body file and every declared record type. A block with `check --json`
   carries the same message.
+- `W038` `io.find` uses a `where` operator outside `eq`, `ne`, `in`, `contains`,
+  `gt`, `gte`, `lt`, `lte`: the store used to drop the condition and return
+  every row. The runtime answers `400 Invalid` with the operator name; `check`
+  reads the literal in `impl/` and warns before the request.
 - `W037` an `io.insert` names a record type without an `id` field: the store
   keys every record by `id`, so each insert is a `400 Invalid` whose message now
   names the entity (`insert Room: missing id`). Add `id: string` (or a uuid) to
