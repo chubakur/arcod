@@ -492,6 +492,13 @@ test('every emitter is reachable through the CLI', async () => {
   assert.equal(openapi.code, 0, JSON.stringify(openapi.err));
   assert.match(JSON.parse(openapi.out).openapi, /^3\./);
 
+  // --out is the file counterpart of the stdout document, and it creates the
+  // directory the same way graphql/grpc do.
+  const openapiFile = await run(['openapi', spec, '--out', 'api/openapi.json']);
+  assert.equal(openapiFile.code, 0, JSON.stringify(openapiFile.err));
+  assert.match(openapiFile.out, /wrote .*api\/openapi\.json/);
+  assert.match(JSON.parse(await readFile(join(dir, 'api', 'openapi.json'), 'utf8')).openapi, /^3\./);
+
   const graphql = await run(['graphql', spec, '--out', 'schema.graphql']);
   assert.equal(graphql.code, 0, JSON.stringify(graphql.err));
   assert.match(await readFile(join(dir, 'schema.graphql'), 'utf8'), /type Query/);

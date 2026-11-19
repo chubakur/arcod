@@ -51,7 +51,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   check: ['--json', '--env', '--strict'],
   ast: ['--json', '--check'],
   plan: ['--json'],
-  openapi: ['--service'],
+  openapi: ['--service', '--out'],
   graphql: ['--service', '--out'],
   grpc: ['--service', '--out'],
   migrate: ['--json', '--dialect'],
@@ -735,7 +735,17 @@ async function runOpenapi(flags: Flags): Promise<void> {
     return;
   }
   const doc = emitOpenapi(loaded.mod, { service: flags.service });
-  console.log(JSON.stringify(doc, null, 2));
+  const target = flags.out;
+  if (!target) {
+    console.log(JSON.stringify(doc, null, 2));
+    return;
+  }
+  // graphql and grpc already write a file (and create its directory); the
+  // OpenAPI document is the same kind of artifact, so --out behaves the same.
+  const path = isAbsolute(target) ? target : join(loaded.dir, target);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify(doc, null, 2) + '\n');
+  console.log('wrote ' + path);
 }
 
 async function runGraphql(flags: Flags): Promise<void> {
@@ -1353,7 +1363,7 @@ Print the parsed module (canonical AST). --check also prints the diagnostics.`,
   plan: `usage: arcod plan [dir|spec.arc] [--json]
 
 Print the build plan: services, routes, capabilities, emitted files.`,
-  openapi: `usage: arcod openapi [dir|spec.arc] [--service name]
+  openapi: `usage: arcod openapi [dir|spec.arc] [--service name] [--out file]
 
 Print the OpenAPI 3.1 document for the spec (or for one service).`,
   graphql: `usage: arcod graphql [dir|spec.arc] [--service name] [--out file]
