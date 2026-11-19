@@ -120,6 +120,27 @@ test('graphql: a record nested in a record keeps its own input and output twins'
   buildSchema(sdl);
 });
 
+test('graphql: a chain of aliases resolves to the builtin it finally names', () => {
+  // A = B = C = D = uuid: the schema must say ID, not JSON or an invented
+  // object, however many names the model puts between the parameter and the
+  // builtin.
+  const source = [
+    'module chain @0.1.0 {}',
+    'type A = B',
+    'type B = C',
+    'type C = D',
+    'type D = uuid',
+    'service S : http {',
+    '  contract {',
+    '    public op get(id: A) -> A { route: "GET /v1/a/:id" }',
+    '  }',
+    '}',
+  ].join('\n');
+  const sdl = graphqlSchema(parse(source, 'chain.arc'));
+  assert.match(sdl, /get\(id: ID!\): ID!/);
+  buildSchema(sdl);
+});
+
 test('graphql: an alias of a record keeps the record name, not the alias', () => {
   // type Item = Task is a second name for the same shape: one object and one
   // input twin, named after the record, so a client never sees Item and Task
@@ -286,6 +307,30 @@ test('graphql: a union argument accepts every variant through optional input fie
   for (const field of Object.values(fields)) {
     assert.equal(String(field.type).endsWith('!'), false, field.name + ' is optional');
   }
+});
+
+test('graphql: a union variant that is an alias of a record keeps its fields', () => {
+  // type Item = Task inside a union: the output side already resolves the alias
+  // to Task, so the merged input must carry Task's fields too (a fieldless
+  // input object would reject every real value).
+  const source = [
+    'module ualias @0.1.0 {}',
+    'type Task = { id: uuid, title: string }',
+    'type Item = Task',
+    'type Result = Item | Task',
+    'service S : http {',
+    '  contract {',
+    '    public op put(r: Result) -> Result { route: "POST /v1/result" }',
+    '  }',
+    '}',
+  ].join('\n');
+  const sdl = graphqlSchema(parse(source, 'ualias.arc'));
+  buildSchema(sdl);
+  assert.match(sdl, /put\(r: ResultInput!\): Result!/);
+  const input = /input ResultInput \{([^}]*)\}/.exec(sdl);
+  assert.ok(input, sdl);
+  assert.match(input![1], /id: ID/, sdl);
+  assert.match(input![1], /title: String/, sdl);
 });
 
 test('graphql: an inline union gets its own named union type', () => {

@@ -138,11 +138,9 @@ class Registry {
       // hint-derived one and never the JSON hole below.
       return { ref: this.union(name, decl.variants, mode), nonNull: true };
     }
-    if (decl && decl.kind === 'record') {
-      return mode === 'in'
-        ? { ref: this.record(name, decl.fields, 'in'), nonNull: true }
-        : { ref: this.record(name, decl.fields, 'out'), nonNull: true };
-    }
+    // A record cannot arrive here: isRecordDecl above already answered for
+    // every declared record, and declOf stops at a record name, not at its
+    // body, so the only shapes left are union, builtin alias and the hole.
     if (decl && decl.kind === 'named') return this.ref(decl, hint, mode);
     // An unknown named type is a hole in the contract; JSON keeps the schema
     // valid and makes the gap visible instead of inventing a shape.
@@ -163,6 +161,10 @@ class Registry {
     if (variant.kind === 'named') {
       const decl = this.declOf(variant.name);
       if (decl && decl.kind === 'record') return decl.fields;
+      // An alias of a record is still that record's shape: declOf stops at the
+      // record name (`Item = Task` resolves to a named Task), so follow one
+      // hop before declaring the variant fieldless.
+      if (decl && decl.kind === 'named' && isRecordDecl(this.mod, decl.name)) return this.recordFields(decl.name);
     }
     return [];
   }
