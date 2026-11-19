@@ -1165,6 +1165,15 @@ column's `DEFAULT` (`done: bool = false` → `DEFAULT 0`), so a row inserted
 outside the generated service still gets the declared value. Inline records,
 unions and `list`/`map` land in `JSON` columns.
 
+Only entities become tables: `arcod migrate` (and the migrations the service
+carries) reads `impl/` and takes the table set from the record names the bodies
+pass to `io.insert`/`fetch`/`update`/`remove`/`find`, so a DTO such as
+`AlertAck { ok, id }` returned by a storing operation gets no table. A scaffold
+project with no bodies keeps the older rule (every record type is a table),
+because nothing says which shape is stored. A string field that is a key (the
+`id` column or a `unique` member) is `VARCHAR(191)`, never `TEXT` — a TEXT
+primary key is MySQL error 1170 and hides every later migration.
+
 Each migration carries a `version`, a `checksum` (sha256 of up+down) and
 `up`/`down` SQL. The generated service applies them on boot (sql driver):
 it records applied versions in `arcod_migrations`, a re-run is a no-op, and a

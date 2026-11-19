@@ -59,6 +59,12 @@ async function implDirFor(exampleDir: string): Promise<string> {
   return entries ? primary : join(exampleDir, '.arcod', 'impl');
 }
 
+// The bodies the build reads are also the evidence `arcod migrate` uses to
+// tell an entity from a DTO: both commands must name the same tables.
+export async function implBodiesFor(exampleDir: string): Promise<Record<string, string> | undefined> {
+  return readImpl(await implDirFor(exampleDir));
+}
+
 async function readImpl(dir: string): Promise<Record<string, string> | undefined> {
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
   if (!entries) return undefined;

@@ -167,7 +167,10 @@ function entityTable(
   const table = decl.name.toLowerCase();
   const cols: string[] = [];
   for (const field of fields) {
-    const indexed = uniques.some((tuple) => tuple.includes(field.name));
+    // The id column is the primary key, so a string there is bounded too: a
+    // TEXT key is 1170 on MySQL ("used in key specification without a key
+    // length") and a silent failed migration on every table after it.
+    const indexed = field.name === 'id' || uniques.some((tuple) => tuple.includes(field.name));
     cols.push('  ' + columnDef(mod, field, indexed, dialect));
   }
   if (fields.some((f) => f.name === 'id')) cols.push('  ' + dialect.primaryKey('id'));
@@ -206,7 +209,27 @@ function usesQueue(svc: ServiceNode): boolean {
   return svc.uses.some((use) => use.capability === 'queue' || use.capability.endsWith('.queue'));
 }
 
-export function migrationPlan(mod: ModuleNode, svc: ServiceNode, options: { dialect?: SqlDialect } = {}): MigrationPlan {
+// A body is the only truthful evidence of what a store call targets: an
+// operation's return type may be a DTO (an ack, a receipt), never a table.
+const ENTITY_CALL = /\bio\.(?:insert|fetch|update|remove|find)\(\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\1/g;
+
+// Entity names a set of impl bodies actually touches, or null when there is no
+// evidence at all: a scaffold build keeps the old "every record is a table"
+// behaviour rather than silently dropping tables the runtime may need.
+export function entitiesFromBodies(bodies: Record<string, string> | undefined): string[] | null {
+  if (!bodies) return null;
+  const names = new Set<string>();
+  for (const body of Object.values(bodies)) {
+    for (const match of body.matchAll(ENTITY_CALL)) names.add(match[2]);
+  }
+  return names.size > 0 ? [...names].sort() : null;
+}
+
+export function migrationPlan(
+  mod: ModuleNode,
+  svc: ServiceNode,
+  options: { dialect?: SqlDialect; entities?: string[] | null } = {},
+): MigrationPlan {
   const dialect = options.dialect ?? MYSQL;
   const migrations: Migration[] = [];
 
@@ -245,7 +268,13 @@ export function migrationPlan(mod: ModuleNode, svc: ServiceNode, options: { dial
     down: 'DROP TABLE IF EXISTS ' + kvQ('arcod_kv'),
   });
 
-  const entities = mod.types.filter((d) => d.type.kind === 'record').sort((a, b) => a.name.localeCompare(b.name));
+  // DTO types are shapes the service returns, not rows it stores: only the
+  // entity set (from the bodies) gets a table.
+  const wanted = options.entities ?? null;
+  const entities = mod.types
+    .filter((d) => d.type.kind === 'record')
+    .filter((d) => wanted === null || wanted.includes(d.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
   for (const decl of entities) {
     const uniques = uniquesByEntity[decl.name] ?? [];
     const indexes = indexesByEntity[decl.name] ?? [];

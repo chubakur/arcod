@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { parse, ParseError } from './parser.ts';
 import { check } from './check.ts';
 import { buildPlan, formatPlan } from './plan.ts';
-import { BuildError, buildExample, resolveDialect } from './build.ts';
+import { BuildError, buildExample, implBodiesFor, resolveDialect } from './build.ts';
 import { runExamples } from './test.ts';
 import type { Diagnostic } from './diagnostics.ts';
 import type { ModuleNode } from './ast.ts';
@@ -17,7 +17,7 @@ import { emitOpenapi } from './emit/openapi.ts';
 import { graphqlSchema } from './emit/graphql.ts';
 import { grpcProto } from './emit/grpc.ts';
 import { pickService } from './emit/service.ts';
-import { migrationPlan, formatMigrations } from './migrate.ts';
+import { entitiesFromBodies, migrationPlan, formatMigrations } from './migrate.ts';
 import { dialectNamed } from './dialects.ts';
 import { formatSource } from './fmt.ts';
 import { diffSpecs } from './diff.ts';
@@ -624,7 +624,10 @@ async function runMigrate(flags: Flags): Promise<void> {
   if (!svc) throw new Error('no service to migrate');
   // The DDL follows the same rule as the build: the bound database decides,
   // an explicit --dialect that disagrees is refused with the bind named.
-  const plan = migrationPlan(loaded.mod, svc, { dialect: dialectNamed(resolveDialect(loaded.mod, dialectFlag(flags))) });
+  // Tables come from the bodies, so a DTO (an ack, a receipt) never becomes one
+  // even when a store effect sits on the operation returning it.
+  const entities = entitiesFromBodies(await implBodiesFor(loaded.dir));
+  const plan = migrationPlan(loaded.mod, svc, { dialect: dialectNamed(resolveDialect(loaded.mod, dialectFlag(flags))), entities });
   if (plan.migrations.length === 0) {
     if (flags.json) console.log(JSON.stringify(plan, null, 2));
     else console.log('no stored entities in ' + svc.name + ' — nothing to migrate');

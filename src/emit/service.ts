@@ -11,7 +11,7 @@ import { STREAM_SOURCE } from './stream.ts';
 import { QUEUE_SOURCE, QUEUE_SHUTDOWN, OUTBOX_SHUTDOWN, OUTBOX_SOURCE, outboxSource, consumerSource } from './queue.ts';
 import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
-import { fieldDefault, migrationPlan, recordColumns, type DefaultValue } from '../migrate.ts';
+import { entitiesFromBodies, fieldDefault, migrationPlan, recordColumns, type DefaultValue } from '../migrate.ts';
 import { constraintTable } from '../constraints.ts';
 import type { ProviderRegistry } from '../registry.ts';
 
@@ -1466,12 +1466,15 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
     '',
   ].join('\n');
 
-  const stores = storageKind(svc) === 'sql' ? sqlEntityStores(mod, svc) : entityStores(mod, svc);
+  // Same entity set as the migrations: a DTO the bodies never store has no
+  // table and no store entry, so the schema and the runtime cannot disagree.
+  const entities = entitiesFromBodies(options.impl);
+  const stores = storageKind(svc) === 'sql' ? sqlEntityStores(mod, svc, entities) : entityStores(mod, svc, entities);
 
   return header + template
     .replace('__CONFIG__', () => JSON.stringify(config, null, 2))
     .replace('__STORES__', () => JSON.stringify(stores, null, 2))
-    .replace('__MIGRATIONS__', () => JSON.stringify(migrationPlan(mod, svc, { dialect: dialectNamed(options.dialect) }).migrations))
+    .replace('__MIGRATIONS__', () => JSON.stringify(migrationPlan(mod, svc, { dialect: dialectNamed(options.dialect), entities }).migrations))
     .replace('__ROUTES__', () => JSON.stringify(routes, null, 2))
     .replace('__PAGES__', () => JSON.stringify(options.pages ?? []))
     .replace('__ERRORS__', () => JSON.stringify(errors, null, 2))
@@ -2241,7 +2244,7 @@ function entityDefaults(mod: ModuleNode, decl: TypeDecl): Record<string, Default
   return defaults;
 }
 
-function entityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { prefix: string; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
+function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { prefix: string; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
   const table: Record<string, { prefix: string; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
   const uniques: Array<[string, string[]]> = [];
   for (const rule of svc.rules) {
@@ -2249,8 +2252,10 @@ function entityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { prefi
     uniques.push([rule.path.split('.')[0], rule.fields]);
   }
   for (const decl of mod.types) {
-    // Only record shapes are storable; aliases point at one.
+    // Only record shapes are storable; aliases point at one. A DTO (no store
+    // call names it) is not storable at all.
     if (decl.type.kind !== 'record') continue;
+    if (entities !== null && !entities.includes(decl.name)) continue;
     table[decl.name] = {
       prefix: decl.name.toLowerCase() + ':',
       uniqueGroups: uniques.filter(([entity]) => entity === decl.name).map(([, fields]) => fields),
@@ -2260,7 +2265,7 @@ function entityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { prefi
   return table;
 }
 
-function sqlEntityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { table: string; columns: unknown[]; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
+function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { table: string; columns: unknown[]; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
   const table: Record<string, { table: string; columns: unknown[]; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
   const uniquesByEntity: Record<string, string[][]> = {};
   for (const rule of svc.rules) {
@@ -2269,6 +2274,7 @@ function sqlEntityStores(mod: ModuleNode, svc: ServiceNode): Record<string, { ta
   }
   for (const decl of mod.types) {
     if (decl.type.kind !== 'record') continue;
+    if (entities !== null && !entities.includes(decl.name)) continue;
     const groups = uniquesByEntity[decl.name] ?? [];
     table[decl.name] = {
       table: decl.name.toLowerCase(),
