@@ -132,3 +132,42 @@ test('a job with a result is acked', async () => {
   assert.deepEqual(job.calls, []);
 });
 
+
+test(
+  'a failing attempt is requeued and the next one exhausts the budget',
+  async () => {
+    const calls: Array<[string, string]> = [];
+    let queue: string[] = [JSON.stringify({ payload: { reportId: 'x' }, attempts: 0 })];
+    const queueDriver = {
+      async receive() {
+        return queue.length > 0 ? queue.shift()! : null;
+      },
+      async requeue(_topic: string, raw: string) {
+        calls.push(['requeue', raw]);
+        queue.push(raw);
+      },
+      async toDead(_topic: string, raw: string) {
+        calls.push(['dead', raw]);
+      },
+    };
+    const src = consumerSource([{ topic: 'jobs', handler: 'process', params: ['reportId'], retry: 1 }]);
+    const factory = new Function('queueDriver', 'makeIo', 'setTimeout', 'QUEUE_POLL_MS', 'process',
+      src + '\nreturn { runConsumer, stop() { consumersStopped = true; } };');
+    const fn = async () => { throw new Error(
+      'downstream is down',
+    ); };
+    const loaded = factory(queueDriver, () => ({}), setTimeout, 1, fn) as {
+      runConsumer: (spec: unknown) => Promise<void>;
+      stop: () => void;
+    };
+    const run = loaded.runConsumer({ topic: 'jobs', fn, params: ['reportId'], retry: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    loaded.stop();
+    await run;
+    assert.deepEqual(calls.map((call) => call[0]), ['requeue', 'dead']);
+    const dead = JSON.parse(calls[1][1]);
+    assert.equal(dead.attempts, 2);
+    assert.match(dead.lastError, /downstream is down/);
+  },
+);
+
