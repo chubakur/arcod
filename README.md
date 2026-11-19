@@ -1715,7 +1715,8 @@ This is a vertical slice, not a finished language.
 - Generation targets JavaScript/Node only. PHP, Go and Python would be separate
   emitters.
 - `change`, `policy`, `hint`, `impl`, `lifecycle` and `unknown` blocks, and
-  the `idempotent`, `since` and `schedule` clauses, are rejected by the parser:
+  the `idempotent`, `since`, `schedule` and `set` clauses, are rejected by the
+  parser (`set` used to be parsed and dropped, so a change looked declared):
   they are not supported in v0.1 — a model must say what it means, not leave
   placeholders.
 - a `job` without an `on:` consumer is still parsed but not executed

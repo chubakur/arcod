@@ -455,7 +455,7 @@ class Parser {
         clauses.push({ kind: key, value: tok.value, loc: locOf(tok) });
         continue;
       }
-      if (key === 'set') { this.expect(':'); this.parseExpr(); continue; }
+      if (key === 'set') this.error('`set` on an operation is not supported in v0.1 — the change belongs in the operation body (impl/<op>.mjs) or in `post`');
       this.error('unknown op clause ' + JSON.stringify(key));
     }
     const end = this.expect('}');
