@@ -314,7 +314,10 @@ most specs will have, so the a11y baseline is part of the emitter: `<html
 lang="en">`, a wrapping `<label>` per control, `aria-required` for required
 parameters, `autocomplete="off"` so a password manager does not fill API
 parameters, and results in a `role="status"` region with `aria-live="polite"`
-— an async answer is announced without stealing focus.
+— an async answer is announced without stealing focus. Fields come from the
+contract, not from a template: a `bytes` limit above 512 bytes is a textarea,
+every `bytes`/`string` `max` becomes `maxlength` (the unit is converted), and a
+record parameter or a `list`/`map` becomes a JSON field.
 
 The language is a property of the `ui` block, not a build flag: `locale: "ru"`
 (or any BCP-47 tag) sets `<html lang>` and swaps the page's label catalog —
