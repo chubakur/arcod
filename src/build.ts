@@ -218,6 +218,7 @@ function checkImplDeclarations(impl: Record<string, string>): void {
 export async function buildExample(mod: ModuleNode, exampleDir: string, options: BuildOptions = {}): Promise<BuildResult> {
   const dir = join(exampleDir, '.arcod', 'build');
   const staging = dir + '.tmp-' + process.pid;
+  await cleanAbandonedTrees(dir);
   await rm(staging, { recursive: true, force: true });
   try {
     const result = await buildInto(mod, exampleDir, staging, options);
@@ -231,6 +232,34 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     // is still in place, so a rebuild that fails is a no-op on disk.
     await rm(staging, { recursive: true, force: true });
     throw error;
+  }
+}
+
+// A build killed mid-way leaves its staging (or the previous tree it was
+// replacing) behind, and nobody will ever publish it. Sweep siblings whose
+// owner process is gone; a live pid is another build of the same project and
+// is left alone.
+async function cleanAbandonedTrees(target: string): Promise<void> {
+  const parent = dirname(target);
+  const base = target.slice(parent.length + 1) + '.';
+  const entries = await readdir(parent).catch(() => null);
+  if (!entries) return;
+  for (const name of entries) {
+    if (!name.startsWith(base + 'tmp-') && !name.startsWith(base + 'old-')) continue;
+    const pid = Number(name.slice(name.lastIndexOf('-') + 1));
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue;
+    if (alive(pid)) continue;
+    await rm(join(parent, name), { recursive: true, force: true });
+  }
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means the process exists but belongs to someone else.
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -65,6 +65,22 @@ test('a failed rebuild keeps the previous tree and adds nothing', async () => {
     await assert.rejects(buildExample(parse(bad, 'main.arc'), root, { port: 8080, reference: true }), /templates only for/);
     const after = await readFile(join(root, '.arcod', 'build', 'docker-compose.yml'), 'utf8');
     assert.equal(after, before);
+    const entries = await readdir(join(root, '.arcod'));
+    assert.deepEqual(entries.filter((name) => name.startsWith('build.')), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a build sweeps staging trees left by a killed process', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'arcod-atomic-'));
+  try {
+    for (const name of ['build.tmp-999999', 'build.old-999999']) {
+      await mkdir(join(root, '.arcod', name, 'service'), { recursive: true });
+      await writeFile(join(root, '.arcod', name, 'service', 'index.mjs'), '// abandoned\n');
+    }
+    const result = await buildExample(parse(good, 'main.arc'), root, { port: 8080, reference: true });
+    assert.ok(existsSync(join(result.dir, 'service', 'index.mjs')));
     const entries = await readdir(join(root, '.arcod'));
     assert.deepEqual(entries.filter((name) => name.startsWith('build.')), []);
   } finally {

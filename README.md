@@ -1182,7 +1182,8 @@ Routes, TTL, limits and infrastructure are identical.
 The tree is published as a whole: it is written into `.arcod/build.tmp-<pid>` and
 renamed into `.arcod/build` after the last file. A build that fails leaves the
 previous output untouched (never a half-written service), and a first build that
-fails leaves no `.arcod/build` at all.
+fails leaves no `.arcod/build` at all. A staging tree left by a killed build is
+swept by the next one, unless its process is still alive.
 
 `budget { concurrency: N }` produces an in-flight limiter: above the limit — `503`.
 
