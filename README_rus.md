@@ -143,7 +143,7 @@ type Account = { id: uuid, email: email, website: url?, plan: Plan = "free" }
 | `arcod ast [dir]` | печатает канонический AST |
 | `arcod plan [dir]` | детерминированный DAG задач: файлы, зависимости, критерии приёмки |
 | `arcod openapi [dir]` | документ OpenAPI 3.1 в stdout: пути из `route`, схемы из `types`, ошибки как в рантайме, примеры из блока `examples`; `--service <имя>` выбирает сервис; `--out <файл>` пишет документ в файл вместо stdout |
-| `arcod migrate [dir]` | печатает миграции модели данных и пишет их в `.arcod/build/migrations/` (changelog + up/down `.sql`; `arcod build` пишет тот же артефакт); `--json`; `--dialect mysql\|postgres` выбирает диалект DDL; сервис применяет их при старте |
+| `arcod migrate [dir]` | печатает миграции модели данных и пишет их в `.arcod/build/migrations/` (changelog + up/down `.sql`; `arcod build` пишет тот же артефакт); `--json`; `--dialect mysql\|postgres` выбирает диалект DDL; сервис применяет их при старте; файлы, которых нет в текущем плане, удаляются |
 | `arcod build [dir]` | scaffold: маршруты, адаптеры, тесты, инфраструктура в `.arcod/build`; тела — TODO; `--json` отдаёт mode, dir, dialect, files, images и bodies одним объектом |
 | `arcod build --dialect postgres` | та же сборка с postgres-клиентом, `PgStore` (entity/kv/outbox/транзакции) и postgres-миграциями; mysql по умолчанию |
 | `arcod build --impl` | тела из `impl/*.mjs`, адаптер `io`, ничего не додумывает |

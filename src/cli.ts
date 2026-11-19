@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse, ParseError } from './parser.ts';
@@ -710,6 +710,19 @@ async function runMigrate(flags: Flags): Promise<void> {
 
   const dir = join(loaded.dir, '.arcod', 'build', 'migrations');
   await mkdir(dir, { recursive: true });
+  // Only the files this plan owns survive: a shrunken model renumbers and
+  // renames migrations, and an orphan 0003_old.up.sql next to the new changelog
+  // is SQL a runner could glob and apply.
+  const owned = new Set(['changelog.json']);
+  for (const migration of plan.migrations) {
+    owned.add(migration.version + '_' + migration.name + '.up.sql');
+    owned.add(migration.version + '_' + migration.name + '.down.sql');
+  }
+  for (const name of await readdir(dir)) {
+    if (owned.has(name)) continue;
+    if (!/^\d{4}_.+\.(up|down)\.sql$/.test(name)) continue;
+    await rm(join(dir, name), { force: true });
+  }
   await writeFile(join(dir, 'changelog.json'), JSON.stringify(plan.migrations, null, 2));
   for (const migration of plan.migrations) {
     await writeFile(join(dir, migration.version + '_' + migration.name + '.up.sql'), migration.up);

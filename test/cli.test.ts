@@ -1132,6 +1132,27 @@ test('build --json reports the build as one object, the human lines suppressed',
   assert.doesNotMatch(r.out, /arcod build \(/, 'one object, no human preamble');
 });
 
+test('migrate removes SQL files the new plan no longer owns', async () => {
+  const dir = await tempDir('arcod-cli-prune-');
+  const file = join(dir, 'main.arc');
+  await writeFile(file, "module prune @0.1.0 {\n  meta {\n    owner: \"@me\"\n  }\n}\nuse capability arcod.std.sql @1\n\ntype A = { id: uuid, x: int }\ntype B = { id: uuid, y: int }\n\nservice S : http {\n  uses store: sql\n\n  effects {\n    allow store.insert, store.find\n  }\n\n  contract {\n    public op put(x: int) -> A {\n      route: \"POST /v1/a\"\n      effects: store.insert\n    }\n  }\n}\n\nenvironment dev {\n  bind store -> mysql\n  deploy docker\n}\n", 'utf8');
+  const first = await run(['migrate', dir]);
+  assert.equal(first.code, 0, first.err);
+  const migrations = join(dir, '.arcod', 'build', 'migrations');
+  const before = (await readdir(migrations)).filter((name) => name.endsWith('.sql'));
+  assert.ok(before.some((name) => name.endsWith('_b.up.sql')), before.join(', '));
+  // The second version drops B: its files must not survive as orphans beside
+  // the new changelog, or a runner globbing *.up.sql would apply dead SQL.
+  await writeFile(file, "module prune @0.1.0 {\n  meta {\n    owner: \"@me\"\n  }\n}\nuse capability arcod.std.sql @1\n\ntype A = { id: uuid, x: int }\n\nservice S : http {\n  uses store: sql\n\n  effects {\n    allow store.insert, store.find\n  }\n\n  contract {\n    public op put(x: int) -> A {\n      route: \"POST /v1/a\"\n      effects: store.insert\n    }\n  }\n}\n\nenvironment dev {\n  bind store -> mysql\n  deploy docker\n}\n", 'utf8');
+  const second = await run(['migrate', dir]);
+  assert.equal(second.code, 0, second.err);
+  const after = (await readdir(migrations)).filter((name) => name.endsWith('.sql'));
+  assert.equal(after.some((name) => name.endsWith('_b.up.sql')), false, after.join(', '));
+  assert.equal(after.some((name) => name.endsWith('_b.down.sql')), false, after.join(', '));
+  const changelog = JSON.parse(await readFile(join(migrations, 'changelog.json'), 'utf8')) as Array<{ name: string }>;
+  assert.equal(changelog.some((migration) => migration.name === 'b'), false);
+});
+
 test('test --json prints an empty report as JSON, not a sentence', async () => {
   const dir = await tempDir('arcod-cli-json-empty-');
   const spec = join(dir, 'main.arc');
