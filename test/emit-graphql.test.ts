@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildSchema, isInputObjectType, isUnionType } from 'graphql';
+import { buildSchema, isInputObjectType, isUnionType, validateSchema } from 'graphql';
 import { parse } from '../src/parser.ts';
 import { graphqlSchema } from '../src/emit/graphql.ts';
 
@@ -307,6 +307,27 @@ test('graphql: a union argument accepts every variant through optional input fie
   for (const field of Object.values(fields)) {
     assert.equal(String(field.type).endsWith('!'), false, field.name + ' is optional');
   }
+});
+
+test('graphql: a union with a scalar variant is the JSON hole, not invalid SDL', () => {
+  // GraphQL unions hold object types only. `type R = Task | string` has no
+  // member for String, so emitting `union R = Task | String` would be SDL no
+  // server accepts; the position becomes JSON and the schema stays valid.
+  const source = [
+    'module smix @0.1.0 {}',
+    'type Task = { id: uuid }',
+    'type R = Task | string',
+    'service S : http {',
+    '  contract {',
+    '    public op get() -> R { route: "GET /v1/r" }',
+    '  }',
+    '}',
+  ].join('\n');
+  const sdl = graphqlSchema(parse(source, 'smix.arc'));
+  assert.equal(sdl.includes('union R'), false, sdl);
+  assert.match(sdl, /get: JSON!/);
+  const errors = validateSchema(buildSchema(sdl));
+  assert.deepEqual(errors.map((error) => error.message), []);
 });
 
 test('graphql: a union variant that is an alias of a record keeps its fields', () => {

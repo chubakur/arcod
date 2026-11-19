@@ -135,7 +135,14 @@ class Registry {
     const decl = this.declOf(name);
     if (decl && decl.kind === 'union') {
       // A named union keeps its declared name: `union Result = A | B`, not a
-      // hint-derived one and never the JSON hole below.
+      // hint-derived one and never the JSON hole below. A GraphQL union holds
+      // object types only, though: one scalar or enum variant (`type R = Task |
+      // string`) leaves a member no server accepts, so the whole position
+      // becomes the hole rather than invalid SDL.
+      if (!decl.variants.every((variant) => this.objectVariant(variant))) {
+        this.scalars.add('JSON');
+        return { ref: 'JSON', nonNull: true };
+      }
       return { ref: this.union(name, decl.variants, mode), nonNull: true };
     }
     // A record cannot arrive here: isRecordDecl above already answered for
@@ -146,6 +153,18 @@ class Registry {
     // valid and makes the gap visible instead of inventing a shape.
     this.scalars.add('JSON');
     return { ref: 'JSON', nonNull: true };
+  }
+
+  // A union member in GraphQL has to be an object type: a record, an inline
+  // record or an alias that resolves to one. Anything else (a builtin, an
+  // enum, a list) cannot be a member.
+  private objectVariant(variant: TypeExpr): boolean {
+    if (variant.kind === 'optional') return this.objectVariant(variant.inner);
+    if (variant.kind === 'record') return true;
+    if (variant.kind !== 'named') return false;
+    if (isRecordDecl(this.mod, variant.name)) return true;
+    const decl = this.declOf(variant.name);
+    return Boolean(decl && decl.kind === 'named' && isRecordDecl(this.mod, decl.name));
   }
 
   private recordFields(name: string): Param[] {

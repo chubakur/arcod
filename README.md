@@ -887,7 +887,10 @@ variant. GraphQL has no input unions, so in an argument position the same
 declaration becomes `input ResultInput` with the merged fields of every
 variant, all nullable: a value of any one variant satisfies the argument.
 A variant named through an alias (`type Item = Task`) contributes `Task`'s
-fields, because the alias is the same shape on both sides.
+fields, because the alias is the same shape on both sides. A union with a
+scalar or enum variant (`type R = Task | string`) has a member GraphQL cannot
+hold, so the position is emitted as `JSON` — a hole the schema admits to
+rather than SDL no server accepts.
 
 Each field's description carries the HTTP route and the error codes mapped by
 the same table the runtime uses, so REST and GraphQL cannot drift apart. The
