@@ -1086,3 +1086,32 @@ test('build --reference explains the demo gap instead of quoting the emitter', a
   const bundle = await readdir(join(dir, '.arcod', 'build')).catch(() => [] as string[]);
   assert.equal(bundle.includes('docker-compose.yml'), false, 'a failed build leaves no bundle');
 });
+
+test('test --json prints an empty report as JSON, not a sentence', async () => {
+  const dir = await tempDir('arcod-cli-json-empty-');
+  const spec = join(dir, 'main.arc');
+  await writeFile(spec, [
+    'module noex @0.1.0 {',
+    '  meta {',
+    '    owner: "@me"',
+    '  }',
+    '}',
+    'service Ping : http {',
+    '  contract {',
+    '    public op ping() -> string {',
+    '      route: "GET /ping"',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n'), 'utf8');
+
+  const r = await run(['test', spec, '--json']);
+  assert.equal(r.code, 0);
+  assert.deepEqual(JSON.parse(r.out), { examples: [], rules: [] });
+
+  // The human path keeps its sentence.
+  const text = await run(['test', spec]);
+  assert.equal(text.code, 0);
+  assert.match(text.out, /no examples or rules declared/);
+});

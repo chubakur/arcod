@@ -993,7 +993,10 @@ async function runTest(flags: Flags): Promise<void> {
   const own = loaded.mod.services.filter((svc) => !svc.external);
   const declared = own.reduce((total, svc) => total + svc.examples.length + svc.rules.length, 0);
   if (declared === 0) {
-    console.log('no examples or rules declared');
+    // --json is a contract: a caller that parses stdout must not get prose.
+    // An empty report is still a report, so both paths print the same shape.
+    if (flags.json) console.log(JSON.stringify({ examples: [], rules: [] }, null, 2));
+    else console.log('no examples or rules declared');
     return;
   }
 
@@ -1015,7 +1018,10 @@ async function runTest(flags: Flags): Promise<void> {
   const report = await runExamples(loaded.mod, result.dir);
 
   if (report.examples.length === 0 && report.rules.length === 0) {
-    console.log('no examples or rules declared');
+    // --json is a contract: a caller that parses stdout must not get prose.
+    // An empty report is still a report.
+    if (flags.json) console.log(JSON.stringify(report, null, 2));
+    else console.log('no examples or rules declared');
     return;
   }
 

@@ -198,7 +198,9 @@ Flags are per command, not global: `--out` belongs to the file writers, so
 rather than a flag that is accepted and ignored. The same goes for
 `check --port` and every other flag another command owns. Alternatives are
 enforced: `--reference --impl` on one line is an error, not a preference for
-whichever flag the code checked first.
+whichever flag the code checked first. `--json` always means JSON: `test
+--json` on a spec with nothing declared prints `{"examples": [], "rules": []}`
+instead of the sentence the human path prints.
 
 A missing environment is named too. `arcod deploy` on a module with none says so
 and shows the declaration to add; `--env staging` on a module that declares
