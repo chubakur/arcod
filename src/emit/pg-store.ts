@@ -506,6 +506,23 @@ class PgStore {
     await this.query('DELETE FROM ' + pq(table) + ' WHERE ' + pq('id') + ' = ' + pgLiteral('string', String(id)));
   }
 
+  // COUNT(*) with the same predicates find builds; postgres returns bigint
+  // as text, so the cell is coerced to a number here.
+  async entityCount(table, columns, query) {
+    const opts = query || {};
+    const where = [];
+    for (const [field, cond] of Object.entries(opts.where || {})) {
+      const col = columns.find((c) => c.name === field);
+      if (!col) continue;
+      where.push(...this.whereClauses(col, cond));
+    }
+    const whereSql = where.length > 0 ? ' WHERE ' + where.join(' AND ') : '';
+    const found = await this.query('SELECT COUNT(*) AS n FROM ' + pq(table) + whereSql);
+    const row = found.rows && found.rows[0];
+    const value = row ? (Array.isArray(row) ? row[0] : row.n) : 0;
+    return Number(value) || 0;
+  }
+
   async entityFind(table, columns, query) {
     const opts = query || {};
     const requested = Number(opts.limit);

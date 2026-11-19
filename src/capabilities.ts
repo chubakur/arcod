@@ -26,6 +26,7 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       update: 'update(entity: string, id: string, patch: any) -> any',
       remove: 'remove(entity: string, id: string) -> bool',
       find: 'find(entity: string, query: { where?: any, order?: string, limit?: int, cursor?: string }) -> { items: list<any>, next: string | null }',
+      count: 'count(entity: string, query: { where?: any }) -> int',
     },
     short: {
       get: 'load(id) -> {b,h}|null',
@@ -40,6 +41,7 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       update: 'update(entity, id, patch)',
       remove: 'remove(entity, id) -> bool',
       find: 'find(entity, {where,order,limit,cursor})',
+      count: 'count(entity, {where}) -> int',
     },
     notes: 'has tells whether the message still exists; seen tells whether it was already consumed. takeIf deletes only when the stored value equals expected.',
   },
@@ -97,6 +99,7 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       update: 'update(entity: string, id: string, patch: any) -> any',
       remove: 'remove(entity: string, id: string) -> bool',
       find: 'find(entity: string, query: { where?: any, order?: string, limit?: int, cursor?: string }) -> { items: list<any>, next: string | null }',
+      count: 'count(entity: string, query: { where?: any }) -> int',
     },
     short: {
       get: 'load(id) -> {b,h}|null',
@@ -111,6 +114,7 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       update: 'update(entity, id, patch)',
       remove: 'remove(entity, id) -> bool',
       find: 'find(entity, {where,order,limit,cursor})',
+      count: 'count(entity, {where}) -> int',
     },
     notes: 'Rows, not keys. The adapter owns the table and TTL.',
   },

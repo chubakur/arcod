@@ -954,6 +954,17 @@ step with the record (claiming the new value before releasing the old one).
 and pages by a keyset cursor — the last row's sort values and id, base64url
 encoded — so a page does not shift when rows are inserted above it. An operator outside that list is `Invalid` at runtime (the message names it) and `W038` in `check`; on `kv` a filter is a namespace scan with an in-memory match, on SQL it becomes a `WHERE` clause.
 
+A total is a separate call, not a page you fold yourself:
+
+```js
+const total = await io.count('Task', { where: { status: 'open' } });
+```
+
+`io.count` returns a number and ignores `limit`/`cursor`: SQL runs one
+`COUNT(*)` with the same `WHERE`, kv counts the namespace after the same
+in-memory match, so a counter never walks pages or stops at a ceiling. Reading
+it needs `store.count` in `effects`.
+
 `examples/tasks` (Redis, with `KV_DRIVER=memory` for tests) and
 `examples/tasks-sql` (MySQL) share the same bodies and both pass
 `arcod test --impl`. What is not there yet: the filter runs in the adapter over

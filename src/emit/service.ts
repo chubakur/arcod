@@ -72,7 +72,7 @@ function pluginCapabilityName(capability: string): string {
 // build refuses it instead of emitting an object with a duplicate key.
 const RESERVED_IO_METHODS = new Set([
   'load', 'save', 'scan', 'del', 'seen', 'takeIf', 'new', 'actor', 'users', 'chat', 'model',
-  'publish', 'queuePublish', 'queueDead', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify',
+  'publish', 'queuePublish', 'queueDead', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify', 'count',
 ]);
 
 export function pluginBindings(mod: ModuleNode, registry?: ProviderRegistry): PluginBinding[] {
@@ -731,6 +731,18 @@ class MemoryStore {
       await this.del(uniqueKey(table, group.join(','), values));
     }
     return true;
+  }
+
+  // A count is a total, not a page: no limit and no cursor, only the same
+  // where filter the driver's find applies. The result is independent of
+  // limit, so a counter no longer walks pages with a ceiling.
+  async entityCount(table, columns, query) {
+    const opts = query || {};
+    const prefix = 'tbl:' + table + ':';
+    const rows = await this.scan(prefix);
+    let items = rows.map((row) => recordOf(row.value));
+    if (opts.where) items = items.filter((item) => matchesWhere(item, opts.where));
+    return items.length;
   }
 
   async entityFind(table, columns, query) {
@@ -1694,6 +1706,11 @@ function sqlEntityIoLines(): string[] {
     '      const meta = requestEntity(entity);',
     '      return await store.entityFind(meta.table, meta.columns, query);',
     '    },',
+    '    async count(entity, query) {',
+    '      metricCapability("store.count");',
+    '      const meta = requestEntity(entity);',
+    '      return await store.entityCount(meta.table, meta.columns, query);',
+    '    },',
   ];
 }
 
@@ -1801,6 +1818,15 @@ function implHandlers(
     "        try { const rec = JSON.parse(item.value); if (rec && typeof rec === 'object' && 'b' in rec) body = rec.b; } catch (error) {}",
     '        return { id, b: body };',
     '      });',
+    '    },',
+    '    async count(entity, query) {',
+    '      metricCapability("store.count");',
+    '      const meta = requestEntity(entity);',
+    '      const opts = query || {};',
+    '      const rows = await store.scan(meta.prefix);',
+    '      let items = rows.map((row) => recordOf(row.value));',
+    '      if (opts.where) items = items.filter((item) => matchesWhere(item, opts.where));',
+    '      return items.length;',
     '    },',
     '    async fetch(entity, id) {',
     '      metricCapability("store.fetch");',
