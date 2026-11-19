@@ -1,11 +1,13 @@
 import { cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import type { EnvironmentNode, ModuleNode } from './ast.ts';
-import { emitService, maxBodyBytes } from './emit/service.ts';
+import { emitService, maxBodyBytes, pickService } from './emit/service.ts';
 import { emitWeb, ssrFirstScreenOp } from './emit/web.ts';
 import { composeYaml, localEnvironment, localImage, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
 import { buildPrompts } from './prompts.ts';
 import { deployManifest, deployProvider, literalMap } from './deploy.ts';
+import { entitiesFromBodies, migrationPlan } from './migrate.ts';
+import { dialectNamed } from './dialects.ts';
 import { helmChart, k8sManifests, type K8sOptions } from './emit/k8s.ts';
 import { sandboxViolation } from './impl.ts';
 import { providerFor } from './providers.ts';
@@ -347,6 +349,28 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
       2,
     ) + '\n',
   ]);
+
+  // Migrations travel with the build. The service embeds the same plan and
+  // applies it on boot, so the .sql artifact beside it is written from the same
+  // call: a rebuild cannot leave a stale copy behind and the two cannot
+  // disagree. The entity set is the one the bodies prove, so a DTO stays a DTO.
+  const svcNode = pickService(mod);
+  if (svcNode) {
+    const declaredRecords = mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name);
+    const plan = migrationPlan(mod, svcNode, {
+      dialect: dialectNamed(dialect),
+      entities: entitiesFromBodies(impl, declaredRecords),
+    });
+    if (plan.migrations.length > 0) {
+      const migrationDir = join(dir, 'migrations');
+      await mkdir(migrationDir, { recursive: true });
+      files.push([join(migrationDir, 'changelog.json'), JSON.stringify(plan.migrations, null, 2)]);
+      for (const migration of plan.migrations) {
+        files.push([join(migrationDir, migration.version + '_' + migration.name + '.up.sql'), migration.up]);
+        files.push([join(migrationDir, migration.version + '_' + migration.name + '.down.sql'), migration.down]);
+      }
+    }
+  }
 
   // Body provenance: which ops have impl bodies, their hashes, and the emit
   // mode. Together with the sandbox check above this makes a body part of the

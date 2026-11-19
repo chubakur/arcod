@@ -148,7 +148,7 @@ format name (`A061`). Full example: `examples/signup`.
 | `arcod ast [dir]` | print the canonical AST; `--check` also runs the checks |
 | `arcod plan [dir]` | deterministic task DAG: files, dependencies, acceptance criteria |
 | `arcod openapi [dir]` | OpenAPI 3.1 on stdout: paths from `route`, schemas from `types`, errors mapped as in the runtime, examples from the `examples` block; `--service <name>` picks one service |
-| `arcod migrate [dir]` | generate migrations from the data model into `.arcod/build/migrations/` (changelog + up/down `.sql`); `--json`; `--dialect mysql\|postgres` picks the DDL spelling; the service applies them on boot |
+| `arcod migrate [dir]` | print the migrations of the data model and write them into `.arcod/build/migrations/` (changelog + up/down `.sql`; `arcod build` writes the same artifact); `--json`; `--dialect mysql\|postgres` picks the DDL spelling; the service applies them on boot |
 | `arcod build --dialect postgres` | same build, Postgres client/store/migrations; MySQL is the default |
 | `arcod build [dir]` | scaffold: routes, adapters, tests, infrastructure in `.arcod/build`; bodies are TODO |
 | `arcod build --impl` | bodies from `impl/*.mjs`, the `io` adapter, nothing invented |
@@ -1171,6 +1171,10 @@ Routes, TTL, limits and infrastructure are identical.
   Deployment+Service per bound provider, the service with `/healthz` probes,
   the web tier and an Ingress; written when an environment says
   `deploy kubernetes` or `deploy helm`;
+- `.arcod/build/migrations/` — the plan the service applies on boot, written
+  from the same call as the embedded copy: `changelog.json` plus
+  `NNNN_<table>.up.sql` / `.down.sql`; a rebuild replaces the directory, so it
+  cannot carry SQL from an older schema;
 - `.arcod/build/prompts/` — one prompt per operation and a `manifest.json` with
   the model hash and token budget;
 - `.arcod/build/deploy.<env>.json` — a manifest per environment with `deploy`.

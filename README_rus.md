@@ -143,7 +143,7 @@ type Account = { id: uuid, email: email, website: url?, plan: Plan = "free" }
 | `arcod ast [dir]` | печатает канонический AST |
 | `arcod plan [dir]` | детерминированный DAG задач: файлы, зависимости, критерии приёмки |
 | `arcod openapi [dir]` | документ OpenAPI 3.1 в stdout: пути из `route`, схемы из `types`, ошибки как в рантайме, примеры из блока `examples`; `--service <имя>` выбирает сервис |
-| `arcod migrate [dir]` | генерирует миграции из модели данных в `.arcod/build/migrations/` (changelog + up/down `.sql`); `--json`; `--dialect mysql\|postgres` выбирает диалект DDL; сервис применяет их при старте |
+| `arcod migrate [dir]` | печатает миграции модели данных и пишет их в `.arcod/build/migrations/` (changelog + up/down `.sql`; `arcod build` пишет тот же артефакт); `--json`; `--dialect mysql\|postgres` выбирает диалект DDL; сервис применяет их при старте |
 | `arcod build [dir]` | scaffold: маршруты, адаптеры, тесты, инфраструктура в `.arcod/build`; тела — TODO |
 | `arcod build --dialect postgres` | та же сборка с postgres-клиентом, `PgStore` (entity/kv/outbox/транзакции) и postgres-миграциями; mysql по умолчанию |
 | `arcod build --impl` | тела из `impl/*.mjs`, адаптер `io`, ничего не додумывает |
@@ -1161,6 +1161,10 @@ arcod run --impl examples/onetimemessage-pwd
   `secrets` — `ExternalSecret`), Deployment+Service на каждый провайдер,
   сервис с пробами `/healthz`, веб-слой и Ingress; пишется, когда окружение
   объявляет `deploy kubernetes` или `deploy helm`;
+- `.arcod/build/migrations/` — план, который сервис применяет на старте,
+  записанный тем же вызовом, что и встроенная копия: `changelog.json` и
+  `NNNN_<table>.up.sql` / `.down.sql`; пересборка заменяет каталог, поэтому
+  в нём не остаётся SQL от старой схемы;
 - `.arcod/build/prompts/` — по промпту на операцию и `manifest.json` с хешем
   модели и бюджетом токенов;
 - `.arcod/build/deploy.<env>.json` — манифест на каждое окружение с `deploy`.
