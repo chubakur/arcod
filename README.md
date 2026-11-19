@@ -281,7 +281,9 @@ environment prod {
 
 Both providers speak the OpenAI-compatible `/chat/completions`, so the body is
 the same: `io.chat(messages, system)`. Naming a vendor in the model is forbidden
-(`A003`). Full example: `examples/chat` — dialogue history, model answers and a
+(`A003`). The same endpoint answers embeddings: `io.embed(texts)` returns one vector
+per input, in request order, using `LLM_EMBED_MODEL` (or `LLM_MODEL`) — so a
+vector store asks for vectors instead of hashing text inside the body. Full example: `examples/chat` — dialogue history, model answers and a
 page with `layout: chat`.
 
 ```bash

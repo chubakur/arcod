@@ -72,7 +72,7 @@ function pluginCapabilityName(capability: string): string {
 // build refuses it instead of emitting an object with a duplicate key.
 const RESERVED_IO_METHODS = new Set([
   'load', 'save', 'scan', 'del', 'seen', 'takeIf', 'new', 'actor', 'users', 'chat', 'model',
-  'publish', 'queuePublish', 'queueDead', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify', 'count',
+  'publish', 'queuePublish', 'queueDead', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify', 'count', 'embed',
 ]);
 
 export function pluginBindings(mod: ModuleNode, registry?: ProviderRegistry): PluginBinding[] {
@@ -1966,6 +1966,7 @@ function implHandlers(
     parts.push(
       '    async chat(messages, system) { return llmChat(messages, system); },',
       '    model() { return llmModel(); },',
+      '    async embed(texts) { return llmEmbed(texts); },',
     );
   }
 

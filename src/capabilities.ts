@@ -76,12 +76,14 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
     effects: {
       chat: 'chat(messages: list<{ role: string, content: string }>, system: string | null) -> { content: string, model: string }',
       model: 'model() -> string',
+      embed: 'embed(texts: list<string>) -> list<list<float>>',
     },
     short: {
       chat: 'chat(messages, system) -> {content,model}',
       model: 'model() -> string',
+      embed: 'embed(texts) -> list<list<float>>',
     },
-    notes: 'messages are {role: user|assistant|system, content}. The adapter owns the wire format; the body never sees a vendor.',
+    notes: 'messages are {role: user|assistant|system, content}. embed turns texts into vectors through the same endpoint (LLM_EMBED_MODEL or LLM_MODEL). The adapter owns the wire format; the body never sees a vendor.',
   },
   // Same record contract as kv, different provider: the body cannot tell
   // whether the row lives in Redis or MySQL.

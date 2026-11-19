@@ -12,6 +12,46 @@ function llmModel() {
   return LLM_MODEL;
 }
 
+// Embeddings ride the same OpenAI-compatible endpoint: Ollama and cloud
+// routers both answer POST /embeddings with { data: [{ index, embedding }] }.
+// The body never names a provider or a dimension; it asks for vectors.
+const LLM_EMBED_MODEL = process.env.LLM_EMBED_MODEL || LLM_MODEL;
+
+async function llmEmbed(texts) {
+  const input = (Array.isArray(texts) ? texts : [texts]).map((item) => String(item));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+  try {
+    const response = await fetch(LLM_BASE_URL + '/embeddings', {
+      method: 'POST',
+      headers: Object.assign(
+        { 'content-type': 'application/json' },
+        LLM_API_KEY ? { authorization: 'Bearer ' + LLM_API_KEY } : {},
+      ),
+      body: JSON.stringify({ model: LLM_EMBED_MODEL, input }),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    if (!response.ok) throw new Error('llm: ' + response.status + ' ' + text.slice(0, 300));
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      throw new Error('llm: invalid json: ' + text.slice(0, 200));
+    }
+    if (!data || !Array.isArray(data.data)) throw new Error('llm: no embeddings in response');
+    return data.data
+      .slice()
+      .sort((left, right) => Number(left.index) - Number(right.index))
+      .map((row) => (Array.isArray(row.embedding) ? row.embedding.map(Number) : []));
+  } catch (error) {
+    if (error && error.name === 'AbortError') throw new Error('llm: timeout after ' + LLM_TIMEOUT_MS + 'ms');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function llmChat(messages, system) {
   const list = Array.isArray(messages) ? messages : [];
   const payload = {
