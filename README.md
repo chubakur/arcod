@@ -1447,6 +1447,9 @@ Errors:
 - `A080` an example call passes more arguments than the operation has
   parameters: `arcod test` invokes by position, so the extra ones were dropped
   without a word.
+- `A082` an operation declares a second `route:` clause: the router, OpenAPI
+  and the generated client all read the first one, so the second was dead text
+  that looked like a live endpoint.
 - `A081` an example calls a name that is not an operation of the service (and
   is not the `uuid(...)` builtin), or a rule (`once(...)`, `atomic name`) names
   an operation the contract does not declare. `arcod test` used to resolve the

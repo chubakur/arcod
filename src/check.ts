@@ -769,6 +769,19 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // A082 — an operation declares two routes. The router, OpenAPI and the
+    // generated client all take the first clause, so the second is dead text
+    // that reads like a working endpoint.
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      const routes = op.clauses.filter((clause) => clause.kind === 'route');
+      for (const extra of routes.slice(1)) {
+        diags.push(diag('A082', 'error', mod.file, extra.loc, `services.${svc.name}.contract.${op.name}.route`,
+          `${op.name} declares a second route; only the first one is emitted`,
+          'keep one route per operation'));
+      }
+    }
+
     // A070 — a route is "METHOD /path". A bare path used to fall through to
     // GET with path "/" in OpenAPI and in the router, so the operation
     // answered a URL nobody wrote.
