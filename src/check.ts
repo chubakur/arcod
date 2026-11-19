@@ -7,6 +7,7 @@ import { capabilityFor, storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
 import { defaultValue } from './migrate.ts';
 import { constraintOf, describeViolation, unknownFormatOf } from './constraints.ts';
+import { isIsoInstant } from './instant.ts';
 
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
 // The HTTP methods a route may name. Anything else (or no method at all)
@@ -14,18 +15,6 @@ const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update'
 const ROUTE_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 // Delay units a trigger may use; a runner has to convert them to a timer.
 const TRIGGER_UNITS = ['ms', 's', 'm', 'h', 'd'];
-
-// An instant is only schedulable when the zone is explicit: 12:00 in whose
-// clock? The lexer accepts the bare token, check decides whether it means a
-// moment, and Date.parse rejects impossible dates (2026-02-30).
-function isIsoInstant(text: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/.test(text)) return false;
-  const at = Date.parse(text);
-  if (Number.isNaN(at)) return false;
-  // Date.parse rolls 2026-02-30 over into March; compare the calendar day.
-  const day = text.slice(0, 10);
-  return new Date(at).toISOString().slice(0, 10) === day;
-}
 
 const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysql', 'mongodb', 'localhost', '127.0.0.1', 'ollama', 'openai', 'anthropic'];
 

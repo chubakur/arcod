@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Expr, ModuleNode, Param, ServiceNode, TypeDecl, TypeExpr } from './ast.ts';
 import { MYSQL, type SqlDialect } from './dialects.ts';
 import { storageUse } from './capabilities.ts';
+import { isIsoInstant } from './instant.ts';
 
 export interface Migration {
   version: string;
@@ -67,11 +68,19 @@ export function defaultValue(
     case 'url':
     case 'uri':
     case 'uuid':
-    case 'datetime':
     case 'enum':
       return typeof value === 'string'
         ? { ok: true, value }
         : { ok: false, reason: base + ' field needs a string default' };
+    case 'datetime':
+      // A datetime default is an instant, so it carries its zone: the same
+      // rule a trigger uses. Without one, the DDL literal would depend on the
+      // server's clock and `DEFAULT 'nonsense'` would only fail at migration.
+      if (typeof value !== 'string') return { ok: false, reason: 'datetime field needs a string default' };
+      if (!isIsoInstant(value)) {
+        return { ok: false, reason: JSON.stringify(value) + ' is not an ISO-8601 instant with a time zone' };
+      }
+      return { ok: true, value };
     case 'int':
     case 'float':
     case 'number':
@@ -132,7 +141,7 @@ function columnDef(mod: ModuleNode, field: Param, unique: boolean, dialect: SqlD
   let def = dialect.quote(field.name) + ' ' + dialect.type(base, unique);
   if (!optional) def += ' NOT NULL';
   const resolved = field.default ? defaultValue(mod, field.type, field.default) : null;
-  if (resolved && resolved.ok) def += ' DEFAULT ' + dialect.defaultLiteral(resolved.value);
+  if (resolved && resolved.ok) def += ' DEFAULT ' + dialect.defaultLiteral(resolved.value, base);
   return def;
 }
 

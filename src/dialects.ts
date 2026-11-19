@@ -7,6 +7,8 @@
 // protocol) and Postgres as a DDL target: the plan is generated and testable,
 // the runtime adapter is the next step (B5.2).
 
+import { utcDateTime } from './instant.ts';
+
 export type DialectName = 'mysql' | 'postgres';
 
 export interface SqlDialect {
@@ -15,7 +17,9 @@ export interface SqlDialect {
   // Column type for a resolved base type. Unique strings are bounded because
   // an index needs a fixed-width key.
   type(base: string, unique: boolean): string;
-  defaultLiteral(value: string | number | boolean | null): string;
+  // `base` is the column's resolved type: a datetime default needs a
+  // dialect-specific spelling, every other scalar is a plain literal.
+  defaultLiteral(value: string | number | boolean | null, base: string): string;
   tableSuffix: string;
   migrationsTable: string;
   primaryKey(field: string): string;
@@ -68,10 +72,16 @@ export const MYSQL: SqlDialect = {
     if (base === 'string' || base === 'email' || base === 'url' || base === 'uri') return unique ? 'VARCHAR(191)' : 'TEXT';
     return MYSQL_TYPES[base] ?? 'JSON';
   },
-  defaultLiteral(value) {
+  defaultLiteral(value, base) {
     if (value === null) return 'NULL';
     if (typeof value === 'boolean') return value ? '1' : '0';
     if (typeof value === 'number') return String(value);
+    // MySQL's DATETIME literal has no zone: `DEFAULT '2026-01-01T00:00:00Z'`
+    // is error 1067 at migration time. Write the same instant in UTC.
+    if (base === 'datetime') {
+      const utc = utcDateTime(value);
+      if (utc) return stringDefault(utc);
+    }
     return stringDefault(value);
   },
   tableSuffix: ' ENGINE=InnoDB',
@@ -90,10 +100,12 @@ export const POSTGRES: SqlDialect = {
     if (base === 'string' || base === 'email' || base === 'url' || base === 'uri') return unique ? 'VARCHAR(191)' : 'TEXT';
     return POSTGRES_TYPES[base] ?? 'JSONB';
   },
-  defaultLiteral(value) {
+  defaultLiteral(value, base) {
     if (value === null) return 'NULL';
     if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
     if (typeof value === 'number') return String(value);
+    // TIMESTAMPTZ accepts the ISO instant as written, zone included.
+    if (base === 'datetime') return stringDefault(value) + '::timestamptz';
     return stringDefault(value);
   },
   tableSuffix: '',

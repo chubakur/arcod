@@ -1194,8 +1194,12 @@ scalar fields get typed columns (`uuid` → `CHAR(36)`, `datetime` →
 `TEXT`, unique strings → `VARCHAR(191)`), `id` is the primary key and each
 `rules { unique ... }` becomes a `UNIQUE KEY`. A field default becomes the
 column's `DEFAULT` (`done: bool = false` → `DEFAULT 0`), so a row inserted
-outside the generated service still gets the declared value. Inline records,
-unions and `list`/`map` land in `JSON` columns.
+outside the generated service still gets the declared value. A `datetime`
+default is an instant, so it carries a zone (`at: datetime =
+"2026-01-01T02:00:00+02:00"`); MySQL's literal has none and receives the UTC
+spelling (`DEFAULT '2026-01-01 00:00:00'`), and the runtime codec converts an
+offset the same way instead of dropping it. Inline records, unions and
+`list`/`map` land in `JSON` columns.
 
 Only entities become tables: `arcod migrate` (and the migrations the service
 carries) reads `impl/` and takes the table set from the record names the bodies

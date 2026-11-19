@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { migrationPlan } from '../src/migrate.ts';
+import { POSTGRES } from '../src/dialects.ts';
 import { emitOpenapi } from '../src/emit/openapi.ts';
 import { startService } from './harness.ts';
 
@@ -71,6 +72,54 @@ test('DDL defaults quote strings and format numbers per column type', () => {
   assert.ok(table.up.includes('DEFAULT 1'), 'true becomes 1');
   assert.ok(table.up.includes('DEFAULT 3'), 'a number is written as is');
   assert.ok(table.up.includes('`note` TEXT'), 'an optional field stays nullable');
+});
+
+// MySQL answers error 1067 for `DEFAULT '2026-01-01T00:00:00Z'`: a DATETIME
+// literal has no zone. Writing the UTC spelling keeps the instant; stripping
+// the zone would silently move a +02:00 value by two hours. Postgres keeps the
+// instant and casts it.
+test('a datetime default is written in the dialect it is applied to', () => {
+  const spec = [
+    'module stamps @0.1.0 {}',
+    'use capability arcod.std.sql @1',
+    'type Stamp = {',
+    '  id: uuid,',
+    '  at: datetime = "2026-01-01T00:00:00Z",',
+    '  local: datetime = "2026-01-01T02:00:00+02:00"',
+    '}',
+    'service Stamps : http {',
+    '  uses store: sql(ttl: 1h)',
+    '  effects { allow store.insert }',
+    '  contract {',
+    '    public op create(id: uuid) -> Stamp { route: "POST /v1/s" effects: store.insert }',
+    '  }',
+    '}',
+    'environment dev { bind store -> mysql() }',
+  ].join('\n');
+  const mod = parse(spec, 'main.arc');
+  const mysql = migrationPlan(mod, specOf(mod)).migrations.find((m) => m.name === 'stamp');
+  assert.ok(mysql, 'the stamp table is migrated');
+  assert.ok(mysql!.up.includes("\`at\` DATETIME(3) NOT NULL DEFAULT '2026-01-01 00:00:00'"), mysql!.up);
+  assert.ok(mysql!.up.includes("\`local\` DATETIME(3) NOT NULL DEFAULT '2026-01-01 00:00:00'"), 'the offset is converted, not dropped');
+
+  const pg = migrationPlan(mod, specOf(mod), { dialect: POSTGRES }).migrations.find((m) => m.name === 'stamp');
+  assert.ok(pg!.up.includes("\"at\" TIMESTAMPTZ NOT NULL DEFAULT '2026-01-01T00:00:00Z'::timestamptz"), pg!.up);
+});
+
+test('A059 refuses a datetime default that is not a zoned instant', () => {
+  const spec = [
+    'module stamps @0.1.0 {}',
+    'type Stamp = {',
+    '  id: uuid,',
+    '  naive: datetime = "2026-01-01T00:00:00",',
+    '  rollover: datetime = "2026-02-30T00:00:00Z",',
+    '  junk: datetime = "tomorrow"',
+    '}',
+  ].join('\n');
+  const diags = check(parse(spec, 'main.arc'));
+  const a059 = diags.filter((item) => item.code === 'A059');
+  assert.deepEqual(a059.map((item) => item.path).sort(), ['types.Stamp.junk', 'types.Stamp.naive', 'types.Stamp.rollover']);
+  for (const item of a059) assert.match(item.message, /ISO-8601 instant with a time zone/);
 });
 
 test('OpenAPI publishes the declared default and keeps the field optional', async () => {
