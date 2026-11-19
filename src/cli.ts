@@ -1092,14 +1092,18 @@ async function runTest(flags: Flags): Promise<void> {
     if (report.rules.length > 0) {
       console.log('rules:');
       for (const rule of report.rules) {
-        console.log('  ' + (rule.ok ? 'ok    ' : 'fail  ') + rule.rule + (rule.detail ? '  — ' + rule.detail : ''));
+        const mark = rule.skipped ? 'skip  ' : rule.ok ? 'ok    ' : 'fail  ';
+        console.log('  ' + mark + rule.rule + (rule.detail ? '  — ' + rule.detail : ''));
       }
     }
 
     const items = [...report.examples, ...report.rules];
     const failed = items.filter((item) => !item.ok).length;
+    // A skipped rule is neither passed nor failed: count it apart so a green
+    // summary never hides the predicate v0.1 did not run.
+    const skipped = report.rules.filter((rule) => rule.skipped).length;
     console.log('');
-    console.log(items.length - failed + ' passed, ' + failed + ' failed');
+    console.log((items.length - failed - skipped) + ' passed, ' + failed + ' failed' + (skipped > 0 ? ', ' + skipped + ' skipped' : ''));
   }
 
   const all = [...report.examples, ...report.rules];

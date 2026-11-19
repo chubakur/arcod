@@ -14,6 +14,10 @@ export interface ExampleResult {
 export interface RuleResult {
   rule: string;
   ok: boolean;
+  // v0.1 executes only `once(...)`. A declared predicate it cannot run is
+  // reported as skipped instead of vanishing from the report: silence read as
+  // "checked and passed" is the one thing a test command must never say.
+  skipped?: boolean;
   detail?: string;
 }
 
@@ -93,6 +97,11 @@ async function runRules(ctx: Context): Promise<RuleResult[]> {
       const predicate = asPredicate(rule.expr);
       if (predicate && predicate.name === 'once') {
         results.push(await checkOnce(rule.name, predicate.target, predicate.elseName, ctx));
+      } else {
+        const label = rule.expr.kind === 'call' && rule.expr.callee.kind === 'ident'
+          ? rule.expr.callee.name + '(...)'
+          : 'this expression';
+        results.push({ rule: rule.name, ok: true, skipped: true, detail: 'predicate ' + label + ' is not executed in v0.1 (once only)' });
       }
     }
 

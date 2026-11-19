@@ -1492,6 +1492,10 @@ Warnings:
   `gt`, `gte`, `lt`, `lte`: the store used to drop the condition and return
   every row. The runtime answers `400 Invalid` with the operator name; `check`
   reads the literal in `impl/` and warns before the request.
+- `W040` an `invariant` whose predicate `arcod test` cannot run: a typo
+  (`oncee(read, ...)`) or a predicate v0.1 does not execute. `arcod test` now
+  prints the rule as `skip` and counts it apart instead of dropping it from the
+  report, so a green run never hides an invariant that was only a comment.
 - `W039` an `on error X` handler on an operation whose `errors:` does not
   list `X`: only the list reaches OpenAPI and the status map, so the fields
   filled by the handler are never shown to a client — list the error or drop
@@ -1690,7 +1694,9 @@ This is a vertical slice, not a finished language.
   keep `}  // note`, and a one-line record or enum keeps its shape instead of
   expanding. `arcod diff`
   compares canonicalized specs; `arcod adopt` imports OpenAPI 3.x JSON only; a Swagger 2.0 document is refused with its version instead of being adopted without its `basePath` and `definitions`.
-- of the rule predicates `arcod test` supports only `once`.
+- of the rule predicates `arcod test` supports only `once`; any other
+  predicate is reported as `skip` and counted apart in the summary (`W040`),
+  never silently dropped.
 - `unique` is checked and enforced (`A054`–`A056`, a duplicate returns the
   declared `Conflict`) for one field or a tuple on the same record. `ordering`
   is checked for cycles only and stays declarative.

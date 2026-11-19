@@ -556,7 +556,16 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     for (const rule of svc.rules) {
       if (rule.kind !== 'invariant') continue;
       const once = asOnce(rule.expr);
-      if (!once || !once.elseName) continue;
+      if (!once) {
+        // W040 — the rule parses and the model is clean, but `arcod test` has
+        // nothing to run: a typo (`oncee(read, ...)`) or a predicate v0.1 does
+        // not execute turned the invariant into a comment. Say it out loud.
+        diags.push(diag('W040', 'warning', mod.file, rule.expr.loc, `services.${svc.name}.rules.${rule.name}`,
+          `invariant predicate ${exprLabel(rule.expr)} is not executed by arcod test`,
+          'write the observation as once(op, by: field, else: Error); other predicates stay declarative'));
+        continue;
+      }
+      if (!once.elseName) continue;
       const op = svc.contract.find((item) => item.kind === 'op' && item.name === once.target);
       if (op && !errorNames(op).includes(once.elseName)) {
         diags.push(diag('A022', 'error', mod.file, rule.loc, `services.${svc.name}.rules.${rule.name}`, `once(..., else: ${once.elseName}) refers to an error that is not in the ${once.target} contract`, 'add the error to errors or fix else'));
@@ -1514,6 +1523,14 @@ function diag(code: string, severity: 'error' | 'warning', file: string, loc: Lo
 function sortDiagnostics(diags: Diagnostic[]): Diagnostic[] {
   return diags.sort((a, b) =>
     a.file.localeCompare(b.file) || a.range.line - b.range.line || a.range.col - b.range.col || a.code.localeCompare(b.code));
+}
+
+// A predicate as a reader would write it back: `oncee(...)`, `read`, or a
+// neutral phrase for shapes with no short name. Used in diagnostics only.
+function exprLabel(expr: Expr): string {
+  if (expr.kind === 'call' && expr.callee.kind === 'ident') return expr.callee.name + '(...)';
+  if (expr.kind === 'ident') return expr.name;
+  return 'this expression';
 }
 
 export function asOnce(expr: Expr): { target: string; elseName: string | null } | null {
