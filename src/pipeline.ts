@@ -100,7 +100,11 @@ export async function runPipeline(
     for (const task of set.tasks) {
       await writeFile(join(promptDir, task.op + '.md'), task.prompt, 'utf8');
     }
-    await writeFile(join(buildDir!, 'prompts.json'), JSON.stringify(promptManifest(set), null, 2) + '\n', 'utf8');
+    const manifest = promptManifest(set);
+    await writeFile(join(buildDir!, 'prompts.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+    // The build writes the same file inside the folder; keep it in step with
+    // this run instead of leaving the previous build's task list.
+    await writeFile(join(promptDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
     const tokens = set.tasks.map((task) => task.tokens).join('/');
     if (set.unresolved.length > 0) {
       return { detail: set.unresolved.join('; '), ok: false, error: 'cannot derive a procedure for: ' + set.unresolved.join(', ') };

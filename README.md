@@ -1080,7 +1080,10 @@ The prompt folder is an artifact: `arcod prompts` and `arcod make` delete an
 `<op>.md` the current contract no longer declares, and a contract with no
 operations leaves no prompt and no `prompts.json` behind. `arcod prompts`
 also refreshes `prompts/manifest.json` in place — the same file `arcod build`
-writes — so a rerun cannot leave the build's older task list behind.
+writes — so a rerun cannot leave the build's older task list behind. A build
+publishes both manifests too: `prompts/manifest.json` and `prompts.json` at
+the root of the build, so `arcod make` cannot lose the loose file when the
+build step replaces the tree.
 
 A prompt is a function signature, not a service description:
 

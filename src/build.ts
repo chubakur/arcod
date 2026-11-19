@@ -357,7 +357,12 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
     const path = join(promptDir, task.op + '.md');
     files.push([path, task.prompt]);
   }
-  files.push([join(promptDir, 'manifest.json'), JSON.stringify(promptManifest(prompts), null, 2) + '\n']);
+  const promptManifestJson = JSON.stringify(promptManifest(prompts), null, 2) + '\n';
+  files.push([join(promptDir, 'manifest.json'), promptManifestJson]);
+  // The loose prompts.json is what `arcod prompts` writes and what scripts
+  // read; a build publishes the same manifest, so the wrapper commands cannot
+  // lose the file when they rebuild the tree.
+  files.push([join(dir, 'prompts.json'), promptManifestJson]);
 
   // Migrations travel with the build. The service embeds the same plan and
   // applies it on boot, so the .sql artifact beside it is written from the same

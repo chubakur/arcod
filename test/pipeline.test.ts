@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -99,6 +99,11 @@ test('a scaffold build with no tests still walks every step', async () => {
   assert.match(result.steps[3].detail, /^scaffold · /);
   assert.match(result.steps[4].detail, /skipped \(--no-test\)/);
   assert.ok(result.buildDir && result.buildDir.endsWith(join('.arcod', 'build')));
+  // The two manifest locations must hold the same task list: the build writes
+  // the one inside prompts/, the prompts step must not leave an older copy.
+  const loose = JSON.parse(await readFile(join(result.buildDir, 'prompts.json'), 'utf8'));
+  const beside = JSON.parse(await readFile(join(result.buildDir, 'prompts', 'manifest.json'), 'utf8'));
+  assert.deepEqual(beside, loose);
 });
 
 test('bodies already in impl/ skip both the model and the rewrite', async () => {
