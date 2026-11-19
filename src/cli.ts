@@ -1306,7 +1306,15 @@ async function findSpec(dir: string): Promise<string> {
   for (const name of preferred) {
     if (files.includes(name)) return join(dir, name);
   }
-  if (files.length > 0) return join(dir, files[0]);
+  if (files.length > 0) {
+    // Several specs and no preferred name: the sort order decides, which is
+    // deterministic but silent. Say which one was read and what else is there.
+    if (files.length > 1) {
+      console.error('note: ' + dir + ' holds ' + files.length + ' specs; reading ' + files[0] +
+        ' (also: ' + files.slice(1).join(', ') + ') — pass a path or a quoted pattern to choose');
+    }
+    return join(dir, files[0]);
+  }
 
   const specDir = join(dir, 'spec');
   const nested = await readdir(specDir, { withFileTypes: true }).catch(() => []);

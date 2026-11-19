@@ -1115,3 +1115,28 @@ test('test --json prints an empty report as JSON, not a sentence', async () => {
   assert.equal(text.code, 0);
   assert.match(text.out, /no examples or rules declared/);
 });
+
+test('a directory with several specs says which one it read', async () => {
+  const dir = await tempDir('arcod-cli-multi-');
+  const body = (name: string) => [
+    'module ' + name + ' @0.1.0 {',
+    '  meta {',
+    '    owner: "@me"',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  await writeFile(join(dir, 'b.arc'), body('b'), 'utf8');
+  await writeFile(join(dir, 'a.arc'), body('a'), 'utf8');
+
+  const r = await run(['check', dir]);
+  assert.equal(r.code, 0, JSON.stringify(r.err));
+  assert.match(r.err, /holds 2 specs; reading a\.arc \(also: b\.arc\)/);
+  assert.match(r.out, /a\.arc is clean/);
+
+  // A preferred name ends the ambiguity: main.arc is read and nothing is said.
+  await writeFile(join(dir, 'main.arc'), body('m'), 'utf8');
+  const preferred = await run(['check', dir]);
+  assert.equal(preferred.code, 0, JSON.stringify(preferred.err));
+  assert.doesNotMatch(preferred.err, /holds \d+ specs/);
+});

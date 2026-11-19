@@ -202,6 +202,10 @@ whichever flag the code checked first. `--json` always means JSON: `test
 --json` on a spec with nothing declared prints `{"examples": [], "rules": []}`
 instead of the sentence the human path prints.
 
+A directory that holds several specs and no `main.arc`/`spec.arc`/`arcod.arc`
+reads the first by name but says so on stderr, listing the others; pass a path
+or a quoted pattern to choose instead of relying on sort order.
+
 A missing environment is named too. `arcod deploy` on a module with none says so
 and shows the declaration to add; `--env staging` on a module that declares
 `dev` and `prod` answers `no environment to deploy: staging — declared: dev,
