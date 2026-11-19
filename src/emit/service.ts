@@ -666,7 +666,7 @@ class MemoryStore {
 
   async entityInsert(table, columns, record, groups) {
     const value = Object.assign({}, record || {});
-    if (value.id == null || value.id === '') throw new ArcodError('Invalid');
+    if (value.id == null || value.id === '') throw new ArcodError('Invalid', { message: 'insert ' + table + ': missing id' });
     const key = this.entityKey(table, value.id);
     if (await this.exists(key)) throw new ArcodError('Conflict');
     const claimed = [];
@@ -925,7 +925,11 @@ function sendError(res, name, values) {
   // An Internal error may carry one sentence about what went wrong inside the
   // service (an unknown entity, a missing adapter): it is ours, not the
   // caller's, so it is safe to echo and it is the only clue the client gets.
-  const detail = name === 'Internal' && values && typeof values.message === 'string' && values.message !== 'Internal'
+  // An Internal error carries the sentence about what broke inside; Invalid
+  // carries the field the caller forgot (insert Room: missing id). Both are
+  // written by us and are the only clue the client gets.
+  const own = (name === 'Internal' || name === 'Invalid') && values && typeof values.message === 'string';
+  const detail = own && values.message !== 'Internal' && values.message !== 'Invalid'
     ? values.message
     : info.message;
   const body = { error: name, message: detail };
@@ -1665,7 +1669,7 @@ function sqlEntityIoLines(): string[] {
     '      metricCapability("store.insert");',
     '      const meta = requestEntity(entity);',
     '      const value = withDefaults(meta, record);',
-    "      if (value.id == null || value.id === '') throw new ArcodError('Invalid');",
+    "      if (value.id == null || value.id === '') throw new ArcodError('Invalid', { message: 'insert ' + entity + ': missing id' });",
     '      await store.entityInsert(meta.table, meta.columns, value, meta.uniqueGroups);',
     '      return value;',
     '    },',
@@ -1803,7 +1807,7 @@ function implHandlers(
     '      metricCapability("store.insert");',
     '      const meta = requestEntity(entity);',
     '      const value = withDefaults(meta, record);',
-    "      if (value.id == null || value.id === '') throw new ArcodError('Invalid');",
+    "      if (value.id == null || value.id === '') throw new ArcodError('Invalid', { message: 'insert ' + entity + ': missing id' });",
     "      const key = meta.prefix + String(value.id);",
     "      if (await store.exists(key)) throw new ArcodError('Conflict');",
     '      const claimed = [];',

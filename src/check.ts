@@ -1067,16 +1067,29 @@ const ENTITY_CALL = /\bio\.(?:insert|fetch|update|remove|find)\(\s*(['"])([A-Za-
 
 export function checkEntityLiterals(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined): void {
   if (!impl) return;
-  const entities = mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name);
+  const records = new Map(mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => [decl.name, decl]));
+  const entities = [...records.keys()];
   if (entities.length === 0) return;
   for (const op of Object.keys(impl).sort()) {
     for (const match of impl[op].matchAll(ENTITY_CALL)) {
       const name = match[2];
-      if (entities.includes(name)) continue;
       const line = impl[op].slice(0, match.index).split('\n').length;
-      diags.push(diag('W036', 'warning', 'impl/' + op + '.mjs', { ...mod.loc, line, endLine: line }, 'impl.' + op,
-        'unknown entity "' + name + '"; declared: ' + entities.join(', '),
-        'rename the literal to a declared record type'));
+      if (!records.has(name)) {
+        diags.push(diag('W036', 'warning', 'impl/' + op + '.mjs', { ...mod.loc, line, endLine: line }, 'impl.' + op,
+          'unknown entity "' + name + '"; declared: ' + entities.join(', '),
+          'rename the literal to a declared record type'));
+        continue;
+      }
+      // W037 — insert needs a key. A record type without `id` looks legal in
+      // the spec but every insert of it is a 400 at runtime, so the check
+      // names the type and the field before the request is ever sent.
+      if (!match[0].startsWith('io.insert')) continue;
+      const decl = records.get(name)!;
+      if (decl.type.kind === 'record' && !decl.type.fields.some((field) => field.name === 'id')) {
+        diags.push(diag('W037', 'warning', 'impl/' + op + '.mjs', { ...mod.loc, line, endLine: line }, 'impl.' + op,
+          'insert ' + name + ': the type has no id field',
+          'add id: string (or a uuid) to the record, or give io.insert a natural key'));
+      }
     }
   }
 }

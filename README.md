@@ -1378,6 +1378,10 @@ Warnings:
   reads `impl/` (the only place a body names an entity) and reports the literal,
   the body file and every declared record type. A block with `check --json`
   carries the same message.
+- `W037` an `io.insert` names a record type without an `id` field: the store
+  keys every record by `id`, so each insert is a `400 Invalid` whose message now
+  names the entity (`insert Room: missing id`). Add `id: string` (or a uuid) to
+  the record, or give the insert a natural key.
 
 ### Examples are tests
 
