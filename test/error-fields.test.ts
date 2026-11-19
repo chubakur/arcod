@@ -40,6 +40,10 @@ test('on error must fill every declared field and may not invent one', () => {
   assert.ok(missing.some((item) => item.code === 'A065'), 'an unfilled field is A065');
   const unknown = check(parse(SPEC.replace('on error Conflict: fence != null', 'on error Conflict: lease.wall != null'), 'main.arc'));
   assert.ok(unknown.some((item) => item.code === 'A064'), 'an undeclared member is A064');
+  // The same field filled through a member reads as filled: e.fence is a
+  // declared field of the error, not an invented one.
+  const member = check(parse(SPEC.replace('on error Conflict: fence != null', 'on error Conflict: e.fence != null'), 'main.arc'));
+  assert.deepEqual(member.filter((item) => item.code === 'A064' || item.code === 'A065'), [], 'a member of a declared field fills it');
 });
 
 test('openapi describes the declared error payload', () => {
