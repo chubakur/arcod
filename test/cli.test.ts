@@ -1024,3 +1024,17 @@ test('a flag another command owns is a usage error here, not a silent no-op', as
   const gql = await run(['graphql', spec, '--out', join(dir, 'out', 'schema.graphql')]);
   assert.equal(gql.code, 0, JSON.stringify(gql.err));
 });
+
+test('adopt on a path that does not exist names the path, not ENOENT', async () => {
+  const dir = await tempDir('arcod-cli-adopt-missing-');
+  const missing = await run(['adopt', join(dir, 'nope.json')]);
+  assert.equal(missing.code, 1);
+  assert.match(missing.err, /^cannot read .*nope\.json: no such file or directory$/m);
+  assert.doesNotMatch(missing.err, /ENOENT/);
+
+  // A file that exists but is not JSON keeps its own, different message.
+  await writeFile(join(dir, 'spec.yaml'), 'openapi: 3.1.0\n', 'utf8');
+  const yaml = await run(['adopt', join(dir, 'spec.yaml')]);
+  assert.equal(yaml.code, 1);
+  assert.match(yaml.err, /only JSON OpenAPI documents are supported/);
+});

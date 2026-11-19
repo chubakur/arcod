@@ -499,7 +499,19 @@ async function runAdopt(args: string[]): Promise<void> {
     process.exitCode = 2;
     return;
   }
-  const source = await readFile(file, 'utf8');
+  let source: string;
+  try {
+    source = await readFile(file, 'utf8');
+  } catch (err) {
+    // `ENOENT: no such file or directory, open '...'` is a stack detail leaked
+    // as a message. Say it the way load() does, so every command agrees.
+    const code = (err as NodeJS.ErrnoException).code;
+    console.error(code === 'ENOENT'
+      ? 'cannot read ' + file + ': no such file or directory'
+      : 'cannot read ' + file + ': ' + (err as Error).message);
+    process.exitCode = 1;
+    return;
+  }
   let doc: any;
   try {
     doc = JSON.parse(source);
