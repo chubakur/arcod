@@ -268,3 +268,38 @@ test('a non-yandex target is refused instead of half-rendered', () => {
     /terraform target is implemented for yandex/,
   );
 });
+
+test('a missing environment says what the module declares, not just no', () => {
+  const bare = parse('module demo @0.1.0 {\n  meta {\n    owner: "@me"\n  }\n}\n', 'main.arc');
+  assert.throws(
+    () => terraformFiles(bare, { environment: 'prod' }),
+    /no environment to render: prod — module demo declares none/,
+  );
+  assert.throws(
+    () => terraformFiles(bare),
+    /no environment to render — module demo declares none/,
+  );
+
+  // Environments exist, but none of them says `deploy`: a different fix, and
+  // the message has to say so instead of looking like a typo.
+  const envs = parse([
+    'module demo @0.1.0 {',
+    '  meta {',
+    '    owner: "@me"',
+    '  }',
+    '}',
+    'environment dev {',
+    '}',
+    'environment prod {',
+    '}',
+    '',
+  ].join('\n'), 'main.arc');
+  assert.throws(
+    () => terraformFiles(envs),
+    /no environment to render — declared: dev, prod, but none has `deploy`/,
+  );
+  assert.throws(
+    () => terraformFiles(envs, { environment: 'staging' }),
+    /no environment to render: staging — declared: dev, prod/,
+  );
+});

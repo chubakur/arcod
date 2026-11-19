@@ -523,7 +523,15 @@ async function runDeploy(flags: Flags): Promise<void> {
   const env = flags.env
     ? loaded.mod.environments.find((item) => item.name === flags.env)
     : loaded.mod.environments[0];
-  if (!env) throw new Error('no environment to deploy' + (flags.env ? ': ' + flags.env : ''));
+  if (!env) {
+    // Name the alternatives (or the absence) instead of just refusing: a
+    // --env typo and a module with no environments need different fixes.
+    const declared = loaded.mod.environments.map((item) => item.name);
+    const tail = declared.length
+      ? ' — declared: ' + declared.join(', ')
+      : ' — module ' + loaded.mod.name + ' declares none; add `environment staging { deploy docker }`';
+    throw new Error('no environment to deploy' + (flags.env ? ': ' + flags.env : '') + tail);
+  }
   if (!env.deploy) {
     console.log(env.name + ': deploy is not declared (docker is assumed by default)');
     console.log('available providers: ' + deployNames().join(', '));

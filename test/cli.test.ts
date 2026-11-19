@@ -938,3 +938,38 @@ test('graphql/grpc --out create the directory they write into', async () => {
   assert.equal(grpc.code, 0, grpc.err);
   assert.match(await readFile(proto, 'utf8'), /^syntax = "proto3";/m);
 });
+
+test('deploy names the environments that exist when the one asked for does not', async () => {
+  const dir = await tempDir('arcod-cli-deploy-env-');
+  const spec = join(dir, 'main.arc');
+
+  // No environment at all: the mention of none is the fix (add one), not a typo.
+  await writeFile(spec, [
+    'module envless @0.1.0 {',
+    '  meta {',
+    '    owner: "@me"',
+    '  }',
+    '}',
+    '',
+  ].join('\n'), 'utf8');
+  const none = await run(['deploy', spec]);
+  assert.equal(none.code, 1);
+  assert.match(none.err, /no environment to deploy — module envless declares none; add `environment staging \{ deploy docker \}`/);
+
+  // A --env typo shows what could have been meant instead of a bare refusal.
+  await writeFile(spec, [
+    'module twos @0.1.0 {',
+    '  meta {',
+    '    owner: "@me"',
+    '  }',
+    '}',
+    'environment dev {',
+    '}',
+    'environment prod {',
+    '}',
+    '',
+  ].join('\n'), 'utf8');
+  const typo = await run(['deploy', spec, '--env', 'staging']);
+  assert.equal(typo.code, 1);
+  assert.match(typo.err, /no environment to deploy: staging — declared: dev, prod/);
+});

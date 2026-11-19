@@ -193,6 +193,13 @@ Numeric flags are checked where they are parsed: `--port` 1..65535, `--replicas`
 1..1000, `--max-tokens` 1..1000000. A bad value prints `invalid value for
 --flag` and exits 2, instead of writing `NaN` into a manifest.
 
+A missing environment is named too. `arcod deploy` on a module with none says so
+and shows the declaration to add; `--env staging` on a module that declares
+`dev` and `prod` answers `no environment to deploy: staging — declared: dev,
+prod`. `arcod terraform` separates the two cases: an unknown `--env` name lists
+the declared ones, while a module whose environments all lack `deploy` says
+that, because the fix is different.
+
 Operation bodies are part of the model, not a hidden blob. Every `impl/*.mjs`
 body is checked against the sandbox — no imports, raw network, fs, exec,
 process or eval, only the `io` adapter — and `arcod build` fails naming the

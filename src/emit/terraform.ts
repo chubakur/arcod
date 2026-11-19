@@ -43,7 +43,14 @@ function zoneOf(region: string): string {
 
 function pickEnv(mod: ModuleNode, name?: string): EnvironmentNode {
   const env = name ? mod.environments.find((item) => item.name === name) : mod.environments.find((item) => item.deploy);
-  if (!env) throw new Error('no environment to render' + (name ? ': ' + name : ''));
+  if (!env) {
+    const declared = mod.environments.map((item) => item.name);
+    let tail: string;
+    if (declared.length === 0) tail = ' — module ' + mod.name + ' declares none';
+    else if (name) tail = ' — declared: ' + declared.join(', ');
+    else tail = ' — declared: ' + declared.join(', ') + ', but none has `deploy`';
+    throw new Error('no environment to render' + (name ? ': ' + name : '') + tail);
+  }
   return env;
 }
 
