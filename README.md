@@ -1078,7 +1078,9 @@ arcod prompts --json     # prompts only, with token counts and sha256
 
 The prompt folder is an artifact: `arcod prompts` and `arcod make` delete an
 `<op>.md` the current contract no longer declares, and a contract with no
-operations leaves no prompt and no `prompts.json` behind.
+operations leaves no prompt and no `prompts.json` behind. `arcod prompts`
+also refreshes `prompts/manifest.json` in place — the same file `arcod build`
+writes — so a rerun cannot leave the build's older task list behind.
 
 A prompt is a function signature, not a service description:
 

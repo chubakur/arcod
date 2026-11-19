@@ -2,7 +2,7 @@ import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ModuleNode } from './ast.ts';
 import { check } from './check.ts';
-import { buildPrompts, prunePromptFiles } from './prompts.ts';
+import { buildPrompts, promptManifest, prunePromptFiles } from './prompts.ts';
 import { runImpl } from './impl.ts';
 import { buildExample } from './build.ts';
 import { runExamples } from './test.ts';
@@ -100,14 +100,7 @@ export async function runPipeline(
     for (const task of set.tasks) {
       await writeFile(join(promptDir, task.op + '.md'), task.prompt, 'utf8');
     }
-    const manifest = {
-      module: set.module,
-      version: set.version,
-      modelHash: set.modelHash,
-      budget: set.budget,
-      tasks: set.tasks.map((task) => ({ id: task.id, op: task.op, file: task.file, tokens: task.tokens, sha256: task.sha256, unresolved: task.unresolved })),
-    };
-    await writeFile(join(buildDir!, 'prompts.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+    await writeFile(join(buildDir!, 'prompts.json'), JSON.stringify(promptManifest(set), null, 2) + '\n', 'utf8');
     const tokens = set.tasks.map((task) => task.tokens).join('/');
     if (set.unresolved.length > 0) {
       return { detail: set.unresolved.join('; '), ok: false, error: 'cannot derive a procedure for: ' + set.unresolved.join(', ') };

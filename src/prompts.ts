@@ -41,6 +41,26 @@ export interface PromptSet {
   unresolved: string[];
 }
 
+// The same manifest every command that writes prompts produces: `arcod build`
+// puts it inside the prompt folder, `arcod prompts` and `arcod make` write it
+// as prompts.json. One shape, so the two locations cannot drift.
+export function promptManifest(set: PromptSet): Record<string, unknown> {
+  return {
+    module: set.module,
+    version: set.version,
+    modelHash: set.modelHash,
+    budget: set.budget,
+    tasks: set.tasks.map((task) => ({
+      id: task.id,
+      op: task.op,
+      file: task.file,
+      tokens: task.tokens,
+      sha256: task.sha256,
+      unresolved: task.unresolved,
+    })),
+  };
+}
+
 export interface PromptOptions {
   budget?: number;
   format?: 'compact' | 'full';

@@ -76,14 +76,20 @@ test('prompts: a removed operation loses its prompt file', async () => {
     const first = await run(['prompts', spec]);
     assert.equal(first.code, 0);
     const dir = join(root, '.arcod', 'build', 'prompts');
-    assert.deepEqual((await readdir(dir)).sort(), ['create.md', 'read.md']);
+    assert.deepEqual((await readdir(dir)).sort(), ['create.md', 'manifest.json', 'read.md']);
+
+    // A build wrote this one; a `prompts` run with a newer contract has to
+    // refresh it, not leave the build's task list behind.
+    await writeFile(join(dir, 'manifest.json'), JSON.stringify({ tasks: [{ op: 'read' }] }), 'utf8');
 
     await writeFile(spec, oneOp, 'utf8');
     const second = await run(['prompts', spec]);
     assert.equal(second.code, 0);
-    assert.deepEqual(await readdir(dir), ['create.md']);
+    assert.deepEqual((await readdir(dir)).sort(), ['create.md', 'manifest.json']);
     const manifest = JSON.parse(await readFile(join(root, '.arcod', 'build', 'prompts.json'), 'utf8'));
     assert.deepEqual(manifest.tasks.map((task: { op: string }) => task.op), ['create']);
+    const beside = JSON.parse(await readFile(join(dir, 'manifest.json'), 'utf8'));
+    assert.deepEqual(beside, manifest);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -103,6 +109,7 @@ test('prompts: a contract with no operations clears the artifact', async () => {
     assert.equal(empty.code, 0);
     assert.match(empty.out, /no operations in shop/);
     assert.equal(existsSync(join(build, 'prompts.json')), false);
+    assert.equal(existsSync(join(build, 'prompts', 'manifest.json')), false);
     assert.deepEqual(await readdir(join(build, 'prompts')), []);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -118,7 +125,7 @@ test('prompts: a file that is not a prompt is not deleted', async () => {
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, 'notes.txt'), 'hand-written note\n', 'utf8');
     assert.equal((await run(['prompts', spec])).code, 0);
-    assert.deepEqual((await readdir(dir)).sort(), ['create.md', 'notes.txt', 'read.md']);
+    assert.deepEqual((await readdir(dir)).sort(), ['create.md', 'manifest.json', 'notes.txt', 'read.md']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

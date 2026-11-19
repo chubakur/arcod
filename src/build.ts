@@ -4,7 +4,7 @@ import type { EnvironmentNode, ModuleNode } from './ast.ts';
 import { emitService, maxBodyBytes, pickService } from './emit/service.ts';
 import { emitWeb, ssrFirstScreenOp } from './emit/web.ts';
 import { composeYaml, localEnvironment, localImage, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
-import { buildPrompts } from './prompts.ts';
+import { buildPrompts, promptManifest } from './prompts.ts';
 import { deployManifest, deployProvider, literalMap } from './deploy.ts';
 import { entitiesFromBodies, migrationPlan } from './migrate.ts';
 import { dialectNamed } from './dialects.ts';
@@ -357,27 +357,7 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
     const path = join(promptDir, task.op + '.md');
     files.push([path, task.prompt]);
   }
-  files.push([
-    join(promptDir, 'manifest.json'),
-    JSON.stringify(
-      {
-        module: prompts.module,
-        version: prompts.version,
-        modelHash: prompts.modelHash,
-        budget: prompts.budget,
-        tasks: prompts.tasks.map((task) => ({
-          id: task.id,
-          op: task.op,
-          file: task.file,
-          tokens: task.tokens,
-          sha256: task.sha256,
-          unresolved: task.unresolved,
-        })),
-      },
-      null,
-      2,
-    ) + '\n',
-  ]);
+  files.push([join(promptDir, 'manifest.json'), JSON.stringify(promptManifest(prompts), null, 2) + '\n']);
 
   // Migrations travel with the build. The service embeds the same plan and
   // applies it on boot, so the .sql artifact beside it is written from the same

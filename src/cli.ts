@@ -8,7 +8,7 @@ import { BuildError, buildExample, implBodiesFor, resolveDialect } from './build
 import { runExamples } from './test.ts';
 import type { Diagnostic } from './diagnostics.ts';
 import type { ModuleNode } from './ast.ts';
-import { buildPrompts, formatPrompts, prunePromptFiles } from './prompts.ts';
+import { buildPrompts, formatPrompts, promptManifest, prunePromptFiles } from './prompts.ts';
 import { formatPipeline, runPipeline } from './pipeline.ts';
 import { DEFAULT_IMPL, formatImplReport, runImpl } from './impl.ts';
 import { PROVIDERS, providerNames } from './providers.ts';
@@ -872,20 +872,7 @@ async function runPrompts(flags: Flags): Promise<void> {
   const set = buildPrompts(loaded.mod, { budget: flags.maxTokens, format: flags.full ? 'full' : 'compact' });
   const artifactDir = join(loaded.dir, '.arcod', 'build');
   const dir = join(artifactDir, 'prompts');
-  const manifest = {
-    module: set.module,
-    version: set.version,
-    modelHash: set.modelHash,
-    budget: set.budget,
-    tasks: set.tasks.map((task) => ({
-      id: task.id,
-      op: task.op,
-      file: task.file,
-      tokens: task.tokens,
-      sha256: task.sha256,
-      unresolved: task.unresolved,
-    })),
-  };
+  const manifest = promptManifest(set);
 
   // The prompt set is a projection of the contract, exactly like the
   // migrations: a removed operation must not leave its prompt on disk, and a
@@ -895,6 +882,7 @@ async function runPrompts(flags: Flags): Promise<void> {
   if (set.tasks.length === 0) {
     await prunePromptFiles(dir, new Set());
     await rm(join(artifactDir, 'prompts.json'), { force: true });
+    await rm(join(dir, 'manifest.json'), { force: true });
     if (flags.json) console.log(JSON.stringify(manifest, null, 2));
     else console.log('no operations in ' + loaded.mod.name + ' — no prompts to build');
     return;
@@ -906,6 +894,9 @@ async function runPrompts(flags: Flags): Promise<void> {
     await writeFile(join(dir, task.op + '.md'), task.prompt, 'utf8');
   }
   await writeFile(join(artifactDir, 'prompts.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  // The build writes the same manifest inside the folder; refresh it here too,
+  // so a `prompts` run after a build cannot leave the build's older task list.
+  await writeFile(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
 
   if (flags.json) {
     console.log(JSON.stringify(manifest, null, 2));
@@ -1454,7 +1445,8 @@ Render the topology as Kubernetes manifests; --helm wraps them in a chart.`,
 Write one deterministic prompt per operation into .arcod/build/prompts.
 The compact form is the default; --full adds the task header, contract, io
 list and storage shape (a larger prompt for the same body). A rerun removes
-<op>.md files the contract no longer declares; an empty contract writes none.`,
+<op>.md files the contract no longer declares, refreshes prompts/manifest.json
+and clears everything when the contract has no operations.`,
   impl: `usage: arcod impl [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
                    [--dry-run] [--no-cache] [--allow-remote]
 
