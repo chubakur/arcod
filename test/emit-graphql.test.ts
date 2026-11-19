@@ -120,6 +120,27 @@ test('graphql: a record nested in a record keeps its own input and output twins'
   buildSchema(sdl);
 });
 
+test('graphql: an alias of a record keeps the record name, not the alias', () => {
+  // type Item = Task is a second name for the same shape: one object and one
+  // input twin, named after the record, so a client never sees Item and Task
+  // as two shapes with the same fields.
+  const source = [
+    'module alias @0.1.0 {}',
+    'type Task = { id: uuid, title: string }',
+    'type Item = Task',
+    'service S : http {',
+    '  contract {',
+    '    public op create(it: Item) -> Item { route: "POST /v1/items" }',
+    '  }',
+    '}',
+  ].join('\n');
+  const sdl = graphqlSchema(parse(source, 'alias.arc'));
+  assert.match(sdl, /create\(it: TaskInput!\): Task!/);
+  assert.equal(sdl.includes('type Item'), false, 'the alias does not become a second object');
+  assert.equal(sdl.includes('input ItemInput'), false);
+  buildSchema(sdl);
+});
+
 test('graphql: a service with no routed operation says so instead of inventing a root', () => {
   // check reports A050 for the missing route, but the emitter is also called
   // directly (SDK, editors): it says why the root is empty instead of
