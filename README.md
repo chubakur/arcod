@@ -1447,6 +1447,11 @@ Errors:
 - `A080` an example call passes more arguments than the operation has
   parameters: `arcod test` invokes by position, so the extra ones were dropped
   without a word.
+- `A081` an example calls a name that is not an operation of the service (and
+  is not the `uuid(...)` builtin), or a rule (`once(...)`, `atomic name`) names
+  an operation the contract does not declare. `arcod test` used to resolve the
+  name after the service started and report "unknown function" or "operation
+  not found" in the report instead of on the line with the typo.
 
 Warnings:
 

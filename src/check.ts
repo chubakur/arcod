@@ -572,6 +572,25 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // A081 — a rule names the operation it checks. `arcod test` resolves that
+    // name at run time and answers "operation X not found" in the report, far
+    // from the rule that has the typo. Declared op names are right here.
+    const opNames = new Set(svc.contract.filter((item) => item.kind === 'op').map((item) => item.name));
+    for (const rule of svc.rules) {
+      if (rule.kind === 'invariant') {
+        const once = asOnce(rule.expr);
+        if (once && !opNames.has(once.target)) {
+          diags.push(diag('A081', 'error', mod.file, rule.loc, `services.${svc.name}.rules.${rule.name}`,
+            `once(${once.target}) names no operation of ${svc.name}`,
+            'declare the operation in contract or fix the name'));
+        }
+      } else if (rule.kind === 'atomic' && !opNames.has(rule.name)) {
+        diags.push(diag('A081', 'error', mod.file, rule.loc, `services.${svc.name}.rules`,
+          `atomic ${rule.name} names no operation of ${svc.name}`,
+          'declare the operation in contract or fix the name'));
+      }
+    }
+
     // A004 — effect used but not allowed; A021 — explicitly denied
     const checkEffect = (alias: string, op: string, loc: Loc) => {
       if (!svc.effects || !isAllowed(svc.effects.allow, alias, op)) {
@@ -1752,7 +1771,17 @@ function checkExampleArguments(mod: ModuleNode, svc: ServiceNode, diags: Diagnos
       const call = stmt.expr;
       if (call.kind !== 'call' || call.callee.kind !== 'ident') continue;
       const op = ops.get(call.callee.name);
-      if (!op) continue;
+      if (!op) {
+        // A081 — `uuid(...)` is the one builtin an example may call; any other
+        // name that is not an operation is a typo only `arcod test` would
+        // report, as "unknown function" after the service has already started.
+        if (call.callee.name !== 'uuid') {
+          diags.push(diag('A081', 'error', mod.file, call.loc, 'services.' + svc.name + '.examples.' + example.name,
+            `example ${example.name}: ${call.callee.name} is not an operation of ${svc.name}`,
+            'call a declared operation, or uuid(...) for a literal id'));
+        }
+        continue;
+      }
       const where = 'services.' + svc.name + '.contract.' + op.name;
       // A080 — the call and the operation disagree on how many arguments there
       // are. `arcod test` invokes by position, so an extra argument is simply
