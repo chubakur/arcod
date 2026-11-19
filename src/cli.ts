@@ -856,6 +856,9 @@ async function runBuild(flags: Flags): Promise<void> {
   const result = await buildExample(loaded.mod, loaded.dir, { port: flags.port, reference: flags.reference, implDir: flags.impl ? undefined : null, registry: loadRegistry(loaded.dir), dialect: flags.dialect === 'postgres' ? 'postgres' : undefined });
   const mode = result.impl.length > 0 ? 'impl' : result.reference ? 'reference' : 'scaffold';
   console.log('arcod build (' + mode + '): ' + result.files.length + ' files in ' + result.dir);
+  // The tag is content-addressed: a changed body means a changed tag, which is
+  // what makes a plain `docker compose up` pick the new image up.
+  console.log('  images: ' + result.images.join(', '));
   if (mode === 'impl') {
     console.log('  bodies: ' + result.impl.join(', '));
   } else if (flags.impl) {

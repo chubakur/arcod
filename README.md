@@ -1094,7 +1094,13 @@ Routes, TTL, limits and infrastructure are identical.
   at boot, calls `createAdapter(io)` once and answers the capability's declared
   signatures through it, so a broken adapter fails startup with the provider
   named;
-- `.arcod/build/docker-compose.yml` — providers + service + frontend;
+- `.arcod/build/docker-compose.yml` — providers + service + frontend, with
+  content-addressed local image tags (`arcod/<module>-service:<hash>` over
+  `service/`, `arcod/<module>-web:<hash>` over `web/`; `arcod build` prints
+  them): editing an `impl/*.mjs` body changes the tag, so a plain
+  `docker compose up` builds and recreates the container instead of keeping the
+  old one, while a rebuild with unchanged files keeps the tag and reuses the
+  image;
 - `.arcod/build/k8s/` (or `helm/`) — the same topology as Kubernetes objects:
   a Namespace, a ConfigMap for the non-secret env, a `Secret` for credentials
   (an `ExternalSecret` when a `secrets` capability is bound), a

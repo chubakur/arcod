@@ -1090,7 +1090,12 @@ arcod run --impl examples/onetimemessage-pwd
 - `.arcod/build/web/` — статический фронтенд и nginx с проксированием корней
   объявленных маршрутов (`/api`, `/v1`) и `/ws` при потоке `stream` (только при
   объявленном `ui`);
-- `.arcod/build/docker-compose.yml` — провайдеры + сервис + фронтенд;
+- `.arcod/build/docker-compose.yml` — провайдеры + сервис + фронтенд, с
+  локальными тегами образов от содержимого (`arcod/<module>-service:<hash>` по
+  `service/`, `arcod/<module>-web:<hash>` по `web/`; `arcod build` их печатает):
+  правка тела в `impl/*.mjs` меняет тег, поэтому обычный `docker compose up`
+  собирает и пересоздаёт контейнер, а не оставляет старый; при неизменных файлах
+  тег тот же и образ переиспользуется;
 - `.arcod/build/k8s/` (или `helm/`) — та же топология объектами Kubernetes:
   Namespace, ConfigMap с несекретным env, `Secret` под креды (при привязке
   `secrets` — `ExternalSecret`), Deployment+Service на каждый провайдер,

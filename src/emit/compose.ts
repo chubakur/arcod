@@ -311,12 +311,22 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
   return { name, providers, appEnv, hasUi };
 }
 
-export function composeYaml(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry(), dialect: 'mysql' | 'postgres' = 'mysql'): string {
+export function localImage(mod: ModuleNode, kind: 'service' | 'web', revision: string): string {
+  return 'arcod/' + kebab(mod.name) + '-' + kind + ':' + revision;
+}
+
+// `revision` is a content hash of the build contexts. With it the image tag
+// changes whenever a body or a page changes, so `docker compose up` without
+// --build builds the missing image instead of reusing a stale container, while
+// an unchanged build keeps its tag and nothing is rebuilt.
+export function composeYaml(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry(), dialect: 'mysql' | 'postgres' = 'mysql', revision?: string): string {
   const { name, providers: bound, appEnv } = composeModel(mod, port, hasUi, registry, dialect);
   const lines = ['name: ' + name, 'services:'];
   for (const item of bound) lines.push(...providerLines(item));
 
-  lines.push('  service:', '    build:', '      context: ./service');
+  lines.push('  service:');
+  if (revision) lines.push('    image: ' + localImage(mod, 'service', revision));
+  lines.push('    build:', '      context: ./service');
 
   if (Object.keys(appEnv).length > 0) {
     lines.push('    environment:');
@@ -333,8 +343,9 @@ export function composeYaml(mod: ModuleNode, port: number, hasUi = true, registr
   }
 
   if (hasUi) {
+    lines.push('  web:');
+    if (revision) lines.push('    image: ' + localImage(mod, 'web', revision));
     lines.push(
-      '  web:',
       '    build:',
       '      context: ./web',
       '    ports:',

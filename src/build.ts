@@ -1,9 +1,9 @@
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import type { ModuleNode } from './ast.ts';
 import { emitService, maxBodyBytes } from './emit/service.ts';
 import { emitWeb, ssrFirstScreenOp } from './emit/web.ts';
-import { composeYaml, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
+import { composeYaml, localImage, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
 import { buildPrompts } from './prompts.ts';
 import { deployManifest, deployProvider, literalMap } from './deploy.ts';
 import { helmChart, k8sManifests, type K8sOptions } from './emit/k8s.ts';
@@ -32,6 +32,22 @@ export interface BuildResult {
   files: string[];
   // Plugin providers whose runtime adapter was copied into this build.
   plugins: string[];
+  // Content-addressed image names: compose rebuilds when a tag changes.
+  images: string[];
+}
+
+// The tag of a generated container follows the content of its build context, so
+// a stale image cannot survive `arcod build --impl` followed by a plain
+// `docker compose up`: a new body means a new tag and therefore a build.
+function imageRevision(files: Array<[string, string]>, dir: string): string {
+  const hash = createHash('sha256');
+  const contexts = [join(dir, 'service') + sep, join(dir, 'web') + sep];
+  const inside = files
+    .filter(([path]) => contexts.some((prefix) => path.startsWith(prefix)))
+    .map(([path, content]) => [relative(dir, path).split(sep).join('/'), content] as const)
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  for (const [path, content] of inside) hash.update(path).update('\0').update(content).update('\0');
+  return hash.digest('hex').slice(0, 12);
 }
 
 async function implDirFor(exampleDir: string): Promise<string> {
@@ -204,7 +220,10 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
   // render: ssr serves the page from the service, so compose needs no nginx
   // sidecar for the first screen.
   const webContainer = hasUi && firstUi?.render !== 'ssr';
-  files.push([join(dir, 'docker-compose.yml'), composeYaml(mod, port, webContainer, options.registry, options.dialect)]);
+  // The tag is computed from the very files written below, so compose derives
+  // `up` behaviour from content, not from a timestamp or a cache.
+  const revision = imageRevision(files, dir);
+  files.push([join(dir, 'docker-compose.yml'), composeYaml(mod, port, webContainer, options.registry, options.dialect, revision)]);
 
   // Deterministic prompts are part of the build output: one per operation,
   // each carrying only its own contract and the capability signatures.
@@ -348,5 +367,9 @@ export async function buildExample(mod: ModuleNode, exampleDir: string, options:
     impl: impl ? Object.keys(impl).sort() : [],
     files: files.map(([path]) => path),
     plugins: pluginEntries.map((entry) => entry.provider),
+    images: [
+      localImage(mod, 'service', revision),
+      ...(webContainer ? [localImage(mod, 'web', revision)] : []),
+    ],
   };
 }
