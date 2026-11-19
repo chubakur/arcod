@@ -56,6 +56,14 @@ test('set: is refused instead of parsed and dropped', () => {
   refuses(opClause('set: 12'), /set.*not supported/);
 });
 
+test('a capability parameter without a value is refused', () => {
+  // `kv(ttl)` used to parse the name and drop it: the default TTL applied as
+  // if the author had never written anything.
+  refuses(serviceMember('uses store: kv(ttl)'), /capability parameter .*ttl.* needs a value/);
+  const mod = parse(serviceMember('uses store: kv(ttl: 999s)'), 'rejected.arc');
+  assert.ok(mod.services[0].uses[0].params.ttl, 'ttl keeps its value');
+});
+
 test('a valid operation without those clauses still parses', () => {
   const mod = parse(opClause('errors: NotFound'), 'rejected.arc');
   assert.equal(mod.services[0].contract[0].name, 'ping');

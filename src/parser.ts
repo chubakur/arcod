@@ -329,7 +329,10 @@ class Parser {
     if (this.accept('(')) {
       while (!this.is(')')) {
         const key = this.expectIdent('capability parameter').value;
-        if (this.accept(':')) params[key] = this.parseExpr();
+        // `kv(ttl)` used to parse the name and drop it: the default applied
+        // silently, as if the value had been written. A parameter is a pair.
+        if (!this.accept(':')) this.error('capability parameter ' + JSON.stringify(key) + ' needs a value: write ' + key + ': …');
+        params[key] = this.parseExpr();
         this.accept(',');
       }
       this.expect(')');
