@@ -1636,9 +1636,12 @@ function routeOf(op: OpNode): string | null {
   return clause && clause.kind === 'route' ? clause.value : null;
 }
 
+// The emitter merges every `errors:` clause on an operation (flatMap below in
+// emit/service.ts), so check has to see the same list. Reading only the first
+// clause made check report W039/A007/A078 for an error declared in the second
+// one — diagnostics the generated service would never agree with.
 function errorNames(op: OpNode): string[] {
-  const clause = op.clauses.find((c) => c.kind === 'errors');
-  return clause && clause.kind === 'errors' ? clause.names : [];
+  return op.clauses.flatMap((clause) => (clause.kind === 'errors' ? clause.names : []));
 }
 
 function isAllowed(allow: string[], alias: string, op: string): boolean {
