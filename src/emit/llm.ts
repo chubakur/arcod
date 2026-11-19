@@ -16,6 +16,9 @@ function llmModel() {
 // routers both answer POST /embeddings with { data: [{ index, embedding }] }.
 // The body never names a provider or a dimension; it asks for vectors.
 const LLM_EMBED_MODEL = process.env.LLM_EMBED_MODEL || LLM_MODEL;
+// dim is declared by the spec (bind llm(dim: 768)) and travels as env; 0 means
+// "not declared", so the runtime only enforces consistency between vectors.
+const LLM_EMBED_DIM = Number(process.env.LLM_EMBED_DIM || 0) || 0;
 
 async function llmEmbed(texts) {
   const input = (Array.isArray(texts) ? texts : [texts]).map((item) => String(item));
@@ -40,10 +43,22 @@ async function llmEmbed(texts) {
       throw new Error('llm: invalid json: ' + text.slice(0, 200));
     }
     if (!data || !Array.isArray(data.data)) throw new Error('llm: no embeddings in response');
-    return data.data
+    const vectors = data.data
       .slice()
       .sort((left, right) => Number(left.index) - Number(right.index))
       .map((row) => (Array.isArray(row.embedding) ? row.embedding.map(Number) : []));
+    // The declared width is a promise to every reader of these vectors: a
+    // shorter or longer one cannot be compared or stored next to the rest.
+    const expected = LLM_EMBED_DIM || (vectors.length > 0 ? vectors[0].length : 0);
+    for (const vector of vectors) {
+      if (vector.length !== expected) {
+        throw new Error(
+          'llm: embedding dim ' + vector.length + ' does not match declared dim ' + expected +
+          (LLM_EMBED_DIM ? '' : ' of the first vector'),
+        );
+      }
+    }
+    return vectors;
   } catch (error) {
     if (error && error.name === 'AbortError') throw new Error('llm: timeout after ' + LLM_TIMEOUT_MS + 'ms');
     throw error;

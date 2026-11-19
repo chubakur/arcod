@@ -322,6 +322,21 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         }
       }
 
+      // A077 — `dim` is the declared width of every embedding this binding
+      // returns. Non-literal, zero or fractional values used to reach the
+      // emitter and produce a service that compared vectors of different
+      // widths on the first request; the contract is static, so it is checked
+      // here.
+      if ('dim' in bind.args && spec.options?.includes('dim')) {
+        const expr = bind.args.dim;
+        const value = expr.kind === 'literal' ? expr.value : undefined;
+        if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+          diags.push(diag('A077', 'error', mod.file, expr.loc, subject,
+            'bind argument dim must be a positive integer',
+            'write dim: 768 — the width every vector of this binding must have'));
+        }
+      }
+
       // A024 — the provider does not implement the capability the alias is
       // used for; W029 — a plugin adapter nothing can dispatch.
       if (capabilities.size === 0) continue;

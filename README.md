@@ -283,7 +283,13 @@ Both providers speak the OpenAI-compatible `/chat/completions`, so the body is
 the same: `io.chat(messages, system)`. Naming a vendor in the model is forbidden
 (`A003`). The same endpoint answers embeddings: `io.embed(texts)` returns one vector
 per input, in request order, using `LLM_EMBED_MODEL` (or `LLM_MODEL`) — so a
-vector store asks for vectors instead of hashing text inside the body. Full example: `examples/chat` — dialogue history, model answers and a
+vector store asks for vectors instead of hashing text inside the body. The
+binding may promise the width: `bind model -> ollama(model: "nomic-embed-text", dim: 768)`
+puts `LLM_EMBED_DIM=768` into the service, and a vector of another size fails
+the operation with `llm: embedding dim N does not match declared dim 768`
+instead of being stored next to the rest. Without `dim` the runtime still
+rejects a response whose vectors disagree with each other; `check` reports
+`A077` when `dim` is not a positive integer. Full example: `examples/chat` — dialogue history, model answers and a
 page with `layout: chat`.
 
 ```bash
@@ -1291,6 +1297,9 @@ Errors:
   spells a capture `:id`, so the braces are a literal segment, the parameter is
   never bound and the operation answers 404 — write `:id` (`arcod adopt`
   converts an OpenAPI document for you);
+- `A077` `dim` in an llm binding is not a positive integer: the width is a
+  promise every reader of the vector relies on, and a fractional or string
+  value cannot be enforced — write `dim: 768`;
 - `A076` a `uses` alias whose capability has no effects and no adapter
   (`uses analytics: olap`): a provider can declare the capability
   (`clickhouse`), but the generated service has nothing to call, so the alias

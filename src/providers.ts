@@ -160,18 +160,22 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   ollama: {
     name: 'ollama',
     capability: 'llm',
-    options: ['model'],
+    // dim is a declared contract, not a request option: the endpoint picks the
+    // width, the spec promises it, and the runtime rejects a vector of another
+    // size before it can be stored next to the rest.
+    options: ['model', 'dim'],
     external: true,
     port: 11434,
     appEnv: ({ host, port, args }) => ({
       LLM_BASE_URL: 'http://' + host + ':' + port + '/v1',
       LLM_MODEL: String(args.model ?? 'qwen2.5-coder:7b'),
       LLM_API_KEY: '',
+      ...(args.dim == null ? {} : { LLM_EMBED_DIM: String(args.dim) }),
     }),
   },
   openai: {
     name: 'openai',
-    options: ['baseUrl', 'model'],
+    options: ['baseUrl', 'model', 'dim'],
     secrets: ['LLM_API_KEY'],
     capability: 'llm',
     external: true,
@@ -182,6 +186,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
       // Filled from the host environment at compose time; the spec never
       // carries the key.
       LLM_API_KEY: '${LLM_API_KEY:-}',
+      ...(args.dim == null ? {} : { LLM_EMBED_DIM: String(args.dim) }),
     }),
   },
   s3: {

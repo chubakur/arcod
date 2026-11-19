@@ -4,6 +4,8 @@ import { startService, mockHttp } from './harness.ts';
 import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { CAPABILITIES } from '../src/capabilities.ts';
+import { PROVIDERS } from '../src/providers.ts';
+import { composeYaml } from '../src/emit/compose.ts';
 
 // Embeddings are a declared llm effect, not a homemade hashing function inside
 // the body: io.embed rides the same OpenAI-compatible endpoint, and vectors
@@ -67,6 +69,83 @@ test('an endpoint without embeddings fails the operation, not the process', asyn
     });
     assert.equal(res.status, 500);
     assert.equal((await res.json()).error, 'Internal');
+  } finally {
+    await svc.stop();
+    await llm.stop();
+  }
+});
+
+// dim is the declared width of every vector a binding returns. The spec names
+// it once (bind model -> ollama(model: "fake-embed", dim: 2)); check rejects a
+// non-integer, and the runtime refuses a vector of another size before a
+// caller can store it next to the rest.
+const SPEC_DIM = SPEC.replace('ollama(model: "fake-embed")', 'ollama(model: "fake-embed", dim: 2)');
+
+test('bind dim is a declared width and reaches the service as env', () => {
+  assert.deepEqual(check(parse(SPEC_DIM, 'main.arc')).filter((d) => d.severity === 'error'), []);
+  const env = PROVIDERS.ollama.appEnv!({ host: 'llm', port: 11434, alias: 'model', args: { model: 'fake-embed', dim: 2 } });
+  assert.equal(env.LLM_EMBED_DIM, '2');
+  const none = PROVIDERS.ollama.appEnv!({ host: 'llm', port: 11434, alias: 'model', args: {} });
+  assert.equal('LLM_EMBED_DIM' in none, false, 'no dim, no promise in env');
+  const yaml = composeYaml(parse(SPEC_DIM, 'main.arc'), 8080, false);
+  assert.match(yaml, /LLM_EMBED_DIM: "2"/, 'compose carries the declared width');
+});
+
+test('A077 rejects a dim that is not a positive integer', () => {
+  for (const bad of ['0', '"768"', '-1']) {
+    const source = SPEC.replace('ollama(model: "fake-embed")', 'ollama(model: "fake-embed", dim: ' + bad + ')');
+    const found = check(parse(source, 'main.arc')).filter((d) => d.code === 'A077');
+    assert.equal(found.length, 1, 'dim: ' + bad);
+    assert.equal(found[0].severity, 'error');
+    assert.equal(found[0].path, 'environments.dev.binds.model');
+    assert.match(found[0].message, /dim must be a positive integer/);
+  }
+});
+
+test('a vector of another width fails the operation, not the process', async () => {
+  const llm = await mockHttp(() => ({
+    status: 200,
+    body: { data: [{ index: 0, embedding: [0.1, 0.2] }] },
+  }));
+  const svc = await startService(SPEC_DIM, { impl: IMPL, env: { LLM_BASE_URL: llm.base, LLM_EMBED_DIM: '3' } });
+  try {
+    const res = await fetch(svc.base + '/v1/embed', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items: ['alpha'] }),
+    });
+    assert.equal(res.status, 500);
+    assert.equal((await res.json()).error, 'Internal');
+    const again = await fetch(svc.base + '/v1/embed', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items: ['alpha'] }),
+    });
+    assert.equal(again.status, 500, 'the process survives a rejected width');
+  } finally {
+    await svc.stop();
+    await llm.stop();
+  }
+});
+
+test('without a declared dim, vectors of different widths are still rejected', async () => {
+  const llm = await mockHttp(() => ({
+    status: 200,
+    body: {
+      data: [
+        { index: 0, embedding: [0.1, 0.2] },
+        { index: 1, embedding: [0.3] },
+      ],
+    },
+  }));
+  const svc = await startService(SPEC, { impl: IMPL, env: { LLM_BASE_URL: llm.base } });
+  try {
+    const res = await fetch(svc.base + '/v1/embed', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items: ['alpha', 'beta'] }),
+    });
+    assert.equal(res.status, 500);
   } finally {
     await svc.stop();
     await llm.stop();
