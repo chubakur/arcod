@@ -169,6 +169,9 @@ function createStreamPubSub(url) {
     socket: null,
     buffer: Buffer.alloc(0),
     connecting: null,
+    // Channels announced on the current socket: a reconnect needs them again,
+    // a duplicate SUBSCRIBE on the same socket is pointless.
+    sent: new Set(),
   };
   // A connection in subscribe mode may not issue PUBLISH: Redis answers
   // "only (P)SUBSCRIBE / (P)UNSUBSCRIBE / PING / QUIT allowed in this
@@ -229,18 +232,39 @@ function createStreamPubSub(url) {
     }
   }
 
+  function sendSubscribe(channel) {
+    if (!state.socket || state.socket.destroyed) return;
+    if (state.sent.has(channel)) return;
+    state.sent.add(channel);
+    state.socket.write(encode('SUBSCRIBE', channel));
+  }
+
+  // The broker forgets subscriptions when the connection dies, so a new
+  // socket has to announce every topic that still has listeners. Without
+  // this a restart of redis leaves the websocket quiet while the service
+  // looks healthy.
+  function resubscribe() {
+    for (const [channel, count] of subscriptions) {
+      if (count > 0) sendSubscribe(channel);
+    }
+  }
+
   function connect() {
     if (state.socket && !state.socket.destroyed) return Promise.resolve();
     if (state.connecting) return state.connecting;
+    // A half-written push from the previous connection means nothing here.
+    state.buffer = Buffer.alloc(0);
+    state.sent = new Set();
     state.connecting = new Promise((resolve, reject) => {
       const socket = net.createConnection({ host, port }, () => {
         state.connecting = null;
+        resubscribe();
         resolve();
       });
       socket.on('data', onData);
       socket.on('error', (err) => { state.connecting = null; reject(err); });
       socket.on('close', () => {
-        state.socket = null;
+        if (state.socket === socket) state.socket = null;
         // Re-subscribe everything on reconnect: delivery resumes where the
         // topics left off, sockets still get their events.
         if ([...subscriptions.values()].some((count) => count > 0)) {
@@ -258,7 +282,7 @@ function createStreamPubSub(url) {
     if (count > 0) return;
     try {
       await connect();
-      state.socket.write(encode('SUBSCRIBE', channel));
+      sendSubscribe(channel);
     } catch {
       subscriptions.set(channel, 0);
     }
@@ -268,6 +292,7 @@ function createStreamPubSub(url) {
     const count = (subscriptions.get(channel) || 0) - 1;
     subscriptions.set(channel, Math.max(0, count));
     if (count > 0) return;
+    state.sent.delete(channel);
     if (state.socket && !state.socket.destroyed) {
       try { state.socket.write(encode('UNSUBSCRIBE', channel)); } catch {}
     }

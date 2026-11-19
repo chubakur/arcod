@@ -732,7 +732,9 @@ What is generated:
 one replica, demo scale. `bind stream -> redis(...)` puts pub/sub between the
 replicas: every instance publishes to the broker and subscribes to the topics
 its own websocket clients listen to, so a client may sit on any replica and
-still see every event exactly once. Reconnects re-subscribe automatically.
+still see every event exactly once. Reconnects re-subscribe automatically,
+including after a broker restart: the new connection announces every topic that
+still has a listener.
 
 ### A queue: publish in one operation, consume in a job
 
