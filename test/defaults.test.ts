@@ -122,6 +122,26 @@ test('A059 refuses a datetime default that is not a zoned instant', () => {
   for (const item of a059) assert.match(item.message, /ISO-8601 instant with a time zone/);
 });
 
+// CHAR(36) takes any string and BIGINT silently truncates, so these two
+// defaults would pass every layer and only surprise the client or the DBA.
+test('A059 keeps a default inside its scalar type', () => {
+  const spec = [
+    'module kinds @0.1.0 {}',
+    'type Row = {',
+    '  id: uuid,',
+    '  half: int = 1.5,',
+    '  typo: uuid = "nope",',
+    '  whole: int = 2,',
+    '  real: uuid = "550E8400-E29B-41D4-A716-446655440000"',
+    '}',
+  ].join('\n');
+  const diags = check(parse(spec, 'main.arc'));
+  const a059 = diags.filter((item) => item.code === 'A059');
+  assert.deepEqual(a059.map((item) => item.path).sort(), ['types.Row.half', 'types.Row.typo']);
+  assert.match(a059.find((item) => item.path === 'types.Row.half')!.message, /not a whole number/);
+  assert.match(a059.find((item) => item.path === 'types.Row.typo')!.message, /not a UUID/);
+});
+
 test('OpenAPI publishes the declared default and keeps the field optional', async () => {
   const { source } = await load(sqlUrl);
   const mod = parse(source, 'main.arc');

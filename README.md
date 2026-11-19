@@ -116,7 +116,9 @@ That one declaration is the whole story: the migration writes `DEFAULT 0`, the
 runtime insert fills `false` only when the body omits the field (an explicit
 value, including `null` on an optional field, wins), and OpenAPI publishes
 `default: false` and drops the field from `required`. `check` rejects anything
-that is not a literal of the field type (`A059`).
+that is not a literal of the field type, and keeps the literal inside the
+column: `int` takes a whole number (`1.5` is `A059`), `uuid` a UUID, an enum
+one of its values, a `datetime` an instant with a zone (`A059`).
 
 A string can carry a constraint. `email` and `url` are shorthands for
 `string(format: email)` and `string(format: uri)`; a declared enum closes a

@@ -67,11 +67,18 @@ export function defaultValue(
     case 'email':
     case 'url':
     case 'uri':
-    case 'uuid':
     case 'enum':
       return typeof value === 'string'
         ? { ok: true, value }
         : { ok: false, reason: base + ' field needs a string default' };
+    case 'uuid':
+      // A uuid column is CHAR(36): any string fits, so a typo would only show
+      // up in clients that parse the OpenAPI default. Reject it at the model.
+      if (typeof value !== 'string') return { ok: false, reason: 'uuid field needs a string default' };
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+        return { ok: false, reason: JSON.stringify(value) + ' is not a UUID' };
+      }
+      return { ok: true, value };
     case 'datetime':
       // A datetime default is an instant, so it carries its zone: the same
       // rule a trigger uses. Without one, the DDL literal would depend on the
@@ -82,6 +89,11 @@ export function defaultValue(
       }
       return { ok: true, value };
     case 'int':
+      // BIGINT has no fractional part; a DDL DEFAULT 1.5 is an error on
+      // Postgres and a silent truncation on MySQL, so it is a model mistake.
+      if (typeof value !== 'number') return { ok: false, reason: 'int field needs a numeric default' };
+      if (!Number.isInteger(value)) return { ok: false, reason: value + ' is not a whole number' };
+      return { ok: true, value };
     case 'float':
     case 'number':
     case 'decimal':
