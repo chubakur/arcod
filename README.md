@@ -289,7 +289,9 @@ puts `LLM_EMBED_DIM=768` into the service, and a vector of another size fails
 the operation with `llm: embedding dim N does not match declared dim 768`
 instead of being stored next to the rest. Without `dim` the runtime still
 rejects a response whose vectors disagree with each other; `check` reports
-`A077` when `dim` is not a positive integer. Full example: `examples/chat` — dialogue history, model answers and a
+`A077` when `dim` is not a positive integer. An empty batch returns `[]`
+without a request: endpoints reject `input: []`, and an indexer with nothing
+to embed has nothing to ask. Full example: `examples/chat` — dialogue history, model answers and a
 page with `layout: chat`; `examples/vector` — notes indexed by `io.embed`
 and searched by cosine in the body, with `dim: 768` on the binding.
 

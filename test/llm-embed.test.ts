@@ -151,3 +151,25 @@ test('without a declared dim, vectors of different widths are still rejected', a
     await llm.stop();
   }
 });
+
+test('an empty batch returns no vectors and asks nobody', async () => {
+  // OpenAI-compatible endpoints reject input: [] with 400; an indexer with
+  // nothing to embed should get [], not a failed operation.
+  const llm = await mockHttp(() => ({ status: 400, body: { error: 'empty input' } }));
+  const svc = await startService(SPEC, { impl: IMPL, env: { LLM_BASE_URL: llm.base } });
+  try {
+    const res = await fetch(svc.base + '/v1/embed', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items: [] }),
+    });
+    const body = await res.json();
+    assert.ok(res.status === 200 || res.status === 201, JSON.stringify(body));
+    assert.equal(body.count, 0);
+    assert.equal(llm.requests.filter((req) => req.url.endsWith('/embeddings')).length, 0,
+      'an empty batch is not sent to the endpoint');
+  } finally {
+    await svc.stop();
+    await llm.stop();
+  }
+});

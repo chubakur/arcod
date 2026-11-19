@@ -22,6 +22,10 @@ const LLM_EMBED_DIM = Number(process.env.LLM_EMBED_DIM || 0) || 0;
 
 async function llmEmbed(texts) {
   const input = (Array.isArray(texts) ? texts : [texts]).map((item) => String(item));
+  // An empty batch is not a question: OpenAI-compatible endpoints reject
+  // input: [] with 400, so an indexer that found nothing to embed used to fail
+  // instead of doing nothing.
+  if (input.length === 0) return [];
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
   try {
