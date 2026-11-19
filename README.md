@@ -162,7 +162,7 @@ format name (`A061`). Full example: `examples/signup`.
 | `arcod k8s [dir]` | Kubernetes objects for the compose topology (namespace, configmap, provider deployments, app, ingress); `--helm` for a chart, `--out dir` to write files |
 | `arcod terraform [dir]` | Terraform for the cloud view: network, managed services for the binds, secrets as variables; `--env`, `--out dir`; Yandex Cloud |
 | `arcod prompts [dir]` | prompts only: compact by default, `--full` for the detailed task prompt (header, contract, io list, storage shape); `--max-tokens`, `--json` |
-| `arcod impl [dir]` | generate operation bodies with a local model: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote` |
+| `arcod impl [dir]` | generate operation bodies with a local model: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote`, `--json` |
 | `arcod fmt [dir|pattern]` | canonical AST formatter on stdout; `--check` fails if not formatted; `--write` rewrites the spec; a quoted pattern such as `'examples/*/main.arc'` checks or rewrites every match, reports each file by path and needs `--check` or `--write`; `--to <version>` migrates first. Comments are re-attached to the declaration or field they precede (a commented field makes the record multi-line) and a comment trailing code stays on its own line |
 | `arcod diff <a> <b>` | structural diff of two specs (both canonicalized first), `-`/`+` hunks |
 | `arcod graphql [dir]` | GraphQL SDL for the same contract: `GET` → Query, other methods → Mutation, `<Name>Input` twins for arguments, the HTTP route, error statuses and access clauses in each field description; `--service <name>`, `--out <file>` |

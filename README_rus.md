@@ -157,7 +157,7 @@ type Account = { id: uuid, email: email, website: url?, plan: Plan = "free" }
 | `arcod k8s [dir]` | объекты Kubernetes для compose-топологии (namespace, configmap, деплойменты провайдеров, сервис, ingress); `--helm` — чарт, `--out dir` — записать файлы |
 | `arcod terraform [dir]` | Terraform для облака: сеть, managed-сервисы под привязки, секреты через переменные; `--env`, `--out dir`; Yandex Cloud |
 | `arcod prompts [dir]` | только промпты: по умолчанию компактный формат, `--full` — подробная задача (заголовок, контракт, список io, форма хранения); `--max-tokens`, `--json` |
-| `arcod impl [dir]` | тела операций локальной моделью: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote` |
+| `arcod impl [dir]` | тела операций локальной моделью: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote`, `--json` |
 | `arcod fmt [dir|pattern]` | канонический AST-форматтер в stdout; `--check` падает, если не отформатировано; `--write` перезаписывает спеку; шаблон в кавычках (`'examples/*/main.arc'`) проверяет или переписывает все совпадения, печатает файл путём и требует `--check` или `--write`; `--to <version>` сперва мигрирует. Комментарии перевешиваются на декларацию или поле, которое они предваряют (поле с комментарием делает запись многострочной), а комментарий в конце строки остаётся на своей строке |
 | `arcod diff <a> <b>` | структурный diff двух спек (обе канонизируются), хунки `-`/`+` |
 | `arcod graphql [dir]` | GraphQL SDL того же контракта: `GET` → Query, остальные методы → Mutation, близнецы `<Name>Input` для аргументов, HTTP-маршрут, коды ошибок и клаузулы доступа в описании поля; `--service <имя>`, `--out <файл>` |

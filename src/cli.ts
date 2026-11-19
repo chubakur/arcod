@@ -47,7 +47,7 @@ export class UsageError extends Error {}
 // command declares the flags it actually reads; anything else is a usage
 // error. The sets include flags the command forwards (`make --port`) and ones
 // it reads indirectly (`migrate --dialect`).
-const COMMAND_FLAGS: Record<string, string[]> = {
+export const COMMAND_FLAGS: Record<string, string[]> = {
   check: ['--json', '--env', '--strict'],
   ast: ['--json', '--check'],
   plan: ['--json'],
@@ -1385,7 +1385,7 @@ async function findSpec(dir: string): Promise<string> {
 
 // Every subcommand answers for itself: "arcod <cmd> --help" prints this
 // string and exits 0, so a wrong flag never needs a guess from the full page.
-const COMMAND_USAGE: Record<string, string> = {
+export const COMMAND_USAGE: Record<string, string> = {
   check: `usage: arcod check [dir|spec.arc|pattern] [--json] [--env name] [--strict]
 
 Parse the spec and print diagnostics. --json prints a JSON report,
@@ -1452,11 +1452,12 @@ list and storage shape (a larger prompt for the same body). A rerun removes
 <op>.md files the contract no longer declares, refreshes prompts/manifest.json
 and clears everything when the contract has no operations.`,
   impl: `usage: arcod impl [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
-                   [--dry-run] [--no-cache] [--allow-remote]
+                   [--dry-run] [--no-cache] [--allow-remote] [--json]
 
 Ask a local Ollama-compatible model for the operation bodies.`,
   make: `usage: arcod make [dir|spec.arc] [--model m] [--force] [--skip-impl] [--no-test]
-                   [--reference] [--port 8080] [--json]
+                   [--reference] [--port 8080] [--endpoint URL] [--max-tokens 1600]
+                   [--allow-remote] [--json]
 
 Run the loop: check, prompts, bodies, build, test. Stops at the first failure.`,
   build: `usage: arcod build [dir|spec.arc] [--reference | --impl] [--port 8080]
@@ -1473,14 +1474,13 @@ Build and start the project with docker compose. --detach leaves it running,
 --down stops what this project started (no rebuild, no cleanup of the build).`,
 };
 
-function printHelp(): void {
-  console.log(`arcod ${VERSION} — specification compiler for agent-built services
+export const MAIN_USAGE = `arcod ${VERSION} — specification compiler for agent-built services
 
 usage:
   arcod check [dir|spec.arc|pattern] [--json] [--env name] [--strict]
-  arcod ast   [dir|spec.arc] [--check]
+  arcod ast   [dir|spec.arc] [--check] [--json]
   arcod plan  [dir|spec.arc] [--json]
-  arcod openapi [dir|spec.arc] [--service name]
+  arcod openapi [dir|spec.arc] [--service name] [--out file]
   arcod graphql [dir|spec.arc] [--service name] [--out file]
   arcod grpc  [dir|spec.arc] [--service name] [--out file]
   arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres]
@@ -1488,20 +1488,22 @@ usage:
   arcod diff <a.arc|dir> <b.arc|dir>
   arcod adopt <openapi.json>
   arcod upgrade [dir|spec.arc] [--to version] [--write]
-  arcod new <name>
+  arcod new <name> [--force]
   arcod lsp
   arcod providers [--json] [--plugins]
   arcod deploy [dir|spec.arc] [--env name] [--json]
   arcod terraform [dir|spec.arc] [--env name] [--out dir]
-  arcod k8s   [dir|spec.arc] [--helm] [--image ref] [--host host]
+  arcod k8s   [dir|spec.arc] [--helm] [--image ref] [--host host] [--env name]
                               [--namespace ns] [--replicas n] [--ingress-class c] [--out dir]
   arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]
   arcod impl  [dir|spec.arc] [--model qwen2.5-coder:7b] [--endpoint URL]
-                              [--dry-run] [--no-cache] [--allow-remote]
+                              [--dry-run] [--no-cache] [--allow-remote] [--json]
   arcod make  [dir|spec.arc] [--model m] [--force] [--skip-impl] [--no-test]
-                              [--reference] [--port 8080] [--json]
+                              [--reference] [--port 8080] [--endpoint URL]
+                              [--max-tokens 1600] [--allow-remote] [--json]
   arcod build [dir|spec.arc] [--reference | --impl] [--port 8080] [--dialect mysql|postgres]
-  arcod test  [dir|spec.arc] [--impl] [--json]
+                              [--json]
+  arcod test  [dir|spec.arc] [--impl] [--reference] [--port 8080] [--json]
   arcod run   [dir|spec.arc] [--impl] [--scaffold] [--port 8080] [--detach] [--down]
 
 make runs the whole loop: check, prompts, bodies, build, test. It stops at the
@@ -1536,5 +1538,8 @@ printing them. Nothing is applied: the output is text only.
 examples:
   cd examples/onetimemessage && arcod run
   arcod check examples/onetimemessage
-  arcod plan examples/onetimemessage --json`);
+  arcod plan examples/onetimemessage --json`;
+
+function printHelp(): void {
+  console.log(MAIN_USAGE);
 }
