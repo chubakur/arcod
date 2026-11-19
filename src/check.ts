@@ -769,16 +769,19 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
-    // A082 — an operation declares two routes. The router, OpenAPI and the
-    // generated client all take the first clause, so the second is dead text
-    // that reads like a working endpoint.
+    // A082 — an operation declares a singleton clause twice. The router,
+    // OpenAPI, the auth guard and the generated client all read the first
+    // clause, so the second is dead text that reads like a working endpoint
+    // (`route`), a second role set (`roles`) or a second owner.
     for (const op of svc.contract) {
       if (op.kind !== 'op') continue;
-      const routes = op.clauses.filter((clause) => clause.kind === 'route');
-      for (const extra of routes.slice(1)) {
-        diags.push(diag('A082', 'error', mod.file, extra.loc, `services.${svc.name}.contract.${op.name}.route`,
-          `${op.name} declares a second route; only the first one is emitted`,
-          'keep one route per operation'));
+      for (const kind of ['route', 'roles', 'owner'] as const) {
+        const clauses = op.clauses.filter((clause) => clause.kind === kind);
+        for (const extra of clauses.slice(1)) {
+          diags.push(diag('A082', 'error', mod.file, extra.loc, `services.${svc.name}.contract.${op.name}.${kind}`,
+            `${op.name} declares a second ${kind} clause; only the first one is emitted`,
+            'keep one ' + kind + ' clause per operation'));
+        }
       }
     }
 
