@@ -98,6 +98,28 @@ test('graphql: the field description keeps the HTTP route and the error statuses
   assert.ok(sdl.includes('Errors: NotFound (404)'));
 });
 
+test('graphql: a record nested in a record keeps its own input and output twins', () => {
+  const source = [
+    'module nested @0.1.0 {}',
+    'type Meta = { color: string, tags: list<string> }',
+    'type Task = { id: uuid, title: string, meta: Meta }',
+    'service S : http {',
+    '  contract {',
+    '    public op create(t: Task) -> Task { route: "POST /v1/tasks" }',
+    '  }',
+    '}',
+  ].join('\n');
+  const sdl = graphqlSchema(parse(source, 'nested.arc'));
+  // The field is the output twin inside a type and the input twin inside an
+  // input; a single Meta shape in both places would let a client send fields
+  // the server assigns.
+  assert.match(sdl, /input MetaInput \{\n  color: String!\n  tags: \[String!\]!\n\}/);
+  assert.match(sdl, /input TaskInput \{\n  id: ID!\n  title: String!\n  meta: MetaInput!\n\}/);
+  assert.match(sdl, /type Task \{\n  id: ID!\n  title: String!\n  meta: Meta!\n\}/);
+  assert.match(sdl, /create\(t: TaskInput!\): Task!/);
+  buildSchema(sdl);
+});
+
 test('graphql: a service with no routed operation says so instead of inventing a root', () => {
   // check reports A050 for the missing route, but the emitter is also called
   // directly (SDK, editors): it says why the root is empty instead of
