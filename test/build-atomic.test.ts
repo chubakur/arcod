@@ -88,6 +88,21 @@ test('a build sweeps staging trees left by a killed process', async () => {
   }
 });
 
+test('a build that fails after writing files keeps the previous tree', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'arcod-atomic-'));
+  try {
+    const first = await buildExample(parse(good, 'main.arc'), root, { port: 8080, reference: true });
+    const before = await readFile(join(first.dir, 'docker-compose.yml'), 'utf8');
+    await writeFile(join(root, 'main.arc'), "module shop @0.1.0 {}\n\nuse capability arcod.std.ids @1\n\ntype Item = { id: string, title: string }\n\nservice Shop : http {\n  uses uuid: ids\n\n  effects {\n    allow uuid.new\n  }\n\n  contract {\n    public op create(title: string) -> Item {\n      route: \"POST /v1/items\"\n      effects: uuid.new\n    }\n\n    public op read(id: string) -> Item {\n      route: \"GET /v1/items/:id\"\n    }\n  }\n}\n\nenvironment dev {\n  bind uuid -> local(import: \"missing-realm.json\")\n  deploy docker\n}\n", 'utf8');
+    await assert.rejects(buildExample(parse("module shop @0.1.0 {}\n\nuse capability arcod.std.ids @1\n\ntype Item = { id: string, title: string }\n\nservice Shop : http {\n  uses uuid: ids\n\n  effects {\n    allow uuid.new\n  }\n\n  contract {\n    public op create(title: string) -> Item {\n      route: \"POST /v1/items\"\n      effects: uuid.new\n    }\n\n    public op read(id: string) -> Item {\n      route: \"GET /v1/items/:id\"\n    }\n  }\n}\n\nenvironment dev {\n  bind uuid -> local(import: \"missing-realm.json\")\n  deploy docker\n}\n", 'main.arc'), root, { port: 8080, reference: true }), /missing-realm\.json/);
+    assert.equal(await readFile(join(root, '.arcod', 'build', 'docker-compose.yml'), 'utf8'), before);
+    const entries = await readdir(join(root, '.arcod'));
+    assert.deepEqual(entries.filter((name) => name.startsWith('build.')), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('a failed first build leaves no .arcod/build at all', async () => {
   const root = await mkdtemp(join(tmpdir(), 'arcod-atomic-'));
   try {
