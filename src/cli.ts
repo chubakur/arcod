@@ -42,6 +42,48 @@ interface Loaded {
 // line and exit 2 instead of a stack trace from an uncaught rejection.
 export class UsageError extends Error {}
 
+// parseFlags knows every flag, so `--out` reached `arcod build` and was
+// silently ignored — the same no-op as a typo, only harder to notice. Each
+// command declares the flags it actually reads; anything else is a usage
+// error. The sets include flags the command forwards (`make --port`) and ones
+// it reads indirectly (`migrate --dialect`).
+const COMMAND_FLAGS: Record<string, string[]> = {
+  check: ['--json', '--env', '--strict'],
+  ast: ['--json', '--check'],
+  plan: ['--json'],
+  openapi: ['--service'],
+  graphql: ['--service', '--out'],
+  grpc: ['--service', '--out'],
+  migrate: ['--json', '--dialect'],
+  build: ['--reference', '--impl', '--port', '--dialect'],
+  test: ['--impl', '--reference', '--port', '--json'],
+  make: ['--force', '--skip-impl', '--no-test', '--model', '--endpoint', '--max-tokens', '--allow-remote', '--reference', '--port', '--json'],
+  run: ['--impl', '--scaffold', '--port', '--detach', '--down'],
+  providers: ['--json', '--plugins'],
+  deploy: ['--json', '--env'],
+  k8s: ['--out', '--helm', '--image', '--host', '--namespace', '--replicas', '--ingress-class', '--env'],
+  terraform: ['--out', '--env'],
+  prompts: ['--json', '--full', '--max-tokens'],
+  impl: ['--model', '--endpoint', '--dry-run', '--no-cache', '--allow-remote', '--json'],
+  fmt: ['--check', '--write', '--to'],
+  diff: [],
+  adopt: [],
+  upgrade: ['--to', '--write'],
+  new: ['--force'],
+  lsp: [],
+};
+
+function assertCommandFlags(command: string | undefined, args: string[]): void {
+  const allowed = command ? COMMAND_FLAGS[command] : undefined;
+  if (!allowed) return;
+  const set = new Set(allowed);
+  for (const arg of args) {
+    if (!arg.startsWith('-') || arg === '-h' || arg === '--help') continue;
+    const canonical = arg === '-d' ? '--detach' : arg === '-w' ? '--write' : arg;
+    if (!set.has(canonical)) throw new UsageError('unknown flag: ' + arg);
+  }
+}
+
 export async function main(argv: string[]): Promise<void> {
   const [command, ...rest] = argv;
   let flags: Flags | undefined;
@@ -65,6 +107,7 @@ export async function main(argv: string[]): Promise<void> {
       return;
     }
 
+    assertCommandFlags(command, rest);
     flags = parseFlags(rest);
     switch (command) {
       case undefined:
@@ -1299,9 +1342,10 @@ Print the deploy manifest (services, images, env) for one environment.`,
 Print (or write) Terraform HCL for the topology.`,
   k8s: `usage: arcod k8s [dir|spec.arc] [--helm] [--image ref] [--host host]
                  [--namespace ns] [--replicas n] [--ingress-class c] [--out dir]
+                 [--env name]
 
 Render the topology as Kubernetes manifests; --helm wraps them in a chart.`,
-  prompts: `usage: arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full]
+  prompts: `usage: arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]
 
 Write one deterministic prompt per operation into .arcod/build/prompts.
 The compact form is the default; --full adds the task header, contract, io
@@ -1318,7 +1362,8 @@ Run the loop: check, prompts, bodies, build, test. Stops at the first failure.`,
                      [--dialect mysql|postgres]
 
 Emit the service, migrations, compose and pages into .arcod/build.`,
-  test: `usage: arcod test [dir|spec.arc] [--impl] [--json]
+  test: `usage: arcod test [dir|spec.arc] [--impl] [--reference] [--port 8080]
+                     [--json]
 
 Run the examples and rules against the emitted service.`,
   run: `usage: arcod run [dir|spec.arc] [--impl] [--scaffold] [--port 8080] [--detach] [--down]

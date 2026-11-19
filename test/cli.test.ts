@@ -987,3 +987,40 @@ test('a path that does not exist is missing, not a directory without a spec', as
   assert.equal(empty.code, 1);
   assert.match(empty.err, /no \.arc file found in /);
 });
+
+test('a flag another command owns is a usage error here, not a silent no-op', async () => {
+  const dir = await tempDir('arcod-cli-flags-');
+  const spec = join(dir, 'main.arc');
+  await writeFile(spec, [
+    'module flags @0.1.0 {',
+    '  meta {',
+    '    owner: "@me"',
+    '  }',
+    '}',
+    'service Ping : http {',
+    '  contract {',
+    '    public op ping() -> string {',
+    '      route: "GET /ping"',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n'), 'utf8');
+
+  // build writes .arcod/build and has no --out: accepting it was a no-op that
+  // looked like success.
+  const out = await run(['build', spec, '--out', join(dir, 'build')]);
+  assert.equal(out.code, 2);
+  assert.match(out.err, /unknown flag: --out/);
+  assert.match(out.err, /hint: arcod build --help/);
+  assert.equal((await readdir(dir)).includes('build'), false, 'nothing is written');
+
+  const port = await run(['check', spec, '--port', '1']);
+  assert.equal(port.code, 2);
+  assert.match(port.err, /unknown flag: --port/);
+
+  // A flag the command does read still passes: graphql owns --out.
+  await mkdir(join(dir, 'out'), { recursive: true });
+  const gql = await run(['graphql', spec, '--out', join(dir, 'out', 'schema.graphql')]);
+  assert.equal(gql.code, 0, JSON.stringify(gql.err));
+});
