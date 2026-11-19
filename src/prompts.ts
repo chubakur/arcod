@@ -53,6 +53,10 @@ export function exprText(expr: Expr): string {
       return exprText(expr.left) + ' ' + expr.op + ' ' + exprText(expr.right);
     case 'is':
       return exprText(expr.expr) + ' is ' + expr.error;
+    case 'list':
+      return '[' + expr.items.map(exprText).join(', ') + ']';
+    case 'record':
+      return '{ ' + expr.fields.map((field) => field.name + ': ' + exprText(field.value)).join(', ') + ' }';
     default:
       return '';
   }
