@@ -168,6 +168,49 @@ function routeAuth(mod: ReturnType<typeof parse>, only?: string): string[] {
   return out.sort();
 }
 
+test('adopt: an inline enum collapses to string, a single-variant union keeps its type', () => {
+  // A document written by hand (or by another tool) may put an enum right in a
+  // property and wrap one $ref in anyOf. Neither is a declaration arcod can
+  // name, so the inline enum becomes string while the single variant stays the
+  // named type instead of a one-arm union.
+  const doc = {
+    openapi: '3.1.0',
+    info: { title: 'probe' },
+    paths: {
+      '/v1/ping': {
+        get: {
+          operationId: 'ping',
+          responses: {
+            '200': {
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      color: { type: 'string', enum: ['red', 'blue'] },
+                      note: { anyOf: [{ $ref: '#/components/schemas/Note' }] },
+                    },
+                    required: ['color'],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    components: {
+      schemas: { Note: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
+    },
+  };
+  const adopted = adoptOpenapi(doc);
+  assert.match(adopted, /type Note = \{ text: string \}/);
+  assert.match(adopted, /public op ping\(\) -> \{ color: string, note: Note\? \}/);
+  assert.equal(adopted.includes('enum'), false, 'an inline enum is not promoted to a declaration');
+  const errors = check(parse(adopted, 'adopted.arc')).filter((item) => item.severity === 'error');
+  assert.deepEqual(errors.map((item) => item.code + ' ' + item.message), []);
+});
+
 test('adopt: every example keeps its auth/public classification', async () => {
   for (const { name, source } of await allExamples()) {
     const original = parse(source, 'main.arc');
