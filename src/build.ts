@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import type { EnvironmentNode, ModuleNode } from './ast.ts';
 import { emitService, maxBodyBytes } from './emit/service.ts';
@@ -210,9 +210,49 @@ function checkImplDeclarations(impl: Record<string, string>): void {
   }
 }
 
+// A build must never publish a half-written tree, and a failed rebuild must
+// not destroy the last good one. Everything is emitted into a sibling staging
+// directory and swapped in only after the last file is written.
 export async function buildExample(mod: ModuleNode, exampleDir: string, options: BuildOptions = {}): Promise<BuildResult> {
-  const port = options.port ?? 8080;
   const dir = join(exampleDir, '.arcod', 'build');
+  const staging = dir + '.tmp-' + process.pid;
+  await rm(staging, { recursive: true, force: true });
+  try {
+    const result = await buildInto(mod, exampleDir, staging, options);
+    await publishTree(staging, dir);
+    // The staging prefix never escapes: callers see the paths they will use.
+    const rebase = (path: string): string =>
+      path === staging ? dir : path.startsWith(staging + sep) ? join(dir, path.slice(staging.length + 1)) : path;
+    return { ...result, dir, composeFile: join(dir, 'docker-compose.yml'), files: result.files.map(rebase) };
+  } catch (error) {
+    // Nothing half-written survives a failed build; the previous tree (if any)
+    // is still in place, so a rebuild that fails is a no-op on disk.
+    await rm(staging, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+async function publishTree(staging: string, target: string): Promise<void> {
+  const old = target + '.old-' + process.pid;
+  await rm(old, { recursive: true, force: true });
+  let moved = false;
+  try {
+    await rename(target, old);
+    moved = true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  try {
+    await rename(staging, target);
+  } catch (error) {
+    if (moved) await rename(old, target).catch(() => {});
+    throw error;
+  }
+  if (moved) await rm(old, { recursive: true, force: true });
+}
+
+async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, options: BuildOptions = {}): Promise<BuildResult> {
+  const port = options.port ?? 8080;
   const serviceDir = join(dir, 'service');
   const webDir = join(dir, 'web');
 
