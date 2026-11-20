@@ -1041,6 +1041,17 @@ function checkRecordFields(meta, record, place) {
       });
     }
   }
+  // A text field stores text: kv kept the number 42 a body happened to carry,
+  // sql coerced it to '42', so the same insert answered two shapes. The base
+  // name comes from the column list both facades already ship.
+  for (const column of meta.columns) {
+    if (column.base !== 'string' && column.base !== 'email' && column.base !== 'url' && column.base !== 'uri' && column.base !== 'uuid') continue;
+    const value = record[column.name];
+    if (value === null || value === undefined) continue;
+    if (typeof value !== 'string') {
+      throw new ArcodError('Invalid', { message: place + ': ' + column.name + ' must be a string' });
+    }
+  }
   // Declared bounds are part of the entity: a value outside them would store
   // the row the schema promises clients never see, so both facades answer 400
   // with the field and the bound instead of keeping it.

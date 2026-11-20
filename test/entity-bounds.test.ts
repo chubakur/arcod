@@ -67,6 +67,12 @@ test('an insert below a real bound is 400 too', async () => {
   assert.match(res.text, /insert Item: score must be >= 1.5/);
 });
 
+test('a number in a string field is 400, not a row kv and sql read differently', async () => {
+  const res = await put({ name: 42, score: 2 });
+  assert.equal(res.status, 400);
+  assert.match(res.text, /insert Item: name must be a string/);
+});
+
 test('a value inside both bounds is stored', async () => {
   const res = await put({ name: 'abc', score: 2 });
   assert.equal(res.status, 201);
