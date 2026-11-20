@@ -45,6 +45,23 @@ test('a parameter, a return and a nested list each report their site', () => {
   assert.deepEqual(diags.map((item) => item.message).sort(), ['unknown type Absent', 'unknown type Bogus']);
 });
 
+test('a workflow port is a type position too', () => {
+  const body = [
+    'service S : http {',
+    '  contract { op list() -> int { route: "GET /l" } }',
+    '}',
+    'workflow W {',
+    '  trigger manual',
+    '  step one(input: Bogus) -> Absent {',
+    '    call: S.list',
+    '  }',
+    '}',
+  ].join('\n');
+  const diags = a088(body);
+  assert.equal(diags.length, 2, diags.map((item) => item.message).join('; '));
+  assert.deepEqual(diags.map((item) => item.message).sort(), ['unknown type Absent', 'unknown type Bogus']);
+});
+
 test('declaration order does not matter', () => {
   const diags = a088('type A = { b: B }\ntype B = { id: uuid }');
   assert.deepEqual(diags, []);
