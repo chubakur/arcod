@@ -941,6 +941,14 @@ function matchesWhere(value, where) {
         throw new ArcodError('Invalid', { message: 'unknown where operator "' + op + '"' });
       }
       const expected = cond[op];
+      // A shape mistake in the query is not a filter that matches nothing: on
+      // sql the clause used to be dropped (every row) while kv answered an
+      // empty page. Both drivers now answer 400 with the field and the type.
+      if (op === 'in' && !Array.isArray(expected)) {
+        throw new ArcodError('Invalid', {
+          message: 'where "in" on "' + field + '" needs a list, got ' + (expected === null ? 'null' : typeof expected),
+        });
+      }
       if (op === 'eq' && actual != expected) return false;
       if (op === 'ne' && actual == expected) return false;
       if (op === 'in' && !(Array.isArray(expected) && expected.some((item) => item == actual))) return false;

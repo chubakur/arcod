@@ -596,6 +596,20 @@ class PgStore {
       if (!['eq', 'ne', 'in', 'contains', 'gt', 'gte', 'lt', 'lte'].includes(op)) {
         throw new ArcodError('Invalid', { message: 'unknown where operator "' + op + '"' });
       }
+      // A non-list under "in" used to fall through the chain: the clause
+      // vanished and the query returned the whole table. An empty list is a
+      // real filter that matches nothing, not "IN ()" (a syntax error).
+      if (op === 'in') {
+        if (!Array.isArray(value)) {
+          throw new ArcodError('Invalid', {
+            message: 'where "in" on "' + col.name + '" needs a list, got ' + (value === null ? 'null' : typeof value),
+          });
+        }
+        if (value.length === 0) {
+          clauses.push('1 = 0');
+          continue;
+        }
+      }
       if (op === 'eq') clauses.push(colSql + ' = ' + pgLiteral(col.base, value));
       else if (op === 'ne') clauses.push(colSql + ' <> ' + pgLiteral(col.base, value));
       else if (op === 'in' && Array.isArray(value)) clauses.push(colSql + ' IN (' + value.map((v) => pgLiteral(col.base, v)).join(', ') + ')');

@@ -1080,7 +1080,7 @@ two-key body.
 step with the record (claiming the new value before releasing the old one).
 `io.find` filters (`eq`, `ne`, `in`, `gt`/`gte`/`lt`/`lte`, `contains`), sorts,
 and pages by a keyset cursor — the last row's sort values and id, base64url
-encoded — so a page does not shift when rows are inserted above it. An operator outside that list is `Invalid` at runtime (the message names it) and `W038` in `check`; on `kv` a filter is a namespace scan with an in-memory match, on SQL it becomes a `WHERE` clause.
+encoded — so a page does not shift when rows are inserted above it. An operator outside that list is `Invalid` at runtime (the message names it) and `W038` in `check`; on `kv` a filter is a namespace scan with an in-memory match, on SQL it becomes a `WHERE` clause. `in` takes a list: an empty list matches nothing, and any other value is `Invalid` with the field and the received type (a dropped clause used to answer every row).
 
 A total is a separate call, not a page you fold yourself:
 
@@ -1797,6 +1797,10 @@ Running the tests:
 ```bash
 npm test
 ```
+
+`npm run coverage` runs the same suite under `--experimental-test-coverage` and
+prints line, branch and function percentages for `src/` — the TypeScript sources,
+with the uncovered line ranges — so a gap is visible without a second tool.
 
 The test matrix is split into thematic suites: `arcod.test.ts` (parser, checker,
 planner, core emitter), `emit-openapi` / `emit-authz` / `emit-async` (emitters),
