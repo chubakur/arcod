@@ -342,6 +342,38 @@ test('W018 is silent once impl/ carries the body', () => {
   assert.deepEqual(withImpl.filter((d) => d.code === 'W018'), []);
 });
 
+// Parser represents a[0] as a call of member "[]". A local variable that
+// shares a capability alias name used to turn that into an effect files.[],
+// which allow can never contain: indexing a list demanded a phantom use.
+test('an index on a local named like an alias is not an effect', () => {
+  const source = [
+    'module gaps @0.1.0 {}',
+    'use capability arcod.std.blob @1',
+    'service S : http {',
+    '  uses files: blob',
+    '  effects { allow files.put }',
+    '  contract {',
+    '    public op upload(name: string) -> string {',
+    '      route: "POST /v1/f"',
+    '      effects: files.put',
+    '    }',
+    '  }',
+    '  examples {',
+    '    example e {',
+    '      when { let id = upload("a") }',
+    '      then { id[0] == "a" }',
+    '    }',
+    '  }',
+    '}',
+    'environment dev {',
+    '  bind files -> s3(host: "s3")',
+    '  deploy docker',
+    '}',
+  ].join('\n');
+  const bad = check(parse(source, 'gaps.arc')).filter((d) => d.code === 'A004');
+  assert.deepEqual(bad, []);
+});
+
 test('W015: a module error nobody mentions', () => {
   // `Gone` and `NotFound` are declared at module level in this helper and no
   // contract names them.

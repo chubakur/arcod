@@ -1824,6 +1824,10 @@ function asCapabilityCall(expr: Expr, aliases: Set<string>): CapCall | null {
   if (expr.kind !== 'call' || expr.callee.kind !== 'member' || expr.callee.object.kind !== 'ident') return null;
   const alias = expr.callee.object.name;
   if (!aliases.has(alias)) return null;
+  // Parser represents a[0] as a call of member "[]" (see parser, index).
+  // A list element is not a capability effect, but a local variable that
+  // happens to share an alias name used to demand files.[] from allow.
+  if (expr.callee.property === '[]') return null;
   return { alias, op: expr.callee.property, loc: expr.loc };
 }
 

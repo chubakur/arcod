@@ -77,6 +77,34 @@ service FileShare : http {
     }
   }
 
+  examples {
+
+    // The owner uploads, reads the bytes back and narrows who may read them.
+    // The contents live in the blob store; the row keeps only the metadata.
+    example upload_read_and_share {
+      when {
+        let id = upload("notes.txt", "hello", "public", [])
+        let got = download(id)
+        let shared = setVisibility(id, "authenticated", [])
+      }
+      then {
+        got.name == "notes.txt"
+        got.body == "hello"
+        shared == true
+      }
+    }
+
+    // The audience picker reads the identity provider's users, not the store.
+    example users_are_listed {
+      when {
+        let people = users()
+      }
+      then {
+        people != null
+      }
+    }
+  }
+
   budget {
     latency: p95 <= 120ms
     concurrency: 200
