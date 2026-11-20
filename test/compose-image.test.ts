@@ -79,3 +79,30 @@ test('a build and a rebuild of the same bodies share one tag', async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('one host keeps one compose block even when two binds disagree on image', () => {
+  // check makes this A085, but the emitter is reachable without check (build,
+  // run --scaffold paths) and a duplicate key would silently drop a container.
+  const source = [
+    'module m @0.1.0 {}',
+    'type Item = { id: uuid }',
+    'service Items : http {',
+    '  uses store: kv',
+    '  uses bus: queue',
+    '  contract {',
+    '    public op list() -> { items: list<Item> } { route: "GET /v1/items" effects: store.find }',
+    '  }',
+    '}',
+    'environment dev {',
+    '  bind store -> redis(host: "kv", image: "redis:7.4")',
+    '  bind bus -> redis(host: "kv", image: "redis:6.2")',
+    '  deploy docker',
+    '}',
+    '',
+  ].join('\n');
+  const yaml = composeYaml(parse(source, 'main.arc'), 8080);
+  const blocks = yaml.match(/^ {2}kv:$/gm) ?? [];
+  assert.equal(blocks.length, 1, 'one service key per host');
+  assert.match(yaml, /image: redis:7\.4/, 'the first bind wins, the second is the same container');
+  assert.doesNotMatch(yaml, /redis:6\.2/);
+});

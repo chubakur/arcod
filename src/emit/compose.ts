@@ -297,12 +297,15 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
 
   // Two binds may name the same container — a saga that keeps its store and
   // its broker in one redis sends `redis(host: "kv")` twice. Compose has one
-  // key per service, so collapse the duplicates by image, host and port; every
-  // bind keeps its own appEnv above, which is where the tangle is resolved.
+  // key per service, so collapse the duplicates by host and port; every bind
+  // keeps its own appEnv above, which is where the tangle is resolved. The
+  // image is not part of the key: two images on one host is A085, and an
+  // emitter reached without check must still write one block per key, not two
+  // where the later silently wins.
   const seen = new Set<string>();
   const providers: RenderedProvider[] = [];
   for (const item of all) {
-    const key = [providerImage(item) ?? item.spec.name, item.host, String(item.port)].join('|');
+    const key = [item.host, String(item.port)].join('|');
     if (seen.has(key)) continue;
     seen.add(key);
     providers.push(item);
