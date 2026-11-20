@@ -146,6 +146,51 @@ function bucketBlock(bind: BindNode, name: string): string {
 // is reported in a comment instead of guessed.
 const MANAGED = new Set(['postgres', 'mysql', 'mariadb', 'redis', 's3', 'minio']);
 
+// A managed service has no container to address: the cloud assigns the host and
+// the service listens on its own port, so a bind's `host`, `port` and `expose`
+// are container instructions the plan cannot honor. Instead of dropping them,
+// the plan exports the real endpoint and names the arguments it ignored;
+// check() reports the same gap as W044 before anyone applies the plan.
+export interface ManagedEndpoint {
+  port: number;
+  resource: string;
+  // Prefix of the `_host` / `_port` outputs.
+  output: string;
+}
+
+export const MANAGED_ENDPOINTS: Record<string, ManagedEndpoint> = {
+  postgres: { port: 6432, resource: 'yandex_mdb_postgresql_cluster.db', output: 'db' },
+  redis: { port: 6379, resource: 'yandex_mdb_redis_cluster.kv', output: 'kv' },
+};
+
+function endpointOutputs(items: ManagedEndpoint[]): string {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const item of items) {
+    if (seen.has(item.output)) continue;
+    seen.add(item.output);
+    lines.push(
+      'output "' + item.output + '_host" {',
+      '  value = ' + item.resource + '.host[0].fqdn',
+      '}',
+      '',
+      'output "' + item.output + '_port" {',
+      '  value = ' + item.port,
+      '}',
+      '',
+    );
+  }
+  return lines.join('\n');
+}
+
+function ignoredComment(items: string[]): string {
+  if (items.length === 0) return '';
+  return [
+    '# Container arguments on a managed service are not honored: ' + items.join('; ') + '.',
+    '# The cloud assigns the address; the plan exports <name>_host and <name>_port.',
+  ].join('\n') + '\n';
+}
+
 // A secret becomes a terraform input named after the provider that needs it:
 // faxapi + FAX_TOKEN -> var.faxapi_fax_token. The value only ever arrives from
 // the environment, never from the spec.
@@ -217,6 +262,8 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
 
   const registry = options.registry ?? builtinRegistry();
   const resources: string[] = [];
+  const endpoints: ManagedEndpoint[] = [];
+  const ignored: string[] = [];
   const unmapped: string[] = [];
   const unknown: string[] = [];
   const external: ExternalProvider[] = [];
@@ -237,6 +284,12 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
     if (bind.provider === 'postgres') resources.push(postgresBlock(bind, name));
     else if (bind.provider === 'redis') resources.push(redisBlock(bind, name));
     else if (bind.provider === 's3' || bind.provider === 'minio') resources.push(bucketBlock(bind, name));
+    const endpoint = MANAGED_ENDPOINTS[bind.provider];
+    if (endpoint) {
+      endpoints.push(endpoint);
+      const dropped = ['host', 'port', 'expose'].filter((key) => key in bind.args);
+      if (dropped.length > 0) ignored.push(bind.alias + ' (' + bind.provider + '): ' + dropped.join(', '));
+    }
     else if (!MANAGED.has(bind.provider)) unmapped.push(bind.provider);
   }
 
@@ -261,6 +314,7 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
     '',
     networkFiles(mod, env),
     externalComment(external),
+    ignoredComment(ignored),
     unimplementedComment(unmapped, unknown),
     resources.join('\n'),
     'output "network_id" {',
@@ -272,6 +326,7 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
     '}',
     '',
     image ? 'output "image" {\n  value = ' + hclString(image.image) + '\n}\n' : '',
+    endpointOutputs(endpoints),
   ].filter((part) => part.length > 0).join('\n');
 
   const variables = [

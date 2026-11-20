@@ -522,7 +522,12 @@ same provider registry `check` uses, so a provider declared by a plugin appears
 as an external dependency: the plan states who declared it and turns each of
 its secrets into a `sensitive` input, rather than dropping the bind silently.
 A provider no one declares is reported in a comment. The state backend is the
-owner's choice; no state is generated.
+owner's choice; no state is generated. A managed service has no container to
+address, so the plan exports the endpoint the cloud assigns — `db_host` /
+`db_port` for postgres, `kv_host` / `kv_port` for redis — and names in a
+comment any `host`, `port` or `expose` it cannot honor. `check` reports the
+same gap as `W044`, so a binding copied from the docker environment never looks
+applied when it is not.
 
 **Secrets** are declared by the providers, not guessed from names: `postgres`
 marks `POSTGRES_PASSWORD` and `DATABASE_URL` sensitive, `s3` marks
@@ -1554,6 +1559,12 @@ Warnings:
   (`oncee(read, ...)`) or a predicate v0.1 does not execute. `arcod test` now
   prints the rule as `skip` and counts it apart instead of dropping it from the
   report, so a green run never hides an invariant that was only a comment.
+- `W044` a bind passes `host`, `port` or `expose` to a managed cloud service:
+  `arcod terraform` provisions the `postgres`/`redis` cluster and the cloud
+  assigns its address, so a binding copied from the docker environment would
+  deploy a service pointed at the compose host name. The plan exports
+  `db_host`/`db_port` (`kv_host`/`kv_port` for redis) and names the
+  arguments it ignored in a comment.
 - `W042` `once(...)` or `atomic <op>` names an operation with no `uuid`
   parameter: the generated body keys `takeIf`/`seen` by that parameter, so the
   rule degrades to nothing and the guarantee is only text.

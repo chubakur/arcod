@@ -5,6 +5,7 @@ import { BIND_ARGS, providerImplements } from './providers.ts';
 import { builtinRegistry, type ProviderRegistry } from './registry.ts';
 import { capabilityFor, storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
+import { MANAGED_ENDPOINTS } from './emit/terraform.ts';
 import { defaultValue } from './migrate.ts';
 import { constraintOf, describeViolation, unknownFormatOf } from './constraints.ts';
 import { isIsoInstant } from './instant.ts';
@@ -343,6 +344,23 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           diags.push(diag('W035', 'warning', mod.file, expr.loc, subject,
             'provider ' + bind.provider + ' does not read bind argument ' + key,
             'known arguments: ' + [...allowed].sort().join(', ')));
+        }
+      }
+
+      // W044 — a managed cloud service has no container to address. The
+      // terraform plan provisions the cluster and exports its endpoint, so the
+      // bind's host, port and expose are container instructions that cannot
+      // be honored: a spec that looks configured deploys a service pointed at
+      // the compose host name. The plan and this warning name the same gap.
+      if (environment.deploy?.provider === 'yandex') {
+        const endpoint = MANAGED_ENDPOINTS[bind.provider];
+        if (endpoint) {
+          const dropped = ['host', 'port', 'expose'].filter((key) => bind.args[key]?.kind === 'literal');
+          if (dropped.length > 0) {
+            diags.push(diag('W044', 'warning', mod.file, bind.loc, subject,
+              `managed ${bind.provider} assigns its own endpoint: ${dropped.join(', ')} ignored by \`arcod terraform\``,
+              `the plan exports ${endpoint.output}_host and ${endpoint.output}_port; drop the container arguments or keep them for a docker environment`));
+          }
         }
       }
 
