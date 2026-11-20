@@ -552,7 +552,10 @@ function providerFiles(ctx: Ctx): EmittedFile[] {
       name: item.host,
       component: item.host,
       namespace: ctx.namespace,
-      replicas: ctx.replicas,
+      // A provider image is single-instance software here (redis without
+      // cluster config, mysql on a ReadWriteOnce claim): `--replicas` would
+      // put independent stores behind one Service, so it scales the app only.
+      replicas: '1',
       image,
       port: item.port,
       extraPorts: item.spec.extraPorts,

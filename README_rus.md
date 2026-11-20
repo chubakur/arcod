@@ -512,6 +512,12 @@ endpoint'ов на каждую managed-привязку. Рантайм в об
 `terraform output`, а не из `host`/`port` привязки — это инструкции контейнеру
 (`W044`).
 
+**Масштаб** — у приложения: `--replicas n` (`replicaCount` в чарте) задаёт
+число реплик Deployment приложения и веб-слоя. Workload провайдера остаётся в
+одной реплике: образы — одноинстансное ПО (redis без конфигурации кластера,
+mysql на `ReadWriteOnce`-claim), и две такие реплики за одним Service отвечали
+бы из двух разных хранилищ.
+
 **Секреты** объявляет сам провайдер, а не догадка по имени: `postgres` помечает
 `POSTGRES_PASSWORD` и `DATABASE_URL`, `s3` — `MINIO_ROOT_PASSWORD`/`S3_SECRET_KEY`,
 `vault` — `VAULT_TOKEN` и т.д. Kubernetes-таргет кладёт их в `Secret`, а не в

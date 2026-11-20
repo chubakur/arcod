@@ -562,6 +562,12 @@ The manifest is rendered from the environment it names (`arcod k8s
 and the workloads are that environment's binds. A module that keeps mysql at
 home and postgres in the cloud therefore renders a postgres manifest for prod.
 
+**Scaling** is the application's: `--replicas n` (`replicaCount` in the chart)
+sizes the app Deployment and the web tier. A provider workload keeps one
+replica — the images are single-instance software (redis with no cluster
+configuration, mysql on a `ReadWriteOnce` claim), so two of them behind one
+Service would answer from two different stores.
+
 **Secrets** are declared by the providers, not guessed from names: `postgres`
 marks `POSTGRES_PASSWORD` and `DATABASE_URL` sensitive, `s3` marks
 `MINIO_ROOT_PASSWORD`/`S3_SECRET_KEY`, `vault` marks `VAULT_TOKEN`, and so on.

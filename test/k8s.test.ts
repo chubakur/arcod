@@ -477,3 +477,17 @@ test('k8s: the vault bind of the rendered environment sources the credentials', 
   assert.match(external, /key: secret\/data\/shop/);
   assert.deepEqual(files.some((file) => file.path === 'secret.yaml'), false, 'no placeholder secret beside the ExternalSecret');
 });
+
+test('k8s: --replicas scales the app, never a single-instance provider', async () => {
+  const files = k8sManifests(await onetime(), { image: 'acme/app:1', replicas: 3 });
+  assert.match(need(files, 'service.yaml'), /  replicas: 3/);
+  assert.match(need(files, 'kv.yaml'), /  replicas: 1/);
+  assert.equal(/replicas: 3/.test(need(files, 'kv.yaml')), false);
+});
+
+test('helm: replicaCount does not scale a provider Deployment', async () => {
+  const files = helmChart(await onetime(), { image: 'acme/app:1', host: 'otm.example.com' });
+  assert.match(need(files, 'templates/service.yaml'), /replicas: \{\{ .Values.replicaCount \}\}/);
+  assert.match(need(files, 'templates/kv.yaml'), /  replicas: 1/);
+  assert.equal(/replicaCount/.test(need(files, 'templates/kv.yaml')), false);
+});
