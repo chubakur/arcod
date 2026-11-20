@@ -122,12 +122,18 @@ function redisBlock(bind: BindNode, name: string): string {
     '  name        = ' + hclString(name + '-redis'),
     '  environment = "PRODUCTION"',
     '  network_id  = yandex_vpc_network.main.id',
-    '  subnet_id   = yandex_vpc_subnet.main.id',
-    '  security_group_ids = []',
     '',
     '  config {',
     '    version  = ' + hclString(version),
     '    password = var.redis_password',
+    '  }',
+    '',
+    // The provider takes its hosts as blocks: a top-level subnet_id is not an
+    // argument of the resource, and without a host block the exported
+    // host[0].fqdn that feeds the endpoint Secret never resolves.
+    '  host {',
+    '    zone      = var.zone',
+    '    subnet_id = yandex_vpc_subnet.main.id',
     '  }',
     '}',
     '',

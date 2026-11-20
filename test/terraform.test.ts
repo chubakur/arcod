@@ -43,6 +43,11 @@ test('the yandex target renders a network, its binds and outputs', async () => {
   assert.match(main, /resource "yandex_vpc_network" "main"/);
   assert.match(main, /resource "yandex_mdb_redis_cluster" "kv"/);
   assert.match(main, /password = var\.redis_password/, 'the redis password is a variable');
+  // The provider takes hosts as blocks and has no top-level subnet_id: without
+  // a host block host[0].fqdn (the exported endpoint) never resolves.
+  assert.match(main, /resource "yandex_mdb_redis_cluster" "kv"[\s\S]*?\n  host \{\n    zone      = var\.zone\n    subnet_id = yandex_vpc_subnet\.main\.id\n  \}/);
+  assert.doesNotMatch(main, /\n  subnet_id   = yandex_vpc_subnet\.main\.id/, 'the cluster has no top-level subnet_id');
+  assert.doesNotMatch(main, /security_group_ids = \[\]/);
   assert.match(main, /output "image" /);
   assert.match(main, /cr\.yandex\/arcod\/tasks:0\.1\.0/, 'the image contract is exported');
   assert.doesNotMatch(main, /password\s*=\s*"/, 'no literal password lands in the plan');
