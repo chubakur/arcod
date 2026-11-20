@@ -13,7 +13,11 @@ next to the MySQL client:
 - **startup**: `postgres://user:password@host:port/database`,
   protocol 3.0, `client_encoding=UTF8`;
 - **auth**: trust, cleartext, MD5 and SCRAM-SHA-256 (RFC 5802/7677) over
-  `node:crypto` — no dependencies;
+  `node:crypto` — no dependencies. `SASLInitialResponse` carries the gs2 header
+  before the bare message (`n,,n=,r=<nonce>`): postgres reads the first
+  character as the channel-binding flag and expects a comma next, so a bare
+  `n=,r=...` is rejected as `08P01 malformed SCRAM message`. The auth message
+  that is signed stays the bare part only (`n=,r=...,<server-first>,c=biws,r=...`);
 - **query**: simple-query protocol, `RowDescription`/`DataRow`, SQLSTATE errors;
 - **typing**: `pgLiteral(base, value)` renders bool/int/datetime/bytes/json as typed
   literals (bytea via `decode(..., 'hex')`, json via `::jsonb`), never by string
@@ -28,6 +32,10 @@ next to the MySQL client:
 it with a fake backend:
 
 - the SCRAM-SHA-256 client-final matches the RFC 7677 §3 vector;
+- `test/pg-scram.test.ts` runs the whole handshake against a fake server: the
+  first SASL payload starts with `n,,` and carries the nonce the client-final
+  later extends, and the server signature computed from the bare message is
+  accepted (a missing gs2 header fails the handshake);
 - startup carries `user`/`database` from the URL, a query returns fields and rows,
   and SQLSTATE 23505 surfaces as `pgIsUnique`;
 - literals/cells are typed on both directions.

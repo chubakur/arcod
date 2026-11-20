@@ -248,7 +248,10 @@ export class PgConnection {
         this.failAll(new Error('postgres: server offers no SCRAM-SHA-256 (' + mechanisms.join(', ') + ')'));
         return;
       }
-      const first = Buffer.from(this.clientFirstBare, 'utf8');
+      // SASLInitialResponse carries the gs2 header before the bare message:
+      // postgres reads the first character as channel-binding flag ('n'), then
+      // expects a comma. The bare string (auth message) stays untouched.
+      const first = Buffer.from('n,,' + this.clientFirstBare, 'utf8');
       const head = Buffer.alloc(4);
       head.writeInt32BE(first.length, 0);
       this.send('p', Buffer.concat([pgCString('SCRAM-SHA-256'), head, first]));
