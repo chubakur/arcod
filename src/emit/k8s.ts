@@ -368,6 +368,9 @@ interface Ctx {
   // Secret that carries the endpoints a cloud assigned, and the env entries
   // that read it. Empty on a docker-view render.
   endpoints: { secret: string; refs: Array<{ name: string; key: string; hint: string }> } | null;
+  // Provider hosts the cloud owns: the plan provisions them, so no workload is
+  // drawn for them. Empty on a docker-view render.
+  managedHosts: string[];
   tpl: boolean;
 }
 
@@ -427,7 +430,12 @@ function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
   const keys = [...declared];
   const env = splitEnv(model.appEnv, keys);
 
-  const endpoints = deployEnv?.deploy?.provider === 'yandex'
+  // A managed service is one the plan creates. Drawing a Deployment for it
+  // would start a second database in the cluster that the app never addresses.
+  const managedHosts = deployEnv?.deploy?.provider === 'yandex'
+    ? model.providers.filter((item) => MANAGED_ENDPOINTS[item.spec.name]).map((item) => item.host)
+    : [];
+  const endpoints = managedHosts.length > 0
     ? endpointContract(name, model.providers, env)
     : null;
 
@@ -452,6 +460,7 @@ function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
     hiddenEnv: env.hidden,
     vault,
     endpoints,
+    managedHosts,
     tpl,
   };
 }
@@ -504,12 +513,17 @@ function endpointComment(ctx: Ctx): string[] {
   for (const ref of endpoints.refs) {
     lines.push('#   key ' + ref.key + '  <-  terraform output ' + ref.hint + ' (plus the credentials the app uses)');
   }
+  if (ctx.managedHosts.length > 0) {
+    lines.push('# Not deployed here, the plan owns them: ' + ctx.managedHosts.join(', ') + '.');
+  }
   return lines;
 }
 
 function providerFiles(ctx: Ctx): EmittedFile[] {
   const files: EmittedFile[] = [];
+  const managed = new Set(ctx.managedHosts);
   for (const item of ctx.providers) {
+    if (managed.has(item.host)) continue;
     const image = providerImage(item);
     if (!image) continue;
     const mountPath = item.spec.volumes?.[0]?.split(':')[1] ?? null;

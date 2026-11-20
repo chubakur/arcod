@@ -308,3 +308,41 @@ test('k8s: a docker environment keeps the literal URL it can resolve', async () 
   assert.deepEqual(app.includes('secretKeyRef'), false, 'a container address needs no cloud secret');
   assert.match(need(files, 'secret.yaml'), /DATABASE_URL: "postgres:\/\/.*@postgres:5432/);
 });
+
+test('k8s: a cloud-managed database is not also deployed into the cluster', async () => {
+  const mod = await parse(cloudModule, 'shop.arc');
+  const files = k8sManifests(mod, { environment: 'prod' });
+  assert.deepEqual(files.map((item) => item.path).filter((path) => path.startsWith('postgres')), [], 'the plan owns postgres, so no pod, Service or PVC for it');
+  assert.match(need(files, 'service.yaml'), /# Not deployed here, the plan owns them: postgres/);
+});
+
+test('k8s: a cloud database and a cloud kv both stay out of the cluster', async () => {
+  const source = [
+    'module shop @0.1.0 {',
+    '}',
+    'use capability arcod.std.sql @1',
+    'use capability arcod.std.kv @1',
+    'service Store : http {',
+    '  uses db: sql',
+    '  uses cache: kv',
+    '  contract {',
+    '    public op list() -> string {',
+    '      route: "GET /api/items"',
+    '    }',
+    '  }',
+    '}',
+    'environment prod {',
+    '  bind db -> postgres(host: "pg", port: 5432)',
+    '  bind cache -> redis()',
+    '  deploy yandex(region: "ru-central1", folder: "f", service: "shop")',
+    '}',
+  ].join('\n');
+  const mod = await parse(source, 'shop.arc');
+  const files = k8sManifests(mod, { environment: 'prod' });
+  const workloads = files.map((item) => item.path).filter((path) => path.startsWith('postgres') || path.startsWith('redis'));
+  assert.deepEqual(workloads, [], 'neither managed service gets a pod, Service or PVC');
+  const app = need(files, 'service.yaml');
+  assert.match(app, /- name: REDIS_URL\n              valueFrom:\n                secretKeyRef:\n                  name: arcod-shop-endpoints\n                  key: redis_url/, 'the kv URL moves into the same endpoint Secret');
+  assert.match(app, /#   key redis_url  <-  terraform output kv_host and kv_port/);
+  assert.match(app, /# Not deployed here, the plan owns them: pg, redis\./);
+});
