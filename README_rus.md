@@ -507,6 +507,11 @@ redis) и называет комментарием те `host`, `port` и `expo
 отвергает), а `W045` называет вторую привязку вместо того, чтобы делать вид,
 что её развернули.
 
+Outputs — контракт соединения: `network_id`, `subnet_id`, `image` и пара
+endpoint'ов на каждую managed-привязку. Рантайм в облаке берёт адрес из
+`terraform output`, а не из `host`/`port` привязки — это инструкции контейнеру
+(`W044`).
+
 **Секреты** объявляет сам провайдер, а не догадка по имени: `postgres` помечает
 `POSTGRES_PASSWORD` и `DATABASE_URL`, `s3` — `MINIO_ROOT_PASSWORD`/`S3_SECRET_KEY`,
 `vault` — `VAULT_TOKEN` и т.д. Kubernetes-таргет кладёт их в `Secret`, а не в

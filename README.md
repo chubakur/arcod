@@ -532,6 +532,11 @@ environment render a single cluster (a duplicate block is a plan terraform
 refuses) and `W045` names the second alias instead of pretending it was
 provisioned.
 
+The outputs are the wiring contract: `network_id`, `subnet_id`, `image`, and
+one endpoint pair per managed bind. A cloud runtime reads the address from
+`terraform output`, never from the bind's `host`/`port` — those are container
+instructions (`W044`).
+
 **Secrets** are declared by the providers, not guessed from names: `postgres`
 marks `POSTGRES_PASSWORD` and `DATABASE_URL` sensitive, `s3` marks
 `MINIO_ROOT_PASSWORD`/`S3_SECRET_KEY`, `vault` marks `VAULT_TOKEN`, and so on.
