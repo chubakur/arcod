@@ -330,7 +330,9 @@ test('PgStore issues postgres SQL and reads the command tag for affected rows', 
     assert.ok(seen.some((sql) => /CREATE TABLE IF NOT EXISTS arcod_migrations/.test(sql)));
     const updated = await store.entityUpdate('task', [{ name: 'id', base: 'string' }, { name: 'done', base: 'bool' }], 't1', { done: false });
     assert.equal(updated.done, false);
-    await store.entityRemove('task', [{ name: 'id', base: 'string' }], 't1');
+    // DELETE 1 from the command tag is the answer io.remove hands the client,
+    // so a missing id reads false instead of a silent success.
+    assert.equal(await store.entityRemove('task', [{ name: 'id', base: 'string' }], 't1'), 1);
     assert.match(seen[seen.length - 1], /DELETE FROM "task" WHERE "id" = 't1'/);
     await store.outboxAppend('e1', 'topic', 'payload');
     assert.match(seen[seen.length - 1], /INSERT INTO arcod_outbox \(id, topic, payload, created_at\)/);

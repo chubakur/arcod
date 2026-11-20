@@ -455,8 +455,12 @@ class SqlStore {
     return next;
   }
 
+  // The affected-row count is the answer: io.remove reports whether a row was
+  // actually deleted, so a missing id is false here instead of a silent
+  // success the kv driver never gave.
   async entityRemove(table, columns, id) {
-    await this.query('DELETE FROM ' + q(table) + ' WHERE ' + q('id') + ' = ' + literal(hexOf(String(id))));
+    const result = await this.query('DELETE FROM ' + q(table) + ' WHERE ' + q('id') + ' = ' + literal(hexOf(String(id))));
+    return result.affected || 0;
   }
 
   // COUNT(*) with the same predicates find builds: the client asked for a

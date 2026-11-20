@@ -505,8 +505,11 @@ class PgStore {
     return next;
   }
 
+  // Same answer as the mysql store: the affected count tells io.remove whether
+  // the row existed, so a missing id is not a silent success.
   async entityRemove(table, columns, id) {
-    await this.query('DELETE FROM ' + pq(table) + ' WHERE ' + pq('id') + ' = ' + pgLiteral('string', String(id)));
+    const result = await this.query('DELETE FROM ' + pq(table) + ' WHERE ' + pq('id') + ' = ' + pgLiteral('string', String(id)));
+    return result.affected || 0;
   }
 
   // COUNT(*) with the same predicates find builds; postgres returns bigint
