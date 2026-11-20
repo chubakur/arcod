@@ -537,6 +537,22 @@ one endpoint pair per managed bind. A cloud runtime reads the address from
 `terraform output`, never from the bind's `host`/`port` — those are container
 instructions (`W044`).
 
+A Kubernetes manifest rendered for a cloud environment follows the same rule:
+the app env entries that would carry a managed provider's docker address
+(`DATABASE_URL`, `KV_URL`, …) move into a `Secret` named `<app>-endpoints`, and
+the pod reads each one with a `secretKeyRef`. The service manifest names the
+keys and the `terraform output` that fills each, so the wiring step is written
+down where the pod is applied:
+
+```
+# After `terraform apply`, create it in the namespace:
+#   kubectl -n arcod-shop create secret generic arcod-shop-endpoints
+#   key database_url  <-  terraform output db_host and db_port (plus the credentials the app uses)
+```
+
+A `docker` environment keeps the literal URL: there the host name is a service
+compose really starts.
+
 **Secrets** are declared by the providers, not guessed from names: `postgres`
 marks `POSTGRES_PASSWORD` and `DATABASE_URL` sensitive, `s3` marks
 `MINIO_ROOT_PASSWORD`/`S3_SECRET_KEY`, `vault` marks `VAULT_TOKEN`, and so on.
