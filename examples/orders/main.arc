@@ -39,6 +39,22 @@ service Orders : http {
       on error Conflict: result == null
     }
   }
+
+  examples {
+
+    // The unique rule is a promise, not a comment: the second order with the
+    // same sku gets the declared Conflict instead of a duplicate row.
+    example create_then_conflict {
+      when {
+        let first = create("sku-1", 2)
+        let second = create("sku-1", 1)
+      }
+      then {
+        first.qty == 2
+        second is Conflict
+      }
+    }
+  }
 }
 
 environment dev {

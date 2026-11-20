@@ -101,6 +101,32 @@ service Live : http {
       on error Invalid: text != null
     }
   }
+
+  examples {
+
+    // One room from open to close: the host opens it and moves the deck, a
+    // guest joins with the short code, answers, rates and writes, and the
+    // host reads the tally back.
+    example host_opens_and_guest_answers {
+      when {
+        let room = start()
+        let guest = join(room.code, "ada")
+        let moved = advance(room.id, room.token, 1, 3)
+        let voted = vote(guest.id, guest.token, 0)
+        let rated = rate(guest.id, guest.token, 5)
+        let wrote = comment(guest.id, guest.token, "hello")
+        let seen = state(room.id, room.token)
+      }
+      then {
+        guest.name == "ada"
+        moved.ok == true
+        voted.ok == true
+        rated.ok == true
+        wrote.ok == true
+        seen.joined == 1
+      }
+    }
+  }
 }
 
 environment dev {

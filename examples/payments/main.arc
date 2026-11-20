@@ -45,6 +45,20 @@ service Orders : http {
       on error Unavailable: amount != null
     }
   }
+
+  examples {
+
+    // The amount is checked before the foreign service is called, so a bad
+    // charge is a declared Invalid and leaves no pending record behind.
+    example rejects_zero {
+      when {
+        let out = charge(0)
+      }
+      then {
+        out is Invalid
+      }
+    }
+  }
 }
 
 environment dev {
