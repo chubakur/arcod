@@ -73,6 +73,26 @@ test('a number in a string field is 400, not a row kv and sql read differently',
   assert.match(res.text, /insert Item: name must be a string/);
 });
 
+test('a numeric string an impl writes is 400', async () => {
+  const badImpl = [
+    'export async function put(input, io) {',
+    "  return { result: await io.insert('Item', { id: io.new(), name: String(input.name), score: '2' }) };",
+    '}',
+  ].join(String.fromCharCode(10));
+  const svc = await startService(source, { impl: { put: badImpl } });
+  try {
+    const res = await fetch(svc.base + '/v1/items', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'abc', score: 2 }),
+    });
+    assert.equal(res.status, 400);
+    assert.match(await res.text(), /insert Item: score must be a number/);
+  } finally {
+    await svc.stop();
+  }
+});
+
 test('a value inside both bounds is stored', async () => {
   const res = await put({ name: 'abc', score: 2 });
   assert.equal(res.status, 201);

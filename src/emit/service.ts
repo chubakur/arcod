@@ -1052,6 +1052,16 @@ function checkRecordFields(meta, record, place) {
       throw new ArcodError('Invalid', { message: place + ': ' + column.name + ' must be a string' });
     }
   }
+  // A number is stored as a number: a numeric string went to kv verbatim and
+  // became a number in sql, so the same row read differently per driver.
+  for (const column of meta.columns) {
+    if (column.base !== 'int' && column.base !== 'number' && column.base !== 'float' && column.base !== 'decimal') continue;
+    const value = record[column.name];
+    if (value === null || value === undefined) continue;
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new ArcodError('Invalid', { message: place + ': ' + column.name + ' must be a number' });
+    }
+  }
   // Declared bounds are part of the entity: a value outside them would store
   // the row the schema promises clients never see, so both facades answer 400
   // with the field and the bound instead of keeping it.
