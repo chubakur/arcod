@@ -575,7 +575,9 @@ class SqlStore {
       else if (op === 'gte') clauses.push(colSql + ' >= ' + sqlLiteral(col.base, value));
       else if (op === 'lt') clauses.push(colSql + ' < ' + sqlLiteral(col.base, value));
       else if (op === 'lte') clauses.push(colSql + ' <= ' + sqlLiteral(col.base, value));
-      else if (op === 'contains') clauses.push(colSql + ' LIKE ' + literal(hexOf('%' + String(value) + '%')));
+      // LIKE needs text: an int/date column used to be cast by mysql and
+      // rejected by the driver elsewhere. Cast on both sides of the dialect.
+      else if (op === 'contains') clauses.push('CAST(' + colSql + ' AS CHAR) LIKE ' + literal(hexOf('%' + String(value) + '%')));
     }
     return clauses;
   }

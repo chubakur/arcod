@@ -20,7 +20,7 @@ const spec = [
   'use capability arcod.std.ids @1',
   '',
   'type ItemId = uuid',
-  'type Item = { id: ItemId, tag: string, note: string?, tags: list<string> }',
+  'type Item = { id: ItemId, tag: string, note: string?, tags: list<string>, size: int }',
   '',
   'error Invalid',
   '',
@@ -52,7 +52,7 @@ const spec = [
 const impl = {
   put: [
     'export async function put(input, io) {',
-    '  const record = { id: io.new(), tag: String(input.tag), tags: ["a", "b"] };',
+    '  const record = { id: io.new(), tag: String(input.tag), tags: ["a", "b"], size: 42 };',
     '  await io.insert("Item", record);',
     '  return { result: { id: record.id } };',
     '}',
@@ -74,7 +74,11 @@ const impl = {
     '              ? { tags: { eq: ["a", "b"] } }',
     '              : mode === "listother"',
     '                ? { tags: { eq: ["b", "a"] } }',
-    '                : { tag: { in: ["a", "b"] } };',
+    '                : mode === "contains"',
+    '                  ? { size: { contains: "4" } }',
+    '                  : mode === "containsnone"',
+    '                    ? { size: { contains: "9" } }',
+    '                    : { tag: { in: ["a", "b"] } };',
     '  const order = mode === "order" ? "nmae asc" : undefined;',
     '  const page = await io.find("Item", { where, order });',
     '  const count = await io.count("Item", { where });',
@@ -365,5 +369,37 @@ test('kv: a list field compares by value, like the json text on sql', async () =
     assert.equal((await other.json()).count, 0, 'a different order is a different list');
   } finally {
     await svc.stop();
+  }
+});
+
+test('contains: works on a numeric field on kv, and sql casts the column to text', async () => {
+  const svc = await startService(spec, { impl });
+  try {
+    await post(svc.base + '/v1/items', { tag: 'a' });
+    const hit = await post(svc.base + '/v1/scan', { mode: 'contains' });
+    assert.equal((await hit.json()).count, 1, 'a substring of a number matches on kv');
+    const miss = await post(svc.base + '/v1/scan', { mode: 'containsnone' });
+    assert.equal((await miss.json()).count, 0);
+  } finally {
+    await svc.stop();
+  }
+
+  const { SQL_STORE_SOURCE } = await import('../src/emit/sql-store.ts');
+  const { PG_SQL_STORE_SOURCE, PG_STORE_SOURCE } = await import('../src/emit/pg-store.ts');
+  const mysql = await loadStore(SQL_STORE_SOURCE, 'SqlStore');
+  const pg = await loadStore(PG_SQL_STORE_SOURCE, 'PgStore', PG_STORE_SOURCE);
+  const checks: Array<[string, any, RegExp]> = [
+    ['mysql', new mysql.SqlStore('mysql://localhost:3306/arcod'), /CAST\(.size. AS CHAR\) LIKE/],
+    ['postgres', new pg.PgStore('postgres://user:pass@localhost:5432/arcod'), /CAST\("size" AS text\) LIKE/],
+  ];
+  const withSize = [{ name: 'id', base: 'string' }, { name: 'size', base: 'int' }];
+  for (const [dialect, store, pattern] of checks) {
+    const statements: string[] = [];
+    store.query = async (sql: string) => {
+      statements.push(sql);
+      return { rows: [[1]], affected: 0 };
+    };
+    await store.entityCount('item', withSize, { where: { size: { contains: '4' } } });
+    assert.match(statements[0], pattern, dialect + ': LIKE needs a text cast');
   }
 });

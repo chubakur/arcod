@@ -625,7 +625,9 @@ class PgStore {
       else if (op === 'gte') clauses.push(colSql + ' >= ' + pgLiteral(col.base, value));
       else if (op === 'lt') clauses.push(colSql + ' < ' + pgLiteral(col.base, value));
       else if (op === 'lte') clauses.push(colSql + ' <= ' + pgLiteral(col.base, value));
-      else if (op === 'contains') clauses.push(colSql + ' LIKE ' + pgLiteral('string', '%' + String(value) + '%'));
+      // postgres has no integer ~~ unknown: a LIKE on a non-text column was a
+      // 42883 error. The cast keeps contains working for any declared field.
+      else if (op === 'contains') clauses.push('CAST(' + colSql + ' AS text) LIKE ' + pgLiteral('string', '%' + String(value) + '%'));
     }
     return clauses;
   }
