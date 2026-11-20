@@ -150,7 +150,10 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   endpoint: {
     name: 'endpoint',
     capability: 'endpoint',
-    options: ['network', 'url'],
+    // gateway: true asks compose for host-gateway (Linux), and the emitter
+    // reads it — an undeclared argument made W035 advise against the one
+    // switch the README documents.
+    options: ['gateway', 'network', 'url'],
     external: true,
     appEnv: ({ alias, args }) => {
       const name = typeof alias === 'string' && alias.length > 0 ? alias : 'external';

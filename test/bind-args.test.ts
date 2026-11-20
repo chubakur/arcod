@@ -109,6 +109,24 @@ test('every container provider declares image, and only those do', () => {
   }
 });
 
+test('gateway is a declared endpoint argument, not an unknown one', () => {
+  // compose.ts reads args.gateway to add host-gateway; while it was undeclared,
+  // W035 told the author to drop the documented switch.
+  const diags = warn(check(parse([
+    'module shop @0.1.0 {}',
+    'use capability arcod.std.payments @1',
+    'service Shop : http {',
+    '  uses Ledger: payments',
+    '  contract { public op get(id: uuid) -> string { route: "GET /v1/i/:id" } }',
+    '}',
+    'environment dev {',
+    '  bind Ledger -> endpoint(url: "http://localhost:9009", gateway: true)',
+    '  deploy docker',
+    '}',
+  ].join('\n'), 'main.arc')));
+  assert.deepEqual(diags.map((item) => item.message), [], 'the documented switch is known');
+});
+
 test('the declared image is the one compose runs', () => {
   const pinned = composeYaml(specOf('bind store -> redis(image: "redis:7.4")'), 8080);
   assert.match(pinned, /\n  redis:\n    image: redis:7\.4\n/, 'the pinned reference reaches the YAML');
@@ -124,7 +142,7 @@ test('provider discovery exposes the same allowlist', () => {
   assert.deepEqual(row('redis').options, ['image', 'version']);
   assert.deepEqual(row('clickhouse').options, ['image']);
   assert.deepEqual(row('ollama').options, ['dim', 'model'], 'no container, no image');
-  assert.deepEqual(row('endpoint').options, ['network', 'url']);
+  assert.deepEqual(row('endpoint').options, ['gateway', 'network', 'url']);
 
   const declared = pluginRegistry([{ name: 'faxapi', capability: 'fax', args: { url: 'base url', token: 'api token' } }]);
   assert.deepEqual(providerRows(declared).find((item) => item.provider === 'faxapi')!.options, ['token', 'url']);
