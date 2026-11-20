@@ -142,7 +142,9 @@ enforced by the generated service before the operation body runs: a malformed
 address, a URL without a scheme or a value outside the enum is `400 Invalid`
 with the offending field named, not a 500 from a body that trusted the client.
 `check` rejects a default that violates its own type (`A060`) and an unknown
-format name (`A061`). Full example: `examples/signup`.
+format name (`A061`). Refinements (`min:`, `max:`, `format:`, a generic
+argument) belong to a builtin name: on a declared type they refine nothing,
+and `check` answers `A086`. Full example: `examples/signup`.
 
 ## Commands
 
@@ -1557,6 +1559,9 @@ Errors:
 - `A085` two binds pin different images to one container host: compose and k8s
   key a container by its host, so the second key overwrote the first and one
   bind talked to an image that was never started.
+- `A086` arguments refine a builtin name (`string(max: 80)`, `list<Item>`);
+  written on a declared type they were dropped: `check` stayed silent while
+  the resolver read the alias declaration and the schema lost the bound.
 - `A081` an example calls a name that is not an operation of the service (and
   is not the `uuid(...)` builtin), or a rule (`once(...)`, `atomic name`) names
   an operation the contract does not declare. `arcod test` used to resolve the

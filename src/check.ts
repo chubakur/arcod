@@ -490,6 +490,46 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     }
   }
 
+  // A086 — arguments refine a builtin name: `string(max: 80)`,
+  // `list<Item>`, `string(format: email)`. Written on a declared type they
+  // cannot reach anything: every consumer resolves the alias to its
+  // declaration and reads the arguments there, so `name: Title(min: 3)`
+  // checked clean while the schema kept `$ref Title` and `min: 3` vanished
+  // from both the contract and the runtime.
+  const declaredTypeNames = new Set([
+    ...mod.types.map((decl) => decl.name),
+    ...mod.enums.map((decl) => decl.name),
+  ]);
+  const typeRoots: TypeExpr[] = [];
+  for (const decl of mod.types) {
+    if (decl.type.kind !== 'record') typeRoots.push(decl.type);
+  }
+  for (const param of declaredParams(mod)) typeRoots.push(param.type);
+  for (const svc of mod.services) {
+    for (const op of svc.contract) {
+      if (op.returns) typeRoots.push(op.returns);
+    }
+  }
+  for (const wf of mod.workflows) {
+    for (const step of wf.steps) {
+      for (const param of step.params) typeRoots.push(param.type);
+      if (step.returns) typeRoots.push(step.returns);
+    }
+  }
+  const seenRefinements = new Set<string>();
+  for (const root of typeRoots) {
+    walkTypeExpr(root, (type) => {
+      if (type.kind !== 'named' || type.args.length === 0) return;
+      if (!declaredTypeNames.has(type.name)) return;
+      const key = type.loc.offset + ':' + type.name;
+      if (seenRefinements.has(key)) return;
+      seenRefinements.add(key);
+      diags.push(diag('A086', 'error', mod.file, type.loc, 'types.' + type.name,
+        'arguments on ' + type.name + ' are ignored: ' + type.name + ' is a declared type, not a builtin',
+        'write them where ' + type.name + ' is declared, e.g. type ' + type.name + ' = string(min: …)'));
+    });
+  }
+
   for (const svc of mod.services) {
     if (svc.external) continue;
     const sourceSlice = mod.source.slice(svc.loc.offset, svc.loc.end);
@@ -1622,6 +1662,14 @@ function declaredParams(mod: ModuleNode): Param[] {
 
 function namedType(type: { kind: string; name?: string }): string | null {
   return type.kind === 'named' && typeof type.name === 'string' ? type.name : null;
+}
+
+function walkTypeExpr(type: TypeExpr, fn: (type: TypeExpr) => void): void {
+  fn(type);
+  if (type.kind === 'optional') walkTypeExpr(type.inner, fn);
+  else if (type.kind === 'union') for (const variant of type.variants) walkTypeExpr(variant, fn);
+  else if (type.kind === 'record') for (const field of type.fields) walkTypeExpr(field.type, fn);
+  else if (type.kind === 'named') for (const arg of type.args) if (arg.isType) walkTypeExpr(arg.value as TypeExpr, fn);
 }
 
 function findStepCycle(edges: ReadonlyArray<readonly [string, string[]]>): string[] | null {
