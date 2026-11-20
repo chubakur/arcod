@@ -76,7 +76,7 @@ service OneTimeMessage : http {
 
     example rejects_empty {
       when {
-        let e = create("")
+        let e = create("arcod", "")
       }
       then {
         e is Invalid

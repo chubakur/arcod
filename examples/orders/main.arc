@@ -64,8 +64,10 @@ environment dev {
   deploy docker
 }
 
+// The cloud has no managed mysql in the provider table: a real deployment
+// binds postgres (the managed equivalent) and the dialect follows the bind.
 environment prod {
-  bind store -> mysql
+  bind store -> postgres
   bind uuid -> local
   bind events -> redis
   deploy yandex(region: "ru-central1", folder: "arcod-prod", service: "orders", image: "cr.yandex/arcod/orders:0.1.0")
