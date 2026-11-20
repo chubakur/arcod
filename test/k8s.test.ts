@@ -431,3 +431,12 @@ test('build: a cluster environment writes the manifest for its own binds', async
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('helm: a cloud chart reads the same endpoint Secret', async () => {
+  const mod = await parse(cloudModule, 'shop.arc');
+  const files = helmChart(mod, { environment: 'prod' });
+  const app = need(files, 'templates/service.yaml');
+  assert.match(app, /secretKeyRef:\n                  name: arcod-shop-endpoints\n                  key: database_url/);
+  assert.match(app, /kubectl -n \{\{ \.Release\.Namespace \}\} create secret generic arcod-shop-endpoints/);
+  assert.deepEqual(files.some((file) => file.content.includes('pg:5432')), false, 'no docker address anywhere in the chart');
+});
