@@ -20,7 +20,7 @@ const spec = [
   'use capability arcod.std.ids @1',
   '',
   'type ItemId = uuid',
-  'type Item = { id: ItemId, tag: string }',
+  'type Item = { id: ItemId, tag: string, note: string? }',
   '',
   'error Invalid',
   '',
@@ -66,7 +66,11 @@ const impl = {
     '      ? { tag: { in: "a" } }',
     '      : mode === "typo"',
     '        ? { nmae: { in: ["a"] } }',
-    '        : { tag: { in: ["a", "b"] } };',
+    '        : mode === "nullcmp"',
+    '          ? { tag: { eq: null } }',
+    '          : mode === "absent"',
+    '            ? { note: { gt: "a" } }',
+    '            : { tag: { in: ["a", "b"] } };',
     '  const order = mode === "order" ? "nmae asc" : undefined;',
     '  const page = await io.find("Item", { where, order });',
     '  const count = await io.count("Item", { where });',
@@ -296,5 +300,52 @@ test('order: sql rejects an unknown column instead of 500, and keeps a valid one
     assert.equal(statements.length, 0, dialect + ': the driver never sees an unknown ORDER BY');
     await store.entityFind('item', columns, { order: 'tag desc' });
     assert.match(statements[0], /ORDER BY .tag. DESC/, dialect + ': a declared field still sorts');
+  }
+});
+
+test('kv: comparing with null is 400, and a null cell never matches an order filter', async () => {
+  const svc = await startService(spec, { impl });
+  try {
+    await post(svc.base + '/v1/items', { tag: 'a' });
+    const nullcmp = await post(svc.base + '/v1/scan', { mode: 'nullcmp' });
+    assert.equal(nullcmp.status, 400, 'eq: null is Invalid, not a silent empty page');
+    assert.match(String((await nullcmp.json()).message), /where "eq" on "tag" compares with null/);
+
+    const absent = await post(svc.base + '/v1/scan', { mode: 'absent' });
+    assert.equal(absent.status, 201);
+    const page = await absent.json();
+    assert.equal(page.count, 0, 'a record without the field is not greater than a value');
+    assert.deepEqual(page.items, []);
+  } finally {
+    await svc.stop();
+  }
+});
+
+test('sql: comparing with null is rejected before the driver sees the clause', async () => {
+  const { SQL_STORE_SOURCE } = await import('../src/emit/sql-store.ts');
+  const { PG_SQL_STORE_SOURCE, PG_STORE_SOURCE } = await import('../src/emit/pg-store.ts');
+  const mysql = await loadStore(SQL_STORE_SOURCE, 'SqlStore');
+  const pg = await loadStore(PG_SQL_STORE_SOURCE, 'PgStore', PG_STORE_SOURCE);
+  const checks: Array<[string, any]> = [
+    ['mysql', new mysql.SqlStore('mysql://localhost:3306/arcod')],
+    ['postgres', new pg.PgStore('postgres://user:pass@localhost:5432/arcod')],
+  ];
+  for (const [dialect, store] of checks) {
+    const statements: string[] = [];
+    store.query = async (sql: string) => {
+      statements.push(sql);
+      return { rows: [[0]], affected: 0 };
+    };
+    await assert.rejects(
+      () => store.entityCount('item', columns, { where: { tag: { eq: null } } }),
+      (error: any) => {
+        assert.equal(error.name, 'Invalid', dialect);
+        assert.match(String(error.message), /where "eq" on "tag" compares with null/, dialect);
+        return true;
+      }
+    );
+    assert.equal(statements.length, 0, dialect + ': no NULL comparison reaches the driver');
+    await store.entityCount('item', columns, { where: { tag: 'a' } });
+    assert.doesNotMatch(statements[0], /NULL/, dialect);
   }
 });

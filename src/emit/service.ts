@@ -949,6 +949,16 @@ function matchesWhere(value, where) {
           message: 'where "in" on "' + field + '" needs a list, got ' + (expected === null ? 'null' : typeof expected),
         });
       }
+      // SQL answers NULL for a comparison against a null operand, so no row
+      // matches; kv used to sort nulls last and let gt return records the
+      // field is absent from. A null on either side never matches, and a null
+      // on the right is a mistake worth naming rather than an empty page.
+      if (op !== 'in' && expected === null) {
+        throw new ArcodError('Invalid', {
+          message: 'where "' + op + '" on "' + field + '" compares with null; a null never matches, use a concrete value',
+        });
+      }
+      if (actual == null && op !== 'eq' && op !== 'ne' && op !== 'in') return false;
       if (op === 'eq' && actual != expected) return false;
       if (op === 'ne' && actual == expected) return false;
       if (op === 'in' && !(Array.isArray(expected) && expected.some((item) => item == actual))) return false;

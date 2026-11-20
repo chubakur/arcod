@@ -604,6 +604,9 @@ class PgStore {
       // A non-list under "in" used to fall through the chain: the clause
       // vanished and the query returned the whole table. An empty list is a
       // real filter that matches nothing, not "IN ()" (a syntax error).
+      if (value === null && op !== 'in') {
+        throw new ArcodError('Invalid', { message: 'where "' + op + '" on "' + col.name + '" compares with null; a null never matches, use a concrete value' });
+      }
       if (op === 'in') {
         if (!Array.isArray(value)) {
           throw new ArcodError('Invalid', {
