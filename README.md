@@ -1576,6 +1576,10 @@ Errors:
 - `A088` a type name is neither a builtin nor declared in the module: OpenAPI
   emitted `{}`, so a typo accepted any value and GraphQL had no field type. The
   hint names the declaration that would fix it.
+- `A089` a type or enum is declared with a builtin name (`type int = string`):
+  OpenAPI listed the declaration under components while every use site resolved
+  the builtin, so one module stated two contracts at once and the runtime, the
+  migration and GraphQL each picked a side. The hint suggests the rename.
 - `A081` an example calls a name that is not an operation of the service (and
   is not the `uuid(...)` builtin), or a rule (`once(...)`, `atomic name`) names
   an operation the contract does not declare. `arcod test` used to resolve the

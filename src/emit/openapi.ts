@@ -65,18 +65,6 @@ function numberArg(args: TypeArg[], name: string): number | null {
   return null;
 }
 
-function resolveDecl(mod: ModuleNode, type: TypeExpr): TypeExpr {
-  let current = type;
-  for (let depth = 0; depth < 8; depth++) {
-    if (current.kind !== 'named') return current;
-    const named = current;
-    const decl = mod.types.find((item) => item.name === named.name);
-    if (!decl) return named;
-    current = decl.type;
-  }
-  return current;
-}
-
 function formatArg(args: TypeArg[]): string | null {
   for (const arg of args) {
     if (arg.name !== 'format') continue;
@@ -173,18 +161,10 @@ function schemaFor(mod: ModuleNode | null, type: TypeExpr): Schema {
   if (!BUILTINS.has(type.name)) {
     return { $ref: '#/components/schemas/' + type.name };
   }
-  if (type.args.length === 0 || !mod) {
-    return builtinSchema(type.name, type.args);
-  }
   // A builtin with arguments (bytes(min, max)) is a refinement, not a new
-  // name. If a user type shares the name it wins, as everywhere else.
-  const decl = mod.types.find((item) => item.name === type.name);
-  if (!decl) return builtinSchema(type.name, type.args);
-  const resolved = resolveDecl(mod, decl.type);
-  if (resolved.kind === 'named' && BUILTINS.has(resolved.name)) {
-    return { ...builtinSchema(resolved.name, resolved.args), ...builtinSchema(type.name, type.args) };
-  }
-  return schemaFor(mod, decl.type);
+  // name. A declaration can no longer share a builtin name (A089), so the
+  // arguments always refine the builtin itself.
+  return builtinSchema(type.name, type.args);
 }
 
 function errorSchema(mod: ModuleNode | null, name: string): Schema {

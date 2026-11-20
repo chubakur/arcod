@@ -26,7 +26,7 @@ const BUILTIN_ARG_RULES: Record<string, { named: string[]; positional: number; h
   list: { named: [], positional: 1, hint: 'list takes one type argument, e.g. list<Item>' },
   map: { named: [], positional: 2, hint: 'map takes two type arguments, e.g. map<string, int>' },
 };
-const BUILTIN_TYPE_NAMES = new Set([
+export const BUILTIN_TYPE_NAMES = new Set([
   'string', 'bytes', 'int', 'float', 'number', 'bool', 'boolean', 'uuid',
   'json', 'datetime', 'decimal', 'list', 'map', 'void', 'null',
   'email', 'url', 'uri',
@@ -624,6 +624,19 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         'unknown type ' + type.name,
         'declare type ' + type.name + ' = … or use a builtin (' + [...BUILTIN_TYPE_NAMES].join(', ') + ')'));
     });
+  }
+
+  // A089 — a declaration named after a builtin shadows it. OpenAPI lists the
+  // declaration under components while every use site resolves the builtin
+  // first: `type int = string` emitted `{"type": "string"}` for `int` and an
+  // `integer` for the field of that type, so the contract contradicted itself
+  // and the runtime, the migration and GraphQL each picked a different side.
+  // One rule — a builtin name is not a declaration site — keeps them in step.
+  for (const decl of [...mod.types, ...mod.enums]) {
+    if (!BUILTIN_TYPE_NAMES.has(decl.name)) continue;
+    diags.push(diag('A089', 'error', mod.file, decl.loc, 'types.' + decl.name,
+      'type ' + decl.name + ' shadows a builtin name',
+      'rename the declaration, e.g. ' + decl.name.charAt(0).toUpperCase() + decl.name.slice(1) + ', and keep the builtin ' + decl.name + ' for its own meaning'));
   }
 
   for (const svc of mod.services) {

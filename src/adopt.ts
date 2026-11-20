@@ -9,6 +9,7 @@ import type {
   Loc, ModuleNode, OpNode, Param, ServiceNode, TypeArg, TypeDecl, TypeExpr,
 } from './ast.ts';
 import { printModule } from './fmt.ts';
+import { BUILTIN_TYPE_NAMES } from './check.ts';
 
 const LOC: Loc = { line: 0, col: 0, endLine: 0, endCol: 0, offset: 0, end: 0 };
 const loc = (): Loc => LOC;
@@ -22,9 +23,18 @@ function ident(text: string): string {
   return s;
 }
 
+// A document may name a schema `int` or `number`. A declaration with a
+// builtin name is A089, so the adopted module renames it instead of emitting
+// a file its own checker rejects. Every $ref goes through the same function,
+// so the declaration and its references stay in step.
+function declName(text: string): string {
+  const name = ident(text);
+  return BUILTIN_TYPE_NAMES.has(name) ? name + '_' : name;
+}
+
 function typeName(ref: string): string {
   const parts = ref.split('/');
-  return ident(parts[parts.length - 1]);
+  return declName(parts[parts.length - 1]);
 }
 
 function named(name: string, args: TypeArg[] = []): TypeExpr {
@@ -118,7 +128,7 @@ function buildTypes(components: any): { types: TypeDecl[]; enumDecls: { kind: st
   const enumDecls: { kind: string; name: string; values: string[]; loc: Loc }[] = [];
   const schemas: Record<string, any> = components?.schemas ?? {};
   for (const [rawName, schema] of Object.entries<any>(schemas)) {
-    const name = ident(rawName);
+    const name = declName(rawName);
     if (schema?.enum && Array.isArray(schema.enum)) {
       enumDecls.push({ kind: 'enum', name, values: schema.enum.map((v: any) => ident(String(v))), loc: loc() });
       continue;
