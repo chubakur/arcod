@@ -16,6 +16,10 @@ function a086(body: string): ReturnType<typeof check> {
   return check(moduleOf(body)).filter((item) => item.code === 'A086');
 }
 
+function a087(body: string): ReturnType<typeof check> {
+  return check(moduleOf(body)).filter((item) => item.code === 'A087');
+}
+
 const title = 'type Title = string(max: 80)\n';
 
 test('arguments on a declared type are A086, not silently dropped', () => {
@@ -62,5 +66,33 @@ test('the same fact written where the builtin is declared is clean', () => {
 
 test('builtin generic arguments are not mistaken for refinements', () => {
   const diags = a086('type Item = { id: uuid }\ntype Page = { items: list<Item> }');
+  assert.deepEqual(diags, []);
+});
+
+test('a misspelled string argument is A087, not a dropped bound', () => {
+  const diags = a087('type Account = { name: string(mx: 80) }');
+  assert.equal(diags.length, 1);
+  assert.equal(diags[0].severity, 'error');
+  assert.match(diags[0].message, /unknown argument "mx" for string/);
+  assert.match(diags[0].hint ?? '', /min, max, format/);
+});
+
+test('a builtin with no argument readers rejects any argument', () => {
+  const diags = a087('type Account = { active: bool(max: 5) }');
+  assert.equal(diags.length, 1);
+  assert.match(diags[0].message, /bool takes no arguments/);
+});
+
+test('list and map count their type arguments', () => {
+  const list = a087('type Item = { id: uuid }\ntype Page = { items: list<Item, Item> }');
+  assert.equal(list.length, 1);
+  assert.match(list[0].message, /list takes 1 type argument, got 2/);
+  const map = a087('type Page = { byId: map<uuid> }');
+  assert.equal(map.length, 1);
+  assert.match(map[0].message, /map takes 2 type arguments, got 1/);
+});
+
+test('the documented argument sets stay clean', () => {
+  const diags = a087('type Item = { id: uuid }\ntype Account = { name: string(min: 1, max: 80, format: email), photo: bytes(max: 2mb), age: int(min: 0, max: 150) }\ntype Page = { items: list<Item>, byId: map<uuid, Item> }');
   assert.deepEqual(diags, []);
 });

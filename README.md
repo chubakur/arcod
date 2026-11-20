@@ -144,7 +144,9 @@ with the offending field named, not a 500 from a body that trusted the client.
 `check` rejects a default that violates its own type (`A060`) and an unknown
 format name (`A061`). Refinements (`min:`, `max:`, `format:`, a generic
 argument) belong to a builtin name: on a declared type they refine nothing,
-and `check` answers `A086`. Full example: `examples/signup`.
+and `check` answers `A086`. `string`, `bytes` and `int` read `min`/`max`
+(`string` also `format`), `list` and `map` take type arguments; an argument no
+emitter reads is `A087`. Full example: `examples/signup`.
 
 ## Commands
 
@@ -1562,6 +1564,10 @@ Errors:
 - `A086` arguments refine a builtin name (`string(max: 80)`, `list<Item>`);
   written on a declared type they were dropped: `check` stayed silent while
   the resolver read the alias declaration and the schema lost the bound.
+- `A087` a builtin type is given an argument no emitter reads (`string(mx: 80)`,
+  `bool(max: 5)`, `list<A, B>`): the schema and the runtime carried no bound, so
+  the model promised a limit it never enforced. The hint lists what the builtin
+  takes.
 - `A081` an example calls a name that is not an operation of the service (and
   is not the `uuid(...)` builtin), or a rule (`once(...)`, `atomic name`) names
   an operation the contract does not declare. `arcod test` used to resolve the

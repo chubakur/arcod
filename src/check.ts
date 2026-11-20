@@ -16,6 +16,21 @@ const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update'
 const ROUTE_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 // Delay units a trigger may use; a runner has to convert them to a timer.
 const TRIGGER_UNITS = ['ms', 's', 'm', 'h', 'd'];
+// Type arguments that change what a builtin means. Anything else written in
+// the parentheses has no reader in any emitter, so check names it instead of
+// letting the author believe a bound was applied (A087).
+const BUILTIN_ARG_RULES: Record<string, { named: string[]; positional: number; hint: string }> = {
+  string: { named: ['min', 'max', 'format'], positional: 0, hint: 'known arguments: min, max, format' },
+  bytes: { named: ['min', 'max'], positional: 0, hint: 'known arguments: min, max' },
+  int: { named: ['min', 'max'], positional: 0, hint: 'known arguments: min, max' },
+  list: { named: [], positional: 1, hint: 'list takes one type argument, e.g. list<Item>' },
+  map: { named: [], positional: 2, hint: 'map takes two type arguments, e.g. map<string, int>' },
+};
+const BUILTIN_TYPE_NAMES = new Set([
+  'string', 'bytes', 'int', 'float', 'number', 'bool', 'boolean', 'uuid',
+  'json', 'datetime', 'decimal', 'list', 'map', 'void', 'null',
+  'email', 'url', 'uri',
+]);
 
 const FORBIDDEN_IN_MODEL = ['redis', 'postgres', 'postgresql', 'dynamodb', 'mysql', 'mongodb', 'localhost', '127.0.0.1', 'ollama', 'openai', 'anthropic'];
 
@@ -527,6 +542,41 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       diags.push(diag('A086', 'error', mod.file, type.loc, 'types.' + type.name,
         'arguments on ' + type.name + ' are ignored: ' + type.name + ' is a declared type, not a builtin',
         'write them where ' + type.name + ' is declared, e.g. type ' + type.name + ' = string(min: …)'));
+    });
+  }
+
+  // A087 — a builtin reads a fixed set of arguments. `string(mx: 80)` or
+  // `int(max: 5)` was accepted and dropped: the OpenAPI schema and the runtime
+  // both carried no bound, so the model promised a limit it never enforced.
+  for (const root of typeRoots) {
+    walkTypeExpr(root, (type) => {
+      if (type.kind !== 'named' || type.args.length === 0) return;
+      if (declaredTypeNames.has(type.name)) return;
+      if (!BUILTIN_TYPE_NAMES.has(type.name)) return;
+      const rule = BUILTIN_ARG_RULES[type.name];
+      if (!rule) {
+        diags.push(diag('A087', 'error', mod.file, type.loc, 'types.' + type.name,
+          type.name + ' takes no arguments', 'drop them: no emitter reads a refinement here'));
+        return;
+      }
+      let positional = 0;
+      for (const arg of type.args) {
+        if (arg.isType) {
+          positional += 1;
+          continue;
+        }
+        if (arg.name === undefined || !rule.named.includes(arg.name)) {
+          diags.push(diag('A087', 'error', mod.file, arg.loc, 'types.' + type.name,
+            'unknown argument ' + (arg.name === undefined ? '(positional)' : '\"' + arg.name + '\"') + ' for ' + type.name,
+            rule.hint));
+        }
+      }
+      if (positional !== rule.positional) {
+        diags.push(diag('A087', 'error', mod.file, type.loc, 'types.' + type.name,
+          type.name + ' takes ' + (rule.positional === 0 ? 'no type arguments' : rule.positional + ' type argument' + (rule.positional === 1 ? '' : 's'))
+            + ', got ' + positional,
+          rule.hint));
+      }
     });
   }
 

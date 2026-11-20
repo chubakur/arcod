@@ -109,18 +109,56 @@ export function describeViolation(constraint: Constraint, value: unknown): strin
   return null;
 }
 
+export interface Bounds {
+  min: number | null;
+  max: number | null;
+}
+
+// Integer bounds are contract facts too: adopt keeps `minimum`/`maximum` from
+// an OpenAPI document as `int(min:, max:)`, so the schema and the runtime have
+// to read the same two arguments. Only integer literals count; anything else
+// is A087 at check time.
+export function boundsOf(mod: ModuleNode, type: TypeExpr, depth = 0): Bounds {
+  if (depth > 8) return { min: null, max: null };
+  if (type.kind === 'optional') return boundsOf(mod, type.inner, depth + 1);
+  if (type.kind !== 'named') return { min: null, max: null };
+  if (type.name === 'int') {
+    let min: number | null = null;
+    let max: number | null = null;
+    for (const arg of type.args) {
+      if (arg.value.kind !== 'literal' || typeof arg.value.value !== 'number') continue;
+      if (arg.name === 'min') min = arg.value.value;
+      if (arg.name === 'max') max = arg.value.value;
+    }
+    return { min, max };
+  }
+  const decl = mod.types.find((item) => item.name === type.name);
+  return decl ? boundsOf(mod, decl.type, depth + 1) : { min: null, max: null };
+}
+
 export function paramConstraint(mod: ModuleNode, param: Param): Constraint {
   return constraintOf(mod, param.type);
 }
 
 // Per-operation table for the generated service: only constrained parameters
 // are listed, so an unconstrained service pays nothing at runtime.
-export function constraintTable(mod: ModuleNode, params: Param[]): Record<string, { format?: Format; enum?: string[] }> {
-  const table: Record<string, { format?: Format; enum?: string[] }> = {};
+export function constraintTable(
+  mod: ModuleNode,
+  params: Param[],
+): Record<string, { format?: Format; enum?: string[]; min?: number; max?: number }> {
+  const table: Record<string, { format?: Format; enum?: string[]; min?: number; max?: number }> = {};
   for (const param of params) {
     const constraint = paramConstraint(mod, param);
     if (constraint.format) table[param.name] = { format: constraint.format };
     else if (constraint.enumValues) table[param.name] = { enum: constraint.enumValues };
+    const bounds = boundsOf(mod, param.type);
+    if (bounds.min !== null || bounds.max !== null) {
+      table[param.name] = {
+        ...(table[param.name] ?? {}),
+        ...(bounds.min !== null ? { min: bounds.min } : {}),
+        ...(bounds.max !== null ? { max: bounds.max } : {}),
+      };
+    }
   }
   return table;
 }

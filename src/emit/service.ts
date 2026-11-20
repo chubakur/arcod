@@ -2033,7 +2033,7 @@ function implHandlers(
   // Constrained scalars (email/url/enum) are checked at the boundary, before
   // the body runs: a client mistake is a 400 with the field named, never a
   // TypeError deep inside an operation that turns into a 500.
-  const constraints: Record<string, Record<string, { format?: string; enum?: string[] }>> = {};
+  const constraints: Record<string, Record<string, { format?: string; enum?: string[]; min?: number; max?: number }>> = {};
   for (const op of svc.contract) {
     if (op.kind !== 'op') continue;
     const table = constraintTable(mod, op.params);
@@ -2051,6 +2051,13 @@ function implHandlers(
     '    if (value === null || value === undefined) continue;',
     '    if (rule.enum) {',
     '      if (!rule.enum.includes(String(value))) return name + " must be one of " + rule.enum.join(", ");',
+    '      continue;',
+    '    }',
+    '    if (rule.min !== undefined || rule.max !== undefined) {',
+    '      const number = typeof value === "number" ? value : Number(value);',
+    '      if (!Number.isInteger(number)) return name + " must be an integer";',
+    '      if (rule.min !== undefined && number < rule.min) return name + " must be >= " + rule.min;',
+    '      if (rule.max !== undefined && number > rule.max) return name + " must be <= " + rule.max;',
     '      continue;',
     '    }',
     '    if (rule.format === "email" && (typeof value !== "string" || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value))) return name + " must be an email";',
