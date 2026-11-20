@@ -1031,6 +1031,21 @@ const total = await io.count('Task', { where: { status: 'open' } });
 in-memory match, so a counter never walks pages or stops at a ceiling. Reading
 it needs `store.count` in `effects`.
 
+A sum is a call too — folding pages in the body is the bug this replaces:
+
+```js
+const due = await io.aggregate('Invoice', { field: 'amount', op: 'sum', where: { paid: false } });
+const top = await io.aggregate('Invoice', { field: 'amount', op: 'max' });
+```
+
+`op` is `sum`, `avg`, `min` or `max` over one numeric field, with the same
+`where` operators as `find`/`count`. SQL runs a single `SUM/AVG/MIN/MAX`
+statement and returns no rows; kv folds the filtered namespace. `sum` of nothing
+is `0`, `avg`/`min`/`max` of nothing is `null`. An unknown `op`, an unknown
+field or a non-numeric value is `Invalid` with the name in the message — a
+report never goes quiet and never guesses. Reading it needs `store.aggregate`
+in `effects`.
+
 `examples/tasks` (Redis, with `KV_DRIVER=memory` for tests) and
 `examples/tasks-sql` (MySQL) share the same bodies and both pass
 `arcod test --impl`. What is not there yet: the filter runs in the adapter over

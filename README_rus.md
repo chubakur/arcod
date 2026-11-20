@@ -984,6 +984,20 @@ const total = await io.count('Task', { where: { status: 'open' } });
 памяти, поэтому счётчик не обходит страницы и не упирается в потолок. Для вызова
 нужен `store.count` в `effects`.
 
+Сумма — тоже вызов, а не складывание страниц в теле:
+
+```js
+const due = await io.aggregate('Invoice', { field: 'amount', op: 'sum', where: { paid: false } });
+const top = await io.aggregate('Invoice', { field: 'amount', op: 'max' });
+```
+
+`op` — `sum`, `avg`, `min` или `max` по одному числовому полю, с теми же
+операторами `where`, что у `find`/`count`. SQL делает один запрос
+`SUM/AVG/MIN/MAX` и не возвращает строк; kv сворачивает отфильтрованный
+namespace. `sum` пустого — `0`, `avg`/`min`/`max` пустого — `null`. Неизвестный
+`op`, неизвестное поле или нечисловое значение — `Invalid` с именем в сообщении:
+отчёт не молчит и не угадывает. Для вызова нужен `store.aggregate` в `effects`.
+
 `examples/tasks` (Redis, в тестах `KV_DRIVER=memory`) и `examples/tasks-sql`
 (MySQL) делят одни и те же тела, оба проходят `arcod test --impl`. Чего пока
 нет: фильтр выполняется в адаптере по одному namespace (`scan` + сравнение в
