@@ -1540,7 +1540,8 @@ Errors:
 - `A057` a saga step's `call`/`compensate` names an unknown operation;
 - `A058` a job's `saga:` names an undeclared saga;
 - `A059` a field default is not a literal of the field type;
-- `A060` a field default violates the constrained type (`email`, `url`, `enum`);
+- `A060` a field default violates the constrained type (`email`, `url`, `enum`) or
+  its integer `min`/`max`;
 - `A061` `string(format: ...)` names an unknown format;
 - `A063` an example passes a literal the parameter cannot accept (a list where
   a `string` is declared, a number where a `list<T>` is, `null` for a

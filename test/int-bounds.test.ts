@@ -32,6 +32,27 @@ test('the integer bounds reach the OpenAPI parameter', () => {
   assert.deepEqual(param.schema, { type: 'integer', minimum: 1, maximum: 10 });
 });
 
+test('a field default outside the bounds is A060, on the declaration', () => {
+  const item = (field: string) => check(parse('module m @0.1.0 {\n}\ntype Item = { ' + field + ' }', 'x.arc'))
+    .filter((diag) => diag.code === 'A060');
+  const low = item('age: int(min: 18, max: 99) = 10');
+  assert.equal(low.length, 1);
+  assert.match(low[0].message, /default of age violates its type: must be >= 18/);
+  const high = item('age: int(min: 18, max: 99) = 150');
+  assert.equal(high.length, 1);
+  assert.match(high[0].message, /must be <= 99/);
+  const alias = item('age: Age = 10');
+  assert.equal(alias.length, 0, 'Age is not declared here, so A088 owns the field');
+  assert.deepEqual(item('age: int(min: 18, max: 99) = 30'), []);
+});
+
+test('an alias of a bounded int carries the bound to the default', () => {
+  const diags = check(parse('module m @0.1.0 {\n}\ntype Age = int(min: 18)\ntype Item = { age: Age = 10 }', 'x.arc'))
+    .filter((diag) => diag.code === 'A060');
+  assert.equal(diags.length, 1);
+  assert.match(diags[0].message, /must be >= 18/);
+});
+
 test('the service answers 400 outside the bound and 200 inside it', async () => {
   assert.deepEqual(check(parse(source, 'main.arc')).filter((item) => item.severity === 'error'), []);
   const svc = await startService(source, { impl: { page: impl } });

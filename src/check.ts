@@ -7,7 +7,7 @@ import { capabilityFor, storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
 import { MANAGED_ENDPOINTS, MANAGED_PROVIDERS, managedResource } from './emit/terraform.ts';
 import { defaultValue } from './migrate.ts';
-import { constraintOf, describeViolation, unknownFormatOf } from './constraints.ts';
+import { boundsOf, constraintOf, describeViolation, unknownFormatOf } from './constraints.ts';
 import { isIsoInstant } from './instant.ts';
 
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
@@ -488,6 +488,21 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         diags.push(diag('A060', 'error', mod.file, field.loc, `types.${decl.name}.${field.name}`,
           `default of ${field.name} violates its type: ${violation}`,
           'pick a value the constrained type accepts'));
+      }
+      // Integer bounds are part of the type too: a default below min or above
+      // max would insert the very row the schema promises clients never see.
+      const bounds = boundsOf(mod, field.type);
+      if (typeof resolved.value === 'number') {
+        const outside = bounds.min !== null && resolved.value < bounds.min
+          ? 'must be >= ' + bounds.min
+          : bounds.max !== null && resolved.value > bounds.max
+            ? 'must be <= ' + bounds.max
+            : null;
+        if (outside) {
+          diags.push(diag('A060', 'error', mod.file, field.loc, `types.${decl.name}.${field.name}`,
+            `default of ${field.name} violates its type: ${outside}`,
+            'pick a value inside the declared bounds'));
+        }
       }
     }
   }
