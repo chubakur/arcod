@@ -173,3 +173,9 @@ test('W046 stays quiet when the plan provisions the provider or the target is do
   const docker = check(parse(spec('db -> mysql', 'deploy docker'), 'main.arc'));
   assert.deepEqual(docker.filter((item) => item.code === 'W046'), [], 'a container is provisioned by compose');
 });
+
+test('W046 covers mariadb and the plan names it too', () => {
+  const diags = check(parse(spec('db -> mariadb'), 'main.arc'));
+  assert.equal(diags.filter((item) => item.code === 'W046').length, 1);
+  assert.match(main(spec('db -> mariadb')), /# No managed equivalent rendered for: mariadb/);
+});
