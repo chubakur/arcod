@@ -112,3 +112,77 @@ test('kv: aggregate sums stored records and honours the where filter', async () 
     await svc.stop();
   }
 });
+
+// One emitter slip turned every kv aggregate into a 500: the facade read
+// meta.columns while the kv entity meta carried only prefix/uniqueGroups/
+// defaults. A regex on the emitted text would not have noticed, so walk the
+// field names the facade actually dereferences against the STORES table.
+test('the kv facade only reads meta fields the STORES table carries', async () => {
+  const { emitService } = await import('../src/emit/service.ts');
+  const { parse } = await import('../src/parser.ts');
+  const source = emitService(parse(spec, 'main.arc'), { impl });
+  const head = 'const STORES = ';
+  const start = source.indexOf(head);
+  assert.notEqual(start, -1, 'the service carries a STORES table');
+  const end = source.indexOf(String.fromCharCode(10) + '};', start);
+  assert.notEqual(end, -1, 'the STORES table is a top-level object');
+  const stores = JSON.parse(source.slice(start + head.length, end + 2));
+  const fields = [...new Set(Array.from(source.matchAll(/meta\.([A-Za-z_][A-Za-z0-9_]*)/g), (match) => match[1]))];
+  assert.ok(fields.length > 0, 'the facade reads the entity meta');
+  for (const [entity, meta] of Object.entries(stores as Record<string, Record<string, unknown>>)) {
+    for (const field of fields) {
+      assert.ok(Object.hasOwn(meta, field), entity + ' meta lacks ' + field);
+    }
+  }
+});
+
+// min and max take the same one-pass path and were advertised in the Invalid
+// message without a single test: an extreme over an empty set must be null,
+// not 0 or the seed default.
+const specWithExtremes = (() => {
+  const lines = spec.split(String.fromCharCode(10));
+  const close = lines.lastIndexOf('  }');
+  lines.splice(
+    close,
+    0,
+    '    public op extremes(kind: string?) -> { min: int, max: int } {',
+    '      route: "GET /v1/extremes"',
+    '      effects: store.aggregate',
+    '      errors: Invalid',
+    '      post: result != null',
+    '    }',
+    '',
+  );
+  return lines.join(String.fromCharCode(10));
+})();
+
+const extremesImpl = [
+  'export async function extremes(input, io) {',
+  '  const where = input.kind ? { kind: String(input.kind) } : null;',
+  '  const min = await io.aggregate("Entry", { field: "amount", op: "min", where });',
+  '  const max = await io.aggregate("Entry", { field: "amount", op: "max", where });',
+  '  return { result: { min, max } };',
+  '}',
+].join(String.fromCharCode(10));
+
+test('kv: min and max pick the extremes and answer null on an empty set', async () => {
+   const svc = await startService(specWithExtremes, { impl: { ...impl, extremes: extremesImpl } });
+  try {
+    const seeded = await fetch(svc.base + '/v1/seed', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ n: 4, kind: 'a' }),
+    });
+    assert.equal(seeded.status, 201);
+
+    const top = await (await fetch(svc.base + '/v1/extremes')).json();
+    assert.equal(top.min, 1);
+    assert.equal(top.max, 4);
+
+    const empty = await (await fetch(svc.base + '/v1/extremes?kind=b')).json();
+    assert.equal(empty.min, null);
+    assert.equal(empty.max, null);
+  } finally {
+    await svc.stop();
+  }
+});
