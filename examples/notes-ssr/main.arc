@@ -28,6 +28,21 @@ service Notes : http {
       route: "POST /api/notes"
     }
   }
+
+  examples {
+
+    // The first screen is list(), rendered on the server from these notes, so
+    // the demo's own data path is a test: a note is created and comes back.
+    example create_appears_in_list {
+      when {
+        let note = create("first note")
+        let notes = list()
+      }
+      then {
+        notes[0].text == note.text
+      }
+    }
+  }
 }
 
 environment dev {

@@ -861,6 +861,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     // W018 — the spec has no body, so one has to come from outside
     const templated = svc.contract
       .filter((op) => op.kind === 'op' && templateFor(op.name))
+      .filter((op) => !(options.impl && Object.prototype.hasOwnProperty.call(options.impl, op.name)))
       .map((op) => op.name);
     if (templated.length > 0) {
       diags.push(diag('W018', 'warning', mod.file, svc.loc, `services.${svc.name}`, 'operation bodies are not specified: ' + templated.join(', '), 'arcod impl generates them, build --reference substitutes a demo body, scaffold leaves a TODO'));

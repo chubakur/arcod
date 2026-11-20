@@ -325,6 +325,23 @@ test('W012: an operation without examples', () => {
   assert.match(warnings(source).get('W012')?.[0] ?? '', /operation read has no examples/);
 });
 
+// A project with impl/create.mjs has a body. The warning that names the
+// operation only holds while no body exists anywhere; it used to fire on every
+// shipped example that provided one.
+test('W018 is silent once impl/ carries the body', () => {
+  const source = service([
+    '  contract {',
+    '    public op create(text: string) -> string {',
+    '      route: "POST /v1/k"',
+    '    }',
+    '  }',
+  ].join('\n'));
+  const mod = parse(source, 'gaps.arc');
+  assert.ok(check(mod).some((d) => d.code === 'W018'), 'no body anywhere: the warning names the operation');
+  const withImpl = check(mod, { impl: { create: 'export async function create() { return { result: "x" }; }' } });
+  assert.deepEqual(withImpl.filter((d) => d.code === 'W018'), []);
+});
+
 test('W015: a module error nobody mentions', () => {
   // `Gone` and `NotFound` are declared at module level in this helper and no
   // contract names them.
