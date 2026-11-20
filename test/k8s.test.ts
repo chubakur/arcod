@@ -263,3 +263,48 @@ test('helm: an untagged image means latest and a registry port is not a tag', as
   assert.match(ported, /repository: registry.local:5000\/acme\/app\n/);
   assert.match(ported, /tag: latest/);
 });
+
+// The cloud endpoint is assigned at apply time, so a manifest that carries the
+// docker host name (`postgres://app:secret@pg:5432/app`) starts a pod that
+// cannot resolve its database. The app env entry moves into a Secret fed from
+// the terraform outputs; the same file says which output fills which key.
+const cloudModule = [
+  'module shop @0.1.0 {',
+  '}',
+  'use capability arcod.std.sql @1',
+  'service Store : http {',
+  '  uses db: sql',
+  '  contract {',
+  '    public op list() -> string {',
+  '      route: "GET /api/items"',
+  '    }',
+  '  }',
+  '}',
+  'environment dev {',
+  '  bind db -> postgres()',
+  '  deploy docker',
+  '}',
+  'environment prod {',
+  '  bind db -> postgres(host: "pg", port: 5432)',
+  '  deploy yandex(region: "ru-central1", folder: "f", service: "shop")',
+  '}',
+].join('\n');
+
+test('k8s: a cloud endpoint is read from a Secret, not from the docker host', async () => {
+  const mod = await parse(cloudModule, 'shop.arc');
+  const files = k8sManifests(mod, { environment: 'prod' });
+  const app = need(files, 'service.yaml');
+  assert.match(app, /- name: DATABASE_URL\n              valueFrom:\n                secretKeyRef:\n                  name: arcod-shop-endpoints\n                  key: database_url/);
+  assert.deepEqual(app.includes('pg:5432'), false, 'the docker address never reaches the manifest');
+  assert.match(app, /terraform output db_host and db_port/, 'the comment names the output that fills the key');
+  const configMap = files.find((item) => item.path === 'configmap.yaml');
+  assert.equal(configMap, undefined, 'nothing is left for the ConfigMap to carry');
+});
+
+test('k8s: a docker environment keeps the literal URL it can resolve', async () => {
+  const mod = await parse(cloudModule, 'shop.arc');
+  const files = k8sManifests(mod, { environment: 'dev' });
+  const app = need(files, 'service.yaml');
+  assert.deepEqual(app.includes('secretKeyRef'), false, 'a container address needs no cloud secret');
+  assert.match(need(files, 'secret.yaml'), /DATABASE_URL: "postgres:\/\/.*@postgres:5432/);
+});

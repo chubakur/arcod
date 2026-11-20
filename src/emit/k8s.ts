@@ -2,6 +2,7 @@ import type { ModuleNode } from '../ast.ts';
 import { kebab } from '../plan.ts';
 import { providerFor } from '../providers.ts';
 import { composeModel, localEnvironment, providerImage, type RenderedProvider } from './compose.ts';
+import { MANAGED_ENDPOINTS } from './terraform.ts';
 import { imageContract } from '../deploy.ts';
 
 // The kubernetes target is a second view of the same topology compose emits:
@@ -125,6 +126,9 @@ interface Workload {
   envFromConfigMap?: string | null;
   envFromSecret?: string | null;
   mounts?: Array<{ path: string; claim: string }>;
+  // Env entries whose value the cluster only learns at apply time: the pod
+  // reads them from a Secret instead of carrying a literal.
+  secretRefs?: Array<{ name: string; key: string; secret: string }>;
   probe?: string[];
   resources?: boolean;
 }
@@ -161,10 +165,20 @@ function workloadYaml(w: Workload): string {
     for (const extra of w.extraPorts ?? []) lines.push('            - containerPort: ' + extra);
   }
 
-  if (w.env && Object.keys(w.env).length > 0) {
+  const refsInEnv = w.secretRefs ?? [];
+  if ((w.env && Object.keys(w.env).length > 0) || refsInEnv.length > 0) {
     lines.push('          env:');
-    for (const key of Object.keys(w.env).sort()) {
-      lines.push('            - name: ' + key, '              value: ' + JSON.stringify(w.env[key]));
+    for (const key of Object.keys(w.env ?? {}).sort()) {
+      lines.push('            - name: ' + key, '              value: ' + JSON.stringify(w.env![key]));
+    }
+    for (const ref of refsInEnv) {
+      lines.push(
+        '            - name: ' + ref.name,
+        '              valueFrom:',
+        '                secretKeyRef:',
+        '                  name: ' + ref.secret,
+        '                  key: ' + ref.key,
+      );
     }
   }
 
@@ -351,6 +365,9 @@ interface Ctx {
   plainEnv: Record<string, string>;
   hiddenEnv: Record<string, string>;
   vault: { path: string; store: string } | null;
+  // Secret that carries the endpoints a cloud assigned, and the env entries
+  // that read it. Empty on a docker-view render.
+  endpoints: { secret: string; refs: Array<{ name: string; key: string; hint: string }> } | null;
   tpl: boolean;
 }
 
@@ -410,6 +427,10 @@ function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
   const keys = [...declared];
   const env = splitEnv(model.appEnv, keys);
 
+  const endpoints = deployEnv?.deploy?.provider === 'yandex'
+    ? endpointContract(name, model.providers, env)
+    : null;
+
   const environment = localEnvironment(mod);
   const vaultBind = (environment?.binds ?? []).find((bind) => providerFor(bind.provider)?.capability === 'secrets');
   const path = vaultBind ? literalArg(vaultBind as unknown as { args: Record<string, unknown> }, 'path') : null;
@@ -430,8 +451,60 @@ function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
     plainEnv: env.plain,
     hiddenEnv: env.hidden,
     vault,
+    endpoints,
     tpl,
   };
+}
+
+// A cloud assigns a managed endpoint at apply time, so compose's docker
+// address (`postgres://app:secret@pg:5432/app`) would aim the pod at a service
+// that does not exist in the cluster. The whole URL moves into a Secret filled
+// from the terraform outputs, and the pod reads it by key; W044 names the same
+// gap from the spec side, before anything is applied.
+function endpointContract(
+  appName: string,
+  providers: RenderedProvider[],
+  env: { plain: Record<string, string>; hidden: Record<string, string> },
+): Ctx['endpoints'] {
+  const refs: Array<{ name: string; key: string; hint: string }> = [];
+  for (const item of providers) {
+    const endpoint = MANAGED_ENDPOINTS[item.spec.name];
+    if (!endpoint) continue;
+    const address = item.host + ':' + item.port;
+    for (const bucket of [env.plain, env.hidden]) {
+      for (const [key, value] of Object.entries(bucket)) {
+        if (!value.includes(address)) continue;
+        delete bucket[key];
+        if (refs.some((ref) => ref.name === key)) continue;
+        refs.push({
+          name: key,
+          key: key.toLowerCase(),
+          hint: endpoint.output + '_host and ' + endpoint.output + '_port',
+        });
+      }
+    }
+  }
+  if (refs.length === 0) return null;
+  refs.sort((a, b) => a.name.localeCompare(b.name));
+  return { secret: appName + '-endpoints', refs };
+}
+
+// The manifest cannot fill the Secret: only terraform knows the address it just
+// created. The comment names the key and the output that feeds it, so the
+// deployment is not a pod that starts and fails to resolve `pg`.
+function endpointComment(ctx: Ctx): string[] {
+  const endpoints = ctx.endpoints;
+  if (!endpoints) return [];
+  const lines = [
+    '# Managed endpoints: the cloud assigns these addresses, so the env entries',
+    '# below read them from a Secret instead of a literal docker host name.',
+    '# After `terraform apply`, create it in the namespace:',
+    '#   kubectl -n ' + ctx.namespace + ' create secret generic ' + endpoints.secret,
+  ];
+  for (const ref of endpoints.refs) {
+    lines.push('#   key ' + ref.key + '  <-  terraform output ' + ref.hint + ' (plus the credentials the app uses)');
+  }
+  return lines;
 }
 
 function providerFiles(ctx: Ctx): EmittedFile[] {
@@ -502,13 +575,16 @@ function appFiles(ctx: Ctx): EmittedFile[] {
     port: ctx.appPort,
     envFromConfigMap: Object.keys(ctx.plainEnv).length > 0 ? ctx.name + '-env' : null,
     envFromSecret: Object.keys(ctx.hiddenEnv).length > 0 ? ctx.name + '-env' : null,
+    secretRefs: ctx.endpoints ? ctx.endpoints.refs.map((ref) => ({ name: ref.name, key: ref.key, secret: ctx.endpoints!.secret })) : undefined,
     probe: httpProbeLines('/healthz', ctx.appPort, '          '),
     resources: true,
   });
+  const comment = endpointComment(ctx);
   return [
     {
       path: 'service.yaml',
-      content: deployment + '\n---\n' + serviceYaml(ctx.name, 'service', 'service', [ctx.appPort], ctx.namespace),
+      content: (comment.length > 0 ? comment.join('\n') + '\n' : '') +
+        deployment + '\n---\n' + serviceYaml(ctx.name, 'service', 'service', [ctx.appPort], ctx.namespace),
     },
   ];
 }
