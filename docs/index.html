@@ -303,9 +303,9 @@
           <div class="card" style="padding:18px 22px">
             <div style="display:flex; gap:26px; flex-wrap:wrap; font:13px/1.5 var(--mono); color:var(--muted)">
               <span><b style="color:var(--text); font-size:18px">0</b><br>runtime deps</span>
-              <span><b style="color:var(--text); font-size:18px">85</b><br>diagnostics</span>
+              <span><b style="color:var(--text); font-size:18px">98</b><br>diagnostics</span>
               <span><b style="color:var(--text); font-size:18px">9</b><br>capabilities</span>
-              <span><b style="color:var(--text); font-size:18px">554</b><br>tests</span>
+              <span><b style="color:var(--text); font-size:18px">775</b><br>tests</span>
             </div>
           </div>
         </div>
@@ -316,36 +316,39 @@
   <section id="news">
     <div class="wrap">
       <div class="kicker">what shipped this week</div>
-      <h2>Three things shipped on 2026-11-18.</h2>
+      <h2>Three things shipped on 2026-11-19.</h2>
       <p class="sub">Each is covered by tests in the repository.</p>
       <div class="grid-3">
         <div class="card">
-          <span class="num">2026-11-18 · HTTP</span>
-          <h3>HEAD requests stopped falling through</h3>
-          <p>A HEAD probe — every health check, proxy probe and <code>curl -I</code> — used
-          to answer <code>404</code> when the same path had a GET route. It now gets the GET
-          headers, status <code>200</code> and no body, as RFC 9110 defines it. A declared
-          HEAD route still wins and a POST-only path stays <code>404</code>; OpenAPI and the
-          generated UI send HEAD parameters in the query, never a body.</p>
+          <span class="num">2026-11-19 · EMBEDDINGS</span>
+          <h3>Vectors from the same binding as chat</h3>
+          <p><code>io.embed(texts)</code> asks the bound model for one vector per input, in
+          request order — the body never hashes text or invents a vector. A binding can make
+          the width a promise: <code>bind model -&gt; ollama(model: "nomic-embed-text", dim: 768)</code>.
+          A vector of another size fails the operation with a named error instead of landing
+          next to the rest; <code>dim</code> itself is checked (<code>A077</code>), and an empty
+          batch returns <code>[]</code> without a request. <code>examples/vector</code> keeps a
+          note and its vector in one record and ranks hits by cosine.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-18 · OPENAPI</span>
-          <h3>The contract matches the router</h3>
-          <p><code>arcod openapi</code> prints the canonical path (<code>/v1/x/</code> and
-          <code>//v1/x</code> become <code>/v1/x</code>), lists <code>bearerAuth</code> only
-          on operations that need a token, and carries <code>access</code> clauses into the
-          operation description. A HEAD parameter is documented as a query parameter with no
-          request body, so a client generator gets the document the service actually serves.</p>
+          <span class="num">2026-11-19 · REDIS</span>
+          <h3>A broker restart no longer looks like a hang</h3>
+          <p>When Redis closed the socket, a command already sent waited forever: a queue
+          consumer parked on <code>receive()</code> and the service silently stopped taking
+          messages. Both clients now reject every pending call with
+          <code>redis connection closed</code>, and a new socket starts with an empty buffer so
+          a half-read reply cannot poison it. Subscribers re-declare every topic that still has
+          listeners after a reconnect, so a live page keeps its events instead of going quiet.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-18 · CHECK</span>
-          <h3>Seven route mistakes now fail the check</h3>
-          <p><code>A069</code> two operations answering one route, <code>A070</code> a route
-          without a method or a leading slash, <code>A071</code> a <code>:segment</code> the
-          operation never declares, <code>A072</code> the same capture twice,
-          <code>A073</code> a literal route a capture shadows, <code>A074</code> a query
-          string in the path, <code>A075</code> an OpenAPI-style <code>{id}</code>. Each is
-          an error before deploy instead of a 404 after it.</p>
+          <span class="num">2026-11-19 · BUILD</span>
+          <h3>A failed build keeps the last tree that worked</h3>
+          <p>The build writes to a staging directory and renames it after the last file, so a
+          late failure — a missing bind import, a plugin without its adapter — leaves the
+          previous <code>.arcod/build</code> byte-identical instead of an empty scaffold. The
+          migration plan and its SQL are published with that same tree, and
+          <code>NNNN_*.sql</code> or prompt files the contract no longer owns are pruned: a
+          removed operation leaves no prompt behind, a dropped table leaves no migration.</p>
         </div>
       </div>
     </div>
@@ -388,7 +391,7 @@
       <h2>One file in. A running system out.</h2>
       <p class="sub"><code>arcod make</code> runs the same steps the standalone commands do, so the pipeline cannot drift from the CLI.</p>
       <div class="steps">
-        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, access, routes, examples. 85 diagnostics, errors stop the build.</p></div>
+        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, access, routes, examples. 98 diagnostics, errors stop the build.</p></div>
         <div class="step"><h3>Plan</h3><p>A deterministic task DAG: files, dependencies, acceptance criteria, <code>--json</code>.</p></div>
         <div class="step"><h3>Prompts</h3><p>One prompt per operation with a token budget and a hash for caching.</p></div>
         <div class="step"><h3>Build &amp; test</h3><p>Service, UI, compose, manifests — then the model's own examples run against it.</p></div>
@@ -530,6 +533,14 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           its undo in reverse when a later step finally fails.</p>
         </div>
         <div class="card">
+          <h3>Embeddings as an effect</h3>
+          <p><code>io.embed(texts)</code> returns one vector per input from the bound
+          <code>llm</code> provider — no SDK in the service, no vendor in the model. The
+          binding may declare <code>dim</code>, and a vector of another width fails the
+          operation with a named error. <code>examples/vector</code> stores each note with
+          its vector and ranks search hits by cosine in the body.</p>
+        </div>
+        <div class="card">
           <h3>UIs without a frontend decision</h3>
           <p>Forms from public operations, <code>layout: chat</code> for dialogue,
           <code>layout: presentation</code> for decks: a join code, a QR encoder vendored
@@ -564,6 +575,13 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           the same environment as Yandex Cloud HCL — network, managed Postgres/Redis,
           bucket — with every credential a sensitive variable.</p>
         </div>
+        <div class="card">
+          <h3>A build you can automate</h3>
+          <p><code>arcod build --json</code> reports the result as one object: mode, directory,
+          dialect, port, reference, files, images and body sources. The tree is published
+          atomically — a late failure leaves the previous <code>.arcod/build</code> untouched —
+          and migrations, prompts and SQL the contract no longer owns are pruned.</p>
+        </div>
       </div>
 
       <div class="chips">
@@ -584,7 +602,7 @@ deploy.dev.json          deploy manifest per environment</code></pre>
   <section id="examples">
     <div class="wrap">
       <div class="kicker">examples that run</div>
-      <h2>Fifteen services, all in the repository.</h2>
+      <h2>Sixteen services, all in the repository.</h2>
       <p class="sub">Each one is a single <code>.arc</code> file plus bodies generated by a local 7B model and verified by tests.</p>
       <div class="examples">
         <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/onetimemessage">
@@ -598,6 +616,12 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <h3>Chat with a model</h3>
           <p>History, replies, a local model as a capability.</p>
           <div class="tags"><span class="tag">llm</span><span class="tag">sql</span><span class="tag">layout: chat</span></div>
+        </a>
+        <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/vector">
+          <span class="path">examples/vector</span>
+          <h3>Notes searched by meaning</h3>
+          <p>A note keeps its embedding; search ranks notes by cosine, with a declared <code>dim: 768</code>.</p>
+          <div class="tags"><span class="tag">llm</span><span class="tag">embeddings</span><span class="tag">kv</span></div>
         </a>
         <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/files">
           <span class="path">examples/files</span>
@@ -694,6 +718,7 @@ deploy.dev.json          deploy manifest per environment</code></pre>
             <li><b>The Postgres runtime is proven against a fake wire backend and an end-to-end example</b>, not yet against a live managed server in CI. MySQL remains the default build.</li>
             <li><b>OLAP, metrics, secrets</b> and friends are provisioned in compose but have no effect signatures; <b>Kafka and RabbitMQ</b> provision a queue the adapter cannot speak — bind <code>queue</code> to Redis.</li>
             <li><b><code>find</code> on <code>kv</code> is a scan with a filter</b>, not a query planner: one entity namespace matched in memory. On <code>sql</code> the same <code>find</code> is pushed into <code>WHERE</code>/<code>ORDER BY</code>/<code>LIMIT</code>. Indexes are single-field (<code>index Task.dueAt</code>); composite and partial indexes are not generated.</li>
+            <li><b>Vector search is a scan.</b> <code>examples/vector</code> reads the notes it can find and ranks them in the body: there is no ANN index and no distance <code>order by</code> in the store. Cosine scores stay between -1 and 1, so a caller can pick a threshold; a large corpus needs an index this example does not have.</li>
             <li><b>SSR embeds one first screen.</b> A page whose operations all need input cannot fill it and gets <code>W030</code>; later changes still come from the generated form, not from streamed updates.</li>
             <li><b>A unique claim on <code>kv</code> outlives the record</b>: the claim key has no TTL, so an expired record holds its value until removed or updated. On <code>sql</code>, uniqueness is the table constraint, so nothing to clean up.</li>
             <li><b>Workflows</b> are parsed, described and validated — no runner is generated (<code>W022</code>); a job runs only when it declares an <code>on:</code> queue consumer (<code>W017</code>).</li>
