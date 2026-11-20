@@ -394,3 +394,40 @@ test('k8s: every cloud environment in examples renders without a docker address'
   }
   assert.ok(checked >= 5, 'the examples still carry cloud environments: ' + checked);
 });
+
+// `arcod build` writes one manifest tree per cloud environment. Rendering it
+// without naming the environment described the docker view in every tree, so
+// k8s-prod advertised the local mysql the plan never creates.
+test('build: a cluster environment writes the manifest for its own binds', async () => {
+  const source = [
+    'module shop @0.1.0 {',
+    '}',
+    'use capability arcod.std.sql @1',
+    'service Store : http {',
+    '  uses db: sql',
+    '  contract {',
+    '    public op list() -> string {',
+    '      route: "GET /api/items"',
+    '    }',
+    '  }',
+    '}',
+    'environment dev {',
+    '  bind db -> mysql(host: "db", port: 3306)',
+    '  deploy docker',
+    '}',
+    'environment staging {',
+    '  bind db -> postgres(host: "pg", port: 5432)',
+    '  deploy kubernetes(image: "acme/shop:1")',
+    '}',
+  ].join('\n');
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-k8s-env-'));
+  try {
+    const result = await buildExample(await parse(source, 'shop.arc'), dir);
+    const staging = await readFile(join(dir, '.arcod', 'build', 'k8s-staging', 'secret.yaml'), 'utf8');
+    assert.match(staging, /DATABASE_URL: "postgres:\/\//, 'staging binds postgres, so that is the URL it gets');
+    assert.deepEqual(staging.includes('mysql://'), false, 'the local mysql never reaches the staging tree');
+    assert.deepEqual(result.files.some((file) => file.includes('/k8s-dev/')), false, 'a docker environment has no manifest tree');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

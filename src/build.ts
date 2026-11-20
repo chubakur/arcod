@@ -423,6 +423,9 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
     if (spec.artifacts === 'k8s' || spec.artifacts === 'helm') {
       const args = literalMap(deploy.args);
       const k8sOptions: K8sOptions = {
+        // The manifests belong to this environment: its binds decide the
+        // providers, so prod cannot be rendered as the docker view.
+        environment: environment.name,
         image: args.image,
         namespace: args.namespace,
         replicas: args.replicas !== undefined ? Number(args.replicas) : undefined,
