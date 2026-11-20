@@ -65,3 +65,24 @@ test('every example builds in place, with its own inputs', async () => {
   }
   assert.deepEqual(failed, [], 'every example compiles');
 });
+
+// check() defaults to one environment. A cloud environment is where the new
+// k8s/terraform wiring lives, so each of them is checked on its own: an example
+// must not only be clean at home.
+test('every environment of every example checks without errors', async () => {
+  const list = await examples();
+  const broken: string[] = [];
+  let checked = 0;
+  for (const example of list) {
+    const mod = parse(example.source, example.name + '/main.arc');
+    for (const env of mod.environments) {
+      checked += 1;
+      const errors = check(mod, { environment: env.name }).filter((item) => item.severity === 'error');
+      if (errors.length > 0) {
+        broken.push(example.name + ' ' + env.name + ': ' + errors.map((item) => item.code + ' ' + item.message).join('; '));
+      }
+    }
+  }
+  assert.deepEqual(broken, [], broken.join('\n'));
+  assert.ok(checked >= 20, 'the examples still declare environments: ' + checked);
+});
