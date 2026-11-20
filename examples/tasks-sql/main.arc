@@ -105,6 +105,11 @@ environment dev {
   deploy docker
 }
 
+// The same contract in a cloud, with one honest gap: terraform provisions no
+// mysql resource, so `arcod check` reports W046 for this bind and the plan
+// names it under "No managed equivalent rendered for". A real deployment binds
+// postgres here (the managed equivalent) or points store at an external host;
+// this example keeps mysql to show the diagnostic rather than hide it.
 environment prod {
   bind store -> mysql
   bind uuid -> local
