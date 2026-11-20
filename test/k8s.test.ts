@@ -94,6 +94,17 @@ test('k8s: the ingress points at the web tier and only exists with a host', asyn
   assert.equal(withoutHost.find((file) => file.path === 'ingress.yaml'), undefined);
 });
 
+test('k8s: a pinned provider image replaces the built-in tag in the Deployment', () => {
+  // image is a bind argument, not a compose nicety: the k8s emitter renders
+  // provider Deployments through the same providerImage(), so the pin has to
+  // land here too.
+  const pinned = stateless.replace('bind db -> postgres()', 'bind db -> postgres(host: "db", image: "postgres:15-alpine")');
+  const files = k8sManifests(parse(pinned, 'main.arc'), { image: 'acme/app:1' });
+  const db = need(files, 'db.yaml');
+  assert.match(db, /image: postgres:15-alpine/);
+  assert.doesNotMatch(db, /postgres:16-alpine/, 'the built-in tag is gone');
+});
+
 test('k8s: a stateful provider gets a PVC and a mount', async () => {
   const ast = parse(stateless, 'main.arc');
   const files = k8sManifests(ast, { image: 'acme/kvonly:1' });

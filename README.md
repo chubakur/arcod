@@ -1082,8 +1082,8 @@ backend connection. A provider reads a fixed set of them: `arcod providers
 provider reads. `host`, `port`, `expose` and `import` are accepted by every
 binding. `image` is listed for every provider that runs a container: it pins the
 container to an exact reference (`bind store -> redis(image: "redis:7.4")`)
-instead of the built-in tag, and `A084` refuses a value that is not a plain
-reference.
+both in the compose file and in the k8s Deployment, instead of the built-in tag,
+and `A084` refuses a value that is not a plain reference.
 
 The `io` adapter is what changes: the MySQL client parameterises queries so a
 value from a request never concatenates into SQL; `take` runs as a transaction
