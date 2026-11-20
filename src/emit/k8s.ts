@@ -118,6 +118,9 @@ interface Workload {
   component: string;
   namespace: string;
   replicas: string;
+  // A single-instance store must not overlap two pods: the claim is exclusive
+  // and the second instance would answer from a different store.
+  strategy?: 'Recreate';
   image: string;
   port: number;
   extraPorts?: number[];
@@ -144,6 +147,7 @@ function workloadYaml(w: Workload): string {
     ...labelPairs(w.partOf, w.name, w.component, '    '),
     'spec:',
     '  replicas: ' + w.replicas,
+    ...(w.strategy ? ['  strategy:', '    type: ' + w.strategy] : []),
     '  selector:',
     '    matchLabels:',
     ...selectorPairs(w.name, w.component, '      '),
@@ -556,6 +560,7 @@ function providerFiles(ctx: Ctx): EmittedFile[] {
       // cluster config, mysql on a ReadWriteOnce claim): `--replicas` would
       // put independent stores behind one Service, so it scales the app only.
       replicas: '1',
+      strategy: 'Recreate',
       image,
       port: item.port,
       extraPorts: item.spec.extraPorts,

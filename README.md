@@ -566,7 +566,9 @@ home and postgres in the cloud therefore renders a postgres manifest for prod.
 sizes the app Deployment and the web tier. A provider workload keeps one
 replica — the images are single-instance software (redis with no cluster
 configuration, mysql on a `ReadWriteOnce` claim), so two of them behind one
-Service would answer from two different stores.
+Service would answer from two different stores. For the same reason a provider
+Deployment rolls as `Recreate`: the old pod releases the volume before the new
+one mounts it, and the two never serve side by side.
 
 **Secrets** are declared by the providers, not guessed from names: `postgres`
 marks `POSTGRES_PASSWORD` and `DATABASE_URL` sensitive, `s3` marks

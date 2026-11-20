@@ -491,3 +491,10 @@ test('helm: replicaCount does not scale a provider Deployment', async () => {
   assert.match(need(files, 'templates/kv.yaml'), /  replicas: 1/);
   assert.equal(/replicaCount/.test(need(files, 'templates/kv.yaml')), false);
 });
+
+test('k8s: a provider rolls as Recreate, the app keeps the rolling default', async () => {
+  const files = k8sManifests(await onetime(), { image: 'acme/app:1' });
+  assert.match(need(files, 'kv.yaml'), /  replicas: 1\n  strategy:\n    type: Recreate\n  selector:/);
+  assert.equal(/strategy:/.test(need(files, 'service.yaml')), false);
+  assert.equal(/strategy:/.test(need(files, 'web.yaml')), false);
+});
