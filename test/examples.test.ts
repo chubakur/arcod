@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
-import { buildExample } from '../src/build.ts';
+import { loadRegistry } from '../src/registry.ts';
+import { buildExample, implBodiesFor } from '../src/build.ts';
 import { runExamples } from '../src/test.ts';
 
 // examples/ is the project's promise: every file there is a working service.
@@ -30,18 +31,35 @@ async function examples(): Promise<Array<{ name: string; spec: string; source: s
   return out;
 }
 
-test('every example parses and checks without errors', async () => {
+// A warning a demo carries on purpose, with the item that owns it. This is a
+// ratchet: the entry goes away when the item does, and a new warning is red.
+// An undocumented W041 (an example calling an op with a parameter missing) and
+// the orders W046 both sat green in this suite until they were named here.
+const DOCUMENTED_WARNINGS: Record<string, Record<string, string>> = {
+  files: { W012: 'B47: list() declares list<FileId> while the impl returns records' },
+  'tasks-sql': { W046: 'prod keeps mysql so the missing managed resource stays visible' },
+};
+
+test('every example parses and checks with no errors and only documented warnings', async () => {
   const list = await examples();
   assert.ok(list.length >= 10, 'the examples directory is populated (found ' + list.length + ')');
   const broken: string[] = [];
   for (const example of list) {
+    const dir = join(examplesDir, example.name);
     const mod = parse(example.source, example.name + '/main.arc');
-    const errors = check(mod).filter((item) => item.severity === 'error');
-    if (errors.length > 0) {
-      broken.push(example.name + ': ' + errors.map((item) => item.code + ' ' + item.message).join('; '));
+    // Implementation bodies are read: without them W018 would fire on every
+    // demo that ships impl/ and the ratchet would mean nothing.
+    const diags = check(mod, { registry: loadRegistry(dir), impl: await implBodiesFor(dir) });
+    const allowed = DOCUMENTED_WARNINGS[example.name] ?? {};
+    for (const item of diags) {
+      if (item.severity === 'error') {
+        broken.push(example.name + ': error ' + item.code + ' ' + item.message);
+      } else if (!allowed[item.code]) {
+        broken.push(example.name + ': warning ' + item.code + ' ' + item.message);
+      }
     }
   }
-  assert.deepEqual(broken, [], 'examples must check clean');
+  assert.deepEqual(broken, [], 'examples must check clean (documented warnings only)');
 });
 
 test('every example builds in place, with its own inputs', async () => {
