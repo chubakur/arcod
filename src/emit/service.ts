@@ -990,6 +990,19 @@ function checkWhereFields(meta, where) {
   }
 }
 
+// A sort key the entity does not declare is the same class of mistake: kv
+// sorted by an undefined value (a no-op order), sql sent an unknown column to
+// the driver (500). Both name the field and the declared columns now.
+function checkOrderFields(meta, order) {
+  for (const rule of order) {
+    if (!meta.columns.some((column) => column.name === rule.field)) {
+      throw new ArcodError('Invalid', {
+        message: 'order: unknown field "' + rule.field + '"; declared: ' + meta.columns.map((column) => column.name).join(', '),
+      });
+    }
+  }
+}
+
 // Declared schema defaults fill only absent fields: an explicit value (even
 // null) from the body always wins, so a default is never a validator.
 function withDefaults(meta, record) {
@@ -1875,6 +1888,7 @@ function kvEntityIoLines(): string[] {
     '      const requested = Number(opts.limit);',
     '      const limit = Number.isFinite(requested) && requested > 0 ? Math.min(500, Math.floor(requested)) : 50;',
     '      const order = parseOrder(opts.order);',
+    '      checkOrderFields(meta, order);',
     '      const rows = await store.scan(meta.prefix);',
     '      let items = rows.map((row) => ({ id: row.key.slice(meta.prefix.length), value: recordOf(row.value) }));',
     '      if (opts.where) items = items.filter((item) => matchesWhere(item.value, opts.where));',

@@ -67,7 +67,8 @@ const impl = {
     '      : mode === "typo"',
     '        ? { nmae: { in: ["a"] } }',
     '        : { tag: { in: ["a", "b"] } };',
-    '  const page = await io.find("Item", { where });',
+    '  const order = mode === "order" ? "nmae asc" : undefined;',
+    '  const page = await io.find("Item", { where, order });',
     '  const count = await io.count("Item", { where });',
     '  return { result: { items: page.items, count } };',
     '}',
@@ -253,5 +254,47 @@ test('sql: a where key the entity does not declare never reaches the driver', as
       });
     }
     assert.equal(statements.length, 0, dialect + ': no statement carries an unknown field');
+  }
+});
+
+test('order: an unknown sort field is 400 on kv and names the columns', async () => {
+  const svc = await startService(spec, { impl });
+  try {
+    await post(svc.base + '/v1/items', { tag: 'a' });
+    const bad = await post(svc.base + '/v1/scan', { mode: 'order' });
+    assert.equal(bad.status, 400, 'a typo in order is Invalid, not a silent no-op sort');
+    const error = await bad.json();
+    assert.match(String(error.message), /order: unknown field "nmae"; declared: id, tag/);
+  } finally {
+    await svc.stop();
+  }
+});
+
+test('order: sql rejects an unknown column instead of 500, and keeps a valid one', async () => {
+  const { SQL_STORE_SOURCE } = await import('../src/emit/sql-store.ts');
+  const { PG_SQL_STORE_SOURCE, PG_STORE_SOURCE } = await import('../src/emit/pg-store.ts');
+  const mysql = await loadStore(SQL_STORE_SOURCE, 'SqlStore', PREAMBLE);
+  const pg = await loadStore(PG_SQL_STORE_SOURCE, 'PgStore', PG_STORE_SOURCE + PREAMBLE);
+  const checks: Array<[string, any]> = [
+    ['mysql', new mysql.SqlStore('mysql://localhost:3306/arcod')],
+    ['postgres', new pg.PgStore('postgres://user:pass@localhost:5432/arcod')],
+  ];
+  for (const [dialect, store] of checks) {
+    const statements: string[] = [];
+    store.query = async (sql: string) => {
+      statements.push(sql);
+      return { rows: [], affected: 0 };
+    };
+    await assert.rejects(
+      () => store.entityFind('item', columns, { order: 'nmae asc' }),
+      (error: any) => {
+        assert.equal(error.name, 'Invalid', dialect);
+        assert.match(String(error.message), /order: unknown field "nmae"; declared: id, tag/, dialect);
+        return true;
+      }
+    );
+    assert.equal(statements.length, 0, dialect + ': the driver never sees an unknown ORDER BY');
+    await store.entityFind('item', columns, { order: 'tag desc' });
+    assert.match(statements[0], /ORDER BY .tag. DESC/, dialect + ': a declared field still sorts');
   }
 });

@@ -558,6 +558,11 @@ class PgStore {
     const requested = Number(opts.limit);
     const limit = Number.isFinite(requested) && requested > 0 ? Math.min(500, Math.floor(requested)) : 50;
     const order = parseOrder(opts.order);
+    for (const rule of order) {
+      if (!columns.some((c) => c.name === rule.field)) {
+        throw new ArcodError('Invalid', { message: 'order: unknown field "' + rule.field + '"; declared: ' + columns.map((c) => c.name).join(', ') });
+      }
+    }
 
     const where = [];
     for (const [field, cond] of Object.entries(opts.where || {})) {
