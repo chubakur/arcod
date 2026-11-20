@@ -640,7 +640,11 @@ class PgStore {
     const eqs = [];
     for (let index = 0; index < order.length; index += 1) {
       const col = columns.find((c) => c.name === order[index].field);
-      if (!col) continue;
+      // entityFind rejects an unknown order field before it builds a cursor,
+      // so this is unreachable through the HTTP surface. Skipping the term
+      // would be worse than a 500: values is built from the same order, and
+      // a dropped term pages over rows the caller already saw.
+      if (!col) throw new ArcodError('Invalid', { message: 'order: unknown field "' + order[index].field + '"' });
       const colSql = pq(order[index].field);
       const cmp = order[index].dir < 0 ? '<' : '>';
       const literalValue = pgLiteral(col.base, values[index]);
