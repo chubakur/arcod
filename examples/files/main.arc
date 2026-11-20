@@ -94,7 +94,7 @@ environment dev {
 }
 
 environment prod {
-  bind store -> postgres(host: "pg", port: 5432)
+  bind store -> postgres
   bind auth -> keycloak(host: "idp", port: 8080)
   bind files -> s3(host: "s3", port: 9000)
   bind uuid -> local

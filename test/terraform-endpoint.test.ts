@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { terraformFiles } from '../src/emit/terraform.ts';
@@ -135,17 +137,34 @@ test('two s3 binds share the one bucket resource', () => {
   assert.ok(plan.includes('no separate resource for backup (s3)'), 'the second bucket bind is named');
 });
 
-// examples/files is the shipped case W044 was written for: its prod bind
-// repeats the docker host (`postgres(host: "pg", port: 5432)`), and the plan
-// provisions a managed cluster with a cloud-assigned address. The warning is
-// pinned to the example so a change to the checker cannot quietly stop
-// reporting it.
-test('the shipped docker-style bind still gets W044 in a cloud environment', async () => {
-  const source = await readFile(new URL('../examples/files/main.arc', import.meta.url), 'utf8');
-  const found = check(parse(source, 'files/main.arc')).filter((item) => item.code === 'W044');
+// W044 was written for a prod bind copied from the docker environment: it
+// repeats host/port that the plan cannot honor. The shipped examples were that
+// case and have since dropped the container address from their cloud bindings
+// (a project should not warn at its own README), so the branch is pinned here
+// on a spec instead of on examples/files — and the examples get their own
+// guard below.
+test('a docker-style bind still gets W044 in a cloud environment', () => {
+  const found = check(parse(spec('db -> postgres(host: "pg", port: 5432)'), 'main.arc'))
+    .filter((item) => item.code === 'W044');
   assert.equal(found.length, 1);
-  assert.equal(found[0].path, 'environments.prod.binds.store');
+  assert.equal(found[0].path, 'environments.prod.binds.db');
   assert.match(found[0].message, /managed postgres assigns its own endpoint/);
+});
+
+test('no shipped example points a cloud binding at a container address', async () => {
+  const dir = fileURLToPath(new URL('../examples', import.meta.url));
+  const names = (await readdir(dir, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+  const offenders: string[] = [];
+  for (const name of names) {
+    const source = await readFile(join(dir, name, 'main.arc'), 'utf8').catch(() => null);
+    if (source === null) continue;
+    const found = check(parse(source, name + '/main.arc')).filter((item) => item.code === 'W044');
+    for (const item of found) offenders.push(name + ': ' + item.path + ' ' + item.message);
+  }
+  assert.deepEqual(offenders, [], 'the examples are the documentation; they should not warn about their own bindings');
 });
 
 // mysql and mariadb sit in terraform's managed set but have no yandex resource,

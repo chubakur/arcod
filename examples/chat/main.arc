@@ -65,7 +65,7 @@ environment dev {
 }
 
 environment prod {
-  bind store -> postgres(host: "pg", port: 5432)
+  bind store -> postgres
   bind uuid -> local
   // Same contract, another provider: any OpenAI-compatible endpoint.
   bind llm -> openai(model: "gpt-4o-mini")

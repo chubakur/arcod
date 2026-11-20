@@ -102,7 +102,7 @@ environment dev {
 }
 
 environment prod {
-  bind store -> redis(host: "kv", port: 6379)
+  bind store -> redis
   bind uuid -> local
   deploy yandex(region: "ru-central1", folder: "arcod-prod", service: "tasks", image: "cr.yandex/arcod/tasks:0.1.0")
 }

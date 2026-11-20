@@ -111,7 +111,7 @@ environment dev {
 }
 
 environment prod {
-  bind store -> redis(host: "kv", port: 6379)
+  bind store -> redis
   bind uuid -> local
   bind stream -> websocket
   deploy yandex(region: "ru-central1", folder: "arcod-prod", service: "quiz", image: "cr.yandex/arcod/quiz:0.1.0")

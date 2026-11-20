@@ -59,7 +59,7 @@ environment dev {
 environment prod {
   // The service asks for kv with a ttl, so prod keeps a kv provider: a sql
   // binding here would only be discovered at deploy time.
-  bind store -> redis(host: "kv", port: 6379)
+  bind store -> redis
   bind uuid -> local
   bind Ledger -> endpoint(url: "https://ledger.internal.example.com", network: "shared")
   deploy yandex(region: "ru-central1", folder: "arcod-prod", service: "orders", image: "cr.yandex/arcod/orders:0.1.0")
