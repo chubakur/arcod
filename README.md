@@ -1507,6 +1507,9 @@ Warnings:
   (`oncee(read, ...)`) or a predicate v0.1 does not execute. `arcod test` now
   prints the rule as `skip` and counts it apart instead of dropping it from the
   report, so a green run never hides an invariant that was only a comment.
+- `W042` `once(...)` or `atomic <op>` names an operation with no `uuid`
+  parameter: the generated body keys `takeIf`/`seen` by that parameter, so the
+  rule degrades to nothing and the guarantee is only text.
 - `W041` an example call omits a required argument: `arcod test` sends it as
   `undefined`, so a deliberate "missing field" case and a typo look the same in
   the report. A trailing parameter with a default or an optional type may be

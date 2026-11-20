@@ -591,6 +591,23 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // W042 — a rule that needs a record identifier points at an operation with
+    // no uuid parameter. The body plan keys takeIf/seen by that parameter, so
+    // the rule degrades to nothing: the spec reads as a guarantee, the service
+    // never takes or sees anything.
+    for (const rule of svc.rules) {
+      let target: string | null = null;
+      if (rule.kind === 'invariant') target = asOnce(rule.expr)?.target ?? null;
+      else if (rule.kind === 'atomic') target = rule.name;
+      else continue;
+      if (!target) continue;
+      const op = svc.contract.find((item) => item.kind === 'op' && item.name === target);
+      if (!op || op.params.some((param) => resolvesTo(mod, param.type, 'uuid'))) continue;
+      diags.push(diag('W042', 'warning', mod.file, rule.loc, `services.${svc.name}.rules.${rule.name}`,
+        `${rule.name} names ${target}, which has no uuid parameter; the rule has nothing to consume`,
+        'give the operation an identifier parameter (uuid) or write the guarantee in the body'));
+    }
+
     // A004 — effect used but not allowed; A021 — explicitly denied
     const checkEffect = (alias: string, op: string, loc: Loc) => {
       if (!svc.effects || !isAllowed(svc.effects.allow, alias, op)) {
@@ -1562,6 +1579,22 @@ function sortDiagnostics(diags: Diagnostic[]): Diagnostic[] {
 
 // A predicate as a reader would write it back: `oncee(...)`, `read`, or a
 // neutral phrase for shapes with no short name. Used in diagnostics only.
+// Mirrors plan-body's resolveType: follow user type aliases to the builtin a
+// parameter finally names. Optional wrapping is transparent.
+function resolvesTo(mod: ModuleNode, type: TypeExpr, builtin: string): boolean {
+  let current: TypeExpr = type;
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (current.kind === 'optional') { current = current.inner; continue; }
+    if (current.kind !== 'named') return false;
+    const name: string = current.name;
+    if (name === builtin) return true;
+    const decl = mod.types.find((item) => item.name === name);
+    if (!decl) return false;
+    current = decl.type;
+  }
+  return false;
+}
+
 function exprLabel(expr: Expr): string {
   if (expr.kind === 'call' && expr.callee.kind === 'ident') return expr.callee.name + '(...)';
   if (expr.kind === 'ident') return expr.name;
