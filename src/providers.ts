@@ -316,15 +316,6 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
     volumes: ['grafanadata:/var/lib/grafana'],
     appEnv: ({ host, port }) => ({ GRAFANA_URL: 'http://' + host + ':' + port }),
   },
-  mailpit: {
-    name: 'mailpit',
-    capability: 'mail',
-    image: 'axllent/mailpit:v1.21',
-    port: 1025,
-    extraPorts: [8025],
-    healthcheck: { test: '["CMD-SHELL", "wget -qO- http://127.0.0.1:8025/livez | grep -q ok"]', interval: '5s', timeout: '3s', retries: 30 },
-    appEnv: ({ host, port }) => ({ SMTP_URL: 'smtp://' + host + ':' + port, MAILPIT_UI: 'http://' + host + ':8025' }),
-  },
   vault: {
     name: 'vault',
     secrets: ['VAULT_TOKEN'],

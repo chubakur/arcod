@@ -263,9 +263,14 @@ arcod deploy . --env prod  # target развёртывания и манифес
 возможности пока нет, и адаптер в сервис не попадает: `document` (mongodb),
 `proxy` (nginx), `migrations` (liquibase),
 `olap` (clickhouse), `metrics` (prometheus), `errors` (sentry), `tracing`
-(jaeger), `dashboards` (grafana), `mail` (mailpit), `secrets` (vault).
+(jaeger), `dashboards` (grafana), `secrets` (vault).
 `endpoint` и `websocket` контейнера не создают вовсе: первый — адрес чужого
 сервиса, второй — сервер внутри самого сервиса.
+
+Провайдера почты нет: `mail` раньше стоял рядом с этими, контейнер
+поднимался, а `uses mail: mail` давал `A076` — ни эффектов, ни адаптера.
+Список провайдеров больше этого не обещает, а подсказка `A076` называет
+честный путь: `endpoint` на SMTP/API вендора и вызов через `io.remote`.
 
 На каждый bind, которому нужен контейнер, генерируется сервис в compose с
 healthcheck, томом и env; порты публикуются только при `expose: true`.

@@ -443,7 +443,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       if (registry.signaturesFor(short).length > 0) continue;
       diags.push(diag('A076', 'error', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`,
         `capability ${short} has no effects and no adapter`,
-        'a provider may declare it, but the generated service has nothing to call; remove the use or install a plugin that declares its effects'));
+        'a provider may declare it, but the generated service has nothing to call; remove the use, follow the provider through io.remote(endpoint), or install a plugin that declares its effects'));
     }
 
     // W033 — a `uses` parameter is a note for the reader unless an adapter

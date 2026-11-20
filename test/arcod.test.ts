@@ -485,7 +485,6 @@ use capability arcod.std.document @1
 use capability arcod.std.errors @1
 use capability arcod.std.tracing @1
 use capability arcod.std.dashboards @1
-use capability arcod.std.mail @1
 use capability arcod.std.secrets @1
 
 service All : http {
@@ -505,7 +504,6 @@ service All : http {
   uses errors: errors
   uses tracing: tracing
   uses dashboards: dashboards
-  uses mail: mail
   uses secrets: secrets
 }
 
@@ -526,7 +524,6 @@ environment dev {
   bind errors -> sentry(dsn: "https://key@sentry.example/1")
   bind tracing -> jaeger(host: "jaeger", expose: true)
   bind dashboards -> grafana(host: "grafana")
-  bind mail -> mailpit(host: "mail")
   bind secrets -> vault(host: "vault")
   deploy docker
 }
@@ -552,7 +549,6 @@ test('every provider in the registry renders a compose service', () => {
     'prom/prometheus:v2.54.1',
     'jaegertracing/all-in-one:1.62',
     'grafana/grafana:11.2.0',
-    'axllent/mailpit:v1.21',
     'hashicorp/vault:1.18',
   ]) {
     assert.ok(yaml.includes('image: ' + image), 'missing ' + image);
@@ -567,7 +563,6 @@ test('every provider in the registry renders a compose service', () => {
   assert.match(yaml, /SENTRY_DSN: "https:\/\/key@sentry\.example\/1"/);
   assert.ok(!yaml.includes('\n  sentry:\n'), 'sentry is external, not a container');
   assert.match(yaml, /OTEL_EXPORTER_OTLP_ENDPOINT: "http:\/\/jaeger:4318"/);
-  assert.match(yaml, /SMTP_URL: "smtp:\/\/mail:1025"/);
 });
 
 // Every environment is a contract with a future deploy: a binding that only

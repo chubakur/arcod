@@ -276,10 +276,15 @@ Redis for delivery across processes.
 capability has no effect signatures yet and no adapter reaches the service:
 `document` (mongodb), `proxy` (nginx),
 `migrations` (liquibase), `olap` (clickhouse), `metrics` (prometheus),
-`errors` (sentry), `tracing` (jaeger), `dashboards` (grafana), `mail`
-(mailpit), `secrets` (vault). `endpoint` and `websocket` create no container
-at all: the first is an address of somebody else's service, the second is a
-server inside the service itself.
+`errors` (sentry), `tracing` (jaeger), `dashboards` (grafana), `secrets`
+(vault). `endpoint` and `websocket` create no container at all: the first is an
+address of somebody else's service, the second is a server inside the service
+itself.
+
+There is no mail provider: mail used to be listed next to these and the
+container came up, but `uses mail: mail` was `A076` — no effects, no adapter.
+The provider list no longer promises it, and the `A076` hint names the honest
+path: point `endpoint` at the SMTP/API vendor and call it with `io.remote`.
 
 Every binding that needs a container becomes a compose service with a
 healthcheck, a volume and env; ports are published only with `expose: true`.
