@@ -152,6 +152,12 @@ const specWithExtremes = (() => {
     '      post: result != null',
     '    }',
     '',
+    '    public op stringy() -> { sum: int } {',
+    '      route: "GET /v1/stringy"',
+    '      effects: store.aggregate',
+    '      errors: Invalid',
+    '    }',
+    '',
   );
   return lines.join(String.fromCharCode(10));
 })();
@@ -165,8 +171,15 @@ const extremesImpl = [
   '}',
 ].join(String.fromCharCode(10));
 
+const stringyImpl = [
+  'export async function stringy(input, io) {',
+  '  const sum = await io.aggregate("Entry", { field: "kind", op: "sum" });',
+  '  return { result: { sum } };',
+  '}',
+].join(String.fromCharCode(10));
+
 test('kv: min and max pick the extremes and answer null on an empty set', async () => {
-   const svc = await startService(specWithExtremes, { impl: { ...impl, extremes: extremesImpl } });
+   const svc = await startService(specWithExtremes, { impl: { ...impl, extremes: extremesImpl, stringy: stringyImpl } });
   try {
     const seeded = await fetch(svc.base + '/v1/seed', {
       method: 'POST',
@@ -182,6 +195,11 @@ test('kv: min and max pick the extremes and answer null on an empty set', async 
     const empty = await (await fetch(svc.base + '/v1/extremes?kind=b')).json();
     assert.equal(empty.min, null);
     assert.equal(empty.max, null);
+
+    // Summing a string is a client mistake, not NaN in a report.
+    const stringy = await fetch(svc.base + '/v1/stringy');
+    assert.equal(stringy.status, 400);
+    assert.match((await stringy.json()).message, /field .kind. is not numeric/);
   } finally {
     await svc.stop();
   }
