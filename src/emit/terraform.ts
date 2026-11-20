@@ -148,7 +148,7 @@ function bucketBlock(bind: BindNode, name: string): string {
 // Only providers with a managed equivalent are rendered. Anything else would
 // need a decision (which cloud resource?) that the model does not make, so it
 // is reported in a comment instead of guessed.
-const MANAGED = new Set(['postgres', 'mysql', 'mariadb', 'redis', 's3', 'minio']);
+export const MANAGED_PROVIDERS = new Set(['postgres', 'mysql', 'mariadb', 'redis', 's3', 'minio']);
 
 // A managed service has no container to address: the cloud assigns the host and
 // the service listens on its own port, so a bind's `host`, `port` and `expose`
@@ -324,7 +324,9 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
       const dropped = ['host', 'port', 'expose'].filter((key) => key in bind.args);
       if (dropped.length > 0) ignored.push(bind.alias + ' (' + bind.provider + '): ' + dropped.join(', '));
     }
-    else if (!MANAGED.has(bind.provider)) unmapped.push(bind.provider);
+    // A provider in MANAGED with no resource (mysql, mariadb) is the same
+    // silence: the plan looks complete and provisions nothing for it.
+    else if (!MANAGED_PROVIDERS.has(bind.provider) || managedResource(bind.provider) === null) unmapped.push(bind.provider);
   }
 
   const main = [

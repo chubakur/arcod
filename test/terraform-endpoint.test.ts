@@ -147,3 +147,29 @@ test('the shipped docker-style bind still gets W044 in a cloud environment', asy
   assert.equal(found[0].path, 'environments.prod.binds.store');
   assert.match(found[0].message, /managed postgres assigns its own endpoint/);
 });
+
+// mysql and mariadb sit in terraform's managed set but have no yandex resource,
+// so a cloud environment that bound them got a plan that looked complete and
+// created nothing for the bind. The plan now lists them, and check() names the
+// alias before anyone applies it.
+test('W046 names a cloud bind the plan cannot provision', () => {
+  const diags = check(parse(spec('db -> mysql'), 'main.arc'));
+  const found = diags.filter((item) => item.code === 'W046');
+  assert.equal(found.length, 1, JSON.stringify(diags.map((item) => item.code)));
+  assert.equal(found[0].path, 'environments.prod.binds.db');
+  assert.match(found[0].message, /provisions no mysql resource/);
+  assert.match(found[0].hint ?? '', /bind postgres/);
+});
+
+test('the plan lists mysql instead of looking complete', () => {
+  const plan = main(spec('db -> mysql'));
+  assert.match(plan, /# No managed equivalent rendered for: mysql/);
+  assert.doesNotMatch(plan, /yandex_mdb_postgresql_cluster/);
+});
+
+test('W046 stays quiet when the plan provisions the provider or the target is docker', () => {
+  const managed = check(parse(spec('db -> postgres()'), 'main.arc'));
+  assert.deepEqual(managed.filter((item) => item.code === 'W046'), []);
+  const docker = check(parse(spec('db -> mysql', 'deploy docker'), 'main.arc'));
+  assert.deepEqual(docker.filter((item) => item.code === 'W046'), [], 'a container is provisioned by compose');
+});

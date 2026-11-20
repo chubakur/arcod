@@ -5,7 +5,7 @@ import { BIND_ARGS, providerImplements } from './providers.ts';
 import { builtinRegistry, type ProviderRegistry } from './registry.ts';
 import { capabilityFor, storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
-import { MANAGED_ENDPOINTS, managedResource } from './emit/terraform.ts';
+import { MANAGED_ENDPOINTS, MANAGED_PROVIDERS, managedResource } from './emit/terraform.ts';
 import { defaultValue } from './migrate.ts';
 import { constraintOf, describeViolation, unknownFormatOf } from './constraints.ts';
 import { isIsoInstant } from './instant.ts';
@@ -367,6 +367,15 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           } else {
             managedSeen.set(kind, bind.alias);
           }
+        }
+        // W046 — a stateful provider the plan cannot provision. mysql and
+        // mariadb are in the managed set but have no yandex resource, so the
+        // plan used to look complete while creating nothing for the bind: the
+        // app would point at a host that does not exist.
+        if (MANAGED_PROVIDERS.has(bind.provider) && managedResource(bind.provider) === null) {
+          diags.push(diag('W046', 'warning', mod.file, bind.loc, subject,
+            'deploy yandex provisions no ' + bind.provider + ' resource: ' + bind.alias + ' would be wired to nothing',
+            'bind postgres for a managed database, or keep ' + bind.provider + ' for docker and give the cloud environment an external host'));
         }
         const endpoint = MANAGED_ENDPOINTS[bind.provider];
         if (endpoint) {

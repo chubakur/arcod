@@ -1592,6 +1592,11 @@ Warnings:
   (`oncee(read, ...)`) or a predicate v0.1 does not execute. `arcod test` now
   prints the rule as `skip` and counts it apart instead of dropping it from the
   report, so a green run never hides an invariant that was only a comment.
+- `W046` a cloud environment binds a stateful provider the plan cannot
+  provision (`mysql`, `mariadb` have no yandex resource): the plan would look
+  complete and create nothing for that bind. Bind `postgres` for a managed
+  database, or keep `mysql` for docker and point the cloud environment at an
+  external host. The plan names it under "No managed equivalent rendered for".
 - `W045` two binds in one cloud environment name the same managed provider:
   the plan renders one cluster (the cloud assigns one endpoint), so the second
   binding would have shared a service it never got. Name the collision or give
