@@ -29,7 +29,7 @@ export function specSource(name: string, since: string): string {
   return `module ${mod} @0.1.0 {
   meta {
     owner: "@you"
-    status: draft
+    status: "draft"
     since: "${since}"
   }
 }
@@ -52,6 +52,7 @@ service ${svc} : http {
   }
 
   examples {
+
     example ping_ok {
       when {
         let r = ping()

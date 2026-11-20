@@ -191,6 +191,9 @@ test('arcod new scaffolds a spec that parses and checks clean', async () => {
     assert.match(src, /service TodoList : http/);
     const mod = parse(src, 'main.arc');
     assert.equal(mod.name, 'todo_list');
+    // A generated file must already be canonical: `arcod fmt --check` on a
+    // fresh project should not report the project's own spec.
+    assert.equal(formatSource(src, 'main.arc'), src);
     const { check } = await import('../src/check.ts');
     // A fresh project must not greet its owner with warnings: every declared
     // error is handled and every operation has an example.
