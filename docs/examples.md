@@ -31,7 +31,7 @@ Run one:
 cd examples/signup
 arcod check .          # parse, types, bindings, effects, rules
 arcod test .           # the examples block, against the emitted service
-arcod build . --impl && arcod run   # a container, if Docker is available
+arcod run --impl       # a container, if Docker is available
 ```
 
 `arcod run` needs Docker for the service container; `arcod test` does not: it
