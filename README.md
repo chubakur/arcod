@@ -1068,9 +1068,14 @@ uses store: kv(ttl: 999s)     // redis
 uses store: sql(ttl: 999s)    // mysql, postgres
 ```
 
-`ttl` is the only `uses` parameter an adapter executes: it sets the record
-expiry. Any other name (`consistency: strong`, for instance) is kept in the
-spec and printed by `fmt`, but nothing reads it — `W033` says so. Provider
+`ttl` is the only `uses` parameter an adapter executes, and what it expires
+depends on the driver. On `kv` it is the lifetime of every record, entity rows
+included: the store writes `SET … PX`, so a task created with the default TTL is
+gone 999 s later. Set `ttl` on a store that keeps domain data. On `sql` the TTL
+bounds the adapter's own rows (`msg:`, `outbox:`); entity tables have no expiry
+column and rows live until removed. Any other name (`consistency: strong`, for
+instance) is kept in the spec and printed by `fmt`, but nothing reads it —
+`W033` says so. Provider
 options belong to `bind alias -> provider(args)`, where they configure the
 backend connection. A provider reads a fixed set of them: `arcod providers
 --json` lists the names under `options`, and `W035` reports an argument no
