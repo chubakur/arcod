@@ -1580,6 +1580,9 @@ Errors:
 - `A088` a type name is neither a builtin nor declared in the module: OpenAPI
   emitted `{}`, so a typo accepted any value and GraphQL had no field type. The
   hint names the declaration that would fix it.
+- `A090` a lower bound is above its upper bound (`int(min: 10, max: 5)`): the
+  type admits no value, so every caller gets a 400 and every default is A060
+  while the schema promises the type as usable.
 - `A089` a type or enum is declared with a builtin name (`type int = string`):
   OpenAPI listed the declaration under components while every use site resolved
   the builtin, so one module stated two contracts at once and the runtime, the

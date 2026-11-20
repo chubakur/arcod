@@ -656,6 +656,27 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       'type ' + decl.name + ' shadows a builtin name',
       'rename the declaration, e.g. ' + decl.name.charAt(0).toUpperCase() + decl.name.slice(1) + ', and keep the builtin ' + decl.name + ' for its own meaning'));
   }
+  // A090 — a lower bound above its upper bound admits nothing. Every caller
+  // gets a 400, A060 rejects every default, and the schema still advertises
+  // the type as usable: a typo in one of the two numbers is the whole cause.
+  for (const root of typeRoots) {
+    walkTypeExpr(root, (type) => {
+      if (type.kind !== 'named') return;
+      if (type.name !== 'int' && type.name !== 'number' && type.name !== 'float' && type.name !== 'string' && type.name !== 'bytes') return;
+      let min: number | null = null;
+      let max: number | null = null;
+      for (const arg of type.args) {
+        if (arg.value.kind !== 'literal' || typeof arg.value.value !== 'number') continue;
+        if (arg.name === 'min') min = arg.value.value;
+        if (arg.name === 'max') max = arg.value.value;
+      }
+      if (min === null || max === null || min <= max) return;
+      diags.push(diag('A090', 'error', mod.file, type.loc, 'types.' + type.name,
+        type.name + '(min: ' + min + ', max: ' + max + ') admits no value',
+        'write min no greater than max'));
+    });
+  }
+
 
   for (const svc of mod.services) {
     if (svc.external) continue;
