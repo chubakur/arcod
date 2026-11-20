@@ -1448,7 +1448,9 @@ Print (or write) Terraform HCL for the topology.`,
                  [--namespace ns] [--replicas n] [--ingress-class c] [--out dir]
                  [--env name]
 
-Render the topology as Kubernetes manifests; --helm wraps them in a chart.`,
+Render the topology as Kubernetes manifests; --helm wraps them in a chart.
+--replicas sizes the app and web tiers; a provider workload stays at one
+replica and rolls as Recreate.`,
   prompts: `usage: arcod prompts [dir|spec.arc] [--max-tokens 1600] [--full] [--json]
 
 Write one deterministic prompt per operation into .arcod/build/prompts.
