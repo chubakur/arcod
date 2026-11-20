@@ -120,6 +120,9 @@ test('k8s: a stateful provider gets a PVC and a mount', async () => {
   assert.match(postgres, /mountPath: \/var\/lib\/postgresql\/data/);
   assert.match(postgres, /claimName: postgres-data/);
   assert.match(postgres, /- containerPort: 5432/);
+  // A CMD-SHELL healthcheck reaches the cluster as a shell probe, not as a
+  // binary literally named "/bin/sh -c ...".
+  assert.match(postgres, /command: \["\/bin\/sh","-c","pg_isready -U arcod"\]/);
 });
 
 test('k8s: a module without a ui has no web tier and routes the ingress to the service', async () => {
