@@ -11,8 +11,8 @@ import { STREAM_SOURCE } from './stream.ts';
 import { QUEUE_SOURCE, QUEUE_SHUTDOWN, OUTBOX_SHUTDOWN, OUTBOX_SOURCE, outboxSource, consumerSource } from './queue.ts';
 import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
-import { entitiesFromBodies, fieldDefault, migrationPlan, recordColumns, type Column, type DefaultValue } from '../migrate.ts';
-import { constraintTable } from '../constraints.ts';
+import { baseType, entitiesFromBodies, fieldDefault, migrationPlan, recordColumns, type Column, type DefaultValue } from '../migrate.ts';
+import { boundsOf, constraintTable, lengthBoundsOf } from '../constraints.ts';
 import type { ProviderRegistry } from '../registry.ts';
 
 export interface EmitOptions {
@@ -1039,6 +1039,42 @@ function checkRecordFields(meta, record, place) {
       throw new ArcodError('Invalid', {
         message: place + ': unknown field "' + field + '"; declared: ' + meta.columns.map((column) => column.name).join(', '),
       });
+    }
+  }
+  // Declared bounds are part of the entity: a value outside them would store
+  // the row the schema promises clients never see, so both facades answer 400
+  // with the field and the bound instead of keeping it.
+  const bounds = meta.bounds || {};
+  for (const field of Object.keys(bounds)) {
+    const value = record[field];
+    if (value === null || value === undefined) continue;
+    const rule = bounds[field];
+    if (rule.minLength !== undefined || rule.maxLength !== undefined) {
+      if (typeof value !== 'string') {
+        throw new ArcodError('Invalid', { message: place + ': ' + field + ' must be a string' });
+      }
+      const length = [...value].length;
+      if (rule.minLength !== undefined && length < rule.minLength) {
+        throw new ArcodError('Invalid', { message: place + ': ' + field + ' must be at least ' + rule.minLength + ' characters' });
+      }
+      if (rule.maxLength !== undefined && length > rule.maxLength) {
+        throw new ArcodError('Invalid', { message: place + ': ' + field + ' must be at most ' + rule.maxLength + ' characters' });
+      }
+    }
+    if (rule.min !== undefined || rule.max !== undefined) {
+      const number = typeof value === 'number' ? value : Number(value);
+      if (rule.integer && !Number.isInteger(number)) {
+        throw new ArcodError('Invalid', { message: place + ': ' + field + ' must be an integer' });
+      }
+      if (!rule.integer && !Number.isFinite(number)) {
+        throw new ArcodError('Invalid', { message: place + ': ' + field + ' must be a number' });
+      }
+      if (rule.min !== undefined && number < rule.min) {
+        throw new ArcodError('Invalid', { message: place + ': ' + field + ' must be >= ' + rule.min });
+      }
+      if (rule.max !== undefined && number > rule.max) {
+        throw new ArcodError('Invalid', { message: place + ': ' + field + ' must be <= ' + rule.max });
+      }
     }
   }
 }
@@ -2497,8 +2533,36 @@ function entityDefaults(mod: ModuleNode, decl: TypeDecl): Record<string, Default
   return defaults;
 }
 
-function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { prefix: string; columns: Column[]; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
-  const table: Record<string, { prefix: string; columns: Column[]; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
+type FieldBounds = { min?: number; max?: number; minLength?: number; maxLength?: number; integer?: boolean };
+
+// Declared bounds belong to the entity, not only to its OpenAPI schema: a row
+// outside them is the row the contract promises clients never see. Both the kv
+// and the sql facade read this table, so the two drivers reject the same value
+// instead of one storing what the other refuses. `bytes` keeps its body limit
+// (bodyLimits) and takes no length bound here: what is stored is binary.
+function entityBounds(mod: ModuleNode, decl: TypeDecl): Record<string, FieldBounds> {
+  const bounds: Record<string, FieldBounds> = {};
+  if (decl.type.kind !== 'record') return bounds;
+  for (const field of decl.type.fields) {
+    const entry: FieldBounds = {};
+    const numeric = boundsOf(mod, field.type);
+    if (numeric.min !== null || numeric.max !== null) {
+      if (numeric.integer) entry.integer = true;
+      if (numeric.min !== null) entry.min = numeric.min;
+      if (numeric.max !== null) entry.max = numeric.max;
+    }
+    if (baseType(mod, field.type) === 'string') {
+      const lengths = lengthBoundsOf(mod, field.type);
+      if (lengths.min !== null) entry.minLength = lengths.min;
+      if (lengths.max !== null) entry.maxLength = lengths.max;
+    }
+    if (Object.keys(entry).length > 0) bounds[field.name] = entry;
+  }
+  return bounds;
+}
+
+function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
+  const table: Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
   const uniques: Array<[string, string[]]> = [];
   for (const rule of svc.rules) {
     if (rule.kind !== 'unique') continue;
@@ -2516,6 +2580,7 @@ function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | nu
       // exactly like the sql facade does: without the columns every
       // io.aggregate on kv died on `meta.columns.some` with a 500.
       columns: recordColumns(mod, decl, groups),
+      bounds: entityBounds(mod, decl),
       uniqueGroups: groups,
       defaults: entityDefaults(mod, decl),
     };
@@ -2523,8 +2588,8 @@ function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | nu
   return table;
 }
 
-function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { table: string; columns: unknown[]; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
-  const table: Record<string, { table: string; columns: unknown[]; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
+function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
+  const table: Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
   const uniquesByEntity: Record<string, string[][]> = {};
   for (const rule of svc.rules) {
     if (rule.kind !== 'unique') continue;
@@ -2537,6 +2602,7 @@ function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] |
     table[decl.name] = {
       table: decl.name.toLowerCase(),
       columns: recordColumns(mod, decl, groups),
+      bounds: entityBounds(mod, decl),
       uniqueGroups: groups,
       defaults: entityDefaults(mod, decl),
     };

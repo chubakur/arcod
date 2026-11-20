@@ -153,7 +153,8 @@ argument no emitter reads is `A087`. A bound bounds the values of its type:
 `int(min: 1)` rejects `1.5`, while `number(min: 0.5)` keeps fractions and
 rejects only what is below; `string(min: 3, max: 5)` bounds the length in
 characters, not UTF-16 units. The schema, the 400 and `A060` all read the
-same arguments. Full example: `examples/signup`.
+same arguments, and so do the entity stores: an `io.insert`/`io.update`
+outside a field's bound is `400 Invalid` on both `kv` and SQL. Full example: `examples/signup`.
 
 ## Commands
 
