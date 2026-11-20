@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { terraformFiles } from '../src/emit/terraform.ts';
@@ -132,4 +133,17 @@ test('two s3 binds share the one bucket resource', () => {
   const plan = main(source);
   assert.equal(plan.split('\n').filter((line) => line.startsWith('resource "yandex_storage_bucket"')).length, 1);
   assert.ok(plan.includes('no separate resource for backup (s3)'), 'the second bucket bind is named');
+});
+
+// examples/files is the shipped case W044 was written for: its prod bind
+// repeats the docker host (`postgres(host: "pg", port: 5432)`), and the plan
+// provisions a managed cluster with a cloud-assigned address. The warning is
+// pinned to the example so a change to the checker cannot quietly stop
+// reporting it.
+test('the shipped docker-style bind still gets W044 in a cloud environment', async () => {
+  const source = await readFile(new URL('../examples/files/main.arc', import.meta.url), 'utf8');
+  const found = check(parse(source, 'files/main.arc')).filter((item) => item.code === 'W044');
+  assert.equal(found.length, 1);
+  assert.equal(found[0].path, 'environments.prod.binds.store');
+  assert.match(found[0].message, /managed postgres assigns its own endpoint/);
 });
