@@ -1049,6 +1049,15 @@ function isDateTimeText(value) {
   return !Number.isNaN(Date.parse(value));
 }
 
+// An id names the row: a patch carrying another value would move the primary
+// key on sql and leave the stored record disagreeing with its key on kv. An
+// echo of the same id (a client resending the whole record) stays legal.
+function checkUpdateKey(entity, id, patch) {
+  if (!patch || patch.id == null) return;
+  if (String(patch.id) === String(id)) return;
+  throw new ArcodError('Invalid', { message: 'update ' + entity + ': id cannot be changed' });
+}
+
 function checkRecordFields(meta, record, place) {
   if (!record || typeof record !== 'object') return;
   for (const field of Object.keys(record)) {
@@ -1981,6 +1990,7 @@ function kvEntityIoLines(): string[] {
     '      metricCapability("store.update");',
     '      const meta = requestEntity(entity);',
     '      checkRecordFields(meta, patch, "update " + entity);',
+    '      checkUpdateKey(entity, id, patch);',
     '      const key = meta.prefix + String(id);',
     '      const raw = await store.get(key);',
     "      if (raw == null) throw new ArcodError('NotFound');",
@@ -2091,6 +2101,7 @@ function sqlEntityIoLines(): string[] {
     '      metricCapability("store.update");',
     '      const meta = requestEntity(entity);',
     '      checkRecordFields(meta, patch, "update " + entity);',
+    '      checkUpdateKey(entity, id, patch);',
     '      return await store.entityUpdate(meta.table, meta.columns, id, patch, meta.uniqueGroups);',
     '    },',
     '    async remove(entity, id) {',
