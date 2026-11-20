@@ -440,3 +440,40 @@ test('helm: a cloud chart reads the same endpoint Secret', async () => {
   assert.match(app, /kubectl -n \{\{ \.Release\.Namespace \}\} create secret generic arcod-shop-endpoints/);
   assert.deepEqual(files.some((file) => file.content.includes('pg:5432')), false, 'no docker address anywhere in the chart');
 });
+
+// The secret store is an environment's bind, not a property of the docker view:
+// a cloud environment that binds vault must get its ExternalSecret from that
+// path and store, or the production credentials silently fall back to a secret
+// filled with placeholders.
+test('k8s: the vault bind of the rendered environment sources the credentials', async () => {
+  const source = [
+    'module shop @0.1.0 {',
+    '}',
+    'use capability arcod.std.sql @1',
+    'use capability arcod.std.secrets @1',
+    'service Store : http {',
+    '  uses db: sql',
+    '  uses keys: secrets',
+    '  contract {',
+    '    public op list() -> string {',
+    '      route: "GET /api/items"',
+    '    }',
+    '  }',
+    '}',
+    'environment dev {',
+    '  bind db -> postgres()',
+    '  deploy docker',
+    '}',
+    'environment prod {',
+    '  bind db -> postgres(host: "pg", port: 5432)',
+    '  bind keys -> vault(path: "secret/data/shop", store: "vault-prod")',
+    '  deploy yandex(region: "ru-central1", folder: "f", service: "shop")',
+    '}',
+  ].join('\n');
+  const mod = await parse(source, 'shop.arc');
+  const files = k8sManifests(mod, { environment: 'prod' });
+  const external = need(files, 'externalsecret.yaml');
+  assert.match(external, /name: vault-prod/, 'prod names its own ClusterSecretStore');
+  assert.match(external, /key: secret\/data\/shop/);
+  assert.deepEqual(files.some((file) => file.path === 'secret.yaml'), false, 'no placeholder secret beside the ExternalSecret');
+});

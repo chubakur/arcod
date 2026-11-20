@@ -441,7 +441,11 @@ function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
     ? endpointContract(name, model.providers, env)
     : null;
 
-  const environment = localEnvironment(mod);
+  // The secret store is an environment's bind like any other: a cloud
+  // environment may source credentials from Vault while the local one does not.
+  const environment = (options.environment
+    ? mod.environments.find((item) => item.name === options.environment)
+    : undefined) ?? localEnvironment(mod);
   const vaultBind = (environment?.binds ?? []).find((bind) => providerFor(bind.provider)?.capability === 'secrets');
   const path = vaultBind ? literalArg(vaultBind as unknown as { args: Record<string, unknown> }, 'path') : null;
   const store = vaultBind ? literalArg(vaultBind as unknown as { args: Record<string, unknown> }, 'store') : null;
