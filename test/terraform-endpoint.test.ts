@@ -179,3 +179,9 @@ test('W046 covers mariadb and the plan names it too', () => {
   assert.equal(diags.filter((item) => item.code === 'W046').length, 1);
   assert.match(main(spec('db -> mariadb')), /# No managed equivalent rendered for: mariadb/);
 });
+
+test('W044 sends the author to the endpoints Secret, not just to "drop it"', () => {
+  const diags = check(parse(spec('db -> postgres(host: "pg", port: 5432)'), 'main.arc'));
+  const found = diags.filter((item) => item.code === 'W044');
+  assert.match(found[0].hint ?? '', /endpoints Secret/, 'the hint names where the k8s manifest gets the address');
+});
