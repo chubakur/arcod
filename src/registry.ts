@@ -122,6 +122,10 @@ export interface ProviderRow {
   oneShot: boolean;
   external: boolean;
   requires: string[];
+  // Why the generated runtime cannot execute this provider's capability, or
+  // null when it can. `arcod providers` prints it, so a broker the runtime has
+  // no driver for is never advertised as usable.
+  noRuntime: string | null;
   // Provider-specific bind arguments, sorted; empty when it takes none and
   // for a plugin that declared no args map. The universal ones (host, port,
   // expose, import) belong to every binding and are not repeated here.
@@ -144,6 +148,7 @@ export function providerRows(registry: ProviderRegistry): ProviderRow[] {
       oneShot: spec.oneShot === true,
       external: spec.external === true,
       requires: spec.requires ?? [],
+      noRuntime: spec.noRuntime ?? null,
       options: spec.options ? [...spec.options].sort() : [],
     };
   });

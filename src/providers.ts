@@ -32,6 +32,11 @@ export interface ProviderSpec {
   // instead of importing the package at runtime.
   runtime?: { adapter: string; export?: string; dir: string };
   requires?: string[];
+  // A capability this provider declares but the generated service cannot
+  // execute: the container is provisioned, the runtime has no driver, and the
+  // work silently falls back to memory. The text names what is missing; check
+  // turns it into A083 when a service actually uses that capability.
+  noRuntime?: string;
   port?: number;
   extraPorts?: number[];
   command?: string[];
@@ -206,6 +211,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
     name: 'rabbitmq',
     secrets: ['RABBITMQ_DEFAULT_PASS', 'AMQP_URL'],
     capability: 'queue',
+    noRuntime: 'the generated service has no AMQP driver: jobs would run in process and lose messages on restart',
     image: 'rabbitmq:3.13-management-alpine',
     port: 5672,
     extraPorts: [15672],
@@ -217,6 +223,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   kafka: {
     name: 'kafka',
     capability: 'queue',
+    noRuntime: 'the generated service has no Kafka driver: jobs would run in process and lose messages on restart',
     image: 'apache/kafka:3.8.0',
     port: 9092,
     env: {

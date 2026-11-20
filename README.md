@@ -265,10 +265,12 @@ consume, retry, dead letter) and `ids`/`hash`, which bind to
 `local` — the compiler's own runtime. `local` provisions nothing and serves
 only those two: binding `kv`, `sql` or `queue` to it is `A068`.
 
-`rabbitmq` and `kafka` also satisfy `queue` and are provisioned, but the
-emitted adapter speaks only the Redis list protocol. Bind `queue` to Redis for
-delivery across processes; with any other broker the driver stays in-process
-while an idle container runs.
+`rabbitmq` and `kafka` also declare `queue` and are provisioned, but the
+emitted adapter speaks only the Redis list protocol. Binding a service's
+`queue` to either is `A083`: the container would start, jobs would run
+in-process and messages would vanish on restart, so `check` refuses instead.
+`arcod providers` prints the same reason next to the row. Bind `queue` to
+Redis for delivery across processes.
 
 **Infrastructure only** — the provider is provisioned in compose, but the
 capability has no effect signatures yet and no adapter reaches the service:
@@ -776,7 +778,8 @@ Semantics, enforced by the generated runtime rather than written in bodies:
 - without a redis binding the queue is in-process (memory driver); with
   `bind events -> redis(...)` messages live in the broker and any replica may
   consume them. The adapter speaks Redis lists — `rabbitmq` and `kafka` are
-  provisioned, but there is no zero-dependency client for them yet;
+  provisioned, but there is no zero-dependency client for them yet, and
+  `check` rejects a `queue` bind on them (`A083`) instead of running in memory;
 - a broker restart does not stall the consumer: a closed socket fails the call
   in flight (`redis connection closed`) and the next one opens a fresh
   connection. The same rule holds for the `kv` Redis client.
@@ -1450,6 +1453,9 @@ Errors:
 - `A082` an operation declares a singleton clause twice (`route:`, `roles:`,
   `owner:`): the router, OpenAPI, the auth guard and the generated client all
   read the first one, so the second was dead text that looked live.
+- `A083` a service uses `queue` on a provider the runtime has no driver for
+  (`rabbitmq`, `kafka`): the broker container starts, jobs run in process and
+  messages are lost on restart. The hint names the providers that can serve it.
 - `A081` an example calls a name that is not an operation of the service (and
   is not the `uuid(...)` builtin), or a rule (`once(...)`, `atomic name`) names
   an operation the contract does not declare. `arcod test` used to resolve the

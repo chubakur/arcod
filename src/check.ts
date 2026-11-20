@@ -345,6 +345,16 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
             `${bind.provider} ships a runtime adapter but ${capability} declares no signatures`,
             'add signatures to the capability manifest; without them the generated service cannot dispatch the adapter'));
         }
+        // A083 — the provider declares the capability, but the generated
+        // runtime has no driver for it: the container starts, jobs execute in
+        // process and messages vanish on restart. Silence here read as support.
+        if (providerImplements(spec, capability) && spec.noRuntime) {
+          const usable = registry.forCapability(capability).filter((name) => !registry.get(name)?.noRuntime);
+          diags.push(diag('A083', 'error', mod.file, bind.loc, subject,
+            `provider ${bind.provider} cannot serve ${capability} at runtime`,
+            spec.noRuntime + (usable.length > 0 ? '; bind one of: ' + usable.join(', ') : '')));
+          continue;
+        }
         if (!providerImplements(spec, capability)) {
           const alternatives = registry.forCapability(capability);
           diags.push(diag('A024', 'error', mod.file, bind.loc, subject,

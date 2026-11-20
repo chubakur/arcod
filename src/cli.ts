@@ -858,6 +858,16 @@ function runProviders(flags: Flags): void {
     const cols = [row.capability, row.provider, row.image, String(row.port ?? '-'), row.env.join(', '), row.origin ?? '-'];
     console.log(cols.map((item, index) => cell(item, width[index])).join(' '));
   }
+
+  // A provider the runtime cannot drive is listed (compose still provisions it)
+  // but never sold as usable: check rejects a service that relies on it.
+  const notes = rows.filter((row) => row.noRuntime);
+  if (notes.length > 0) {
+    console.log('');
+    for (const row of notes) {
+      console.log('note: ' + row.provider + ' (' + row.capability + '): ' + row.noRuntime);
+    }
+  }
 }
 
 async function runPrompts(flags: Flags): Promise<void> {
