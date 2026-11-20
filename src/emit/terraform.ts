@@ -35,9 +35,13 @@ function hclString(value: string): string {
 }
 
 // Yandex Cloud places every resource in a folder and a network; a zone is
-// derived from the region with the conventional suffix.
+// derived from the region with the conventional suffix. A value that already
+// looks like an availability zone is taken as one: region ru-central1-b is the
+// common slip, and appending the suffix produced ru-central1-b-a — a zone no
+// cloud has, so the plan failed only at apply time.
+const AVAILABILITY_ZONE = /^[a-z]+(-[a-z0-9]+)*-[a-z]$/;
 function zoneOf(region: string): string {
-  if (region === 'ru-central1') return 'ru-central1-a';
+  if (AVAILABILITY_ZONE.test(region)) return region;
   return region + '-a';
 }
 

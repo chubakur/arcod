@@ -68,3 +68,24 @@ test('the formatted output keeps every file under its own header', () => {
   const text = formatTerraform(files);
   for (const file of files) assert.ok(text.includes('# ' + file.path + '\n'), file.path + ' has a header');
 });
+
+function tfvars(region: string): string {
+  const spec = [
+    'module s @0.1.0 {}',
+    'service S : http {',
+    '  uses store: kv',
+    '  contract { public op get(id: uuid) -> string { route: "GET /v1/i/:id" } }',
+    '}',
+    'environment prod {',
+    '  bind store -> redis()',
+    '  deploy yandex(region: "' + region + '", folder: "f", service: "s")',
+    '}',
+  ].join('\n');
+  return terraformFiles(parse(spec, 'main.arc'), { environment: 'prod' })
+    .find((file) => file.path === 'terraform.tfvars.example')!.content;
+}
+
+test('a zone written as the region is not suffixed twice', () => {
+  assert.match(tfvars('ru-central1'), /zone      = "ru-central1-a"/, 'a region gets the conventional suffix');
+  assert.match(tfvars('ru-central1-b'), /zone      = "ru-central1-b"/, 'a zone is already a zone');
+});
