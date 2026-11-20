@@ -141,6 +141,33 @@ export function boundsOf(mod: ModuleNode, type: TypeExpr, depth = 0): Bounds {
   return decl ? boundsOf(mod, decl.type, depth + 1) : none;
 }
 
+// A string bound is a length, not a numeric limit: `string(min: 3)` is
+// minLength 3 in the schema and "at least three characters" at the boundary.
+// Same arguments, same resolver, a different meaning.
+export const NONE_LENGTHS: { min: number | null; max: number | null } = { min: null, max: null };
+
+export function lengthBoundsOf(
+  mod: ModuleNode,
+  type: TypeExpr,
+  depth = 0,
+): { min: number | null; max: number | null } {
+  if (depth > 8) return NONE_LENGTHS;
+  if (type.kind === 'optional') return lengthBoundsOf(mod, type.inner, depth + 1);
+  if (type.kind !== 'named') return NONE_LENGTHS;
+  if (type.name === 'string' || type.name === 'bytes') {
+    let min: number | null = null;
+    let max: number | null = null;
+    for (const arg of type.args) {
+      if (arg.value.kind !== 'literal' || typeof arg.value.value !== 'number') continue;
+      if (arg.name === 'min') min = arg.value.value;
+      if (arg.name === 'max') max = arg.value.value;
+    }
+    return { min, max };
+  }
+  const decl = mod.types.find((item) => item.name === type.name);
+  return decl ? lengthBoundsOf(mod, decl.type, depth + 1) : NONE_LENGTHS;
+}
+
 export function paramConstraint(mod: ModuleNode, param: Param): Constraint {
   return constraintOf(mod, param.type);
 }
@@ -150,8 +177,8 @@ export function paramConstraint(mod: ModuleNode, param: Param): Constraint {
 export function constraintTable(
   mod: ModuleNode,
   params: Param[],
-): Record<string, { format?: Format; enum?: string[]; min?: number; max?: number; integer?: boolean }> {
-  const table: Record<string, { format?: Format; enum?: string[]; min?: number; max?: number; integer?: boolean }> = {};
+): Record<string, { format?: Format; enum?: string[]; min?: number; max?: number; integer?: boolean; minLength?: number; maxLength?: number }> {
+  const table: Record<string, { format?: Format; enum?: string[]; min?: number; max?: number; integer?: boolean; minLength?: number; maxLength?: number }> = {};
   for (const param of params) {
     const constraint = paramConstraint(mod, param);
     if (constraint.format) table[param.name] = { format: constraint.format };
@@ -163,6 +190,14 @@ export function constraintTable(
         ...(bounds.integer ? { integer: true } : {}),
         ...(bounds.min !== null ? { min: bounds.min } : {}),
         ...(bounds.max !== null ? { max: bounds.max } : {}),
+      };
+    }
+    const lengths = lengthBoundsOf(mod, param.type);
+    if (lengths.min !== null || lengths.max !== null) {
+      table[param.name] = {
+        ...(table[param.name] ?? {}),
+        ...(lengths.min !== null ? { minLength: lengths.min } : {}),
+        ...(lengths.max !== null ? { maxLength: lengths.max } : {}),
       };
     }
   }
