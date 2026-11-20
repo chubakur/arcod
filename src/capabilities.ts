@@ -27,6 +27,7 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       remove: 'remove(entity: string, id: string) -> bool',
       find: 'find(entity: string, query: { where?: any, order?: string, limit?: int, cursor?: string }) -> { items: list<any>, next: string | null }',
       count: 'count(entity: string, query: { where?: any }) -> int',
+      aggregate: 'aggregate(entity: string, query: { field: string, op: string, where?: any }) -> number | null',
     },
     short: {
       get: 'load(id) -> {b,h}|null',
@@ -42,6 +43,7 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       remove: 'remove(entity, id) -> bool',
       find: 'find(entity, {where,order,limit,cursor})',
       count: 'count(entity, {where}) -> int',
+      aggregate: 'aggregate(entity, {field,op,where}) -> num|null',
     },
     notes: 'has tells whether the message still exists; seen tells whether it was already consumed. takeIf deletes only when the stored value equals expected.',
   },
@@ -102,6 +104,7 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       remove: 'remove(entity: string, id: string) -> bool',
       find: 'find(entity: string, query: { where?: any, order?: string, limit?: int, cursor?: string }) -> { items: list<any>, next: string | null }',
       count: 'count(entity: string, query: { where?: any }) -> int',
+      aggregate: 'aggregate(entity: string, query: { field: string, op: string, where?: any }) -> number | null',
     },
     short: {
       get: 'load(id) -> {b,h}|null',
@@ -117,6 +120,7 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
       remove: 'remove(entity, id) -> bool',
       find: 'find(entity, {where,order,limit,cursor})',
       count: 'count(entity, {where}) -> int',
+      aggregate: 'aggregate(entity, {field,op,where}) -> num|null',
     },
     notes: 'Rows, not keys. The adapter owns the table and TTL.',
   },

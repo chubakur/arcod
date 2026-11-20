@@ -72,7 +72,7 @@ function pluginCapabilityName(capability: string): string {
 // build refuses it instead of emitting an object with a duplicate key.
 const RESERVED_IO_METHODS = new Set([
   'load', 'save', 'scan', 'del', 'seen', 'takeIf', 'new', 'actor', 'users', 'chat', 'model',
-  'publish', 'queuePublish', 'queueDead', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify', 'count', 'embed',
+  'publish', 'queuePublish', 'queueDead', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify', 'count', 'aggregate', 'embed',
 ]);
 
 export function pluginBindings(mod: ModuleNode, registry?: ProviderRegistry): PluginBinding[] {
@@ -762,6 +762,43 @@ class MemoryStore {
     let items = rows.map((row) => recordOf(row.value));
     if (opts.where) items = items.filter((item) => matchesWhere(item, opts.where));
     return items.length;
+  }
+
+  // An aggregate is a total, not a page: sum/avg/min/max over one numeric
+  // field with the same filters find applies. A report that silently sums
+  // strings is worse than a 400, so an unknown op, an unknown field or a
+  // non-numeric value throws Invalid with the field named.
+  async entityAggregate(table, columns, query) {
+    const opts = query || {};
+    const field = String(opts.field || '');
+    const op = String(opts.op || '');
+    if (op !== 'sum' && op !== 'avg' && op !== 'min' && op !== 'max') {
+      throw new ArcodError('Invalid', { message: 'aggregate: unknown op "' + op + '"; use sum, avg, min or max' });
+    }
+    if (!columns.some((column) => column.name === field)) {
+      throw new ArcodError('Invalid', { message: 'aggregate: unknown field "' + field + '"' });
+    }
+    const rows = await this.scan('tbl:' + table + ':');
+    let items = rows.map((row) => recordOf(row.value));
+    if (opts.where) items = items.filter((item) => matchesWhere(item, opts.where));
+    let total = 0;
+    let seen = 0;
+    let best = null;
+    for (const item of items) {
+      const raw = item && typeof item === 'object' ? item[field] : null;
+      if (raw == null) continue;
+      const number = Number(raw);
+      if (!Number.isFinite(number)) {
+        throw new ArcodError('Invalid', { message: 'aggregate: field "' + field + '" is not numeric' });
+      }
+      seen += 1;
+      total += number;
+      if (best == null || (op === 'min' ? number < best : op === 'max' ? number > best : false)) best = number;
+    }
+    if (op === 'sum') return total;
+    if (seen === 0) return null;
+    if (op === 'avg') return total / seen;
+    return best;
   }
 
   async entityFind(table, columns, query) {
@@ -1729,6 +1766,11 @@ function sqlEntityIoLines(): string[] {
     '      metricCapability("store.count");',
     '      const meta = requestEntity(entity);',
     '      return await store.entityCount(meta.table, meta.columns, query);',
+    '    },',
+    '    async aggregate(entity, query) {',
+    '      metricCapability("store.aggregate");',
+    '      const meta = requestEntity(entity);',
+    '      return await store.entityAggregate(meta.table, meta.columns, query);',
     '    },',
   ];
 }

@@ -476,6 +476,33 @@ class SqlStore {
     return Number(value) || 0;
   }
 
+  // SUM/AVG/MIN/MAX over one quoted column with the same predicates count
+  // builds: one statement, no rows, so a report never walks the table. An
+  // unknown op or a non-numeric cell is Invalid, never a quiet undefined.
+  async entityAggregate(table, columns, query) {
+    const opts = query || {};
+    const field = String(opts.field || '');
+    const op = String(opts.op || '');
+    const fn = { sum: 'SUM', avg: 'AVG', min: 'MIN', max: 'MAX' }[op];
+    if (!fn) throw new ArcodError('Invalid', { message: 'aggregate: unknown op \"' + op + '\"; use sum, avg, min or max' });
+    const col = columns.find((c) => c.name === field);
+    if (!col) throw new ArcodError('Invalid', { message: 'aggregate: unknown field \"' + field + '\"' });
+    const where = [];
+    for (const [name, cond] of Object.entries(opts.where || {})) {
+      const target = columns.find((c) => c.name === name);
+      if (!target) continue;
+      where.push(...this.whereClauses(target, cond));
+    }
+    const whereSql = where.length > 0 ? ' WHERE ' + where.join(' AND ') : '';
+    const found = await this.query('SELECT ' + fn + '(' + q(field) + ') AS v FROM ' + q(table) + whereSql);
+    const row = found.rows && found.rows[0];
+    const value = row ? (Array.isArray(row) ? row[0] : row.v) : null;
+    if (value === null || value === undefined) return op === 'sum' ? 0 : null;
+    const number = Number(value);
+    if (!Number.isFinite(number)) throw new ArcodError('Invalid', { message: 'aggregate: field \"' + field + '\" is not numeric' });
+    return number;
+  }
+
   async entityFind(table, columns, query) {
     const opts = query || {};
     const requested = Number(opts.limit);
