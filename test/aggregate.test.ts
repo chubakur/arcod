@@ -193,3 +193,16 @@ test('postgres aggregate quotes like every other statement', async () => {
   assert.equal(statements.length, 1);
   assert.match(statements[0], /^SELECT MAX\(.amount.\) AS v FROM .entry.$/);
 });
+
+// The kv capability declares the same effects; the emitted kv facade must carry
+// the aggregate too, or the effect would be a 500 on that driver.
+const kvSpec = spec.split('arcod.std.sql').join('arcod.std.kv').split('uses store: sql').join('uses store: kv');
+
+test('a kv service emits the aggregate facade as well', async () => {
+  const { emitService } = await import('../src/emit/service.ts');
+  const { parse } = await import('../src/parser.ts');
+  const source = emitService(parse(kvSpec, 'main.arc'), { impl });
+  assert.match(source, /async aggregate\(entity, query\) \{/);
+  assert.match(source, /aggregate: unknown op/);
+  assert.equal((source.match(/metricCapability\("store\.aggregate"\);/g) || []).length, 1);
+});
