@@ -99,6 +99,16 @@ function pluginRegistry(providers: Array<Record<string, unknown>>): ProviderRegi
   });
 }
 
+test('every container provider declares image, and only those do', () => {
+  // The compose emitter reads args.image for any provider with a built-in
+  // image, so the declaration is derived, not hand-written: a new provider that
+  // forgets it would make W035 advise against the one argument that works.
+  for (const [name, spec] of Object.entries(PROVIDERS)) {
+    const declares = (spec.options ?? []).includes('image');
+    assert.equal(declares, Boolean(spec.image), name + ' declares image: ' + declares);
+  }
+});
+
 test('the declared image is the one compose runs', () => {
   const pinned = composeYaml(specOf('bind store -> redis(image: "redis:7.4")'), 8080);
   assert.match(pinned, /\n  redis:\n    image: redis:7\.4\n/, 'the pinned reference reaches the YAML');
