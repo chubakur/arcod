@@ -1080,7 +1080,10 @@ options belong to `bind alias -> provider(args)`, where they configure the
 backend connection. A provider reads a fixed set of them: `arcod providers
 --json` lists the names under `options`, and `W035` reports an argument no
 provider reads. `host`, `port`, `expose` and `import` are accepted by every
-binding.
+binding. `image` is listed for every provider that runs a container: it pins the
+container to an exact reference (`bind store -> redis(image: "redis:7.4")`)
+instead of the built-in tag, and `A084` refuses a value that is not a plain
+reference.
 
 The `io` adapter is what changes: the MySQL client parameterises queries so a
 value from a request never concatenates into SQL; `take` runs as a transaction
@@ -1488,6 +1491,9 @@ Errors:
 - `A083` a service uses `queue` on a provider the runtime has no driver for
   (`rabbitmq`, `kafka`): the broker container starts, jobs run in process and
   messages are lost on restart. The hint names the providers that can serve it.
+- `A084` a bind argument `image` is not an image reference: the compose emitter
+  writes the value into the image line verbatim, and a spec string may carry a
+  line break, so a malformed one rewrote the file instead of pinning it.
 - `A081` an example calls a name that is not an operation of the service (and
   is not the `uuid(...)` builtin), or a rule (`once(...)`, `atomic name`) names
   an operation the contract does not declare. `arcod test` used to resolve the

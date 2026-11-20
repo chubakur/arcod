@@ -9,6 +9,7 @@ import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { builtinRegistry, providerRows, registryFromScan, type ProviderRegistry } from '../src/registry.ts';
 import { BIND_ARGS, PROVIDERS } from '../src/providers.ts';
+import { composeYaml } from '../src/emit/compose.ts';
 
 function specOf(bindLine: string): ReturnType<typeof parse> {
   return parse('module m @0.1.0 {\n}\n\ntype Item = { id: uuid }\n\nservice Items : http {\n  uses store: kv\n\n  contract {\n    public op list() -> { items: list<Item> } {\n      route: "GET /v1/items"\n      effects: store.find\n    }\n  }\n}\n\nenvironment dev {\n  ' + bindLine + '\n}\n', 'binds.arc');
@@ -28,9 +29,33 @@ test('an unknown bind argument is reported with the known ones', () => {
 });
 
 test('declared options and the universal arguments are clean', () => {
-  // version is redis's own option; host/port/expose belong to every binding.
-  const diags = warn(check(specOf('bind store -> redis(host: "kv", port: 6380, expose: true, version: "7.2")')));
+  // image is redis's own option; host/port/expose belong to every binding.
+  const diags = warn(check(specOf('bind store -> redis(host: "kv", port: 6380, expose: true, image: "redis:7.4")')));
   assert.deepEqual(diags, []);
+});
+
+test('a dead version option is reported once image is the declared one', () => {
+  // redis used to declare `version` and read nothing: the compose file kept
+  // redis:7-alpine while the spec looked pinned. Now the option is gone, so the
+  // warning names the argument that actually works.
+  const diags = warn(check(specOf('bind store -> redis(version: "7.4")')));
+  assert.equal(diags.length, 1);
+  assert.match(diags[0].message, /does not read bind argument version/);
+  assert.match(diags[0].hint ?? '', /known arguments: .*image/);
+});
+
+test('an image that is not a plain reference is A084, not a rewritten compose file', () => {
+  // The first entry reaches the lexer as \n, so the literal really carries a
+  // line break; a spec string cannot hold a raw one.
+  const bad = ['redis:7\\nalpine: latest', 'redis 7', '', ':latest'];
+  for (const value of bad) {
+    const diags = check(specOf('bind store -> redis(image: "' + value + '")')).filter((item) => item.code === 'A084');
+    assert.equal(diags.length, 1, JSON.stringify(value) + ' is refused');
+    assert.equal(diags[0].severity, 'error');
+    assert.match(diags[0].hint ?? '', /image: "redis:7\.4"/);
+  }
+  const ok = check(specOf('bind store -> redis(image: "registry.example:5000/kv/redis@sha256:abc123")'));
+  assert.deepEqual(ok.filter((item) => item.code === 'A084'), []);
 });
 
 test('provider options are read per provider, not globally', () => {
@@ -83,13 +108,20 @@ function pluginRegistry(providers: Array<Record<string, unknown>>): ProviderRegi
   });
 }
 
+test('the declared image is the one compose runs', () => {
+  const pinned = composeYaml(specOf('bind store -> redis(image: "redis:7.4")'), 8080);
+  assert.match(pinned, /\n  redis:\n    image: redis:7\.4\n/, 'the pinned reference reaches the YAML');
+  const plain = composeYaml(specOf('bind store -> redis(host: "kv")'), 8080);
+  assert.match(plain, /\n  kv:\n    image: redis:7-alpine\n/, 'no image means the built-in tag');
+});
+
 test('provider discovery exposes the same allowlist', () => {
   // W035 names the options in its hint; the table has to agree with it, or an
   // author is told about an argument they cannot discover.
   const rows = providerRows(builtinRegistry());
   const row = (name: string) => rows.find((item) => item.provider === name)!;
-  assert.deepEqual(row('redis').options, ['version']);
-  assert.deepEqual(row('clickhouse').options, []);
+  assert.deepEqual(row('redis').options, ['image']);
+  assert.deepEqual(row('clickhouse').options, ['image']);
   assert.deepEqual(row('endpoint').options, ['network', 'url']);
 
   const declared = pluginRegistry([{ name: 'faxapi', capability: 'fax', args: { url: 'base url', token: 'api token' } }]);

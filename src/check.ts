@@ -321,6 +321,20 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         }
       }
 
+      // A084 — `image` pins the container to an exact reference: redis(image:
+      // "redis:7.4"). The emitter writes the value straight into the image
+      // line, and a spec string may carry \n, so the value has to be a plain
+      // reference here — otherwise one binding rewrites the whole compose file.
+      if ('image' in bind.args && spec.image) {
+        const expr = bind.args.image;
+        const value = expr.kind === 'literal' ? expr.value : undefined;
+        if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._/@:-]*$/.test(value)) {
+          diags.push(diag('A084', 'error', mod.file, expr.loc, subject,
+            'bind argument image must be an image reference',
+            'write image: "redis:7.4" — a repository with an optional tag or digest, no spaces or line breaks'));
+        }
+      }
+
       // A077 — `dim` is the declared width of every embedding this binding
       // returns. Non-literal, zero or fractional values used to reach the
       // emitter and produce a service that compared vectors of different

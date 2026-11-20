@@ -67,7 +67,6 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   redis: {
     name: 'redis',
     capability: 'kv',
-    options: ['version'],
     extraCapabilities: ['stream', 'queue'],
     image: 'redis:7-alpine',
     port: 6379,
@@ -77,7 +76,6 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   postgres: {
     name: 'postgres',
-    options: ['version'],
     secrets: ['POSTGRES_PASSWORD', 'DATABASE_URL'],
     capability: 'sql',
     image: 'postgres:16-alpine',
@@ -333,7 +331,15 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
 // A built-in that declares nothing takes nothing: a typo in a binding is then
 // a warning, not a silent no-op. A plugin provider without an args map stays
 // undefined above and is exempt.
-for (const spec of Object.values(PROVIDERS)) if (!spec.options) spec.options = [];
+//
+// `image` is the one argument every provider with a container reads: the
+// compose emitter pins the container to it instead of the built-in tag. It
+// used to work without being declared, so W035 advised against an argument
+// the emitter honoured, and redis carried a dead `version` nothing read.
+for (const spec of Object.values(PROVIDERS)) {
+  if (!spec.options) spec.options = [];
+  if (spec.image && !spec.options.includes('image')) spec.options.push('image');
+}
 
 export function providerFor(name: string): ProviderSpec | null {
   return PROVIDERS[name] ?? null;
