@@ -72,8 +72,10 @@ test('k8s: the app reads its environment from a ConfigMap and probes /healthz', 
   const configmap = need(files, 'configmap.yaml');
   assert.match(configmap, /KV_HOST: "kv"/);
   assert.match(configmap, /KV_PORT: "6379"/);
-  assert.match(configmap, /STREAM_REDIS_URL: "redis:\/\/kv:6379"/);
-  assert.match(configmap, /QUEUE_REDIS_URL: "redis:\/\/kv:6379"/);
+  assert.match(configmap, /REDIS_URL: "redis:\/\/kv:6379"/);
+  // The app uses only kv, so no broker URL is invented for it.
+  assert.equal(/STREAM_REDIS_URL/.test(configmap), false);
+  assert.equal(/QUEUE_REDIS_URL/.test(configmap), false);
 
   const service = need(files, 'service.yaml');
   assert.match(service, /name: arcod-onetimemessage-env/);

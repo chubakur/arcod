@@ -284,6 +284,22 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
     }
   }
 
+  // A redis bound as a broker tells the service which transport to use:
+  // without these the runtime falls back to in-process memory drivers. The
+  // alias that carries the capability decides, not the order of the binds: a
+  // cache redis bound as `store` must not become the pub/sub broker just
+  // because it is listed first.
+  const capabilityAliases = (capability: string): Set<string> =>
+    new Set(
+      mod.services.flatMap((svc) =>
+        svc.uses
+          .filter((use) => use.capability === capability || use.capability.endsWith('.' + capability))
+          .map((use) => use.alias),
+      ),
+    );
+  const streamAliases = capabilityAliases('stream');
+  const queueAliases = capabilityAliases('queue');
+
   const appEnv: Record<string, string> = {};
   for (const item of all) {
     for (const [key, value] of Object.entries(item.appEnv)) {
@@ -291,12 +307,14 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
       const name = key in appEnv ? key + '_' + item.alias.toUpperCase() : key;
       appEnv[name] = value;
     }
-    // A redis bound as a broker tells the service which transport to use:
-    // without these the runtime falls back to in-process memory drivers.
     if (item.spec.name === 'redis' && item.port > 0) {
       const url = 'redis://' + item.host + ':' + item.port;
-      if (providerImplements(item.spec, 'stream') && !appEnv.STREAM_REDIS_URL) appEnv.STREAM_REDIS_URL = url;
-      if (providerImplements(item.spec, 'queue') && !appEnv.QUEUE_REDIS_URL) appEnv.QUEUE_REDIS_URL = url;
+      if (streamAliases.has(item.alias) && providerImplements(item.spec, 'stream') && !appEnv.STREAM_REDIS_URL) {
+        appEnv.STREAM_REDIS_URL = url;
+      }
+      if (queueAliases.has(item.alias) && providerImplements(item.spec, 'queue') && !appEnv.QUEUE_REDIS_URL) {
+        appEnv.QUEUE_REDIS_URL = url;
+      }
     }
   }
 

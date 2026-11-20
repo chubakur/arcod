@@ -57,3 +57,69 @@ test('the saga example builds a compose file with a single kv', async () => {
   assert.equal(count(yaml, '\n  kv:\n'), 1);
   assert.equal(count(yaml, '\n      kv:\n'), 1);
 });
+
+test('the broker URL comes from the bind that carries the capability, not the first redis', () => {
+  const spec = `
+module cache @0.1.0 {}
+
+use capability arcod.std.kv @1
+use capability arcod.std.stream @1
+
+service Chat : http {
+  uses store: kv
+  uses bus: stream
+
+  effects {
+    allow bus.publish
+  }
+
+  contract {
+    public op send(text: string) -> bool {
+      route: "POST /v1/send"
+    }
+  }
+}
+
+environment dev {
+  bind store -> redis(host: "cache", port: 6379)
+  bind bus -> redis(host: "bus", port: 6379)
+  deploy docker
+}
+`;
+  const yaml = composeYaml(parse(spec, 'main.arc'), 8080, false);
+  assert.match(yaml, /STREAM_REDIS_URL: "redis:\/\/bus:6379"/);
+  assert.match(yaml, /REDIS_URL: "redis:\/\/cache:6379"/);
+  assert.equal(/QUEUE_REDIS_URL/.test(yaml), false, 'nothing uses the queue');
+});
+
+test('a kv-only app gets no broker URL', () => {
+  const spec = `
+module plain @0.1.0 {}
+
+use capability arcod.std.kv @1
+
+service Notes : http {
+  uses store: kv
+
+  contract {
+    public op get(id: string) -> string {
+      route: "GET /v1/notes/:id"
+    }
+  }
+}
+
+environment dev {
+  bind store -> redis(host: "kv", port: 6379)
+  deploy docker
+}
+`;
+  const yaml = composeYaml(parse(spec, 'main.arc'), 8080, false);
+  assert.match(yaml, /REDIS_URL: "redis:\/\/kv:6379"/);
+  assert.equal(/STREAM_REDIS_URL/.test(yaml), false);
+  assert.equal(/QUEUE_REDIS_URL/.test(yaml), false);
+});
+
+test('the queue URL follows the queue alias when the binds point at different hosts', () => {
+  const yaml = composeYaml(parse(twoBinds.replace('bind events -> redis(host: "kv", port: 6379)', 'bind events -> redis(host: "bus", port: 6379)'), 'main.arc'), 8080, false);
+  assert.match(yaml, /QUEUE_REDIS_URL: "redis:\/\/bus:6379"/);
+});
