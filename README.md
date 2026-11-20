@@ -1494,6 +1494,9 @@ Errors:
 - `A084` a bind argument `image` is not an image reference: the compose emitter
   writes the value into the image line verbatim, and a spec string may carry a
   line break, so a malformed one rewrote the file instead of pinning it.
+- `A085` two binds pin different images to one container host: compose and k8s
+  key a container by its host, so the second key overwrote the first and one
+  bind talked to an image that was never started.
 - `A081` an example calls a name that is not an operation of the service (and
   is not the `uuid(...)` builtin), or a rule (`once(...)`, `atomic name`) names
   an operation the contract does not declare. `arcod test` used to resolve the

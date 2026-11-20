@@ -249,6 +249,8 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   // `deploy --env prod`, long after the merge, on a binding nobody had read.
   for (const environment of mod.environments) {
     const aliases = new Set<string>();
+    // One container per host:port, whichever alias reaches it. A085 below.
+    const containers = new Map<string, { image: string; alias: string }>();
     for (const bind of environment.binds) {
       const subject = `environments.${environment.name}.binds.${bind.alias}`;
       if (bind.provider !== 'local' && aliases.has(bind.alias)) {
@@ -305,6 +307,29 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           diags.push(diag('A026', 'error', mod.file, bind.loc, subject,
             `provider ${bind.provider} requires argument ${required}`,
             `add ${required}: "..." to bind`));
+        }
+      }
+
+      // A085 — compose and k8s address a provider container by its host, so two
+      // binds that pin different images to one host describe two containers
+      // with one name: the emitter wrote the key twice, the later manifest won
+      // and the other bind talked to an image that was never started.
+      {
+        const literal = (key: 'host' | 'port' | 'image'): unknown => {
+          const expr = bind.args[key];
+          return expr && expr.kind === 'literal' ? expr.value : undefined;
+        };
+        const host = typeof literal('host') === 'string' ? String(literal('host')) : spec.name;
+        const port = typeof literal('port') === 'number' ? Number(literal('port')) : spec.port ?? 0;
+        const image = typeof literal('image') === 'string' ? String(literal('image')) : spec.image ?? '';
+        const key = host + '|' + port;
+        const previous = containers.get(key);
+        if (previous && previous.image !== image) {
+          diags.push(diag('A085', 'error', mod.file, bind.loc, subject,
+            'container ' + host + ' is bound to two images',
+            'one host is one container: keep ' + previous.image + ' (from ' + previous.alias + ') or ' + image + ', or give the second bind another host'));
+        } else if (!previous) {
+          containers.set(key, { image, alias: bind.alias });
         }
       }
 

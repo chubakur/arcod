@@ -131,3 +131,36 @@ test('provider discovery exposes the same allowlist', () => {
   const naked = pluginRegistry([{ name: 'faxnaked', capability: 'fax' }]);
   assert.deepEqual(providerRows(naked).find((item) => item.provider === 'faxnaked')!.options, []);
 });
+
+test('two binds on one host with two images is A085', () => {
+  const source = (q: string, images: [string, string]) => [
+    'module m @0.1.0 {}',
+    'type Item = { id: uuid }',
+    'service Items : http {',
+    '  uses store: kv',
+    '  uses bus: queue',
+    '  contract {',
+    '    public op list() -> { items: list<Item> } { route: "GET /v1/items" effects: store.find }',
+    '  }',
+    '}',
+    'environment dev {',
+    '  bind store -> redis(host: "kv", image: "' + images[0] + '")',
+    '  bind bus -> redis(host: "kv", image: "' + images[1] + '")',
+    '  deploy docker',
+    '}',
+    '',
+  ].join('\n');
+
+  const diags = check(parse(source('', ['redis:7.4', 'redis:6.2']), 'binds.arc')).filter((item) => item.code === 'A085');
+  assert.equal(diags.length, 1);
+  assert.equal(diags[0].severity, 'error');
+  assert.equal(diags[0].path, 'environments.dev.binds.bus');
+  assert.match(diags[0].message, /container kv is bound to two images/);
+  assert.match(diags[0].hint ?? '', /redis:7\.4/);
+  assert.match(diags[0].hint ?? '', /redis:6\.2/);
+
+  // One host, one image: the saga shares a container on purpose.
+  assert.deepEqual(check(parse(source('', ['redis:7.4', 'redis:7.4']), 'binds.arc')).filter((item) => item.code === 'A085'), []);
+  // Different hosts may run different images.
+  assert.deepEqual(check(parse(source('', ['redis:7.4', 'redis:6.2']).replace('host: "kv"', 'host: "kv2"').replace('host: "kv"', 'host: "kv"'), 'binds.arc')).filter((item) => item.code === 'A085'), []);
+});
