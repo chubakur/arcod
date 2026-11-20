@@ -7,6 +7,7 @@ import { parse } from '../src/parser.ts';
 import type { ModuleNode } from '../src/ast.ts';
 import { buildExample } from '../src/build.ts';
 import { helmChart, k8sManifests, type EmittedFile } from '../src/emit/k8s.ts';
+import { MANAGED_ENDPOINTS } from '../src/emit/terraform.ts';
 
 const examplePath = new URL('../examples/onetimemessage/main.arc', import.meta.url);
 
@@ -358,4 +359,38 @@ test('k8s: the rendered environment decides the topology, not the docker view', 
   assert.deepEqual(prod.some((file) => file.content.includes('mysql://')), false, 'prod binds postgres, so no mysql URL and no mysql workload');
   const dev = k8sManifests(mod, { environment: 'dev' });
   assert.match(need(dev, 'secret.yaml'), /mysql:\/\//, 'the local view keeps the mysql it binds');
+});
+
+// The cloud contract has to hold for every shipped example, not just the one
+// fixture above: every environment that deploys to yandex renders manifests,
+// and no managed provider's docker address reaches the app.
+test('k8s: every cloud environment in examples renders without a docker address', async () => {
+  const root = new URL('../examples/', import.meta.url);
+  const { readdir } = await import('node:fs/promises');
+  let checked = 0;
+  for (const dir of (await readdir(root)).sort()) {
+    let source: string;
+    try {
+      source = await readFile(new URL(dir + '/main.arc', root), 'utf8');
+    } catch {
+      continue;
+    }
+    const mod = await parse(source, dir + '/main.arc');
+    for (const env of mod.environments) {
+      if (!env.deploy || env.deploy.provider === 'docker') continue;
+      const files = k8sManifests(mod, { environment: env.name });
+      const app = need(files, 'service.yaml');
+      for (const bind of env.binds) {
+        const endpoint = MANAGED_ENDPOINTS[bind.provider];
+        if (!endpoint) continue;
+        const host = bind.args.host?.kind === 'literal' ? String(bind.args.host.value) : null;
+        const port = bind.args.port?.kind === 'literal' ? String(bind.args.port.value) : null;
+        if (host === null || port === null) continue;
+        assert.deepEqual(app.includes(host + ':' + port), false,
+          dir + ' ' + env.name + ': ' + bind.alias + ' keeps the docker address ' + host + ':' + port);
+      }
+      checked += 1;
+    }
+  }
+  assert.ok(checked >= 5, 'the examples still carry cloud environments: ' + checked);
 });
