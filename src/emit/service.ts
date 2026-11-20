@@ -928,12 +928,28 @@ function scalarOf(cond) {
 
 const KNOWN_WHERE_OPERATORS = ['eq', 'ne', 'in', 'contains', 'gt', 'gte', 'lt', 'lte'];
 
+// eq/ne/in compare cells, not references: a list or record field is stored as
+// JSON, and sql compares its text. A reference comparison made every such
+// filter match nothing on kv.
+function sameValue(left, right) {
+  if (left === right) return true;
+  if (left == null || right == null) return left == right;
+  if (typeof left === 'object' || typeof right === 'object') {
+    try {
+      return JSON.stringify(left) === JSON.stringify(right);
+    } catch {
+      return false;
+    }
+  }
+  return left == right;
+}
+
 function matchesWhere(value, where) {
   for (const field of Object.keys(where || {})) {
     const cond = where[field];
     const actual = value && typeof value === 'object' ? value[field] : null;
     if (scalarOf(cond)) {
-      if (actual != cond) return false;
+      if (!sameValue(actual, cond)) return false;
       continue;
     }
     for (const op of Object.keys(cond)) {
@@ -959,9 +975,9 @@ function matchesWhere(value, where) {
         });
       }
       if (actual == null && op !== 'eq' && op !== 'ne' && op !== 'in') return false;
-      if (op === 'eq' && actual != expected) return false;
-      if (op === 'ne' && actual == expected) return false;
-      if (op === 'in' && !(Array.isArray(expected) && expected.some((item) => item == actual))) return false;
+      if (op === 'eq' && !sameValue(actual, expected)) return false;
+      if (op === 'ne' && sameValue(actual, expected)) return false;
+      if (op === 'in' && !(Array.isArray(expected) && expected.some((item) => sameValue(item, actual)))) return false;
       if (op === 'contains' && !String(actual == null ? '' : actual).includes(String(expected))) return false;
       if (op === 'gt' && !(compareValues(sortValue(actual), sortValue(expected)) > 0)) return false;
       if (op === 'gte' && !(compareValues(sortValue(actual), sortValue(expected)) >= 0)) return false;

@@ -20,7 +20,7 @@ const spec = [
   'use capability arcod.std.ids @1',
   '',
   'type ItemId = uuid',
-  'type Item = { id: ItemId, tag: string, note: string? }',
+  'type Item = { id: ItemId, tag: string, note: string?, tags: list<string> }',
   '',
   'error Invalid',
   '',
@@ -52,7 +52,7 @@ const spec = [
 const impl = {
   put: [
     'export async function put(input, io) {',
-    '  const record = { id: io.new(), tag: String(input.tag) };',
+    '  const record = { id: io.new(), tag: String(input.tag), tags: ["a", "b"] };',
     '  await io.insert("Item", record);',
     '  return { result: { id: record.id } };',
     '}',
@@ -70,7 +70,11 @@ const impl = {
     '          ? { tag: { eq: null } }',
     '          : mode === "absent"',
     '            ? { note: { gt: "a" } }',
-    '            : { tag: { in: ["a", "b"] } };',
+    '            : mode === "list"',
+    '              ? { tags: { eq: ["a", "b"] } }',
+    '              : mode === "listother"',
+    '                ? { tags: { eq: ["b", "a"] } }',
+    '                : { tag: { in: ["a", "b"] } };',
     '  const order = mode === "order" ? "nmae asc" : undefined;',
     '  const page = await io.find("Item", { where, order });',
     '  const count = await io.count("Item", { where });',
@@ -347,5 +351,19 @@ test('sql: comparing with null is rejected before the driver sees the clause', a
     assert.equal(statements.length, 0, dialect + ': no NULL comparison reaches the driver');
     await store.entityCount('item', columns, { where: { tag: 'a' } });
     assert.doesNotMatch(statements[0], /NULL/, dialect);
+  }
+});
+
+test('kv: a list field compares by value, like the json text on sql', async () => {
+  const svc = await startService(spec, { impl });
+  try {
+    await post(svc.base + '/v1/items', { tag: 'a' });
+    const same = await post(svc.base + '/v1/scan', { mode: 'list' });
+    assert.equal(same.status, 201);
+    assert.equal((await same.json()).count, 1, 'the same list is found by eq');
+    const other = await post(svc.base + '/v1/scan', { mode: 'listother' });
+    assert.equal((await other.json()).count, 0, 'a different order is a different list');
+  } finally {
+    await svc.stop();
   }
 });
