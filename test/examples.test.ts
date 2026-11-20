@@ -62,6 +62,18 @@ test('every example parses and checks with no errors and only documented warning
   assert.deepEqual(broken, [], 'examples must check clean (documented warnings only)');
 });
 
+// docs/examples.md is the index a reader lands on. A demo that is not listed
+// there is a demo nobody finds; a list entry with no directory is a lie.
+test('docs/examples.md lists every demo and nothing else', async () => {
+  const doc = await readFile(join(examplesDir, '..', 'docs', 'examples.md'), 'utf8');
+  const list = await examples();
+  const missing = list.filter((example) => !doc.includes('examples/' + example.name) && !doc.includes('`' + example.name + '`'));
+  assert.deepEqual(missing.map((example) => example.name), [], 'every demo is named in docs/examples.md');
+  const named = [...doc.matchAll(/^\| `([a-z0-9-]+)`/gm)].map((match) => match[1]);
+  const dirs = new Set(list.map((example) => example.name));
+  assert.deepEqual(named.filter((name) => !dirs.has(name)), [], 'every table row names a real demo');
+});
+
 test('every example builds in place, with its own inputs', async () => {
   const list = await examples();
   const failed: string[] = [];

@@ -75,6 +75,10 @@ arcod run
 Open <http://localhost:8080>, create a message, copy the link, open it. The
 second read returns 410 Gone.
 
+Every demo under `examples/` is a working service, not a snippet:
+[docs/examples.md](docs/examples.md) says what each one proves and how to run
+it.
+
 ```bash
 arcod run --down   # stop
 node ../../bin/arcod.mjs run   # without npm link
