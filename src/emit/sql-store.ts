@@ -39,6 +39,12 @@ function literal(value) {
   return "UNHEX('" + value + "')";
 }
 
+// JSON columns reject a binary-charset string (mysql 3144). A hex literal with
+// a utf8mb4 introducer is still byte-exact, but arrives as text.
+function utf8Literal(value) {
+  return '_utf8mb4 0x' + hexOf(value);
+}
+
 function utf8Of(cell) {
   return cell == null ? null : cell.toString('utf8');
 }
@@ -70,7 +76,7 @@ function sqlLiteral(base, value) {
     return typeof value === 'number' ? String(value) : literal(hexOf(String(value)));
   }
   if (base === 'datetime') return literal(hexOf(normalizeDateTime(value)));
-  if (base === 'json' || base === 'list' || base === 'map') return literal(hexOf(JSON.stringify(value)));
+  if (base === 'json' || base === 'list' || base === 'map') return utf8Literal(JSON.stringify(value));
   return literal(hexOf(String(value)));
 }
 

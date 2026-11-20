@@ -99,3 +99,47 @@ test('the emitted mysql store finds pages without shadowing the quoter', async (
   assert.match(statements[0], /SELECT `id`, `title` FROM `task`/, 'identifiers stay quoted');
   assert.match(statements[0], /ORDER BY `title` ASC, `id` ASC/, 'the order fields stay quoted');
 });
+
+test('the emitted mysql store writes json and list values as utf8mb4 text', async () => {
+  const { SQL_STORE_SOURCE } = await import('../src/emit/sql-store.ts');
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-mysql-json-'));
+  const file = join(dir, 'store.mjs');
+  await writeFile(file, SQL_STORE_SOURCE + '\nexport { SqlStore };\n', 'utf8');
+  const { SqlStore } = await import(pathToFileURL(file).href);
+  const store = new SqlStore('mysql://localhost:3306/arcod');
+  const statements: string[] = [];
+  store.query = async (sql: string) => {
+    statements.push(sql);
+    return { rows: [], affected: 1 };
+  };
+  const columns = [
+    { name: 'id', base: 'string' },
+    { name: 'skills', base: 'list' },
+    { name: 'meta', base: 'json' },
+    { name: 'payload', base: 'bytes' },
+  ];
+  await store.entityInsert('person', columns, {
+    id: 'p1',
+    skills: ['plumbing'],
+    meta: { ok: true },
+    payload: 'raw',
+  });
+  const sql = statements[0];
+  // mysql 3144: JSON cannot be built from a binary string. The literal carries
+  // a utf8mb4 introducer, so the bytes are still exact but arrive as text.
+  assert.ok(
+    sql.includes('_utf8mb4 0x' + Buffer.from('["plumbing"]', 'utf8').toString('hex')),
+    'a list value is introduced as utf8mb4: ' + sql
+  );
+  assert.ok(
+    sql.includes('_utf8mb4 0x' + Buffer.from('{"ok":true}', 'utf8').toString('hex')),
+    'a json value is introduced as utf8mb4'
+  );
+  assert.equal((sql.match(/_utf8mb4 0x/g) || []).length, 2, 'only json-shaped values change');
+  assert.ok(sql.includes("UNHEX('7031')"), 'a string key stays a binary literal');
+  assert.ok(sql.includes("UNHEX('" + Buffer.from('raw', 'utf8').toString('hex') + "')"), 'bytes stay binary');
+});
