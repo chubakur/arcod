@@ -1537,6 +1537,9 @@ bound provider (redis, postgres, ...), the service itself with /healthz
 probes, the web Deployment behind an Ingress, and a PVC for providers that
 keep state. Provider credentials land in a Secret, never in the ConfigMap; bind
 a secrets capability and the Secret becomes an ExternalSecret from Vault.
+A cloud environment (--env prod on a cloud deploy) is rendered from its own
+binds: a managed endpoint is read from the <app>-endpoints Secret that the
+comment names, and no database is started beside the one the plan creates.
 --helm wraps the identical objects in a chart; --out writes files instead of
 printing them. Nothing is applied: the output is text only.
 
