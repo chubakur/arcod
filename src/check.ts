@@ -580,6 +580,25 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     });
   }
 
+  // A088 — a name that is neither a builtin nor declared in this module. The
+  // emitters treated it as `{}` (an OpenAPI schema of anything), so a typo
+  // widened the contract to accept whatever the client sent and the field had
+  // no type in GraphQL or in the migration.
+  const seenUnknownTypes = new Set<string>();
+  for (const root of typeRoots) {
+    walkTypeExpr(root, (type) => {
+      if (type.kind !== 'named') return;
+      if (BUILTIN_TYPE_NAMES.has(type.name)) return;
+      if (declaredTypeNames.has(type.name)) return;
+      const key = type.loc.offset + ':' + type.name;
+      if (seenUnknownTypes.has(key)) return;
+      seenUnknownTypes.add(key);
+      diags.push(diag('A088', 'error', mod.file, type.loc, 'types.' + type.name,
+        'unknown type ' + type.name,
+        'declare type ' + type.name + ' = … or use a builtin (' + [...BUILTIN_TYPE_NAMES].join(', ') + ')'));
+    });
+  }
+
   for (const svc of mod.services) {
     if (svc.external) continue;
     const sourceSlice = mod.source.slice(svc.loc.offset, svc.loc.end);

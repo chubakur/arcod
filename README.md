@@ -108,6 +108,9 @@ type Password = string?                // optional
 enum Visibility { draft, published, archived }
 ```
 
+A name that is neither a builtin nor declared in the module is `A088`: it used
+to become an empty schema, so a typo accepted any value.
+
 Records `{ ... }`, `list<T>`, `bytes`, `uuid`, `datetime` (ISO-8601, rendered
 as `format: date-time`), `decimal`, unions, optional via `?` and parameter
 defaults (`limit: number = 20`). Durations (`999s`, `24h`) are values in clauses
@@ -1568,6 +1571,9 @@ Errors:
   `bool(max: 5)`, `list<A, B>`): the schema and the runtime carried no bound, so
   the model promised a limit it never enforced. The hint lists what the builtin
   takes.
+- `A088` a type name is neither a builtin nor declared in the module: OpenAPI
+  emitted `{}`, so a typo accepted any value and GraphQL had no field type. The
+  hint names the declaration that would fix it.
 - `A081` an example calls a name that is not an operation of the service (and
   is not the `uuid(...)` builtin), or a rule (`once(...)`, `atomic name`) names
   an operation the contract does not declare. `arcod test` used to resolve the
