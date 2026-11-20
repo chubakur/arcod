@@ -1265,7 +1265,10 @@ Routes, TTL, limits and infrastructure are identical.
   (an `ExternalSecret` when a `secrets` capability is bound), a
   Deployment+Service per bound provider, the service with `/healthz` probes,
   the web tier and an Ingress; written when an environment says
-  `deploy kubernetes` or `deploy helm`;
+  `deploy kubernetes` or `deploy helm`. A managed service in a cloud
+  environment keeps its endpoint in the `<app>-endpoints` Secret and starts no
+  workload of its own, and each tree is rendered from its own environment, so
+  `k8s-<env>/` never describes a sibling's binds;
 - `.arcod/build/migrations/` — the plan the service applies on boot, written
   from the same call as the embedded copy: `changelog.json` plus
   `NNNN_<table>.up.sql` / `.down.sql`; a rebuild replaces the directory, so it
