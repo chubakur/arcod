@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { buildExample } from '../src/build.ts';
+import { runExamples } from '../src/test.ts';
 
 // examples/ is the project's promise: every file there is a working service.
 // Nothing enforced that across the whole directory — a change to the checker
@@ -64,6 +65,40 @@ test('every example builds in place, with its own inputs', async () => {
     }
   }
   assert.deepEqual(failed, [], 'every example compiles');
+});
+
+// The examples block is an example's own acceptance test: arcod test builds the
+// service and calls it over HTTP. Nothing ran the shipped blocks, so a demo
+// could keep examples that no longer pass — and examples/saga declared none at
+// all while being the demo of a saga.
+test('every shipped example runs the examples it declares', async () => {
+  const list = await examples();
+  const failed: string[] = [];
+  let ran = 0;
+  for (const example of list) {
+    const mod = parse(example.source, example.name + '/main.arc');
+    const declared = mod.services.reduce((total, service) => total + service.examples.length, 0);
+    if (declared === 0) continue;
+    const dir = await mkdtemp(join(tmpdir(), 'arcod-example-run-'));
+    try {
+      await cp(join(examplesDir, example.name), dir, { recursive: true });
+      const built = await buildExample(mod, dir, {});
+      const report = await runExamples(mod, built.dir);
+      ran += report.examples.length;
+      for (const item of report.examples) {
+        if (!item.ok) failed.push(example.name + ': ' + item.example + ' - ' + item.error);
+      }
+      if (report.examples.length !== declared) {
+        failed.push(example.name + ': declared ' + declared + ', ran ' + report.examples.length);
+      }
+    } catch (error) {
+      failed.push(example.name + ': ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+  assert.deepEqual(failed, [], failed.join('\n'));
+  assert.ok(ran >= 15, 'the shipped examples still declare runnable examples: ' + ran);
 });
 
 // check() defaults to one environment. A cloud environment is where the new
