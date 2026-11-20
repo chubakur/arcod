@@ -63,6 +63,29 @@ service Signup : http {
         account.plan == "pro"
       }
     }
+
+    // The read side of the same record: find returns what create stored, the
+    // schema default included.
+    example find_after_create {
+      when {
+        let account = create("find@example.com", null, null)
+        let found = find(account.id)
+      }
+      then {
+        found.email == "find@example.com"
+        found.plan == "free"
+      }
+    }
+
+    // An id that was never issued is a declared NotFound, not an empty object.
+    example find_missing_account {
+      when {
+        let e = find("00000000-0000-0000-0000-000000000000")
+      }
+      then {
+        e is NotFound
+      }
+    }
   }
 }
 

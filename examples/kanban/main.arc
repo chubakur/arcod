@@ -106,6 +106,46 @@ service Kanban : http {
         e is NotFound
       }
     }
+
+    // list is the caller's board, optionally narrowed by status. The probe card
+    // is moved to a status no other example uses, so the page holds it alone and
+    // the assertion does not depend on scan order.
+    example list_shows_moved_card {
+      when {
+        let card = create("board probe", null)
+        move(card.id, "review")
+        let board = list("review")
+      }
+      then {
+        board[0].id == card.id
+        board[0].status == "review"
+      }
+    }
+
+    // remove answers true for a card that existed and NotFound the second time:
+    // the delete is a state change the client can observe.
+    example remove_is_gone {
+      when {
+        let card = create("to be removed", null)
+        let first = remove(card.id)
+        let again = remove(card.id)
+      }
+      then {
+        first == true
+        again is NotFound
+      }
+    }
+
+    // An image lookup for an id that was never stored is a declared NotFound,
+    // not an empty body.
+    example image_of_missing_card {
+      when {
+        let e = image("00000000-0000-0000-0000-000000000000")
+      }
+      then {
+        e is NotFound
+      }
+    }
   }
 }
 
