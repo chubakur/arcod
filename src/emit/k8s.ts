@@ -480,6 +480,21 @@ function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
 // that does not exist in the cluster. The whole URL moves into a Secret filled
 // from the terraform outputs, and the pod reads it by key; W044 names the same
 // gap from the spec side, before anything is applied.
+// The Secret key has to carry the same shape the docker env had, not a bare
+// host: DATABASE_URL is a URL, KV_HOST is a host and KV_PORT a port. Printing
+// the shape with the cloud-assigned parts left as placeholders tells an
+// operator what to assemble, and masking userinfo keeps a plan password out of
+// the manifest.
+function endpointShape(value: string, host: string, port: number, output: string): string {
+  const hostMark = '<' + output + '_host>';
+  const portMark = '<' + output + '_port>';
+  if (value === host) return 'terraform output ' + output + '_host';
+  if (value === String(port)) return 'terraform output ' + output + '_port';
+  return value
+    .split(host + ':' + port).join(hostMark + ':' + portMark)
+    .replace(/\/\/([^@/]+)@/, '//<user>:<password>@');
+}
+
 function endpointContract(
   appName: string,
   providers: RenderedProvider[],
@@ -489,16 +504,22 @@ function endpointContract(
   for (const item of providers) {
     const endpoint = MANAGED_ENDPOINTS[item.spec.name];
     if (!endpoint) continue;
-    const address = item.host + ':' + item.port;
+    // The provider's own env is the exact list of entries that address it:
+    // a URL contains `host:port`, but the kv driver reads KV_HOST and KV_PORT
+    // on their own, and those used to stay in the ConfigMap naming a container
+    // the plan never creates. Comparing against appEnv() moves every shape the
+    // runtime actually reads, and nothing else that happens to look alike.
+    const actual = item.appEnv;
     for (const bucket of [env.plain, env.hidden]) {
       for (const [key, value] of Object.entries(bucket)) {
-        if (!value.includes(address)) continue;
+        if (!Object.prototype.hasOwnProperty.call(actual, key)) continue;
+        if (actual[key] !== value) continue;
         delete bucket[key];
         if (refs.some((ref) => ref.name === key)) continue;
         refs.push({
           name: key,
           key: key.toLowerCase(),
-          hint: endpoint.output + '_host and ' + endpoint.output + '_port',
+          hint: endpointShape(value, item.host, item.port, endpoint.output),
         });
       }
     }
@@ -521,8 +542,10 @@ function endpointComment(ctx: Ctx): string[] {
     '#   kubectl -n ' + ctx.namespace + ' create secret generic ' + endpoints.secret,
   ];
   for (const ref of endpoints.refs) {
-    lines.push('#   key ' + ref.key + '  <-  terraform output ' + ref.hint + ' (plus the credentials the app uses)');
+    lines.push('#   key ' + ref.key + '  <-  ' + ref.hint);
   }
+  lines.push('# The plan takes its passwords as inputs; the Secret carries the applied');
+  lines.push('# values, not the compose defaults.');
   if (ctx.managedHosts.length > 0) {
     lines.push('# Not deployed here, the plan owns them: ' + ctx.managedHosts.join(', ') + '.');
   }

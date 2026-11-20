@@ -8,6 +8,7 @@ import type { ModuleNode } from '../src/ast.ts';
 import { buildExample } from '../src/build.ts';
 import { helmChart, k8sManifests, type EmittedFile } from '../src/emit/k8s.ts';
 import { MANAGED_ENDPOINTS } from '../src/emit/terraform.ts';
+import { providerFor } from '../src/providers.ts';
 
 const examplePath = new URL('../examples/onetimemessage/main.arc', import.meta.url);
 
@@ -302,7 +303,7 @@ test('k8s: a cloud endpoint is read from a Secret, not from the docker host', as
   const app = need(files, 'service.yaml');
   assert.match(app, /- name: DATABASE_URL\n              valueFrom:\n                secretKeyRef:\n                  name: arcod-shop-endpoints\n                  key: database_url/);
   assert.deepEqual(app.includes('pg:5432'), false, 'the docker address never reaches the manifest');
-  assert.match(app, /terraform output db_host and db_port/, 'the comment names the output that fills the key');
+  assert.match(app, /key database_url  <-  postgres:\/\/<user>:<password>@<db_host>:<db_port>\/arcod/, 'the comment shows the shape the key must carry');
   const configMap = files.find((item) => item.path === 'configmap.yaml');
   assert.equal(configMap, undefined, 'nothing is left for the ConfigMap to carry');
 });
@@ -349,7 +350,11 @@ test('k8s: a cloud database and a cloud kv both stay out of the cluster', async 
   assert.deepEqual(workloads, [], 'neither managed service gets a pod, Service or PVC');
   const app = need(files, 'service.yaml');
   assert.match(app, /- name: REDIS_URL\n              valueFrom:\n                secretKeyRef:\n                  name: arcod-shop-endpoints\n                  key: redis_url/, 'the kv URL moves into the same endpoint Secret');
-  assert.match(app, /#   key redis_url  <-  terraform output kv_host and kv_port/);
+  assert.match(app, /#   key redis_url  <-  redis:\/\/<kv_host>:<kv_port>/);
+  assert.match(app, /#   key kv_host  <-  terraform output kv_host/);
+  assert.match(app, /- name: KV_PORT\n              valueFrom:\n                secretKeyRef:\n                  name: arcod-shop-endpoints\n                  key: kv_port/, 'the bare kv port moves too: the driver reads it on its own');
+  const configMap = files.find((item) => item.path === 'configmap.yaml');
+  assert.equal(configMap, undefined, 'no entry is left naming the compose host');
   assert.match(app, /# Not deployed here, the plan owns them: pg, redis\./);
 });
 
@@ -388,11 +393,15 @@ test('k8s: every cloud environment in examples renders without a docker address'
       for (const bind of env.binds) {
         const endpoint = MANAGED_ENDPOINTS[bind.provider];
         if (!endpoint) continue;
-        const host = bind.args.host?.kind === 'literal' ? String(bind.args.host.value) : null;
-        const port = bind.args.port?.kind === 'literal' ? String(bind.args.port.value) : null;
-        if (host === null || port === null) continue;
+        // The default host is the provider name and the default port is the
+        // container port, so a bind without arguments still addresses a
+        // compose service that the plan never starts.
+        const host = bind.args.host?.kind === 'literal' ? String(bind.args.host.value) : bind.provider;
+        const port = bind.args.port?.kind === 'literal' ? String(bind.args.port.value) : String(providerFor(bind.provider)?.port ?? '');
         assert.deepEqual(app.includes(host + ':' + port), false,
           dir + ' ' + env.name + ': ' + bind.alias + ' keeps the docker address ' + host + ':' + port);
+        assert.deepEqual(app.includes(': "' + host + '"'), false,
+          dir + ' ' + env.name + ': ' + bind.alias + ' keeps the bare docker host ' + host);
       }
       checked += 1;
     }
