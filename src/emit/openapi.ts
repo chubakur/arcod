@@ -100,7 +100,16 @@ function builtinSchema(name: string, args: TypeArg[]): Schema {
     if (max !== null) schema.maximum = max;
     return schema;
   }
-  if (name === 'float' || name === 'number') return { type: 'number' };
+  if (name === 'float' || name === 'number') {
+    // A real bound is a bound on reals: `number(min: 0.5)` means 0.5, not the
+    // nearest integer the way an integer bound has to be rounded.
+    const schema: Schema = { type: 'number' };
+    const min = numberArg(args, 'min');
+    const max = numberArg(args, 'max');
+    if (min !== null) schema.minimum = min;
+    if (max !== null) schema.maximum = max;
+    return schema;
+  }
   if (name === 'bool' || name === 'boolean') return { type: 'boolean' };
   if (name === 'uuid') return { type: 'string', format: 'uuid' };
   if (name === 'datetime') return { type: 'string', format: 'date-time' };

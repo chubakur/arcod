@@ -45,6 +45,25 @@ function numericArg(name: string, value: number): TypeArg {
   return { name, value: { kind: 'literal', value, raw: String(value), loc: loc() }, loc: loc() };
 }
 
+// The next double above `value`. A real exclusive bound cannot be written in
+// the language, which has inclusive bounds only; the next representable value
+// is the tightest inclusive bound with the same effect. A value that would
+// need exponent notation (5e-324) has no literal form here, so `decimalOr`
+// keeps the named value instead of emitting a file the parser reads as a
+// duration and a subtraction.
+function nextUp(value: number): number {
+  if (!Number.isFinite(value)) return value;
+  if (value === 0) return Number.MIN_VALUE;
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, value);
+  view.setBigUint64(0, view.getBigUint64(0) + (value > 0 ? 1n : -1n));
+  return view.getFloat64(0);
+}
+
+function decimalOr(original: number, next: number): number {
+  return Number.isFinite(next) && !/e/i.test(String(next)) ? next : original;
+}
+
 // A string keeps the format it declares: `format: uuid` is the same fact as the
 // `uuid` type, and `minLength`/`maxLength` are the `string(min, max)` arguments
 // the checker and the runtime already enforce. Adopting an API must not widen
@@ -116,7 +135,25 @@ function schemaType(schema: any, typeNames: Set<string>): TypeExpr {
       if (maximum !== null) args.push(numericArg('max', maximum));
       return args.length > 0 ? { kind: 'named', name: 'int', args, loc: loc() } : named('int');
     }
-    case 'number': return named('number');
+    case 'number': {
+      // A real bound is kept as stated: minimum 0.5 is min 0.5, not the
+      // nearest integer. An exclusive bound is strictly tighter than the
+      // number it names, so the tightest inclusive bound that means the same
+      // is the next representable double (OpenAPI 3.1 spells it as a number,
+      // 3.0 as true next to minimum/maximum).
+      let minimum = typeof schema.minimum === 'number' ? schema.minimum : null;
+      let maximum = typeof schema.maximum === 'number' ? schema.maximum : null;
+      const exclusiveMin = typeof schema.exclusiveMinimum === 'number' ? schema.exclusiveMinimum : null;
+      const exclusiveMax = typeof schema.exclusiveMaximum === 'number' ? schema.exclusiveMaximum : null;
+      if (exclusiveMin !== null) minimum = decimalOr(exclusiveMin, nextUp(exclusiveMin));
+      else if (schema.exclusiveMinimum === true && minimum !== null) minimum = decimalOr(minimum, nextUp(minimum));
+      if (exclusiveMax !== null) maximum = decimalOr(exclusiveMax, -nextUp(-exclusiveMax));
+      else if (schema.exclusiveMaximum === true && maximum !== null) maximum = decimalOr(maximum, -nextUp(-maximum));
+      const args: TypeArg[] = [];
+      if (minimum !== null) args.push(numericArg('min', minimum));
+      if (maximum !== null) args.push(numericArg('max', maximum));
+      return args.length > 0 ? named('number', args) : named('number');
+    }
     case 'boolean': return named('bool');
     case 'string':
     default: return stringType(schema);

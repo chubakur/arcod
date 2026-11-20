@@ -112,17 +112,22 @@ export function describeViolation(constraint: Constraint, value: unknown): strin
 export interface Bounds {
   min: number | null;
   max: number | null;
+  // A bound says which values are legal; the type says which of them fit.
+  // `int(min: 1)` rejects 1.5 because an integer bound bounds integers, while
+  // `number(min: 0.5)` keeps fractional values and only rejects the ones below.
+  integer: boolean;
 }
 
-// Integer bounds are contract facts too: adopt keeps `minimum`/`maximum` from
-// an OpenAPI document as `int(min:, max:)`, so the schema and the runtime have
-// to read the same two arguments. Only integer literals count; anything else
-// is A087 at check time.
+// Bounds are contract facts too: adopt keeps `minimum`/`maximum` from an
+// OpenAPI document as `int(min:, max:)` or `number(min:, max:)`, so the schema
+// and the runtime have to read the same two arguments. Only literal numbers
+// count; anything else is A087 at check time.
 export function boundsOf(mod: ModuleNode, type: TypeExpr, depth = 0): Bounds {
-  if (depth > 8) return { min: null, max: null };
+  const none: Bounds = { min: null, max: null, integer: false };
+  if (depth > 8) return none;
   if (type.kind === 'optional') return boundsOf(mod, type.inner, depth + 1);
-  if (type.kind !== 'named') return { min: null, max: null };
-  if (type.name === 'int') {
+  if (type.kind !== 'named') return none;
+  if (type.name === 'int' || type.name === 'number' || type.name === 'float') {
     let min: number | null = null;
     let max: number | null = null;
     for (const arg of type.args) {
@@ -130,10 +135,10 @@ export function boundsOf(mod: ModuleNode, type: TypeExpr, depth = 0): Bounds {
       if (arg.name === 'min') min = arg.value.value;
       if (arg.name === 'max') max = arg.value.value;
     }
-    return { min, max };
+    return { min, max, integer: type.name === 'int' };
   }
   const decl = mod.types.find((item) => item.name === type.name);
-  return decl ? boundsOf(mod, decl.type, depth + 1) : { min: null, max: null };
+  return decl ? boundsOf(mod, decl.type, depth + 1) : none;
 }
 
 export function paramConstraint(mod: ModuleNode, param: Param): Constraint {
@@ -145,8 +150,8 @@ export function paramConstraint(mod: ModuleNode, param: Param): Constraint {
 export function constraintTable(
   mod: ModuleNode,
   params: Param[],
-): Record<string, { format?: Format; enum?: string[]; min?: number; max?: number }> {
-  const table: Record<string, { format?: Format; enum?: string[]; min?: number; max?: number }> = {};
+): Record<string, { format?: Format; enum?: string[]; min?: number; max?: number; integer?: boolean }> {
+  const table: Record<string, { format?: Format; enum?: string[]; min?: number; max?: number; integer?: boolean }> = {};
   for (const param of params) {
     const constraint = paramConstraint(mod, param);
     if (constraint.format) table[param.name] = { format: constraint.format };
@@ -155,6 +160,7 @@ export function constraintTable(
     if (bounds.min !== null || bounds.max !== null) {
       table[param.name] = {
         ...(table[param.name] ?? {}),
+        ...(bounds.integer ? { integer: true } : {}),
         ...(bounds.min !== null ? { min: bounds.min } : {}),
         ...(bounds.max !== null ? { max: bounds.max } : {}),
       };

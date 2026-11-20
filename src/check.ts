@@ -23,6 +23,8 @@ const BUILTIN_ARG_RULES: Record<string, { named: string[]; positional: number; h
   string: { named: ['min', 'max', 'format'], positional: 0, hint: 'known arguments: min, max, format' },
   bytes: { named: ['min', 'max'], positional: 0, hint: 'known arguments: min, max' },
   int: { named: ['min', 'max'], positional: 0, hint: 'known arguments: min, max' },
+  number: { named: ['min', 'max'], positional: 0, hint: 'known arguments: min, max' },
+  float: { named: ['min', 'max'], positional: 0, hint: 'known arguments: min, max' },
   list: { named: [], positional: 1, hint: 'list takes one type argument, e.g. list<Item>' },
   map: { named: [], positional: 2, hint: 'map takes two type arguments, e.g. map<string, int>' },
 };
