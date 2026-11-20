@@ -8,6 +8,26 @@ const LLM_MODEL = process.env.LLM_MODEL || 'qwen2.5-coder:7b';
 const LLM_API_KEY = process.env.LLM_API_KEY || '';
 const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 180000);
 
+// arcod test runs on a machine with no model. LLM_DRIVER=memory answers
+// locally: the reply is deterministic and the embedding is a stable
+// pseudo-random vector of the declared width. It tests the wiring, not a
+// similarity model - the test runner picks this driver, a deployment does not.
+const LLM_DRIVER = process.env.LLM_DRIVER || 'http';
+
+function llmMemoryVector(text) {
+  let seed = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    seed = ((seed ^ text.charCodeAt(index)) * 16777619) >>> 0;
+  }
+  const width = LLM_EMBED_DIM || 8;
+  const vector = [];
+  for (let index = 0; index < width; index += 1) {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    vector.push(Math.round((seed % 2001) - 1000) / 1000);
+  }
+  return vector;
+}
+
 function llmModel() {
   return LLM_MODEL;
 }
@@ -26,6 +46,7 @@ async function llmEmbed(texts) {
   // input: [] with 400, so an indexer that found nothing to embed used to fail
   // instead of doing nothing.
   if (input.length === 0) return [];
+  if (LLM_DRIVER === 'memory') return input.map((text) => llmMemoryVector(text));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
   try {
@@ -73,6 +94,11 @@ async function llmEmbed(texts) {
 
 async function llmChat(messages, system) {
   const list = Array.isArray(messages) ? messages : [];
+  if (LLM_DRIVER === 'memory') {
+    const last = list.length > 0 ? list[list.length - 1] : null;
+    const asked = last && typeof last.content === 'string' ? last.content : '';
+    return { content: 'memory: ' + asked, model: 'memory' };
+  }
   const payload = {
     model: LLM_MODEL,
     messages: system

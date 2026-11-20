@@ -1655,6 +1655,15 @@ so the statement evaluates to `null`. `page.hits[0].title` reads a list
 element; a negative or out-of-range index fails the example with a path
 (`index 99 out of range (len 3) in page.hits`).
 
+`arcod test` supplies every backend as a memory driver: records, blobs, identity,
+the queue and the model. `LLM_DRIVER=memory` answers a chat with a deterministic
+`memory: <prompt>` reply and an embedding that is a stable pseudo-random vector
+of the declared `dim`, so a service that declares `llm.chat` or `model.embed`
+runs on a machine with no model at all - it proves the wiring, not a similarity
+model. A `dim` declared by the bind becomes `LLM_EMBED_DIM` in the test process
+(the same variable `arcod run` sets), so a model that returns another width
+fails the example instead of storing a vector that cannot be compared.
+
 ```arcod
 service OneTimeMessage : http {
   // ...

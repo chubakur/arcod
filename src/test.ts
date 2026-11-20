@@ -35,6 +35,16 @@ interface Context {
   statusToError: Map<number, string>;
 }
 
+function declaredEmbedDim(mod: ModuleNode): number | null {
+  for (const env of mod.environments) {
+    for (const bind of env.binds) {
+      const value = bind.args.dim;
+      if (value && value.kind === 'literal' && typeof value.value === 'number') return value.value;
+    }
+  }
+  return null;
+}
+
 export async function runExamples(mod: ModuleNode, buildDir: string): Promise<TestReport> {
   const service = pickService(mod);
   if (!service || (service.examples.length === 0 && service.rules.length === 0)) {
@@ -42,6 +52,10 @@ export async function runExamples(mod: ModuleNode, buildDir: string): Promise<Te
   }
 
   const port = await freePort();
+  // A bind that declares dim is a promise about every vector the model
+  // returns. arcod run gets that env from the provider table; a test process
+  // spawns the service directly, so without it the promise was never enforced.
+  const dim = declaredEmbedDim(mod);
   const child = spawn(process.execPath, [join(buildDir, 'service', 'index.mjs')], {
     env: {
       ...process.env,
@@ -50,6 +64,8 @@ export async function runExamples(mod: ModuleNode, buildDir: string): Promise<Te
       SQL_DRIVER: 'memory',
       AUTH_DRIVER: 'memory',
       BLOB_DRIVER: 'memory',
+      LLM_DRIVER: 'memory',
+      ...(dim === null ? {} : { LLM_EMBED_DIM: String(dim) }),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

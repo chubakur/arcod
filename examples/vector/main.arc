@@ -47,6 +47,23 @@ service Docs : http {
       on error Invalid: q != null
     }
   }
+
+  examples {
+
+    // The body never invents an embedding: add() stores the vector the model
+    // returned, and the declared dim is the width it checked. arcod test
+    // supplies a memory model of the declared width.
+    example add_then_search {
+      when {
+        let note = add("the quick brown fox")
+        let found = search("quick", 3)
+      }
+      then {
+        note.dim == 768
+        found.items[0].id == note.id
+      }
+    }
+  }
 }
 
 environment dev {

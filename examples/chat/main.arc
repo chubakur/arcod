@@ -53,6 +53,24 @@ service Chat : http {
       on error NotFound: id != null
     }
   }
+
+  examples {
+
+    // The service owns the thread; the model is an effect, not the store.
+    // arcod test supplies a memory model, so this runs with no live backend.
+    example start_send_and_read {
+      when {
+        let room = start()
+        let reply = send(room, "hello")
+        let thread = history(room)
+      }
+      then {
+        reply.role == "assistant"
+        thread[0].role == "user"
+        thread[1].role == "assistant"
+      }
+    }
+  }
 }
 
 environment dev {
