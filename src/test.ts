@@ -384,6 +384,21 @@ async function invoke(op: OpNode, args: Value[], ctx: Context): Promise<Value> {
     return raw;
   }
 
+  // 501 is the scaffold's "this op has no body", not a declared error: name
+  // the missing body and the command that fills it instead of HTTP_501, which
+  // told a reader nothing about impl/<op>.mjs.
+  if (response.status === 501) {
+    let todo = '';
+    try {
+      const payload = JSON.parse(await response.text()) as { todo?: unknown };
+      if (typeof payload.todo === 'string') todo = ' (' + payload.todo + ')';
+    } catch {
+      // A non-JSON 501 still gets the sentence below.
+    }
+    throw new Error('op ' + op.name + ' has no implementation: the service answers 501' + todo +
+      '; run "arcod impl" or add impl/' + op.name + '.mjs');
+  }
+
   const name = ctx.statusToError.get(response.status) ?? 'HTTP_' + response.status;
   return { __error: name };
 }
