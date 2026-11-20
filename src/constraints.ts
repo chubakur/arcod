@@ -127,7 +127,7 @@ export function boundsOf(mod: ModuleNode, type: TypeExpr, depth = 0): Bounds {
   if (depth > 8) return none;
   if (type.kind === 'optional') return boundsOf(mod, type.inner, depth + 1);
   if (type.kind !== 'named') return none;
-  if (type.name === 'int' || type.name === 'number' || type.name === 'float') {
+  if (type.name === 'int' || type.name === 'number' || type.name === 'float' || type.name === 'decimal') {
     let min: number | null = null;
     let max: number | null = null;
     for (const arg of type.args) {

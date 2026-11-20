@@ -147,7 +147,7 @@ with the offending field named, not a 500 from a body that trusted the client.
 `check` rejects a default that violates its own type (`A060`) and an unknown
 format name (`A061`). Refinements (`min:`, `max:`, `format:`, a generic
 argument) belong to a builtin name: on a declared type they refine nothing,
-and `check` answers `A086`. `string`, `bytes`, `int`, `number` and `float` read
+and `check` answers `A086`. `string`, `bytes`, `int`, `number`, `float` and `decimal` read
 `min`/`max` (`string` also `format`), `list` and `map` take type arguments; an
 argument no emitter reads is `A087`. A bound bounds the values of its type:
 `int(min: 1)` rejects `1.5`, while `number(min: 0.5)` keeps fractions and

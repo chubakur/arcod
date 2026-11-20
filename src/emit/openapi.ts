@@ -113,7 +113,14 @@ function builtinSchema(name: string, args: TypeArg[]): Schema {
   if (name === 'bool' || name === 'boolean') return { type: 'boolean' };
   if (name === 'uuid') return { type: 'string', format: 'uuid' };
   if (name === 'datetime') return { type: 'string', format: 'date-time' };
-  if (name === 'decimal') return { type: 'number', format: 'decimal' };
+  if (name === 'decimal') {
+    const schema: Schema = { type: 'number', format: 'decimal' };
+    const min = numberArg(args, 'min');
+    const max = numberArg(args, 'max');
+    if (min !== null) schema.minimum = min;
+    if (max !== null) schema.maximum = max;
+    return schema;
+  }
   if (name === 'json') return {};
   if (name === 'void' || name === 'null') return { type: 'null' };
   if (name === 'list') {

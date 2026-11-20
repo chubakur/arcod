@@ -152,7 +152,10 @@ function schemaType(schema: any, typeNames: Set<string>): TypeExpr {
       const args: TypeArg[] = [];
       if (minimum !== null) args.push(numericArg('min', minimum));
       if (maximum !== null) args.push(numericArg('max', maximum));
-      return args.length > 0 ? named('number', args) : named('number');
+      // `format: decimal` is money, not a float: the column must keep the
+      // scale the source states, so the type is `decimal`, not `number`.
+      const name = schema.format === 'decimal' ? 'decimal' : 'number';
+      return args.length > 0 ? named(name, args) : named(name);
     }
     case 'boolean': return named('bool');
     case 'string':
