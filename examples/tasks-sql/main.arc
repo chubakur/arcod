@@ -96,6 +96,18 @@ service TaskBoard : http {
         second is Conflict
       }
     }
+
+    // The same query on SQL: filter, order and limit become one statement, and
+    // the highest-priority task heads the page.
+    example list_after_create {
+      when {
+        let task = create("read the page", 99, null)
+        let page = list(null, null, 10, null)
+      }
+      then {
+        page.items[0].id == task.id
+      }
+    }
   }
 }
 

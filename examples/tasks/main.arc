@@ -92,6 +92,19 @@ service TaskBoard : http {
         second is Conflict
       }
     }
+
+    // list is a query, not a scan in the body: filter, order and limit travel to
+    // the adapter. The default order is priority desc, so the highest-priority
+    // task is the first item of the page.
+    example list_after_create {
+      when {
+        let task = create("read the page", 99, null)
+        let page = list(null, null, 10, null)
+      }
+      then {
+        page.items[0].id == task.id
+      }
+    }
   }
 }
 
