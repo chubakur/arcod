@@ -361,3 +361,43 @@ test('graphql: an inline union gets its own named union type', () => {
   assert.ok(isUnionType(schema.getType('InlineResult')));
   assert.ok(sdl.includes('inline(id: ID!): InlineResult!'), sdl);
 });
+
+test('graphql: an alias cycle is the JSON hole, not a stack overflow', () => {
+  // `type A = B` / `type B = A` is a check error, but graphqlSchema is also
+  // called on a module straight from parse (tooling, tests, a partial file).
+  // Following the alias chain recursively used to die with RangeError; the
+  // position now becomes JSON, exactly like an unknown name.
+  const source = [
+    'module acycle @0.1.0 {}',
+    'type A = B',
+    'type B = A',
+    'service S : http {',
+    '  contract {',
+    '    public op get() -> A { route: "GET /v1/a" }',
+    '  }',
+    '}',
+  ].join('\n');
+  const sdl = graphqlSchema(parse(source, 'acycle.arc'));
+  assert.match(sdl, /get: JSON!/);
+  const errors = validateSchema(buildSchema(sdl));
+  assert.deepEqual(errors.map((error) => error.message), []);
+});
+
+test('graphql: an undeclared type name keeps the SDL valid', () => {
+  // A088 names the hole in check; the emitter must still answer with a schema
+  // a client can read instead of inventing a type or throwing.
+  const source = [
+    'module ahole @0.1.0 {}',
+    'type Bad = { id: Missing }',
+    'service S : http {',
+    '  contract {',
+    '    public op get() -> Bad { route: "GET /v1/b" }',
+    '  }',
+    '}',
+  ].join('\n');
+  const sdl = graphqlSchema(parse(source, 'ahole.arc'));
+  assert.match(sdl, /id: JSON!/);
+  assert.equal(sdl.includes('Missing'), false, sdl);
+  const errors = validateSchema(buildSchema(sdl));
+  assert.deepEqual(errors.map((error) => error.message), []);
+});

@@ -104,7 +104,7 @@ class Registry {
     return current;
   }
 
-  ref(type: TypeExpr, hint: string, mode: Mode): Ref {
+  ref(type: TypeExpr, hint: string, mode: Mode, seen: Set<string> = new Set()): Ref {
     if (type.kind === 'optional') {
       const inner = this.ref(type.inner, hint, mode);
       return { ref: inner.ref, nonNull: false };
@@ -148,7 +148,18 @@ class Registry {
     // A record cannot arrive here: isRecordDecl above already answered for
     // every declared record, and declOf stops at a record name, not at its
     // body, so the only shapes left are union, builtin alias and the hole.
-    if (decl && decl.kind === 'named') return this.ref(decl, hint, mode);
+    if (decl && decl.kind === 'named') {
+      // `type A = B`, `type B = A` is a check error, but the emitter must not
+      // follow the chain until the stack dies: the same JSON hole as an
+      // unknown name keeps the SDL valid and makes the gap visible. `seen`
+      // holds the alias names of this position only.
+      if (seen.has(name)) {
+        this.scalars.add('JSON');
+        return { ref: 'JSON', nonNull: true };
+      }
+      seen.add(name);
+      return this.ref(decl, hint, mode, seen);
+    }
     // An unknown named type is a hole in the contract; JSON keeps the schema
     // valid and makes the gap visible instead of inventing a shape.
     this.scalars.add('JSON');
