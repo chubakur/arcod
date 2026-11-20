@@ -11,7 +11,7 @@ import { STREAM_SOURCE } from './stream.ts';
 import { QUEUE_SOURCE, QUEUE_SHUTDOWN, OUTBOX_SHUTDOWN, OUTBOX_SOURCE, outboxSource, consumerSource } from './queue.ts';
 import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
-import { entitiesFromBodies, fieldDefault, migrationPlan, recordColumns, type DefaultValue } from '../migrate.ts';
+import { entitiesFromBodies, fieldDefault, migrationPlan, recordColumns, type Column, type DefaultValue } from '../migrate.ts';
 import { constraintTable } from '../constraints.ts';
 import type { ProviderRegistry } from '../registry.ts';
 
@@ -2389,8 +2389,8 @@ function entityDefaults(mod: ModuleNode, decl: TypeDecl): Record<string, Default
   return defaults;
 }
 
-function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { prefix: string; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
-  const table: Record<string, { prefix: string; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
+function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { prefix: string; columns: Column[]; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
+  const table: Record<string, { prefix: string; columns: Column[]; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
   const uniques: Array<[string, string[]]> = [];
   for (const rule of svc.rules) {
     if (rule.kind !== 'unique') continue;
@@ -2401,9 +2401,14 @@ function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | nu
     // call names it) is not storable at all.
     if (decl.type.kind !== 'record') continue;
     if (entities !== null && !entities.includes(decl.name)) continue;
+    const groups = uniques.filter(([entity]) => entity === decl.name).map(([, fields]) => fields);
     table[decl.name] = {
       prefix: decl.name.toLowerCase() + ':',
-      uniqueGroups: uniques.filter(([entity]) => entity === decl.name).map(([, fields]) => fields),
+      // The kv facade validates an aggregate field against the entity shape,
+      // exactly like the sql facade does: without the columns every
+      // io.aggregate on kv died on `meta.columns.some` with a 500.
+      columns: recordColumns(mod, decl, groups),
+      uniqueGroups: groups,
       defaults: entityDefaults(mod, decl),
     };
   }
