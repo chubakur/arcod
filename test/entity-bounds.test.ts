@@ -12,7 +12,7 @@ const source = [
   'use capability arcod.std.kv @1',
   'use capability arcod.std.ids @1',
   '',
-  'type Item = { id: uuid, name: string(max: 3), score: number(min: 1.5) }',
+  'type Item = { id: uuid, name: string(max: 3), score: number(min: 1.5), doc: bytes? }',
   '',
   'error Invalid',
   '',
@@ -88,6 +88,26 @@ test('a numeric string an impl writes is 400', async () => {
     });
     assert.equal(res.status, 400);
     assert.match(await res.text(), /insert Item: score must be a number/);
+  } finally {
+    await svc.stop();
+  }
+});
+
+test('a number in a bytes field is 400: kv kept the number, sql the text', async () => {
+  const badImpl = [
+    'export async function put(input, io) {',
+    "  return { result: await io.insert('Item', { id: io.new(), name: String(input.name), score: Number(input.score), doc: 42 }) };",
+    '}',
+  ].join(String.fromCharCode(10));
+  const svc = await startService(source, { impl: { put: badImpl } });
+  try {
+    const res = await fetch(svc.base + '/v1/items', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'abc', score: 2 }),
+    });
+    assert.equal(res.status, 400);
+    assert.match(await res.text(), /insert Item: doc must be a string/);
   } finally {
     await svc.stop();
   }

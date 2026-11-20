@@ -1062,7 +1062,7 @@ function checkRecordFields(meta, record, place) {
   // sql coerced it to '42', so the same insert answered two shapes. The base
   // name comes from the column list both facades already ship.
   for (const column of meta.columns) {
-    if (column.base !== 'string' && column.base !== 'email' && column.base !== 'url' && column.base !== 'uri' && column.base !== 'uuid') continue;
+    if (column.base !== 'string' && column.base !== 'email' && column.base !== 'url' && column.base !== 'uri' && column.base !== 'uuid' && column.base !== 'bytes') continue;
     const value = record[column.name];
     if (value === null || value === undefined) continue;
     if (typeof value !== 'string') {
