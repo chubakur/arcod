@@ -67,6 +67,9 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   redis: {
     name: 'redis',
     capability: 'kv',
+    // terraform renders a managed cluster from this one; compose pins a tag
+    // with `image` instead.
+    options: ['version'],
     extraCapabilities: ['stream', 'queue'],
     image: 'redis:7-alpine',
     port: 6379,
@@ -76,6 +79,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   },
   postgres: {
     name: 'postgres',
+    options: ['version'],
     secrets: ['POSTGRES_PASSWORD', 'DATABASE_URL'],
     capability: 'sql',
     image: 'postgres:16-alpine',
@@ -334,8 +338,8 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
 //
 // `image` is the one argument every provider with a container reads: the
 // compose emitter pins the container to it instead of the built-in tag. It
-// used to work without being declared, so W035 advised against an argument
-// the emitter honoured, and redis carried a dead `version` nothing read.
+// used to work without being declared, so W035 advised against the one
+// argument the emitter honoured. `version` stays where terraform reads it.
 for (const spec of Object.values(PROVIDERS)) {
   if (!spec.options) spec.options = [];
   if (spec.image && !spec.options.includes('image')) spec.options.push('image');

@@ -29,19 +29,10 @@ test('an unknown bind argument is reported with the known ones', () => {
 });
 
 test('declared options and the universal arguments are clean', () => {
-  // image is redis's own option; host/port/expose belong to every binding.
-  const diags = warn(check(specOf('bind store -> redis(host: "kv", port: 6380, expose: true, image: "redis:7.4")')));
+  // version feeds the terraform cluster, image pins the compose container;
+  // host/port/expose belong to every binding. Both are read, so neither warns.
+  const diags = warn(check(specOf('bind store -> redis(host: "kv", port: 6380, expose: true, version: "7.2", image: "redis:7.4")')));
   assert.deepEqual(diags, []);
-});
-
-test('a dead version option is reported once image is the declared one', () => {
-  // redis used to declare `version` and read nothing: the compose file kept
-  // redis:7-alpine while the spec looked pinned. Now the option is gone, so the
-  // warning names the argument that actually works.
-  const diags = warn(check(specOf('bind store -> redis(version: "7.4")')));
-  assert.equal(diags.length, 1);
-  assert.match(diags[0].message, /does not read bind argument version/);
-  assert.match(diags[0].hint ?? '', /known arguments: .*image/);
 });
 
 test('an image that is not a plain reference is A084, not a rewritten compose file', () => {
@@ -120,8 +111,9 @@ test('provider discovery exposes the same allowlist', () => {
   // author is told about an argument they cannot discover.
   const rows = providerRows(builtinRegistry());
   const row = (name: string) => rows.find((item) => item.provider === name)!;
-  assert.deepEqual(row('redis').options, ['image']);
+  assert.deepEqual(row('redis').options, ['image', 'version']);
   assert.deepEqual(row('clickhouse').options, ['image']);
+  assert.deepEqual(row('ollama').options, ['dim', 'model'], 'no container, no image');
   assert.deepEqual(row('endpoint').options, ['network', 'url']);
 
   const declared = pluginRegistry([{ name: 'faxapi', capability: 'fax', args: { url: 'base url', token: 'api token' } }]);
