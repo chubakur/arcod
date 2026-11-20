@@ -408,7 +408,9 @@ function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
   // The service serves page HTML for render: ssr, so there is no separate web
   // deployment or ingress backend for it.
   const hasUi = mod.uis.length > 0 && mod.uis[0].render !== 'ssr';
-  const model = composeModel(mod, 0, hasUi, undefined, options.dialect);
+  // The topology comes from the environment being rendered, not from the local
+  // docker view: a cloud environment binds the providers the plan provisions.
+  const model = composeModel(mod, 0, hasUi, undefined, options.dialect, options.environment);
   const name = baseName(mod);
   // The same contract the deploy manifest publishes: no second spelling of
   // the image name that only differs by ':latest'.

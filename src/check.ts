@@ -374,7 +374,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           if (dropped.length > 0) {
             diags.push(diag('W044', 'warning', mod.file, bind.loc, subject,
               `managed ${bind.provider} assigns its own endpoint: ${dropped.join(', ')} ignored by \`arcod terraform\``,
-              `the plan exports ${endpoint.output}_host and ${endpoint.output}_port; drop the container arguments or keep them for a docker environment`));
+              `the plan exports ${endpoint.output}_host and ${endpoint.output}_port; a cloud environment's k8s manifest reads them from the endpoints Secret, so keep host/port for docker or drop them`));
           }
         }
       }

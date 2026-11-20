@@ -557,6 +557,11 @@ A managed service is not drawn twice. When the plan provisions the endpoint, the
 manifest starts no `postgres` or `redis` workload for it and names the providers
 it left to the plan in the same comment.
 
+The manifest is rendered from the environment it names (`arcod k8s
+--environment prod`), not from the local docker view: the providers, the URLs
+and the workloads are that environment's binds. A module that keeps mysql at
+home and postgres in the cloud therefore renders a postgres manifest for prod.
+
 **Secrets** are declared by the providers, not guessed from names: `postgres`
 marks `POSTGRES_PASSWORD` and `DATABASE_URL` sensitive, `s3` marks
 `MINIO_ROOT_PASSWORD`/`S3_SECRET_KEY`, `vault` marks `VAULT_TOKEN`, and so on.

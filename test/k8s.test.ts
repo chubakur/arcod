@@ -312,8 +312,8 @@ test('k8s: a docker environment keeps the literal URL it can resolve', async () 
 test('k8s: a cloud-managed database is not also deployed into the cluster', async () => {
   const mod = await parse(cloudModule, 'shop.arc');
   const files = k8sManifests(mod, { environment: 'prod' });
-  assert.deepEqual(files.map((item) => item.path).filter((path) => path.startsWith('postgres')), [], 'the plan owns postgres, so no pod, Service or PVC for it');
-  assert.match(need(files, 'service.yaml'), /# Not deployed here, the plan owns them: postgres/);
+  assert.deepEqual(files.map((item) => item.path).filter((path) => path.startsWith('pg')), [], 'the plan owns postgres, so no pod, Service or PVC for it');
+  assert.match(need(files, 'service.yaml'), /# Not deployed here, the plan owns them: pg\./);
 });
 
 test('k8s: a cloud database and a cloud kv both stay out of the cluster', async () => {
@@ -339,10 +339,23 @@ test('k8s: a cloud database and a cloud kv both stay out of the cluster', async 
   ].join('\n');
   const mod = await parse(source, 'shop.arc');
   const files = k8sManifests(mod, { environment: 'prod' });
-  const workloads = files.map((item) => item.path).filter((path) => path.startsWith('postgres') || path.startsWith('redis'));
+  const workloads = files.map((item) => item.path).filter((path) => path.startsWith('pg') || path.startsWith('redis'));
   assert.deepEqual(workloads, [], 'neither managed service gets a pod, Service or PVC');
   const app = need(files, 'service.yaml');
   assert.match(app, /- name: REDIS_URL\n              valueFrom:\n                secretKeyRef:\n                  name: arcod-shop-endpoints\n                  key: redis_url/, 'the kv URL moves into the same endpoint Secret');
   assert.match(app, /#   key redis_url  <-  terraform output kv_host and kv_port/);
   assert.match(app, /# Not deployed here, the plan owns them: pg, redis\./);
+});
+
+// examples/chat binds mysql locally and postgres in prod. Rendering prod used
+// to reuse the docker view, so the cloud manifest advertised
+// `mysql://…@db:3306` for a database the plan creates as PostgreSQL.
+test('k8s: the rendered environment decides the topology, not the docker view', async () => {
+  const source = await readFile(new URL('../examples/chat/main.arc', import.meta.url), 'utf8');
+  const mod = await parse(source, 'chat.arc');
+  const prod = k8sManifests(mod, { environment: 'prod' });
+  assert.match(need(prod, 'service.yaml'), /key: database_url/, 'prod reads the managed endpoint from the Secret');
+  assert.deepEqual(prod.some((file) => file.content.includes('mysql://')), false, 'prod binds postgres, so no mysql URL and no mysql workload');
+  const dev = k8sManifests(mod, { environment: 'dev' });
+  assert.match(need(dev, 'secret.yaml'), /mysql:\/\//, 'the local view keeps the mysql it binds');
 });

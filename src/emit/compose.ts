@@ -235,9 +235,14 @@ export function localEnvironment(mod: ModuleNode): EnvironmentNode | undefined {
   return mod.environments.find((env) => !env.deploy || env.deploy.provider === 'docker') ?? mod.environments[0];
 }
 
-export function composeModel(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry(), dialect: 'mysql' | 'postgres' = 'mysql'): ComposeModel {
+// `environmentName` picks the topology instead of the local view: the k8s
+// emitter renders the environment it was asked for, so a cloud environment's
+// binds decide the providers and the app env. Omitted, compose stays the local
+// view (that is what `docker-compose.yml` means).
+export function composeModel(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry(), dialect: 'mysql' | 'postgres' = 'mysql', environmentName?: string): ComposeModel {
   const name = 'arcod-' + kebab(mod.name);
-  const environment = localEnvironment(mod);
+  const named = environmentName ? mod.environments.find((env) => env.name === environmentName) : undefined;
+  const environment = named ?? localEnvironment(mod);
   const all = (environment?.binds ?? [])
     .filter((bind) => registry.get(bind.provider) !== null)
     .map((bind) => renderProvider(bind, registry))
