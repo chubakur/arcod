@@ -527,7 +527,10 @@ address, so the plan exports the endpoint the cloud assigns — `db_host` /
 `db_port` for postgres, `kv_host` / `kv_port` for redis — and names in a
 comment any `host`, `port` or `expose` it cannot honor. `check` reports the
 same gap as `W044`, so a binding copied from the docker environment never looks
-applied when it is not.
+applied when it is not. One managed service per provider: two redis binds in one
+environment render a single cluster (a duplicate block is a plan terraform
+refuses) and `W045` names the second alias instead of pretending it was
+provisioned.
 
 **Secrets** are declared by the providers, not guessed from names: `postgres`
 marks `POSTGRES_PASSWORD` and `DATABASE_URL` sensitive, `s3` marks
@@ -1559,6 +1562,10 @@ Warnings:
   (`oncee(read, ...)`) or a predicate v0.1 does not execute. `arcod test` now
   prints the rule as `skip` and counts it apart instead of dropping it from the
   report, so a green run never hides an invariant that was only a comment.
+- `W045` two binds in one cloud environment name the same managed provider:
+  the plan renders one cluster (the cloud assigns one endpoint), so the second
+  binding would have shared a service it never got. Name the collision or give
+  the second bind its own environment.
 - `W044` a bind passes `host`, `port` or `expose` to a managed cloud service:
   `arcod terraform` provisions the `postgres`/`redis` cluster and the cloud
   assigns its address, so a binding copied from the docker environment would

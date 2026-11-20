@@ -71,3 +71,65 @@ test('W044 stays quiet when the endpoint is not managed or not asked for', () =>
   const bucket = check(parse(spec('files -> s3(expose: public)'), 'main.arc'));
   assert.deepEqual(bucket.filter((item) => item.code === 'W044'), [], 'a bucket has no host or port to export');
 });
+
+// One managed resource per provider: terraform refuses two blocks with the
+// same name, and the cloud assigns one endpoint anyway. Two redis binds used
+// to render `resource "yandex_mdb_redis_cluster" "kv"` twice — a plan no
+// `terraform init` accepts — and the second binding looked provisioned.
+
+const twoRedis = [
+  'module shop @0.2.0 {}',
+  'use capability arcod.std.kv @1',
+  'service Shop : http {',
+  '  uses store: kv',
+  '  uses cache: kv',
+  '  contract { public op get(id: uuid) -> string { route: "GET /v1/i/:id" } }',
+  '}',
+  'environment prod {',
+  '  bind store -> redis(host: "kv", port: 6379)',
+  '  bind cache -> redis(host: "kv", port: 6380)',
+  '  deploy yandex(region: "ru-central1", folder: "f", service: "shop")',
+  '}',
+].join('\n');
+
+test('two binds to one managed provider render one cluster, not a duplicate', () => {
+  const plan = main(twoRedis);
+  const blocks = plan.split('\n').filter((line) => line.startsWith('resource "yandex_mdb_redis_cluster"'));
+  assert.equal(blocks.length, 1, 'a duplicate resource name is a plan terraform refuses');
+  assert.equal(plan.split('\n').filter((line) => line.startsWith('output "kv_host"')).length, 1);
+  assert.ok(plan.includes('no separate resource for cache (redis)'), 'the second bind is named');
+});
+
+test('W045 names both aliases that share one managed resource', () => {
+  const diags = check(parse(twoRedis, 'main.arc'));
+  const found = diags.filter((item) => item.code === 'W045');
+  assert.equal(found.length, 1, JSON.stringify(diags.map((item) => item.code)));
+  assert.equal(found[0].path, 'environments.prod.binds.cache', 'the second bind is the one that shares');
+  assert.match(found[0].message, /binds store and cache both become one managed redis resource/);
+  assert.match(found[0].hint ?? '', /drop one bind or give the second its own environment/);
+});
+
+test('W045 stays quiet where two containers are two containers', () => {
+  const docker = check(parse(twoRedis.replace('deploy yandex(region: "ru-central1", folder: "f", service: "shop")', 'deploy docker'), 'main.arc'));
+  assert.deepEqual(docker.filter((item) => item.code === 'W045'), [], 'compose tells the ports apart');
+});
+
+test('two s3 binds share the one bucket resource', () => {
+  const source = [
+    'module shop @0.2.0 {}',
+    'use capability arcod.std.objects @1',
+    'service Shop : http {',
+    '  uses files: objects',
+    '  uses backup: objects',
+    '  contract { public op get(id: uuid) -> string { route: "GET /v1/i/:id" } }',
+    '}',
+    'environment prod {',
+    '  bind files -> s3()',
+    '  bind backup -> s3()',
+    '  deploy yandex(region: "ru-central1", folder: "f", service: "shop")',
+    '}',
+  ].join('\n');
+  const plan = main(source);
+  assert.equal(plan.split('\n').filter((line) => line.startsWith('resource "yandex_storage_bucket"')).length, 1);
+  assert.ok(plan.includes('no separate resource for backup (s3)'), 'the second bucket bind is named');
+});

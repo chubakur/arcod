@@ -5,7 +5,7 @@ import { BIND_ARGS, providerImplements } from './providers.ts';
 import { builtinRegistry, type ProviderRegistry } from './registry.ts';
 import { capabilityFor, storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
-import { MANAGED_ENDPOINTS } from './emit/terraform.ts';
+import { MANAGED_ENDPOINTS, managedResource } from './emit/terraform.ts';
 import { defaultValue } from './migrate.ts';
 import { constraintOf, describeViolation, unknownFormatOf } from './constraints.ts';
 import { isIsoInstant } from './instant.ts';
@@ -252,6 +252,10 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     const aliases = new Set<string>();
     // One container per host:port, whichever alias reaches it. A085 below.
     const containers = new Map<string, { image: string; alias: string }>();
+    // A managed cloud service has one endpoint, so two binds to the same
+    // provider in one cloud environment cannot become two clusters: the plan
+    // renders one block and the second binding shared it silently. W045 below.
+    const managedSeen = new Map<string, string>();
     for (const bind of environment.binds) {
       const subject = `environments.${environment.name}.binds.${bind.alias}`;
       if (bind.provider !== 'local' && aliases.has(bind.alias)) {
@@ -353,6 +357,17 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       // be honored: a spec that looks configured deploys a service pointed at
       // the compose host name. The plan and this warning name the same gap.
       if (environment.deploy?.provider === 'yandex') {
+        const kind = managedResource(bind.provider);
+        if (kind) {
+          const previous = managedSeen.get(kind);
+          if (previous) {
+            diags.push(diag('W045', 'warning', mod.file, bind.loc, subject,
+              'binds ' + previous + ' and ' + bind.alias + ' both become one managed ' + kind + ' resource',
+              'the cloud assigns a single endpoint, so the plan renders one; drop one bind or give the second its own environment'));
+          } else {
+            managedSeen.set(kind, bind.alias);
+          }
+        }
         const endpoint = MANAGED_ENDPOINTS[bind.provider];
         if (endpoint) {
           const dropped = ['host', 'port', 'expose'].filter((key) => bind.args[key]?.kind === 'literal');

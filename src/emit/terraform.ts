@@ -183,6 +183,21 @@ function endpointOutputs(items: ManagedEndpoint[]): string {
   return lines.join('\n');
 }
 
+// Which managed resource a provider renders, or null when terraform does not
+// own it. Two providers may render the same block (s3 and minio are one
+// bucket), and one provider may appear twice — both are one HCL resource.
+export function managedResource(provider: string): string | null {
+  if (provider === 'postgres') return 'postgres';
+  if (provider === 'redis') return 'redis';
+  if (provider === 's3' || provider === 'minio') return 'bucket';
+  return null;
+}
+
+function sharedComment(items: string[]): string {
+  if (items.length === 0) return '';
+  return '# One managed service per provider: no separate resource for ' + items.join('; ') + '\n';
+}
+
 function ignoredComment(items: string[]): string {
   if (items.length === 0) return '';
   return [
@@ -264,6 +279,13 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
   const resources: string[] = [];
   const endpoints: ManagedEndpoint[] = [];
   const ignored: string[] = [];
+  // One managed resource per provider: the cloud assigns a single endpoint, so
+  // two binds to redis cannot be told apart in terraform, and two identical
+  // blocks are a hard plan error ("Duplicate resource configuration"). The
+  // second bind is named in a comment instead of rendering a block terraform
+  // would refuse; check() reports the same collision as W045.
+  const rendered = new Set<string>();
+  const shared: string[] = [];
   const unmapped: string[] = [];
   const unknown: string[] = [];
   const external: ExternalProvider[] = [];
@@ -281,9 +303,17 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
       }
       continue;
     }
-    if (bind.provider === 'postgres') resources.push(postgresBlock(bind, name));
-    else if (bind.provider === 'redis') resources.push(redisBlock(bind, name));
-    else if (bind.provider === 's3' || bind.provider === 'minio') resources.push(bucketBlock(bind, name));
+    const kind = managedResource(bind.provider);
+    if (kind && rendered.has(kind)) {
+      // The block is already in the plan: the cloud assigns one endpoint, so a
+      // second bind cannot get its own cluster. Named in a comment instead.
+      shared.push(bind.alias + ' (' + bind.provider + ')');
+    } else if (kind) {
+      rendered.add(kind);
+      if (kind === 'postgres') resources.push(postgresBlock(bind, name));
+      else if (kind === 'redis') resources.push(redisBlock(bind, name));
+      else resources.push(bucketBlock(bind, name));
+    }
     const endpoint = MANAGED_ENDPOINTS[bind.provider];
     if (endpoint) {
       endpoints.push(endpoint);
@@ -315,6 +345,7 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
     networkFiles(mod, env),
     externalComment(external),
     ignoredComment(ignored),
+    sharedComment(shared),
     unimplementedComment(unmapped, unknown),
     resources.join('\n'),
     'output "network_id" {',
