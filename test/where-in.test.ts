@@ -53,6 +53,7 @@ const impl = {
   put: [
     'export async function put(input, io) {',
     '  const record = { id: io.new(), tag: String(input.tag), tags: ["a", "b"], size: 42 };',
+    '  if (input.tag === "extra") record.typo = 1;',
     '  await io.insert("Item", record);',
     '  return { result: { id: record.id } };',
     '}',
@@ -402,4 +403,17 @@ test('contains: works on a numeric field on kv, and sql casts the column to text
     await store.entityCount('item', withSize, { where: { size: { contains: '4' } } });
     assert.match(statements[0], pattern, dialect + ': LIKE needs a text cast');
   }
+});
+
+test('insert: a record field the entity does not declare is 400, not silently dropped', async () => {
+  const svc = await startService(spec, { impl });
+  try {
+    const extra = await post(svc.base + '/v1/items', { tag: 'extra' });
+    assert.equal(extra.status, 400, 'an undeclared field is a mistake, not data');
+    assert.match(String((await extra.json()).message), /insert Item: unknown field "typo"; declared: id, tag/);
+  } finally {
+    await svc.stop();
+  }
+
+
 });

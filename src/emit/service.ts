@@ -1029,6 +1029,20 @@ function checkOrderFields(meta, order) {
   }
 }
 
+// A record field the entity does not declare is a bug: kv keeps it, while the
+// sql stores name the columns in every statement and drop it - the same insert
+// would mean two different records per driver. Name it instead.
+function checkRecordFields(meta, record, place) {
+  if (!record || typeof record !== 'object') return;
+  for (const field of Object.keys(record)) {
+    if (!meta.columns.some((column) => column.name === field)) {
+      throw new ArcodError('Invalid', {
+        message: place + ': unknown field "' + field + '"; declared: ' + meta.columns.map((column) => column.name).join(', '),
+      });
+    }
+  }
+}
+
 // Declared schema defaults fill only absent fields: an explicit value (even
 // null) from the body always wins, so a default is never a validator.
 function withDefaults(meta, record) {
@@ -1846,6 +1860,7 @@ function kvEntityIoLines(): string[] {
     '      const meta = requestEntity(entity);',
     '      const value = withDefaults(meta, record);',
     "      if (value.id == null || value.id === '') throw new ArcodError('Invalid', { message: 'insert ' + entity + ': missing id' });",
+    '      checkRecordFields(meta, value, "insert " + entity);',
     "      const key = meta.prefix + String(value.id);",
     "      if (await store.exists(key)) throw new ArcodError('Conflict');",
     '      const claimed = [];',
@@ -1967,6 +1982,7 @@ function sqlEntityIoLines(): string[] {
     '      const meta = requestEntity(entity);',
     '      const value = withDefaults(meta, record);',
     "      if (value.id == null || value.id === '') throw new ArcodError('Invalid', { message: 'insert ' + entity + ': missing id' });",
+    '      checkRecordFields(meta, value, "insert " + entity);',
     '      await store.entityInsert(meta.table, meta.columns, value, meta.uniqueGroups);',
     '      return value;',
     '    },',
