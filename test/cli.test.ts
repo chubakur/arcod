@@ -1263,3 +1263,46 @@ test('a directory with several specs says which one it read', async () => {
   assert.equal(preferred.code, 0, JSON.stringify(preferred.err));
   assert.doesNotMatch(preferred.err, /holds \d+ specs/);
 });
+
+test('--reference names the operations it has no demo body for', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-gap-'));
+  const spec = [
+    'module gap @0.1.0 {',
+    '}',
+    '',
+    'service Gap : http {',
+    '  contract {',
+    '    public op ping() -> string {',
+    '      route: "GET /v1/ping"',
+    '    }',
+    '',
+    '    public op echo(text: string) -> string {',
+    '      route: "POST /v1/echo"',
+    '    }',
+    '  }',
+    '',
+    '  examples {',
+    '    example ping_ok {',
+    '      when { let r = ping() }',
+    '      then { r == "pong" }',
+    '    }',
+    '  }',
+    '}',
+    '',
+    'environment dev {',
+    '  deploy docker',
+    '}',
+    '',
+  ].join('\n');
+  await writeFile(join(dir, 'main.arc'), spec, 'utf8');
+  await mkdir(join(dir, 'impl'), { recursive: true });
+
+  const build = await run(['build', '--reference', dir]);
+  assert.equal(build.code, 1);
+  assert.match(build.err, /no demo body for ping, echo/);
+  assert.match(build.err, /impl\/ping\.mjs, impl\/echo\.mjs/);
+
+  const test = await run(['test', '--reference', dir]);
+  assert.equal(test.code, 1);
+  assert.match(test.err, /no demo body for ping, echo/);
+});

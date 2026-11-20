@@ -45,6 +45,8 @@ service ${svc} : http {
 
     public op echo(text: string) -> string {
       route: "POST /v1/echo"
+      errors: NotFound
+      on error NotFound: text != null
       post: result == text
     }
   }
@@ -56,6 +58,15 @@ service ${svc} : http {
       }
       then {
         r == "pong"
+      }
+    }
+
+    example echo_roundtrip {
+      when {
+        let r = echo("hi")
+      }
+      then {
+        r == "hi"
       }
     }
   }

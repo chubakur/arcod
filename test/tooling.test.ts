@@ -192,8 +192,10 @@ test('arcod new scaffolds a spec that parses and checks clean', async () => {
     const mod = parse(src, 'main.arc');
     assert.equal(mod.name, 'todo_list');
     const { check } = await import('../src/check.ts');
-    const errors = check(mod).filter((d) => d.severity === 'error');
-    assert.equal(errors.length, 0, errors.map((e) => e.code + ' ' + e.message).join('; '));
+    // A fresh project must not greet its owner with warnings: every declared
+    // error is handled and every operation has an example.
+    const diags = check(mod);
+    assert.equal(diags.length, 0, diags.map((e) => e.code + ' ' + e.message).join('; '));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

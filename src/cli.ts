@@ -989,7 +989,20 @@ function explainReferenceGap(error: unknown, firstLine: string): boolean {
   const message = error instanceof Error ? error.message : String(error);
   if (!/templates only for/.test(message)) return false;
   console.error(firstLine);
-  console.error('run `arcod impl` (or `arcod make`) first, or add impl/<op>.mjs by hand.');
+  // The emitter names every operation it was given ("got: create, read, ping").
+  // Naming the ones without a demo body is the difference between "write some
+  // impl file" and "write impl/ping.mjs".
+  const got = message.includes('got: ') ? message.slice(message.lastIndexOf('got: ') + 5) : '';
+  const missing = got
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0 && name !== 'create' && name !== 'read');
+  if (missing.length > 0) {
+    const files = missing.map((name) => 'impl/' + name + '.mjs').join(', ');
+    console.error('no demo body for ' + missing.join(', ') + ': run `arcod impl` (or `arcod make`) first, or add ' + files + ' by hand.');
+  } else {
+    console.error('run `arcod impl` (or `arcod make`) first, or add impl/<op>.mjs by hand.');
+  }
   process.exitCode = 1;
   return true;
 }
