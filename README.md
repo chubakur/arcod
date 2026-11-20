@@ -155,9 +155,10 @@ rejects only what is below; `string(min: 3, max: 5)` bounds the length in
 characters, not UTF-16 units. The schema, the 400 and `A060` all read the
 same arguments, and so do the entity stores: an `io.insert`/`io.update`
 outside a field's bound is `400 Invalid` on both `kv` and SQL. The declared
-type is checked there too: a `bool` takes a boolean and a `datetime` an ISO
-8601 instant, because SQL read the string "false" as TRUE while `kv` kept it,
-and a word in a datetime column was a 500 at the driver. Full example: `examples/signup`.
+type is checked there too: a `bool` takes a boolean, an `int` a whole
+number and a `datetime` an ISO 8601 instant, because SQL read the string
+"false" as TRUE while `kv` kept it, and a word in a datetime column was a 500
+at the driver. Full example: `examples/signup`.
 
 ## Commands
 

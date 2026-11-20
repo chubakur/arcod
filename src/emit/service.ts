@@ -1078,6 +1078,12 @@ function checkRecordFields(meta, record, place) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw new ArcodError('Invalid', { message: place + ': ' + column.name + ' must be a number' });
     }
+    // An int column holds whole numbers whether or not it declares a bound:
+    // kv kept 1.5 while a BIGINT column either truncated it or failed at the
+    // driver, so the same insert stored two different values.
+    if (column.base === 'int' && !Number.isInteger(value)) {
+      throw new ArcodError('Invalid', { message: place + ': ' + column.name + ' must be an integer' });
+    }
   }
   // A boolean field stores a boolean: sql read the truthiness, so the string
   // "false" became TRUE while kv kept "false" — one insert, two answers.
