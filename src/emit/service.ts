@@ -1730,156 +1730,10 @@ function guardedHandlers(svc: ServiceNode): string {
 // Entity methods for the sql driver: records live in typed tables, so the io
 // surface delegates to the store's typed operations. Unique is the table's
 // UNIQUE KEY (a duplicate is the declared Conflict), find is pushed into SQL.
-function sqlEntityIoLines(): string[] {
+// Entity methods for the kv driver: records live under meta.prefix, so
+// count/find/aggregate scan that prefix and filter in memory.
+function kvEntityIoLines(): string[] {
   return [
-    '    async fetch(entity, id) {',
-    '      metricCapability("store.fetch");',
-    '      const meta = requestEntity(entity);',
-    '      const found = await store.entityFetch(meta.table, meta.columns, id);',
-    '      return found == null ? null : withDefaults(meta, found);',
-    '    },',
-    '    async insert(entity, record) {',
-    '      metricCapability("store.insert");',
-    '      const meta = requestEntity(entity);',
-    '      const value = withDefaults(meta, record);',
-    "      if (value.id == null || value.id === '') throw new ArcodError('Invalid', { message: 'insert ' + entity + ': missing id' });",
-    '      await store.entityInsert(meta.table, meta.columns, value, meta.uniqueGroups);',
-    '      return value;',
-    '    },',
-    '    async update(entity, id, patch) {',
-    '      metricCapability("store.update");',
-    '      const meta = requestEntity(entity);',
-    '      return await store.entityUpdate(meta.table, meta.columns, id, patch, meta.uniqueGroups);',
-    '    },',
-    '    async remove(entity, id) {',
-    '      metricCapability("store.remove");',
-    '      const meta = requestEntity(entity);',
-    '      await store.entityRemove(meta.table, meta.columns, id, meta.uniqueGroups);',
-    '      return true;',
-    '    },',
-    '    async find(entity, query) {',
-    '      metricCapability("store.find");',
-    '      const meta = requestEntity(entity);',
-    '      return await store.entityFind(meta.table, meta.columns, query);',
-    '    },',
-    '    async count(entity, query) {',
-    '      metricCapability("store.count");',
-    '      const meta = requestEntity(entity);',
-    '      return await store.entityCount(meta.table, meta.columns, query);',
-    '    },',
-    '    async aggregate(entity, query) {',
-    '      metricCapability("store.aggregate");',
-    '      const meta = requestEntity(entity);',
-    '      return await store.entityAggregate(meta.table, meta.columns, query);',
-    '    },',
-  ];
-}
-
-function implHandlers(
-  svc: ServiceNode,
-  impl: Record<string, string>,
-  guarded: boolean,
-  externals: ServiceNode[],
-  mod: ModuleNode,
-  plugins: PluginBinding[],
-): string {
-  const bodies = svc.contract.filter((op) => impl[op.name]);
-  const ops = bodies.filter((op) => op.kind === 'op');
-  const names = bodies.map((op) => op.name);
-  const parts: string[] = [];
-
-  // Constrained scalars (email/url/enum) are checked at the boundary, before
-  // the body runs: a client mistake is a 400 with the field named, never a
-  // TypeError deep inside an operation that turns into a 500.
-  const constraints: Record<string, Record<string, { format?: string; enum?: string[] }>> = {};
-  for (const op of svc.contract) {
-    if (op.kind !== 'op') continue;
-    const table = constraintTable(mod, op.params);
-    if (Object.keys(table).length > 0) constraints[op.name] = table;
-  }
-  parts.push(
-    'const CONSTRAINTS = ' + JSON.stringify(constraints, null, 2) + ';',
-    '',
-    'function validateInput(op, input) {',
-    '  const spec = CONSTRAINTS[op];',
-    '  if (!spec) return null;',
-    '  for (const name of Object.keys(spec)) {',
-    '    const rule = spec[name];',
-    '    const value = input[name];',
-    '    if (value === null || value === undefined) continue;',
-    '    if (rule.enum) {',
-    '      if (!rule.enum.includes(String(value))) return name + " must be one of " + rule.enum.join(", ");',
-    '      continue;',
-    '    }',
-    '    if (rule.format === "email" && (typeof value !== "string" || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value))) return name + " must be an email";',
-    '    if (rule.format === "uri" && (typeof value !== "string" || !/^[a-z][a-z0-9+.-]*:\\/\\/[^\\s]+$/i.test(value))) return name + " must be a url";',
-    '  }',
-    '  return null;',
-    '}',
-    '',
-  );
-
-  for (const name of names) {
-    const source = impl[name];
-    if (!source) continue;
-    const fn = 'impl' + name.charAt(0).toUpperCase() + name.slice(1);
-    const renamed = source
-      .trim()
-      .replace('export async function ' + name, 'async function ' + fn)
-      .replace('export function ' + name, 'async function ' + fn)
-      .replace(/^export\\s+/gm, '');
-    parts.push('// impl/' + name + '.mjs');
-    parts.push(renamed);
-    parts.push('');
-  }
-
-  const hasIdentity = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'));
-  const hasBlob = svc.uses.some((use) => use.capability === 'blob' || use.capability.endsWith('.blob'));
-  const hasLlm = svc.uses.some((use) => use.capability === 'llm' || use.capability.endsWith('.llm'));
-  const usesQueue = hasQueue(svc);
-
-  if (hasIdentity) parts.push(IDENTITY_SOURCE);
-  if (hasBlob) parts.push(BLOB_SOURCE);
-  if (hasLlm) parts.push(LLM_SOURCE);
-  if (externals.length > 0) parts.push(remoteSource(externals));
-
-  parts.push(
-    'function makeIo(req) {',
-    '  let actorPromise = null;',
-    '  return {',
-    '    async load(id) {',
-    "      const raw = await store.get('msg:' + id);",
-    '      if (raw == null) return null;',
-    "      try { const rec = JSON.parse(raw); if (rec && typeof rec === 'object' && 'b' in rec) return rec; } catch {}",
-    '      return { b: raw, h: null };',
-    '    },',
-    '    async save(id, record) {',
-    "      const rec = { b: record ? record.b : null, h: record && record.h ? String(record.h) : null };",
-    "      await store.set('msg:' + id, JSON.stringify(rec), CONFIG.ttlMs);",
-    '    },',
-    '    async del(id) {',
-    "      await store.del('msg:' + id);",
-    '    },',
-    '    async has(id) {',
-    "      return (await store.get('msg:' + id)) != null;",
-    '    },',
-    '    async seen(id) {',
-    "      return await store.exists('gone:' + id);",
-    '    },',
-    '    async takeIf(id, record) {',
-    '      const expected = JSON.stringify(record);',
-    "      return await store.takeIf('msg:' + id, 'gone:' + id, CONFIG.goneTtlMs, expected);",
-    '    },',
-    '    new() { return randomUUID(); },',
-    '    async scan() {',
-    "      const items = await store.scan('msg:');",
-    '      return items.map((item) => {',
-    "        const id = item.key.slice('msg:'.length);",
-    '        let body = item.value;',
-    "        try { const rec = JSON.parse(item.value); if (rec && typeof rec === 'object' && 'b' in rec) body = rec.b; } catch (error) {}",
-    '        return { id, b: body };',
-    '      });',
-    '    },',
     '    async count(entity, query) {',
     '      metricCapability("store.count");',
     '      const meta = requestEntity(entity);',
@@ -2033,7 +1887,164 @@ function implHandlers(
     '        next,',
     '      };',
     '    },',
+  ];
+}
+function sqlEntityIoLines(): string[] {
+  return [
+    '    async fetch(entity, id) {',
+    '      metricCapability("store.fetch");',
+    '      const meta = requestEntity(entity);',
+    '      const found = await store.entityFetch(meta.table, meta.columns, id);',
+    '      return found == null ? null : withDefaults(meta, found);',
+    '    },',
+    '    async insert(entity, record) {',
+    '      metricCapability("store.insert");',
+    '      const meta = requestEntity(entity);',
+    '      const value = withDefaults(meta, record);',
+    "      if (value.id == null || value.id === '') throw new ArcodError('Invalid', { message: 'insert ' + entity + ': missing id' });",
+    '      await store.entityInsert(meta.table, meta.columns, value, meta.uniqueGroups);',
+    '      return value;',
+    '    },',
+    '    async update(entity, id, patch) {',
+    '      metricCapability("store.update");',
+    '      const meta = requestEntity(entity);',
+    '      return await store.entityUpdate(meta.table, meta.columns, id, patch, meta.uniqueGroups);',
+    '    },',
+    '    async remove(entity, id) {',
+    '      metricCapability("store.remove");',
+    '      const meta = requestEntity(entity);',
+    '      await store.entityRemove(meta.table, meta.columns, id, meta.uniqueGroups);',
+    '      return true;',
+    '    },',
+    '    async find(entity, query) {',
+    '      metricCapability("store.find");',
+    '      const meta = requestEntity(entity);',
+    '      return await store.entityFind(meta.table, meta.columns, query);',
+    '    },',
+    '    async count(entity, query) {',
+    '      metricCapability("store.count");',
+    '      const meta = requestEntity(entity);',
+    '      return await store.entityCount(meta.table, meta.columns, query);',
+    '    },',
+    '    async aggregate(entity, query) {',
+    '      metricCapability("store.aggregate");',
+    '      const meta = requestEntity(entity);',
+    '      return await store.entityAggregate(meta.table, meta.columns, query);',
+    '    },',
+  ];
+}
+
+function implHandlers(
+  svc: ServiceNode,
+  impl: Record<string, string>,
+  guarded: boolean,
+  externals: ServiceNode[],
+  mod: ModuleNode,
+  plugins: PluginBinding[],
+): string {
+  const bodies = svc.contract.filter((op) => impl[op.name]);
+  const ops = bodies.filter((op) => op.kind === 'op');
+  const names = bodies.map((op) => op.name);
+  const parts: string[] = [];
+
+  // Constrained scalars (email/url/enum) are checked at the boundary, before
+  // the body runs: a client mistake is a 400 with the field named, never a
+  // TypeError deep inside an operation that turns into a 500.
+  const constraints: Record<string, Record<string, { format?: string; enum?: string[] }>> = {};
+  for (const op of svc.contract) {
+    if (op.kind !== 'op') continue;
+    const table = constraintTable(mod, op.params);
+    if (Object.keys(table).length > 0) constraints[op.name] = table;
+  }
+  parts.push(
+    'const CONSTRAINTS = ' + JSON.stringify(constraints, null, 2) + ';',
+    '',
+    'function validateInput(op, input) {',
+    '  const spec = CONSTRAINTS[op];',
+    '  if (!spec) return null;',
+    '  for (const name of Object.keys(spec)) {',
+    '    const rule = spec[name];',
+    '    const value = input[name];',
+    '    if (value === null || value === undefined) continue;',
+    '    if (rule.enum) {',
+    '      if (!rule.enum.includes(String(value))) return name + " must be one of " + rule.enum.join(", ");',
+    '      continue;',
+    '    }',
+    '    if (rule.format === "email" && (typeof value !== "string" || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value))) return name + " must be an email";',
+    '    if (rule.format === "uri" && (typeof value !== "string" || !/^[a-z][a-z0-9+.-]*:\\/\\/[^\\s]+$/i.test(value))) return name + " must be a url";',
+    '  }',
+    '  return null;',
+    '}',
+    '',
   );
+
+  for (const name of names) {
+    const source = impl[name];
+    if (!source) continue;
+    const fn = 'impl' + name.charAt(0).toUpperCase() + name.slice(1);
+    const renamed = source
+      .trim()
+      .replace('export async function ' + name, 'async function ' + fn)
+      .replace('export function ' + name, 'async function ' + fn)
+      .replace(/^export\\s+/gm, '');
+    parts.push('// impl/' + name + '.mjs');
+    parts.push(renamed);
+    parts.push('');
+  }
+
+  const hasIdentity = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'));
+  const hasBlob = svc.uses.some((use) => use.capability === 'blob' || use.capability.endsWith('.blob'));
+  const hasLlm = svc.uses.some((use) => use.capability === 'llm' || use.capability.endsWith('.llm'));
+  const usesQueue = hasQueue(svc);
+
+  if (hasIdentity) parts.push(IDENTITY_SOURCE);
+  if (hasBlob) parts.push(BLOB_SOURCE);
+  if (hasLlm) parts.push(LLM_SOURCE);
+  if (externals.length > 0) parts.push(remoteSource(externals));
+
+  parts.push(
+    'function makeIo(req) {',
+    '  let actorPromise = null;',
+    '  return {',
+    '    async load(id) {',
+    "      const raw = await store.get('msg:' + id);",
+    '      if (raw == null) return null;',
+    "      try { const rec = JSON.parse(raw); if (rec && typeof rec === 'object' && 'b' in rec) return rec; } catch {}",
+    '      return { b: raw, h: null };',
+    '    },',
+    '    async save(id, record) {',
+    "      const rec = { b: record ? record.b : null, h: record && record.h ? String(record.h) : null };",
+    "      await store.set('msg:' + id, JSON.stringify(rec), CONFIG.ttlMs);",
+    '    },',
+    '    async del(id) {',
+    "      await store.del('msg:' + id);",
+    '    },',
+    '    async has(id) {',
+    "      return (await store.get('msg:' + id)) != null;",
+    '    },',
+    '    async seen(id) {',
+    "      return await store.exists('gone:' + id);",
+    '    },',
+    '    async takeIf(id, record) {',
+    '      const expected = JSON.stringify(record);',
+    "      return await store.takeIf('msg:' + id, 'gone:' + id, CONFIG.goneTtlMs, expected);",
+    '    },',
+    '    new() { return randomUUID(); },',
+    '    async scan() {',
+    "      const items = await store.scan('msg:');",
+    '      return items.map((item) => {',
+    "        const id = item.key.slice('msg:'.length);",
+    '        let body = item.value;',
+    "        try { const rec = JSON.parse(item.value); if (rec && typeof rec === 'object' && 'b' in rec) body = rec.b; } catch (error) {}",
+    '        return { id, b: body };',
+    '      });',
+    '    },',
+  );
+
+  // kv entity methods read through meta.prefix and scan that prefix; a sql
+  // build has typed tables and its own methods (sqlEntityIoLines below), so
+  // emitting both put dead, never-reached methods into every sql bundle.
+  if (storageKind(svc) !== 'sql') parts.push(...kvEntityIoLines());
 
   if (storageKind(svc) === 'sql') {
     parts.push(...sqlEntityIoLines());
