@@ -64,7 +64,9 @@ const impl = {
     '    ? { tag: { in: [] } }',
     '    : mode === "bad"',
     '      ? { tag: { in: "a" } }',
-    '      : { tag: { in: ["a", "b"] } };',
+    '      : mode === "typo"',
+    '        ? { nmae: { in: ["a"] } }',
+    '        : { tag: { in: ["a", "b"] } };',
     '  const page = await io.find("Item", { where });',
     '  const count = await io.count("Item", { where });',
     '  return { result: { items: page.items, count } };',
@@ -125,6 +127,28 @@ async function loadStore(source: string, name: string, extra = '') {
   await writeFile(file, ARC + String.fromCharCode(10) + extra + source + String.fromCharCode(10) + 'export { ' + name + ' };' + String.fromCharCode(10), 'utf8');
   return await import(pathToFileURL(file).href);
 }
+
+// entityFind leans on the cursor/order helpers that the service prepends to the
+// store body; mirror just those three so the store can run standalone.
+const PREAMBLE = [
+  'function parseOrder(order) {',
+  "  const list = Array.isArray(order) ? order : String(order || 'id').split(',');",
+  '  return list.map((entry) => {',
+  "    const parts = String(entry).trim().split(/\\s+/);",
+  "    return { field: parts[0], dir: (parts[1] || 'asc').toLowerCase() === 'desc' ? -1 : 1 };",
+  '  });',
+  '}',
+  'function encodeCursor(values, id) {',
+  "  return Buffer.from(JSON.stringify({ v: values, id })).toString('base64url');",
+  '}',
+  'function decodeCursor(cursor) {',
+  '  try {',
+  "    return JSON.parse(Buffer.from(String(cursor), 'base64url').toString('utf8'));",
+  '  } catch {',
+  '    return null;',
+  '  }',
+  '}',
+].join(String.fromCharCode(10));
 
 const columns = [
   { name: 'id', base: 'string' },
@@ -187,4 +211,47 @@ test('postgres: "in" behaves like mysql', async () => {
 
   await store.entityCount('item', columns, { where: { tag: { in: ['a'] } } });
   assert.match(statements[1], /WHERE "tag" IN \('a'\)$/, 'the value stays quoted: ' + statements[1]);
+});
+
+test('kv: a where key the entity does not declare is 400, not an empty page', async () => {
+  const svc = await startService(spec, { impl });
+  try {
+    await post(svc.base + '/v1/items', { tag: 'a' });
+    const typo = await post(svc.base + '/v1/scan', { mode: 'typo' });
+    assert.equal(typo.status, 400, 'a typo is Invalid on kv too');
+    const error = await typo.json();
+    assert.match(String(error.message), /where: unknown field "nmae"; declared: id, tag/);
+  } finally {
+    await svc.stop();
+  }
+});
+
+test('sql: a where key the entity does not declare never reaches the driver', async () => {
+  const { SQL_STORE_SOURCE } = await import('../src/emit/sql-store.ts');
+  const { PG_SQL_STORE_SOURCE, PG_STORE_SOURCE } = await import('../src/emit/pg-store.ts');
+  const mysql = await loadStore(SQL_STORE_SOURCE, 'SqlStore', PREAMBLE);
+  const pg = await loadStore(PG_SQL_STORE_SOURCE, 'PgStore', PG_STORE_SOURCE + PREAMBLE);
+  const checks: Array<[string, any]> = [
+    ['mysql', new mysql.SqlStore('mysql://localhost:3306/arcod')],
+    ['postgres', new pg.PgStore('postgres://user:pass@localhost:5432/arcod')],
+  ];
+  for (const [dialect, store] of checks) {
+    const statements: string[] = [];
+    store.query = async (sql: string) => {
+      statements.push(sql);
+      return { rows: [[1]], affected: 0 };
+    };
+    for (const run of [
+      () => store.entityFind('item', columns, { where: { nmae: 'a' } }),
+      () => store.entityCount('item', columns, { where: { nmae: 'a' } }),
+      () => store.entityAggregate('item', columns, { field: 'tag', op: 'sum', where: { nmae: 'a' } }),
+    ]) {
+      await assert.rejects(run, (error: any) => {
+        assert.equal(error.name, 'Invalid', dialect);
+        assert.match(String(error.message), /where: unknown field "nmae"; declared: id, tag/, dialect);
+        return true;
+      });
+    }
+    assert.equal(statements.length, 0, dialect + ': no statement carries an unknown field');
+  }
 });

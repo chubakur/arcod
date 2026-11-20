@@ -466,7 +466,7 @@ class SqlStore {
     const where = [];
     for (const [field, cond] of Object.entries(opts.where || {})) {
       const col = columns.find((c) => c.name === field);
-      if (!col) continue;
+      if (!col) throw new ArcodError('Invalid', { message: 'where: unknown field "' + field + '"; declared: ' + columns.map((c) => c.name).join(', ') });
       where.push(...this.whereClauses(col, cond));
     }
     const whereSql = where.length > 0 ? ' WHERE ' + where.join(' AND ') : '';
@@ -490,7 +490,7 @@ class SqlStore {
     const where = [];
     for (const [name, cond] of Object.entries(opts.where || {})) {
       const target = columns.find((c) => c.name === name);
-      if (!target) continue;
+      if (!target) throw new ArcodError('Invalid', { message: 'where: unknown field "' + name + '"; declared: ' + columns.map((c) => c.name).join(', ') });
       where.push(...this.whereClauses(target, cond));
     }
     const whereSql = where.length > 0 ? ' WHERE ' + where.join(' AND ') : '';
@@ -512,7 +512,7 @@ class SqlStore {
     const where = [];
     for (const [field, cond] of Object.entries(opts.where || {})) {
       const col = columns.find((c) => c.name === field);
-      if (!col) continue;
+      if (!col) throw new ArcodError('Invalid', { message: 'where: unknown field "' + field + '"; declared: ' + columns.map((c) => c.name).join(', ') });
       where.push(...this.whereClauses(col, cond));
     }
 

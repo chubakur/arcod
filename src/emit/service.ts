@@ -976,6 +976,20 @@ function requestEntity(entity) {
   return meta;
 }
 
+// A where key the entity does not declare is a typo, not a filter: on sql the
+// clause used to be dropped (every row) and kv answered an empty page. Both
+// drivers now name the field and the declared ones.
+// This body is emitted verbatim into index.mjs: no TypeScript-only syntax.
+function checkWhereFields(meta, where) {
+  for (const field of Object.keys(where || {})) {
+    if (!meta.columns.some((column) => column.name === field)) {
+      throw new ArcodError('Invalid', {
+        message: 'where: unknown field "' + field + '"; declared: ' + meta.columns.map((column) => column.name).join(', '),
+      });
+    }
+  }
+}
+
 // Declared schema defaults fill only absent fields: an explicit value (even
 // null) from the body always wins, so a default is never a validator.
 function withDefaults(meta, record) {
@@ -1746,6 +1760,7 @@ function kvEntityIoLines(): string[] {
     '      metricCapability("store.count");',
     '      const meta = requestEntity(entity);',
     '      const opts = query || {};',
+    '      if (opts.where) checkWhereFields(meta, opts.where);',
     '      const rows = await store.scan(meta.prefix);',
     '      let items = rows.map((row) => recordOf(row.value));',
     '      if (opts.where) items = items.filter((item) => matchesWhere(item, opts.where));',
@@ -1755,6 +1770,7 @@ function kvEntityIoLines(): string[] {
     '      metricCapability("store.aggregate");',
     '      const meta = requestEntity(entity);',
     '      const opts = query || {};',
+    '      if (opts.where) checkWhereFields(meta, opts.where);',
     '      const field = String(opts.field || "");',
     '      const op = String(opts.op || "");',
     '      if (op !== "sum" && op !== "avg" && op !== "min" && op !== "max") {',
@@ -1855,6 +1871,7 @@ function kvEntityIoLines(): string[] {
     '      metricCapability("store.find");',
     '      const meta = requestEntity(entity);',
     '      const opts = query || {};',
+    '      if (opts.where) checkWhereFields(meta, opts.where);',
     '      const requested = Number(opts.limit);',
     '      const limit = Number.isFinite(requested) && requested > 0 ? Math.min(500, Math.floor(requested)) : 50;',
     '      const order = parseOrder(opts.order);',
