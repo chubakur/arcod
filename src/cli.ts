@@ -1178,11 +1178,6 @@ async function runRun(flags: Flags): Promise<void> {
     return;
   }
 
-  if (flags.down) {
-    compose(result, ['down', '--remove-orphans'], flags);
-    return;
-  }
-
   console.log('arcod run: ' + loaded.mod.name + '@' + loaded.mod.version);
   console.log('  build: ' + result.dir);
   console.log('  url:   http://localhost:' + result.port);

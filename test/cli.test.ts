@@ -199,6 +199,54 @@ test('run --detach starts the project and prints how to stop it', async () => {
   assert.match(calls, /compose -f .*docker-compose\.yml up --build -d/);
 });
 
+test('run --down on a built project without docker does not pretend it stopped', async () => {
+  const dir = await tempDir('arcod-down-nodocker-');
+  const build = join(dir, '.arcod', 'build');
+  await mkdir(build, { recursive: true });
+  const composeFile = join(build, 'docker-compose.yml');
+  const kept = 'name: arcod-down\nservices: {}\n';
+  await writeFile(composeFile, kept);
+  const empty = join(dir, 'empty-bin');
+  await mkdir(empty);
+
+  const before = process.env.PATH;
+  process.env.PATH = empty;
+  try {
+    const r = await run(['run', dir, '--down']);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /docker is not running or unavailable/);
+    assert.doesNotMatch(r.err, /\n\s+at /, 'no stack trace');
+  } finally {
+    process.env.PATH = before;
+  }
+  assert.equal(await readFile(composeFile, 'utf8'), kept, 'a failed stop leaves the artifacts alone');
+});
+
+test('run without --detach builds in the foreground and keeps the compose status', async () => {
+  const dir = await tempDir('arcod-run-fg-');
+  await cp(new URL('../examples/onetimemessage', import.meta.url), dir, { recursive: true });
+  const bin = join(dir, 'bin');
+  await mkdir(bin);
+  const log = join(dir, 'docker.log');
+  // docker answers info, compose fails: the point is the exit status a user
+  // scripts against, and that no detach flag sneaks in.
+  await writeFile(join(bin, 'docker'),
+    '#!/bin/sh\nif [ "$1" = "info" ]; then exit 0; fi\necho "$@" >> ' + log + '\nexit 3\n',
+    { mode: 0o755 });
+
+  const before = process.env.PATH;
+  process.env.PATH = bin + ':' + (before ?? '');
+  try {
+    const r = await run(['run', dir]);
+    assert.equal(r.code, 3, 'a failed compose up becomes the CLI exit status');
+    assert.doesNotMatch(r.out, /stop: arcod run/, 'a foreground run prints no stop hint');
+  } finally {
+    process.env.PATH = before;
+  }
+  const calls = (await readFile(log, 'utf8')).trimEnd();
+  assert.match(calls, /compose -f .*docker-compose\.yml up --build$/m, 'foreground up, no -d');
+});
+
 test('migrate on a spec without storage says so instead of inventing a kv table', async () => {
   const dir = await tempDir('arcod-migrate-plain-');
   await writeFile(join(dir, 'main.arc'), ['module plain @0.1.0 {}', '', 'service Plain : http {',
