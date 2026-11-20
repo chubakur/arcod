@@ -85,10 +85,25 @@ function schemaType(schema: any, typeNames: Set<string>): TypeExpr {
   switch (schema.type) {
     case 'integer': {
       // Bounds are part of the contract the document states; dropping them
-      // would make the adopted spec accept what the original rejected.
+      // would make the adopted spec accept what the original rejected. An
+      // integer bound is the tightest whole number the document allows:
+      // minimum 1.5 is min 2, exclusiveMinimum 0 is min 1 (OpenAPI 3.0 spells
+      // it minimum + exclusiveMinimum: true, 3.1 a number).
+      let minimum = typeof schema.minimum === 'number' ? Math.ceil(schema.minimum) : null;
+      let maximum = typeof schema.maximum === 'number' ? Math.floor(schema.maximum) : null;
+      if (typeof schema.exclusiveMinimum === 'number') {
+        minimum = Math.max(minimum ?? -Infinity, Math.floor(schema.exclusiveMinimum) + 1);
+      } else if (schema.exclusiveMinimum === true && minimum !== null) {
+        minimum += 1;
+      }
+      if (typeof schema.exclusiveMaximum === 'number') {
+        maximum = Math.min(maximum ?? Infinity, Math.ceil(schema.exclusiveMaximum) - 1);
+      } else if (schema.exclusiveMaximum === true && maximum !== null) {
+        maximum -= 1;
+      }
       const args: TypeArg[] = [];
-      if (typeof schema.minimum === 'number') args.push(numericArg('min', schema.minimum));
-      if (typeof schema.maximum === 'number') args.push(numericArg('max', schema.maximum));
+      if (minimum !== null) args.push(numericArg('min', minimum));
+      if (maximum !== null) args.push(numericArg('max', maximum));
       return args.length > 0 ? { kind: 'named', name: 'int', args, loc: loc() } : named('int');
     }
     case 'number': return named('number');
