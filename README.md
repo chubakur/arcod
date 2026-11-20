@@ -1569,8 +1569,9 @@ Errors:
   the resolver read the alias declaration and the schema lost the bound.
 - `A087` a builtin type is given an argument no emitter reads (`string(mx: 80)`,
   `bool(max: 5)`, `list<A, B>`): the schema and the runtime carried no bound, so
-  the model promised a limit it never enforced. The hint lists what the builtin
-  takes.
+  the model promised a limit it never enforced. A bound that is not a literal
+  number (`string(max: unlimited)`) is the same code. The hint lists what the
+  builtin takes.
 - `A088` a type name is neither a builtin nor declared in the module: OpenAPI
   emitted `{}`, so a typo accepted any value and GraphQL had no field type. The
   hint names the declaration that would fix it.

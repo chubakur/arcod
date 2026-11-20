@@ -570,6 +570,18 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
             'unknown argument ' + (arg.name === undefined ? '(positional)' : '\"' + arg.name + '\"') + ' for ' + type.name,
             rule.hint));
         }
+        if (typeof arg.name === 'string' && rule.named.includes(arg.name) && (arg.name === 'min' || arg.name === 'max')) {
+          const numeric = (arg.value.kind === 'literal' && typeof arg.value.value === 'number') || arg.value.kind === 'duration';
+          if (!numeric) {
+            diags.push(diag('A087', 'error', mod.file, arg.loc, 'types.' + type.name,
+              type.name + '(' + arg.name + ':) needs a number' + (type.name === 'bytes' ? ' or a duration' : ''),
+              type.name === 'int' ? 'write a whole number, e.g. int(max: 100)' : 'write a literal bound, e.g. ' + type.name + '(max: 80)'));
+          } else if (type.name === 'int' && !(arg.value.kind === 'literal' && Number.isInteger(arg.value.value))) {
+            diags.push(diag('A087', 'error', mod.file, arg.loc, 'types.' + type.name,
+              'int(' + arg.name + ':) needs a whole number',
+              'the bound of an integer is an integer, e.g. int(max: 100)'));
+          }
+        }
       }
       if (positional !== rule.positional) {
         diags.push(diag('A087', 'error', mod.file, type.loc, 'types.' + type.name,

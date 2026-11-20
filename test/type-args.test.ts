@@ -92,6 +92,18 @@ test('list and map count their type arguments', () => {
   assert.match(map[0].message, /map takes 2 type arguments, got 1/);
 });
 
+test('a bound must be a number, not a string or an identifier', () => {
+  const text = a087('type Account = { age: int(min: "1") }');
+  assert.equal(text.length, 1);
+  assert.match(text[0].message, /int\(min:\) needs a number/);
+  const ident = a087('type Account = { name: string(max: unlimited) }');
+  assert.equal(ident.length, 1);
+  assert.match(ident[0].message, /string\(max:\) needs a number/);
+  const fraction = a087('type Account = { age: int(max: 2.5) }');
+  assert.equal(fraction.length, 1);
+  assert.match(fraction[0].message, /int\(max:\) needs a whole number/);
+});
+
 test('the documented argument sets stay clean', () => {
   const diags = a087('type Item = { id: uuid }\ntype Account = { name: string(min: 1, max: 80, format: email), photo: bytes(max: 2mb), age: int(min: 0, max: 150) }\ntype Page = { items: list<Item>, byId: map<uuid, Item> }');
   assert.deepEqual(diags, []);
