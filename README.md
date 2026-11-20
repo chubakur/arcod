@@ -446,7 +446,14 @@ environment dev {
 ```js
 // inside our own operation body
 const out = await io.remote('Ledger', 'record', { order: id, amount });
+// out is the envelope { status, body }: the receipt itself is out.body
+if (out.body.accepted) { ... }
 ```
+
+`io.remote` returns `{ status, body }`, never the body alone: `body` is the
+parsed JSON (or the raw text when the answer is not JSON). A non-2xx answer
+throws instead of returning, and the error text carries the status and the
+first 200 characters of the response body.
 
 The emitter takes the method and path from the contract, the base URL from the
 environment (`LEDGER_URL`), so the body never knows an address. In compose,

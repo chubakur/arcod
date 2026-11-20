@@ -420,7 +420,13 @@ environment dev {
 ```js
 // в теле своей операции
 const out = await io.remote('Ledger', 'record', { order: id, amount });
+// out — конверт { status, body }: сам ответ лежит в out.body
+if (out.body.accepted) { ... }
 ```
+
+`io.remote` возвращает `{ status, body }`, а не тело: `body` — разобранный JSON
+(или сырой текст, если ответ не JSON). Не-2xx — исключение, а не результат:
+текст ошибки несёт статус и первые 200 символов тела ответа.
 
 Эмиттер берёт метод и путь из контракта, базовый URL — из окружения
 (`LEDGER_URL`), поэтому тело операции не знает адреса. В compose
