@@ -7,24 +7,27 @@ import { diffSpecs } from '../src/diff.ts';
 import { adoptOpenapi } from '../src/adopt.ts';
 import { LANG_VERSION, migrateSpec, VersionError, compareVersions } from '../src/versions.ts';
 import { scaffold, isValidName, serviceName, moduleName } from '../src/new.ts';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 function strip(x: unknown): unknown {
   // `clauseLocs`/`closeLoc`/`bodyLoc` are fmt anchors (positions only): a
   // canonical print moves them, so they are not part of the semantics this
   // test compares.
   return JSON.parse(JSON.stringify(x, (k, v) => (
-    k === 'loc' || k === 'clauseLocs' || k === 'closeLoc' || k === 'bodyLoc' || k === 'nameLocs' ||
-    k === 'blockCloses' || k === 'blockOpens' || k === 'source' || k === 'file' ? undefined : v
+    /locs?$/i.test(k) || k === 'blockCloses' || k === 'blockOpens' || k === 'source' || k === 'file' ? undefined : v
   )));
 }
 
-const EXAMPLES = [
-  'onetimemessage', 'onetimemessage-pwd', 'tasks', 'tasks-sql', 'orders',
-  'saga', 'payments', 'files', 'chat', 'quiz', 'project1', 'project1-mysql',
-];
+// Every directory under examples/ with a main.arc, not a hand-kept list: a
+// new demo joins the round-trip check the moment it lands.
+const examplesRoot = fileURLToPath(new URL('../examples', import.meta.url));
+const EXAMPLES = (await readdir(examplesRoot, { withFileTypes: true }))
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .sort();
 
 for (const name of EXAMPLES) {
   test('fmt round-trips example ' + name, async () => {
