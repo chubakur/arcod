@@ -6,7 +6,7 @@
 // `auth op` (a bearer requirement) and are otherwise dropped.
 
 import type {
-  Loc, ModuleNode, OpNode, Param, ServiceNode, TypeDecl, TypeExpr,
+  Loc, ModuleNode, OpNode, Param, ServiceNode, TypeArg, TypeDecl, TypeExpr,
 } from './ast.ts';
 import { printModule } from './fmt.ts';
 
@@ -27,8 +27,28 @@ function typeName(ref: string): string {
   return ident(parts[parts.length - 1]);
 }
 
-function named(name: string): TypeExpr {
-  return { kind: 'named', name, args: [], loc: loc() };
+function named(name: string, args: TypeArg[] = []): TypeExpr {
+  return { kind: 'named', name, args, loc: loc() };
+}
+
+function numericArg(name: string, value: number): TypeArg {
+  return { name, value: { kind: 'literal', value, raw: String(value), loc: loc() }, loc: loc() };
+}
+
+// A string keeps the format it declares: `format: uuid` is the same fact as the
+// `uuid` type, and `minLength`/`maxLength` are the `string(min, max)` arguments
+// the checker and the runtime already enforce. Adopting an API must not widen
+// what it accepts.
+function stringType(schema: any): TypeExpr {
+  const format = typeof schema.format === 'string' ? schema.format : null;
+  if (format === 'uuid') return named('uuid');
+  if (format === 'date-time') return named('datetime');
+  if (format === 'email') return named('email');
+  if (format === 'uri' || format === 'url') return named('url');
+  const args: TypeArg[] = [];
+  if (typeof schema.minLength === 'number') args.push(numericArg('min', schema.minLength));
+  if (typeof schema.maxLength === 'number') args.push(numericArg('max', schema.maxLength));
+  return named('string', args);
 }
 
 function schemaType(schema: any, typeNames: Set<string>): TypeExpr {
@@ -63,11 +83,18 @@ function schemaType(schema: any, typeNames: Set<string>): TypeExpr {
     return { kind: 'record', fields, loc: loc() };
   }
   switch (schema.type) {
-    case 'integer': return named('int');
+    case 'integer': {
+      // Bounds are part of the contract the document states; dropping them
+      // would make the adopted spec accept what the original rejected.
+      const args: TypeArg[] = [];
+      if (typeof schema.minimum === 'number') args.push(numericArg('min', schema.minimum));
+      if (typeof schema.maximum === 'number') args.push(numericArg('max', schema.maximum));
+      return args.length > 0 ? { kind: 'named', name: 'int', args, loc: loc() } : named('int');
+    }
     case 'number': return named('number');
     case 'boolean': return named('bool');
     case 'string':
-    default: return named('string');
+    default: return stringType(schema);
   }
 }
 

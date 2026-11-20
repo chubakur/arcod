@@ -121,6 +121,50 @@ test('adopt turns an OpenAPI document into a spec', () => {
   assert.match(out, /type Pet = \{ name: string, tag: string\? \}/);
 });
 
+test('adopt keeps the constraints and formats the document declares', async () => {
+  const doc = {
+    openapi: '3.0.3',
+    info: { title: 'Shop', version: '1' },
+    paths: {
+      '/items': {
+        get: {
+          operationId: 'listItems',
+          parameters: [
+            { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100 } },
+            { name: 'q', in: 'query', schema: { type: 'string', maxLength: 64 } },
+          ],
+          responses: { '200': { description: 'ok' } },
+        },
+      },
+    },
+    components: {
+      schemas: {
+        Item: {
+          type: 'object',
+          required: ['id', 'name'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            name: { type: 'string', minLength: 1, maxLength: 80 },
+            email: { type: 'string', format: 'email' },
+            at: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
+    },
+  };
+  const out = adoptOpenapi(doc);
+  assert.match(out, /id: uuid/);
+  assert.match(out, /name: string\(min: 1, max: 80\)/);
+  assert.match(out, /email: email/);
+  assert.match(out, /at: datetime/);
+  assert.match(out, /limit: int\(min: 1, max: 100\)\?/);
+  assert.match(out, /q: string\(max: 64\)\?/);
+  // The adopted module still checks clean: the mapped arguments are valid.
+  const { check } = await import('../src/check.ts');
+  const diags = check(parse(out, 'main.arc'));
+  assert.equal(diags.filter((d) => d.severity === 'error').length, 0, diags.map((d) => d.code + ' ' + d.message).join('; '));
+});
+
 test('adopt maps enums to enum declarations', () => {
   const doc = {
     openapi: '3.0.3',
