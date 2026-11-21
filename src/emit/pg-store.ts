@@ -617,6 +617,14 @@ class PgStore {
           message: 'where "contains" on "' + col.name + '" searches text, and a datetime is spelled differently by each store; use gt/gte/lt/lte',
         });
       }
+      // A bytea cast to text is the escape "\x6869", while kv holds the bytes
+      // and MySQL the raw BLOB: there is no text form both stores share, so
+      // contains on a bytes field is refused.
+      if (op === 'contains' && col.base === 'bytes') {
+        throw new ArcodError('Invalid', {
+          message: 'where "contains" on "' + col.name + '" needs text, and a bytes field has none: kv holds the bytes, MySQL the raw BLOB and Postgres a bytea escape; compare bytes with eq/ne/in',
+        });
+      }
       // A non-list under "in" used to fall through the chain: the clause
       // vanished and the query returned the whole table. An empty list is a
       // real filter that matches nothing, not "IN ()" (a syntax error).

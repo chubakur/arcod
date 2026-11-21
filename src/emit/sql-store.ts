@@ -568,6 +568,14 @@ class SqlStore {
           message: 'where "contains" on "' + col.name + '" searches text, and a datetime is spelled differently by each store; use gt/gte/lt/lte',
         });
       }
+      // A BLOB cast to text is the raw bytes here and a bytea escape on
+      // Postgres: there is no text form both stores share, so contains on a
+      // bytes field is refused instead of matching one store's encoding.
+      if (op === 'contains' && col.base === 'bytes') {
+        throw new ArcodError('Invalid', {
+          message: 'where "contains" on "' + col.name + '" needs text, and a bytes field has none: kv holds the bytes, MySQL the raw BLOB and Postgres a bytea escape; compare bytes with eq/ne/in',
+        });
+      }
       // A non-list under "in" used to fall through the chain: the clause
       // vanished and the query returned the whole table. An empty list is a
       // real filter that matches nothing, not "IN ()" (a syntax error).

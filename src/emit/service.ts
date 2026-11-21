@@ -1102,6 +1102,18 @@ function checkWhereFields(meta, where) {
       // so it stays a filter and not a shape error.
       continue;
     }
+    // bytes has no text form: kv holds the value as stored, MySQL casts the
+    // BLOB to its raw bytes and Postgres renders the bytea escape (\x68\x69).
+    // The same contains would match three different things, so it is refused;
+    // eq/ne/in compare the value itself.
+    if (column.base === 'bytes') {
+      const raw = where[field];
+      if (raw && typeof raw === 'object' && !Array.isArray(raw) && Object.prototype.hasOwnProperty.call(raw, 'contains')) {
+        throw new ArcodError('Invalid', {
+          message: 'where "contains" on "' + field + '" needs text, and a bytes field has none: kv holds the bytes, MySQL the raw BLOB and Postgres a bytea escape; compare bytes with eq/ne/in',
+        });
+      }
+    }
     if (column.base !== 'datetime') continue;
     const cond = where[field];
     if (cond === null || cond === undefined) continue;
