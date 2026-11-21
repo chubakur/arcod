@@ -1054,6 +1054,22 @@ function checkWhereFields(meta, where) {
         message: 'where: unknown field "' + field + '"; declared: ' + meta.columns.map((item) => item.name).join(', '),
       });
     }
+    // An order comparison needs a scalar: String() of a list or record is
+    // "a,b"/"[object Object]", so gt/lt answered nonsense on kv, and sql
+    // compared the JSON column against a string. eq/ne/in/contains still name
+    // the value.
+    if (column.base === 'json' || column.base === 'list' || column.base === 'map') {
+      const raw = where[field];
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        for (const op of Object.keys(raw)) {
+          if (op === 'gt' || op === 'gte' || op === 'lt' || op === 'lte') {
+            throw new ArcodError('Invalid', {
+              message: 'where "' + op + '" on "' + field + '" needs a scalar field, not a ' + column.base,
+            });
+          }
+        }
+      }
+    }
     // A container of instants is compared by its JSON text, so the expected
     // value needs the stored spelling too: the same instant written with an
     // offset matched no row while the scalar column matched it.
