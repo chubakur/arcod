@@ -14,6 +14,8 @@ import type {
   TypeExpr,
 } from '../ast.ts';
 import { accessNotes, pickService, routeOf, statusForError } from './service.ts';
+import { baseType } from '../migrate.ts';
+import { canonicalInstant } from '../instant.ts';
 
 export interface OpenapiOptions {
   // Only this service's operations are exported; defaults to the local one.
@@ -141,9 +143,18 @@ function literalOf(expr: Expr | undefined): unknown {
   return expr && expr.kind === 'literal' ? expr.value : undefined;
 }
 
-function withDefault(schema: Schema, field: Param): Schema {
+// A datetime default reaches the client in the spelling a store keeps, not the
+// one the spec wrote: `2026-01-01T02:00:00+02:00` is published as
+// `2026-01-01T00:00:00Z`, which is exactly what the row reads back. Publishing
+// the literal would advertise a client-side default that the server never
+// returns.
+function withDefault(schema: Schema, field: Param, mod: ModuleNode | null): Schema {
   const value = literalOf(field.default);
-  return value === undefined ? schema : { ...schema, default: value };
+  if (value === undefined) return schema;
+  if (typeof value === 'string' && mod && baseType(mod, field.type) === 'datetime') {
+    return { ...schema, default: canonicalInstant(value) ?? value };
+  }
+  return { ...schema, default: value };
 }
 
 function objectSchema(mod: ModuleNode | null, fields: Param[]): Schema {
@@ -151,7 +162,7 @@ function objectSchema(mod: ModuleNode | null, fields: Param[]): Schema {
   const required: string[] = [];
   for (const field of fields) {
     const optional = field.type.kind === 'optional' || field.default !== undefined;
-    properties[field.name] = withDefault(schemaFor(mod, field.type), field);
+    properties[field.name] = withDefault(schemaFor(mod, field.type), field, mod);
     if (!optional) required.push(field.name);
   }
   const schema: Schema = { type: 'object', properties };
@@ -203,7 +214,9 @@ function errorSchema(mod: ModuleNode | null, name: string): Schema {
 function components(mod: ModuleNode): Record<string, unknown> {
   const schemas: Record<string, unknown> = {};
   for (const decl of mod.types) {
-    schemas[decl.name] = schemaFor(null, decl.type);
+    // A record resolves its names to $refs either way; the module is needed
+    // only so a datetime default is published in its stored spelling.
+    schemas[decl.name] = schemaFor(mod, decl.type);
   }
   for (const en of mod.enums) {
     schemas[en.name] = { type: 'string', enum: en.values };
@@ -349,7 +362,7 @@ function operationFor(mod: ModuleNode, svc: ServiceNode, op: OpNode): Record<str
   let requestBody: Record<string, unknown> | null = null;
   for (const param of op.params) {
     const where = paramLocation(route, param);
-    const schema = withDefault(schemaFor(mod, param.type), param);
+    const schema = withDefault(schemaFor(mod, param.type), param, mod);
     const optional = param.type.kind === 'optional' || param.default !== undefined;
     if (where === 'body') {
       // The body itself is optional until a required field appears: a client

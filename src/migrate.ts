@@ -89,9 +89,12 @@ export function defaultValue(
       }
       // DATETIME(3) keeps milliseconds and the runtime field is canonical to
       // them: a finer fraction would be cut in the DDL and refused by the
-      // store, so every insert relying on the default answered 400.
+      // store, so every insert relying on the default answered 400. Digits
+      // past the third one only matter when one of them is not a zero:
+      // `.1230` names the millisecond `.123` exactly, so it is cut to it and
+      // accepted, while `.1234` names an instant no column can hold.
       const fraction = /\.(\d+)/.exec(value);
-      if (fraction && fraction[1].length > 3) {
+      if (fraction && /[1-9]/.test(fraction[1].slice(3))) {
         return { ok: false, reason: JSON.stringify(value) + ' is finer than a millisecond' };
       }
       // The default is published to the runtime in the same spelling a store
