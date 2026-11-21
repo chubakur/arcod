@@ -1110,7 +1110,18 @@ function checkWhereFields(meta, where) {
       continue;
     }
     for (const op of Object.keys(cond)) {
-      if (!KNOWN_WHERE_OPERATORS.includes(op) || op === 'contains') continue;
+      // contains on a moment is text search over a spelling no two stores
+      // share: kv holds "2026-01-01T00:00:00Z", MySQL "2026-01-01
+      // 00:00:00.000" and Postgres "2026-01-01 00:00:00". The same query
+      // therefore found different rows - "T00" matched only kv, a space only
+      // SQL, ".000" only MySQL. A moment has an order, so a range names the
+      // window instead.
+      if (op === 'contains') {
+        throw new ArcodError('Invalid', {
+          message: 'where "contains" on "' + field + '" searches text, and a datetime is spelled differently by each store; use gt/gte/lt/lte',
+        });
+      }
+      if (!KNOWN_WHERE_OPERATORS.includes(op)) continue;
       const expected = cond[op];
       if (expected === null || expected === undefined) continue;
       if (op === 'in') {

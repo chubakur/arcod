@@ -607,6 +607,16 @@ class PgStore {
       if (!['eq', 'ne', 'in', 'contains', 'gt', 'gte', 'lt', 'lte'].includes(op)) {
         throw new ArcodError('Invalid', { message: 'unknown where operator "' + op + '"' });
       }
+      // CAST a moment to text and every store spells it its own way: Postgres
+      // writes "2026-01-01 00:00:00", MySQL "2026-01-01 00:00:00.000" and kv
+      // "2026-01-01T00:00:00Z", so the same contains found different rows. A
+      // moment has an order; a range names the window without guessing a
+      // spelling.
+      if (op === 'contains' && col.base === 'datetime') {
+        throw new ArcodError('Invalid', {
+          message: 'where "contains" on "' + col.name + '" searches text, and a datetime is spelled differently by each store; use gt/gte/lt/lte',
+        });
+      }
       // A non-list under "in" used to fall through the chain: the clause
       // vanished and the query returned the whole table. An empty list is a
       // real filter that matches nothing, not "IN ()" (a syntax error).
