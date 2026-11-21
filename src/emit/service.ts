@@ -1270,6 +1270,36 @@ function checkUpdateKey(entity, id, patch) {
   throw new ArcodError('Invalid', { message: 'update ' + entity + ': id cannot be changed' });
 }
 
+// The email and url shapes of the op boundary, written as plain code: a regex
+// inside this emitted template needs its backslashes doubled at every level, and
+// one missed level silently turns [^\s@] into [^s@].
+function hasSpace(text) {
+  for (let index = 0; index < text.length; index++) {
+    if (text.charCodeAt(index) <= 32) return true;
+  }
+  return false;
+}
+
+function looksLikeEmail(text) {
+  if (hasSpace(text)) return false;
+  const at = text.indexOf('@');
+  if (at <= 0 || text.indexOf('@', at + 1) !== -1) return false;
+  const domain = text.slice(at + 1);
+  const dot = domain.indexOf('.');
+  return dot > 0 && dot < domain.length - 1;
+}
+
+function looksLikeUrl(text) {
+  if (hasSpace(text)) return false;
+  const mark = text.indexOf('://');
+  if (mark <= 0) return false;
+  const scheme = text.slice(0, mark).toLowerCase();
+  for (const ch of scheme) {
+    if (!(ch >= 'a' && ch <= 'z') && !(ch >= '0' && ch <= '9') && ch !== '+' && ch !== '.' && ch !== '-') return false;
+  }
+  return scheme.charCodeAt(0) >= 97 && scheme.charCodeAt(0) <= 122 && mark + 3 < text.length;
+}
+
 function checkRecordFields(meta, record, place) {
   if (!record || typeof record !== 'object') return;
   for (const field of Object.keys(record)) {
@@ -1389,6 +1419,21 @@ function checkRecordFields(meta, record, place) {
       throw new ArcodError('Invalid', {
         message: place + ': ' + field + ' must be one of ' + enums[field].join(', '),
       });
+    }
+  }
+  // A field declared email or url holds a value of that format. The op
+  // boundary validates an input; a record built inside a body is the other way
+  // in, and both stores kept "not-an-email" in an email column.
+  const formats = meta.formats || {};
+  for (const field of Object.keys(formats)) {
+    const value = record[field];
+    if (value === null || value === undefined) continue;
+    const text = String(value);
+    if (formats[field] === "email" && !looksLikeEmail(text)) {
+      throw new ArcodError("Invalid", { message: place + ": " + field + " must be an email" });
+    }
+    if (formats[field] === "uri" && !looksLikeUrl(text)) {
+      throw new ArcodError("Invalid", { message: place + ": " + field + " must be a url" });
     }
   }
   // Declared bounds are part of the entity: a value outside them would store
@@ -2978,6 +3023,19 @@ function entityInstants(mod: ModuleNode, decl: TypeDecl): Record<string, number>
   return table;
 }
 
+// A field's declared format (email or url), for the same reason as the enum
+// members below: a record built inside a body never crosses the op boundary.
+function entityFormats(mod: ModuleNode, decl: TypeDecl): Record<string, string> {
+  const formats: Record<string, string> = {};
+  if (decl.type.kind !== 'record') return formats;
+  const table = constraintTable(mod, decl.type.fields);
+  for (const field of Object.keys(table)) {
+    const format = table[field].format;
+    if (format) formats[field] = format;
+  }
+  return formats;
+}
+
 // An enum field's declared members, kept for the record check: the op boundary
 // already validates an input, but a record built inside a body does not pass a
 // boundary at all.
@@ -3018,8 +3076,8 @@ function entityShapes(mod: ModuleNode, decl: TypeDecl): Record<string, FieldShap
   return shapes;
 }
 
-function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; enums: Record<string, string[]>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
-  const table: Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; enums: Record<string, string[]>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
+function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; enums: Record<string, string[]>; formats: Record<string, string>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
+  const table: Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; enums: Record<string, string[]>; formats: Record<string, string>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
   const uniques: Array<[string, string[]]> = [];
   for (const rule of svc.rules) {
     if (rule.kind !== 'unique') continue;
@@ -3041,6 +3099,7 @@ function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | nu
       instants: entityInstants(mod, decl),
       shapes: entityShapes(mod, decl),
       enums: entityEnums(mod, decl),
+      formats: entityFormats(mod, decl),
       uniqueGroups: groups,
       defaults: entityDefaults(mod, decl),
     };
@@ -3048,8 +3107,8 @@ function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | nu
   return table;
 }
 
-function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; enums: Record<string, string[]>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
-  const table: Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; enums: Record<string, string[]>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
+function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; enums: Record<string, string[]>; formats: Record<string, string>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
+  const table: Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; enums: Record<string, string[]>; formats: Record<string, string>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
   const uniquesByEntity: Record<string, string[][]> = {};
   for (const rule of svc.rules) {
     if (rule.kind !== 'unique') continue;
@@ -3066,6 +3125,7 @@ function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] |
       instants: entityInstants(mod, decl),
       shapes: entityShapes(mod, decl),
       enums: entityEnums(mod, decl),
+      formats: entityFormats(mod, decl),
       uniqueGroups: groups,
       defaults: entityDefaults(mod, decl),
     };
