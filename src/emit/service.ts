@@ -929,14 +929,26 @@ function scalarOf(cond) {
 const KNOWN_WHERE_OPERATORS = ['eq', 'ne', 'in', 'contains', 'gt', 'gte', 'lt', 'lte'];
 
 // eq/ne/in compare cells, not references: a list or record field is stored as
-// JSON, and sql compares its text. A reference comparison made every such
-// filter match nothing on kv.
+// JSON, and sql compares the value. A reference comparison made every such
+// filter match nothing on kv. The value, not the text: a record is an unordered
+// set of keys, so two spellings of the same record are equal - sql compares
+// JSON values that way, and comparing JSON.stringify output made kv miss a row
+// whose keys were inserted in another order.
+function canonicalJson(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']';
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).sort();
+    return '{' + keys.map((key) => JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') + '}';
+  }
+  return JSON.stringify(value === undefined ? null : value);
+}
+
 function sameValue(left, right) {
   if (left === right) return true;
   if (left == null || right == null) return left == right;
   if (typeof left === 'object' || typeof right === 'object') {
     try {
-      return JSON.stringify(left) === JSON.stringify(right);
+      return canonicalJson(left) === canonicalJson(right);
     } catch {
       return false;
     }
