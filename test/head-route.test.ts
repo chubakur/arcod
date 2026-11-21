@@ -13,7 +13,7 @@ const SPEC = `module probe @0.1.0 {}
 service Probe : http {
   contract {
     public op health() -> string {
-      route: "HEAD /healthz"
+      route: "HEAD /v1/health"
     }
   }
 }
@@ -26,7 +26,7 @@ test('a HEAD route answers 200 and no body', async () => {
     impl: { health: "export async function health() { return { result: 'ok' }; }" },
   });
   try {
-    const response = await fetch(service.base + '/healthz', { method: 'HEAD' });
+    const response = await fetch(service.base + '/v1/health', { method: 'HEAD' });
     assert.equal(response.status, 200);
     assert.equal(await response.text(), '');
   } finally {
@@ -36,7 +36,7 @@ test('a HEAD route answers 200 and no body', async () => {
 
 test('openapi: a HEAD operation is documented as 200', () => {
   const doc = emitOpenapi(parse(SPEC, 'main.arc')) as Record<string, any>;
-  const operation = doc.paths['/healthz'].head;
+  const operation = doc.paths['/v1/health'].head;
   assert.ok(operation.responses['200'], '200 is the success status');
   assert.equal(operation.responses['201'], undefined);
   assert.equal(operation.responses['200'].content['text/plain'].schema.type, 'string');

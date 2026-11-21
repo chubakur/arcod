@@ -1111,6 +1111,23 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         'for example "GET /v1/tasks" or "POST /v1/tasks"'));
     }
 
+    // A092 — /healthz and /metrics are answered by the runtime itself: the
+    // probe and the scrape run before the router, so a declared route at that
+    // path is never reached (the HEAD /healthz in the suite was answered by
+    // the built-in probe, not by the operation). Name it instead of shadowing.
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      const route = routeOf(op);
+      if (!route) continue;
+      const parts = route.trim().split(/\s+/);
+      if (parts.length !== 2) continue;
+      const path = parts[1];
+      if (path !== '/healthz' && path !== '/metrics') continue;
+      diags.push(diag('A092', 'error', mod.file, op.loc, 'services.' + svc.name + '.contract.' + op.name,
+        'route ' + JSON.stringify(route) + ' is answered by the runtime ' + (path === '/healthz' ? 'health probe' : 'metrics endpoint') + ' before the router',
+        'declare another path; the ' + (path === '/healthz' ? 'probe' : 'scrape') + ' stays at ' + path));
+    }
+
     // A071 — every :name in the route has to be an operation parameter. A
     // typo (:tid instead of id) captures a value nobody reads and leaves the
     // argument unbound, and the runtime has nothing to report.

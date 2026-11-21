@@ -1625,6 +1625,10 @@ Errors:
 - `A091` a `unique` rule names a field with no index: `bytes`, `list`, `map` or
   `json` (MySQL cannot index a JSON column or an unprefixed BLOB, Postgres has
   no `json` equality), so the migration failed only when it reached the server.
+- `A092` a route names `/healthz` or `/metrics`: the runtime health probe and
+  the metrics scrape answer before the router, so the declared operation is
+  never reached (`check` used to be silent and the build succeeded). The hint
+  names a path that stays reachable.
 - `A089` a type or enum is declared with a builtin name (`type int = string`):
   OpenAPI listed the declaration under components while every use site resolved
   the builtin, so one module stated two contracts at once and the runtime, the
