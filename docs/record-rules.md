@@ -55,3 +55,5 @@ driver (kv used to leave the key out while a nullable column answered `NULL`).
 - `test/record-shape.test.ts`, `test/record-enum.test.ts`,
   `test/record-format.test.ts`, `test/record-arg.test.ts` —
   each rule on kv and on the sql memory driver.
+- `test/optional-read.test.ts` — the read shape of an optional field on kv,
+  the sql memory driver, and the mysql and postgres stores' NULL mapping.

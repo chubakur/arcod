@@ -30,7 +30,7 @@ function spec(store: 'kv' | 'sql'): string {
     '  uses uuid: ids',
     '',
     '  effects {',
-    '    allow store.insert, store.fetch, store.find, uuid.new',
+    '    allow store.insert, store.fetch, store.find, store.update, uuid.new',
     '  }',
     '',
     '  contract {',
@@ -50,6 +50,12 @@ function spec(store: 'kv' | 'sql'): string {
     '      route: "POST /v1/tagged"',
     '      effects: store.insert, uuid.new',
     '      errors: Invalid',
+    '    }',
+    '',
+    '    public op touch(id: uuid, title: string) -> Note {',
+    '      route: "PATCH /v1/notes/:id"',
+    '      effects: store.update',
+    '      errors: Invalid, NotFound',
     '    }',
     '',
     '    public op get(id: uuid) -> Note {',
@@ -87,6 +93,11 @@ const impl: Record<string, string> = {
   tagged: [
     'export async function tagged(input, io) {',
     "  return { result: await io.insert('Note', { id: io.new(), title: input.title, tags: ['a', 'b'] }) };",
+    '}',
+  ].join(String.fromCharCode(10)),
+  touch: [
+    'export async function touch(input, io) {',
+    "  return { result: await io.update('Note', input.id, { title: input.title }) };",
     '}',
   ].join(String.fromCharCode(10)),
   get: [
@@ -133,6 +144,15 @@ for (const store of stores) {
       const tagged = await created(svc.base, '/v1/tagged', 'tagged');
       const taggedRead = await (await fetch(svc.base + '/v1/notes/' + tagged.id)).json();
       assert.deepEqual(taggedRead, { id: tagged.id, title: 'tagged', body: null, tags: ['a', 'b'] }, 'a value stays a value; the missing field is null');
+
+      const touched = await fetch(svc.base + '/v1/notes/' + plain.id, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'renamed' }),
+      });
+      assert.equal(touched.status, 201);
+      const touchedRead = await touched.json();
+      assert.deepEqual(touchedRead, { id: plain.id, title: 'renamed', body: null, tags: null }, 'the update response names the same fields as a read');
 
       const page = await (await fetch(svc.base + '/v1/notes')).json();
       assert.equal(page.items.length, 3);
