@@ -136,3 +136,83 @@ test('the unique index on a nullable field reaches both dialects unchanged', () 
   assert.match(pg.up, /CONSTRAINT .uq_handle_alias. UNIQUE \("alias"\)/);
   assert.match(pg.up, /"alias" (TEXT|VARCHAR\(191\))/, 'the column stays nullable');
 });
+
+// A composite rule with one optional component: the tuple is claimed only when
+// every component is present (SQL compares a NULL component as no match), and
+// clearing one component must release the tuple the row used to hold.
+const COMPOSITE = [
+  'module gates @0.1.0 {}',
+  'use capability arcod.std.kv @1',
+  'use capability arcod.std.ids @1',
+  'type Gate = {',
+  '  id: uuid,',
+  '  region: string,',
+  '  lane: string?',
+  '}',
+  'error Conflict',
+  'service Gates : http {',
+  '  uses store: kv',
+  '  uses uuid: ids',
+  '  effects { allow store.insert, store.update, store.find, uuid.new }',
+  '  rules {',
+  '    unique Gate.(region, lane)',
+  '  }',
+  '  contract {',
+  '    public op create(region: string, lane: string?) -> Gate {',
+  '      route: "POST /v1/gates"',
+  '      effects: store.insert, uuid.new',
+  '      errors: Conflict',
+  '      on error Conflict: region != null',
+  '    }',
+  '    public op relane(id: uuid, lane: string?) -> Gate {',
+  '      route: "PATCH /v1/gates/:id"',
+  '      effects: store.update',
+  '      errors: Conflict',
+  '      on error Conflict: id != null',
+  '    }',
+  '  }',
+  '}',
+  'environment dev {',
+  '  bind store -> redis(host: "kv", port: 6379)',
+  '  bind uuid -> local',
+  '}',
+  '',
+].join('\n');
+
+test('a composite rule with an optional part releases the tuple it held', async () => {
+  const impl = {
+    create: [
+      'export async function create(input, io) {',
+      "  const row = await io.insert('Gate', { id: io.new(), region: String(input.region), lane: input.lane == null ? null : String(input.lane) });",
+      '  return { result: row };',
+      '}',
+      '',
+    ].join('\n'),
+    relane: [
+      'export async function relane(input, io) {',
+      "  return { result: await io.update('Gate', input.id, { lane: input.lane == null ? null : String(input.lane) }) };",
+      '}',
+      '',
+    ].join('\n'),
+  };
+  const svc = await startService(COMPOSITE, { impl });
+  try {
+    const post = (region: string, lane: string | null) => fetch(svc.base + '/v1/gates', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ region, lane }),
+    });
+    const patch = (id: string, lane: string | null) => fetch(svc.base + '/v1/gates/' + id, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ lane }),
+    });
+    const first = await post('eu', 'a');
+    assert.equal(first.status, 201);
+    const firstRow = await first.json();
+    assert.equal((await post('eu', 'a')).status, 409, 'the full tuple is taken');
+    const other = await post('us', 'a');
+    assert.equal(other.status, 201, 'the same lane in another region is free');
+    assert.equal((await patch(firstRow.id, null)).status, 201, 'clearing the optional part succeeds');
+    assert.equal((await post('eu', 'a')).status, 201, 'the cleared tuple is free for another row');
+    assert.equal((await patch((await other.json()).id, 'a')).status, 201, 'a row may keep its own lane');
+  } finally {
+    await svc.stop();
+  }
+});
