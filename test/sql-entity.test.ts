@@ -97,7 +97,9 @@ test('the emitted mysql store finds pages without shadowing the quoter', async (
   assert.equal(page.items[0].title, 'alpha', 'rows are decoded into records');
   assert.ok(page.next, 'more rows produce a cursor');
   assert.match(statements[0], /SELECT `id`, `title` FROM `task`/, 'identifiers stay quoted');
-  assert.match(statements[0], /ORDER BY `title` ASC, `id` ASC/, 'the order fields stay quoted');
+  // The null rank comes first: a nullable field sorts NULL last on ASC on
+  // every store, and the cursor names the same rank.
+  assert.match(statements[0], /ORDER BY \(`title` IS NULL\) ASC, `title` ASC, `id` ASC/, 'the order fields stay quoted');
 });
 
 test('the emitted mysql store writes json and list values as utf8mb4 text', async () => {

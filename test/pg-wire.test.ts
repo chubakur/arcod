@@ -343,7 +343,7 @@ test('PgStore issues postgres SQL and reads the command tag for affected rows', 
     assert.match(page, /WHERE "done" = TRUE AND \(/);
     assert.match(page, /IS NOT DISTINCT FROM FALSE/);
     assert.match(page, /"id" > 'a'/);
-    assert.match(page, /ORDER BY "done" ASC, "id" ASC LIMIT 3/);
+    assert.match(page, /ORDER BY \("done" IS NULL\) ASC, "done" ASC, "id" ASC LIMIT 3/);
   } finally {
     try { if (store) await store.connection.end(); } catch (ignored) {}
     server.close();

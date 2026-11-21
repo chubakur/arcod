@@ -310,7 +310,7 @@ test('order: sql rejects an unknown column instead of 500, and keeps a valid one
     );
     assert.equal(statements.length, 0, dialect + ': the driver never sees an unknown ORDER BY');
     await store.entityFind('item', columns, { order: 'tag desc' });
-    assert.match(statements[0], /ORDER BY .tag. DESC/, dialect + ': a declared field still sorts');
+    assert.match(statements[0], /ORDER BY \(.tag. IS NULL\) DESC, .tag. DESC/, dialect + ': a declared field still sorts');
   }
 });
 

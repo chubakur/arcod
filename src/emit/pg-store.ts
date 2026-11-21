@@ -583,7 +583,14 @@ class PgStore {
     }
 
     const whereSql = where.length > 0 ? ' WHERE ' + where.join(' AND ') : '';
-    const orderSql = order.map((r) => pq(r.field) + ' ' + (r.dir < 0 ? 'DESC' : 'ASC')).join(', ') + ', ' + pq('id') + ' ASC';
+    // Postgres already sorts NULL last on ASC and first on DESC, and kv
+    // follows that comparator. The rank is spelled anyway so the order is
+    // a contract of this emitter and not a default of one dialect;
+    // keysetClause names the same rank.
+    const orderSql = order
+      .map((r) => '(' + pq(r.field) + ' IS NULL) ' + (r.dir < 0 ? 'DESC' : 'ASC')
+        + ', ' + pq(r.field) + ' ' + (r.dir < 0 ? 'DESC' : 'ASC'))
+      .join(', ') + ', ' + pq('id') + ' ASC';
     const names = columns.map((c) => pq(c.name)).join(', ');
 
     const found = await this.query('SELECT ' + names + ' FROM ' + pq(table) + whereSql + ' ORDER BY ' + orderSql + ' LIMIT ' + (limit + 1));
@@ -669,10 +676,24 @@ class PgStore {
       // would be worse than a 500: values is built from the same order, and
       // a dropped term pages over rows the caller already saw.
       if (!col) throw new ArcodError('Invalid', { message: 'order: unknown field "' + order[index].field + '"' });
-      const colSql = pq(order[index].field);
-      const cmp = order[index].dir < 0 ? '<' : '>';
-      const literalValue = pgLiteral(col.base, values[index]);
-      terms.push((eqs.length > 0 ? eqs.join(' AND ') + ' AND ' : '') + colSql + ' ' + cmp + ' ' + literalValue);
+      const rule = order[index];
+      const colSql = pq(rule.field);
+      const value = values[index];
+      const literalValue = pgLiteral(col.base, value);
+      const prefix = eqs.length > 0 ? eqs.join(' AND ') + ' AND ' : '';
+      // col > NULL is NULL and never true, so a boundary beside a NULL
+      // dropped the whole null tail: the cursor carried it but no term
+      // matched it. The rank decides instead. A null boundary on DESC
+      // (NULL first) is followed by every non-null row; a non-null
+      // boundary on ASC (NULL last) is followed by the null rows before
+      // the larger values. Two null boundaries tie and id continues.
+      if (value === null || value === undefined) {
+        if (rule.dir < 0) terms.push(prefix + colSql + ' IS NOT NULL');
+      } else if (rule.dir < 0) {
+        terms.push(prefix + colSql + ' < ' + literalValue);
+      } else {
+        terms.push(prefix + '((' + colSql + ' IS NULL) OR ' + colSql + ' > ' + literalValue + ')');
+      }
       eqs.push(colSql + ' IS NOT DISTINCT FROM ' + literalValue);
     }
     terms.push((eqs.length > 0 ? eqs.join(' AND ') + ' AND ' : '') + pq('id') + ' > ' + pgLiteral('string', String(id)));

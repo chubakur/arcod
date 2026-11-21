@@ -534,7 +534,15 @@ class SqlStore {
     }
 
     const whereSql = where.length > 0 ? ' WHERE ' + where.join(' AND ') : '';
-    const orderSql = order.map((r) => q(r.field) + ' ' + (r.dir < 0 ? 'DESC' : 'ASC')).join(', ') + ', ' + q('id') + ' ASC';
+    // NULL is a rank, not a value. Postgres sorts ASC with NULL last and
+    // DESC with NULL first by default and kv follows the same comparator;
+    // MySQL is the odd one and puts NULL first on ASC. Spelling the rank
+    // before the value makes one order on every store, and keysetClause
+    // names that rank so a page boundary can hand over the null tail.
+    const orderSql = order
+      .map((r) => '(' + q(r.field) + ' IS NULL) ' + (r.dir < 0 ? 'DESC' : 'ASC')
+        + ', ' + q(r.field) + ' ' + (r.dir < 0 ? 'DESC' : 'ASC'))
+      .join(', ') + ', ' + q('id') + ' ASC';
     const names = columns.map((c) => q(c.name)).join(', ');
 
     const found = await this.query('SELECT ' + names + ' FROM ' + q(table) + whereSql + ' ORDER BY ' + orderSql + ' LIMIT ' + (limit + 1));
@@ -620,10 +628,24 @@ class SqlStore {
       // would be worse than a 500: values is built from the same order, and
       // a dropped term pages over rows the caller already saw.
       if (!col) throw new ArcodError('Invalid', { message: 'order: unknown field "' + order[index].field + '"' });
-      const colSql = q(order[index].field);
-      const cmp = order[index].dir < 0 ? '<' : '>';
-      const literalValue = sqlLiteral(col.base, values[index]);
-      terms.push((eqs.length > 0 ? eqs.join(' AND ') + ' AND ' : '') + colSql + ' ' + cmp + ' ' + literalValue);
+      const rule = order[index];
+      const colSql = q(rule.field);
+      const value = values[index];
+      const literalValue = sqlLiteral(col.base, value);
+      const prefix = eqs.length > 0 ? eqs.join(' AND ') + ' AND ' : '';
+      // col > NULL is NULL and never true, so a boundary beside a NULL
+      // dropped the whole null tail: the cursor carried it but no term
+      // matched it. The rank decides instead. A null boundary on DESC
+      // (NULL first) is followed by every non-null row; a non-null
+      // boundary on ASC (NULL last) is followed by the null rows before
+      // the larger values. Two null boundaries tie and id continues.
+      if (value === null || value === undefined) {
+        if (rule.dir < 0) terms.push(prefix + colSql + ' IS NOT NULL');
+      } else if (rule.dir < 0) {
+        terms.push(prefix + colSql + ' < ' + literalValue);
+      } else {
+        terms.push(prefix + '((' + colSql + ' IS NULL) OR ' + colSql + ' > ' + literalValue + ')');
+      }
       eqs.push(colSql + ' <=> ' + literalValue);
     }
     terms.push((eqs.length > 0 ? eqs.join(' AND ') + ' AND ' : '') + q('id') + ' > ' + literal(hexOf(String(id))));
