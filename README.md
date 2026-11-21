@@ -158,7 +158,12 @@ outside a field's bound is `400 Invalid` on both `kv` and SQL. The declared
 type is checked there too: a `bool` takes a boolean, an `int` a whole
 number, a `bytes` or a text field a string, and a `datetime` an ISO 8601
 instant, because SQL read the string "false" as TRUE while `kv` kept it, and
-a word in a datetime column was a 500 at the driver. A patch cannot change
+a word in a datetime column was a 500 at the driver. A datetime is stored in
+one spelling on every driver — UTC, milliseconds, `T`, `Z` — so an offset in
+the body is converted rather than kept, and a `where` filter names the same
+instant whatever its offset. A day the calendar does not have, a time past
+23:59, or a fraction finer than a millisecond is `400 Invalid` instead of
+being rolled over by one driver and cut by the other. A patch cannot change
 `id`: echoing the same value is fine, another value is `400 Invalid` on both
 drivers. Full example: `examples/signup`.
 
