@@ -6,7 +6,7 @@ import { builtinRegistry, type ProviderRegistry } from './registry.ts';
 import { capabilityFor, storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
 import { MANAGED_ENDPOINTS, MANAGED_PROVIDERS, managedResource } from './emit/terraform.ts';
-import { defaultValue } from './migrate.ts';
+import { baseType, defaultValue } from './migrate.ts';
 import { boundsOf, constraintOf, describeViolation, lengthBoundsOf, unknownFormatOf } from './constraints.ts';
 import { isIsoInstant } from './instant.ts';
 
@@ -760,6 +760,19 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           `unique ${rule.path} does not name a field of a record type`,
           'declare type Task = { … } and write unique Task.title'));
         continue;
+      }
+      // A091 — a unique claim is a key. MySQL cannot index a JSON column at
+      // all or a BLOB without a prefix, and Postgres has no equality operator
+      // for json, so the migration failed only at apply time. A container or
+      // bytes field cannot carry a unique rule; a scalar can.
+      const unindexable = rule.fields
+        .map((name) => record.fields.find((field) => field.name === name))
+        .find((field) => field && ['bytes', 'json', 'list', 'map'].includes(baseType(mod, field.type)));
+      if (unindexable) {
+        const base = baseType(mod, unindexable.type);
+        diags.push(diag('A091', 'error', mod.file, rule.loc, `services.${svc.name}.rules.unique`,
+          `unique ${rule.path} names ${unindexable.name}, a ${base} field a key cannot index`,
+          'use a scalar field (string, uuid, datetime, int, …): bytes and list/map/json have no unique key'));
       }
       if (!mod.errors.some((item) => item.name === 'Conflict')) {
         diags.push(diag('A055', 'error', mod.file, rule.loc, `services.${svc.name}.rules.unique`,

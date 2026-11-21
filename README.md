@@ -1610,6 +1610,9 @@ Errors:
 - `A090` a lower bound is above its upper bound (`int(min: 10, max: 5)`): the
   type admits no value, so every caller gets a 400 and every default is A060
   while the schema promises the type as usable.
+- `A091` a `unique` rule names a field with no index: `bytes`, `list`, `map` or
+  `json` (MySQL cannot index a JSON column or an unprefixed BLOB, Postgres has
+  no `json` equality), so the migration failed only when it reached the server.
 - `A089` a type or enum is declared with a builtin name (`type int = string`):
   OpenAPI listed the declaration under components while every use site resolved
   the builtin, so one module stated two contracts at once and the runtime, the
