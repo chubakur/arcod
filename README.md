@@ -152,23 +152,26 @@ and `check` answers `A086`. `string`, `bytes`, `int`, `number`, `float` and `dec
 argument no emitter reads is `A087`. A bound bounds the values of its type:
 `int(min: 1)` rejects `1.5`, while `number(min: 0.5)` keeps fractions and
 rejects only what is below; `string(min: 3, max: 5)` bounds the length in
-characters, not UTF-16 units. The schema, the 400 and `A060` all read the
-same arguments, and so do the entity stores: an `io.insert`/`io.update`
-outside a field's bound is `400 Invalid` on both `kv` and SQL. The declared
-type is checked there too: a `bool` takes a boolean, an `int` a whole
-number, a `bytes` or a text field a string, and a `datetime` an ISO 8601
-instant, because SQL read the string "false" as TRUE while `kv` kept it, and
-a word in a datetime column was a 500 at the driver. A datetime is stored in
-one spelling on every driver — UTC, milliseconds, `T`, `Z` — so an offset in
-the body is converted rather than kept, and a `where` filter names the same
-instant whatever its offset. A container of instants takes that spelling at
-every leaf too: `list<datetime>` and `map<string, datetime>` (nested any depth)
-store each element — and each map value — as the same UTC/milliseconds text,
-so a row does not read back in the spelling a caller happened to write; a
-value inside a container that is not an instant, or a container that is not a
-list or map, is `400 Invalid` there. A day the calendar does not have, a time
-past 23:59, or a fraction finer than a millisecond is `400 Invalid` instead of
-being rolled over by one driver and cut by the other. A patch cannot change
+characters, not UTF-16 units, while a `bytes` bound counts bytes —
+`bytes(max: 2kb)` rejects a 1100-letter Cyrillic value because it occupies
+2200 bytes, and the 400 says `bytes` rather than `characters`. The schema,
+the 400 and `A060` all read the same arguments, and so do the entity stores:
+an `io.insert`/`io.update` outside a field's bound is `400 Invalid` on both
+`kv` and SQL. The declared type is checked there too: a `bool` takes a
+boolean, an `int` a whole number, a `bytes` or a text field a string, and a
+`datetime` an ISO 8601 instant, because SQL read the string "false" as TRUE
+while `kv` kept it, and a word in a datetime column was a 500 at the driver.
+A datetime is stored in one spelling on every driver — UTC, milliseconds, `T`,
+`Z` — so an offset in the body is converted rather than kept, and a `where`
+filter names the same instant whatever its offset. A container of instants
+takes that spelling at every leaf too: `list<datetime>` and `map<string,
+datetime>` (nested any depth) store each element — and each map value — as the
+same UTC/milliseconds text, so a row does not read back in the spelling a
+caller happened to write; a value inside a container that is not an instant,
+or a container that is not a list or map, is `400 Invalid` there. A day the
+calendar does not have, a time past 23:59, or a fraction finer than a
+millisecond is `400 Invalid` instead of being rolled over by one driver and
+cut by the other. A patch cannot change
 `id`: echoing the same value is fine, another value is `400 Invalid` on both
 drivers. Full example: `examples/signup`.
 

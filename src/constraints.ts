@@ -182,6 +182,20 @@ export function lengthBoundsOf(
   return decl ? lengthBoundsOf(mod, decl.type, depth + 1) : NONE_LENGTHS;
 }
 
+// A length bound names a unit as well as a number: `string(max: 3)` counts
+// characters, while `bytes(max: 2kb)` counts the bytes the value occupies. A
+// Cyrillic string of 2048 characters is 4096 bytes, so counting code points on
+// a bytes field enforced half of what the declaration promised. The unit is
+// resolved through aliases, exactly like the bound itself.
+export function lengthUnitOf(mod: ModuleNode, type: TypeExpr, depth = 0): 'bytes' | 'characters' {
+  if (depth > 8) return 'characters';
+  if (type.kind === 'optional') return lengthUnitOf(mod, type.inner, depth + 1);
+  if (type.kind !== 'named') return 'characters';
+  if (type.name === 'bytes') return 'bytes';
+  const decl = mod.types.find((item) => item.name === type.name);
+  return decl ? lengthUnitOf(mod, decl.type, depth + 1) : 'characters';
+}
+
 export function paramConstraint(mod: ModuleNode, param: Param): Constraint {
   return constraintOf(mod, param.type);
 }
@@ -191,8 +205,8 @@ export function paramConstraint(mod: ModuleNode, param: Param): Constraint {
 export function constraintTable(
   mod: ModuleNode,
   params: Param[],
-): Record<string, { format?: Format; enum?: string[]; min?: number; max?: number; integer?: boolean; minLength?: number; maxLength?: number }> {
-  const table: Record<string, { format?: Format; enum?: string[]; min?: number; max?: number; integer?: boolean; minLength?: number; maxLength?: number }> = {};
+): Record<string, { format?: Format; enum?: string[]; min?: number; max?: number; integer?: boolean; minLength?: number; maxLength?: number; unit?: 'bytes' }> {
+  const table: Record<string, { format?: Format; enum?: string[]; min?: number; max?: number; integer?: boolean; minLength?: number; maxLength?: number; unit?: 'bytes' }> = {};
   for (const param of params) {
     const constraint = paramConstraint(mod, param);
     if (constraint.format) table[param.name] = { format: constraint.format };
@@ -212,6 +226,7 @@ export function constraintTable(
         ...(table[param.name] ?? {}),
         ...(lengths.min !== null ? { minLength: lengths.min } : {}),
         ...(lengths.max !== null ? { maxLength: lengths.max } : {}),
+        ...(lengthUnitOf(mod, param.type) === 'bytes' ? { unit: 'bytes' as const } : {}),
       };
     }
   }

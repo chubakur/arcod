@@ -168,7 +168,81 @@ test('a bytes bound with a size unit is enforced on insert', async () => {
       body: JSON.stringify({ body: 'x'.repeat(2049) }),
     });
     assert.equal(big.status, 400, 'a value past 2kb is Invalid');
-    assert.match(await big.text(), /body must be at most 2048 characters/);
+    assert.match(await big.text(), /body must be at most 2048 bytes/);
+  } finally {
+    await svc.stop();
+  }
+});
+
+// A bytes bound names a byte count, so the unit decides the count: a
+// Cyrillic value of 1100 characters is 2200 bytes and was accepted while the
+// character count was the only measure.
+test('a bytes bound counts bytes, not characters', async () => {
+  const svc = await startService(kbSource, { impl: { put: kbImpl } });
+  try {
+    const inside = await fetch(svc.base + '/v1/notes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ body: 'я'.repeat(1000) }),
+    });
+    assert.equal(inside.status, 201, '2000 bytes fit 2kb');
+    const past = await fetch(svc.base + '/v1/notes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ body: 'я'.repeat(1100) }),
+    });
+    assert.equal(past.status, 400, '2200 bytes do not fit 2kb');
+    assert.match(await past.text(), /body must be at most 2048 bytes/);
+  } finally {
+    await svc.stop();
+  }
+});
+
+// The parameter path reads the same table: a bytes parameter is measured in
+// bytes too, not in code points (constraints.ts lengthUnitOf).
+const paramSource = [
+  'module probe @0.1.0 {}',
+  '',
+  'use capability arcod.std.kv @1',
+  'use capability arcod.std.ids @1',
+  '',
+  'type Item = { id: uuid, name: string, tag: bytes }',
+  '',
+  'error Invalid',
+  '',
+  'service Probe : http {',
+  '  uses store: kv',
+  '  uses uuid: ids',
+  '',
+  '  effects {',
+  '    allow store.insert, uuid.new',
+  '  }',
+  '',
+  '  contract {',
+  '    public op put(name: string, tag: bytes(max: 4)) -> Item {',
+  '      route: "POST /v1/items"',
+  '      effects: store.insert, uuid.new',
+  '      errors: Invalid',
+  '    }',
+  '  }',
+  '}',
+  '',
+].join(String.fromCharCode(10));
+
+const paramImpl = 'export async function put(input, io) { return { result: await io.insert(\'Item\', { id: io.new(), name: input.name, tag: input.tag }) }; }';
+
+test('a bytes parameter is measured in bytes too', async () => {
+  const svc = await startService(paramSource, { impl: { put: paramImpl } });
+  const post = (tag: string) => fetch(svc.base + '/v1/items', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'n', tag }),
+  });
+  try {
+    assert.equal((await post('аб')).status, 201, 'two Cyrillic letters are 4 bytes');
+    const past = await post('абв');
+    assert.equal(past.status, 400);
+    assert.match(await past.text(), /tag must be at most 4 bytes/);
   } finally {
     await svc.stop();
   }

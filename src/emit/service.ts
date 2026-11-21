@@ -1219,12 +1219,13 @@ function checkRecordFields(meta, record, place) {
       if (typeof value !== 'string') {
         throw new ArcodError('Invalid', { message: place + ': ' + field + ' must be a string' });
       }
-      const length = [...value].length;
+      const length = rule.bytes ? Buffer.byteLength(value, 'utf8') : [...value].length;
+      const unit = rule.bytes ? 'bytes' : 'characters';
       if (rule.minLength !== undefined && length < rule.minLength) {
-        throw new ArcodError('Invalid', { message: place + ': ' + field + ' must be at least ' + rule.minLength + ' characters' });
+        throw new ArcodError('Invalid', { message: place + ': ' + field + ' must be at least ' + rule.minLength + ' ' + unit });
       }
       if (rule.maxLength !== undefined && length > rule.maxLength) {
-        throw new ArcodError('Invalid', { message: place + ': ' + field + ' must be at most ' + rule.maxLength + ' characters' });
+        throw new ArcodError('Invalid', { message: place + ': ' + field + ' must be at most ' + rule.maxLength + ' ' + unit });
       }
     }
     if (rule.min !== undefined || rule.max !== undefined) {
@@ -2269,10 +2270,11 @@ function implHandlers(
     '      continue;',
     '    }',
     '    if (rule.minLength !== undefined || rule.maxLength !== undefined) {',
-    '      const length = typeof value === \"string\" ? [...value].length : -1;',
-    '      if (length < 0) return name + \" must be a string\";',
-    '      if (rule.minLength !== undefined && length < rule.minLength) return name + \" must be at least \" + rule.minLength + \" characters\";',
-    '      if (rule.maxLength !== undefined && length > rule.maxLength) return name + \" must be at most \" + rule.maxLength + \" characters\";',
+    '      const length = typeof value === "string" ? (rule.unit === "bytes" ? Buffer.byteLength(value, "utf8") : [...value].length) : -1;',
+    '      const unit = rule.unit === "bytes" ? "bytes" : "characters";',
+    '      if (length < 0) return name + " must be a string";',
+    '      if (rule.minLength !== undefined && length < rule.minLength) return name + " must be at least " + rule.minLength + " " + unit;',
+    '      if (rule.maxLength !== undefined && length > rule.maxLength) return name + " must be at most " + rule.maxLength + " " + unit;',
     '    }',
     '    if (rule.format === "email" && (typeof value !== "string" || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value))) return name + " must be an email";',
     '    if (rule.format === "uri" && (typeof value !== "string" || !/^[a-z][a-z0-9+.-]*:\\/\\/[^\\s]+$/i.test(value))) return name + " must be a url";',
@@ -2704,7 +2706,7 @@ function entityDefaults(mod: ModuleNode, decl: TypeDecl): Record<string, Default
   return defaults;
 }
 
-type FieldBounds = { min?: number; max?: number; minLength?: number; maxLength?: number; integer?: boolean };
+type FieldBounds = { min?: number; max?: number; minLength?: number; maxLength?: number; integer?: boolean; bytes?: boolean };
 
 // Declared bounds belong to the entity, not only to its OpenAPI schema: a row
 // outside them is the row the contract promises clients never see. Both the kv
@@ -2731,6 +2733,9 @@ function entityBounds(mod: ModuleNode, decl: TypeDecl): Record<string, FieldBoun
       const lengths = lengthBoundsOf(mod, field.type);
       if (lengths.min !== null) entry.minLength = lengths.min;
       if (lengths.max !== null) entry.maxLength = lengths.max;
+      // A bytes bound counts bytes, not code points: a Cyrillic value of the
+      // declared character count occupies twice the bytes the field promised.
+      if (base === 'bytes') entry.bytes = true;
     }
     if (Object.keys(entry).length > 0) bounds[field.name] = entry;
   }
