@@ -978,7 +978,16 @@ function matchesWhere(value, where) {
       if (op === 'eq' && !sameValue(actual, expected)) return false;
       if (op === 'ne' && sameValue(actual, expected)) return false;
       if (op === 'in' && !(Array.isArray(expected) && expected.some((item) => sameValue(item, actual)))) return false;
-      if (op === 'contains' && !String(actual == null ? '' : actual).includes(String(expected))) return false;
+      // A list or record field is JSON text in a SQL column, so contains
+      // matched a substring there. On kv String() turned a list into "a,b"
+      // and a record into "[object Object]", so the same query found nothing.
+      // Both drivers compare the JSON text now.
+      if (op === 'contains') {
+        const haystack = actual == null
+          ? ''
+          : (typeof actual === 'object' ? JSON.stringify(actual) : String(actual));
+        if (!haystack.includes(String(expected))) return false;
+      }
       if (op === 'gt' && !(compareValues(sortValue(actual), sortValue(expected)) > 0)) return false;
       if (op === 'gte' && !(compareValues(sortValue(actual), sortValue(expected)) >= 0)) return false;
       if (op === 'lt' && !(compareValues(sortValue(actual), sortValue(expected)) < 0)) return false;
