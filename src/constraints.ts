@@ -146,6 +146,19 @@ export function boundsOf(mod: ModuleNode, type: TypeExpr, depth = 0): Bounds {
 // Same arguments, same resolver, a different meaning.
 export const NONE_LENGTHS: { min: number | null; max: number | null } = { min: null, max: null };
 
+// A length argument is a number of characters, and the size units the schema
+// publishes (`bytes(max: 8kb)`) mean the same number there: OpenAPI reads
+// `8kb` as maxLength 8192, so a runtime that ignored the unit enforced nothing
+// on a field the contract promised to bound.
+function lengthArg(value: { kind: string; value?: unknown; unit?: string }): number | null {
+  if (value.kind === 'literal' && typeof value.value === 'number') return value.value;
+  if (value.kind === 'duration' && typeof value.value === 'number' && typeof value.unit === 'string') {
+    const table: Record<string, number> = { b: 1, kb: 1024, mb: 1024 * 1024, gb: 1024 * 1024 * 1024 };
+    return value.value * (table[value.unit.toLowerCase()] ?? 1);
+  }
+  return null;
+}
+
 export function lengthBoundsOf(
   mod: ModuleNode,
   type: TypeExpr,
@@ -158,9 +171,10 @@ export function lengthBoundsOf(
     let min: number | null = null;
     let max: number | null = null;
     for (const arg of type.args) {
-      if (arg.value.kind !== 'literal' || typeof arg.value.value !== 'number') continue;
-      if (arg.name === 'min') min = arg.value.value;
-      if (arg.name === 'max') max = arg.value.value;
+      const size = lengthArg(arg.value);
+      if (size === null) continue;
+      if (arg.name === 'min') min = size;
+      if (arg.name === 'max') max = size;
     }
     return { min, max };
   }

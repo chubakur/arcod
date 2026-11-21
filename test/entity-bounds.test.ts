@@ -118,3 +118,59 @@ test('a value inside both bounds is stored', async () => {
   assert.equal(res.status, 201);
   assert.match(res.text, /"name":"abc"/);
 });
+
+// A size unit is a bound the schema already publishes: OpenAPI reads
+// `bytes(max: 2kb)` as maxLength 2048. The runtime resolver used to skip a
+// non-literal argument, so the field was unbounded where the contract said 2kb.
+const kbSource = [
+  'module probe @0.1.0 {}',
+  '',
+  'use capability arcod.std.kv @1',
+  'use capability arcod.std.ids @1',
+  '',
+  'type Note = { id: uuid, body: bytes(max: 2kb) }',
+  '',
+  'error Invalid',
+  '',
+  'service Probe : http {',
+  '  uses store: kv',
+  '  uses uuid: ids',
+  '',
+  '  effects {',
+  '    allow store.insert, uuid.new',
+  '  }',
+  '',
+  '  contract {',
+  '    public op put(body: bytes) -> Note {',
+  '      route: "POST /v1/notes"',
+  '      effects: store.insert, uuid.new',
+  '      errors: Invalid',
+  '    }',
+  '  }',
+  '}',
+  '',
+].join(String.fromCharCode(10));
+
+const kbImpl = 'export async function put(input, io) { return { result: await io.insert("Note", { id: io.new(), body: String(input.body) }) }; }';
+
+test('a bytes bound with a size unit is enforced on insert', async () => {
+  const svc = await startService(kbSource, { impl: { put: kbImpl } });
+  try {
+    const small = await fetch(svc.base + '/v1/notes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ body: 'x'.repeat(10) }),
+    });
+    assert.equal(small.status, 201, 'a value inside 2kb is stored');
+    const big = await fetch(svc.base + '/v1/notes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ body: 'x'.repeat(2049) }),
+    });
+    assert.equal(big.status, 400, 'a value past 2kb is Invalid');
+    assert.match(await big.text(), /body must be at most 2048 characters/);
+  } finally {
+    await svc.stop();
+  }
+});
+

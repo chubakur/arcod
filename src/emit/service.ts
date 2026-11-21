@@ -2676,8 +2676,9 @@ type FieldBounds = { min?: number; max?: number; minLength?: number; maxLength?:
 // Declared bounds belong to the entity, not only to its OpenAPI schema: a row
 // outside them is the row the contract promises clients never see. Both the kv
 // and the sql facade read this table, so the two drivers reject the same value
-// instead of one storing what the other refuses. `bytes` keeps its body limit
-// (bodyLimits) and takes no length bound here: what is stored is binary.
+// instead of one storing what the other refuses. A `bytes` field keeps its
+// length bound too (`bytes(max: 64kb)` is maxLength 65536 in the schema), and
+// the body limit (bodyLimits) still caps the whole request.
 function entityBounds(mod: ModuleNode, decl: TypeDecl): Record<string, FieldBounds> {
   const bounds: Record<string, FieldBounds> = {};
   if (decl.type.kind !== 'record') return bounds;
@@ -2689,7 +2690,11 @@ function entityBounds(mod: ModuleNode, decl: TypeDecl): Record<string, FieldBoun
       if (numeric.min !== null) entry.min = numeric.min;
       if (numeric.max !== null) entry.max = numeric.max;
     }
-    if (baseType(mod, field.type) === 'string') {
+    // A text field and a bytes field both declare a length, and the schema
+    // publishes it for both; a bound only the schema knows is a promise the
+    // store breaks on the next impl insert.
+    const base = baseType(mod, field.type);
+    if (base === 'string' || base === 'bytes') {
       const lengths = lengthBoundsOf(mod, field.type);
       if (lengths.min !== null) entry.minLength = lengths.min;
       if (lengths.max !== null) entry.maxLength = lengths.max;
