@@ -152,3 +152,32 @@ test('a filter that is not an ISO datetime is a 400, not a silent empty page', a
   }
 });
 
+
+// The store in the spec above is kv. The sql facade must answer the same
+// insert and the same filter: both run against the in-memory driver, and a
+// canonical value is what makes the two text representations agree.
+const sqlSource = source.split('arcod.std.kv').join('arcod.std.sql').split('uses store: kv').join('uses store: sql');
+
+test('the sql driver stores and filters the same instant as kv', async () => {
+  const svc = await startService(sqlSource, { impl: { put: putImpl, find: findImpl } });
+  try {
+    const created = await fetch(svc.base + '/v1/items', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ at: '2026-01-01T02:00:00+02:00' }),
+    });
+    assert.equal(created.status, 201);
+    assert.equal(JSON.parse(await created.text()).at, '2026-01-01T00:00:00Z');
+    const res = await fetch(svc.base + '/v1/find', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ at: '2025-12-31T19:00:00-05:00' }),
+    });
+    assert.equal(res.status, 201);
+    const page = await res.json();
+    assert.equal(page.items.length, 1);
+  } finally {
+    await svc.stop();
+  }
+});
+
