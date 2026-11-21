@@ -1279,6 +1279,22 @@ function checkRecordFields(meta, record, place) {
       });
     }
   }
+  // A field declared without ? is not optional: it cannot hold null, and an
+  // insert cannot leave it out (a declared default fills it before this runs).
+  // kv stored the absence anyway (the row simply had no name) while a NOT NULL
+  // column failed inside the driver as a 500, so the same call answered two
+  // things. The column list already says which fields are optional.
+  for (const column of meta.columns) {
+    if (!(column.name in record)) {
+      if (place.indexOf('insert ') === 0 && column.name !== 'id' && !column.nullable && column.default == null) {
+        throw new ArcodError('Invalid', { message: place + ': missing ' + column.name });
+      }
+      continue;
+    }
+    if (record[column.name] == null && !column.nullable) {
+      throw new ArcodError('Invalid', { message: place + ': ' + column.name + ' is not nullable' });
+    }
+  }
   // A text field stores text: kv kept the number 42 a body happened to carry,
   // sql coerced it to '42', so the same insert answered two shapes. The base
   // name comes from the column list both facades already ship.

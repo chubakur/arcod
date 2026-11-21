@@ -144,6 +144,7 @@ for (const store of ['kv', 'sql'] as const) {
       tags: {},
       grid: [],
       alias: [],
+      deep: {},
     });
     assert.equal(res.status, 400, res.text);
     assert.match(res.text, /marks must hold an ISO 8601 datetime/);
@@ -155,6 +156,8 @@ for (const store of ['kv', 'sql'] as const) {
       marks: 'not a list',
       tags: {},
       grid: [],
+      alias: [],
+      deep: {},
     });
     assert.equal(res.status, 400, res.text);
     assert.match(res.text, /marks must be a list or map of datetime/);
@@ -167,7 +170,7 @@ for (const store of ['kv', 'sql'] as const) {
       const created = await fetch(svc.base + '/v1/events', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ at: '2026-01-01T12:00:00+03:00', marks: ['2026-01-01T12:00:00+03:00'], tags: {}, grid: [] }),
+        body: JSON.stringify({ at: '2026-01-01T12:00:00+03:00', marks: ['2026-01-01T12:00:00+03:00'], tags: {}, grid: [], alias: [], deep: {} }),
       });
       assert.equal(created.status, 201);
       const find = (marks: unknown[]) => fetch(svc.base + '/v1/find', {
@@ -194,7 +197,7 @@ for (const store of ['kv', 'sql'] as const) {
       const created = await fetch(svc.base + '/v1/events', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ at: '2026-01-01T09:00:00Z', marks: ['2026-01-01T12:00:00+03:00'], tags: {}, grid: [] }),
+        body: JSON.stringify({ at: '2026-01-01T09:00:00Z', marks: ['2026-01-01T12:00:00+03:00'], tags: {}, grid: [], alias: [], deep: {} }),
       });
       assert.equal(created.status, 201);
       const res = await fetch(svc.base + '/v1/find-in', {
@@ -216,6 +219,8 @@ for (const store of ['kv', 'sql'] as const) {
       marks: [null, '2026-01-01T12:00:00+03:00'],
       tags: {},
       grid: [],
+      alias: [],
+      deep: {},
     });
     assert.equal(res.status, 201, res.text);
     assert.deepEqual(res.created?.marks, [null, '2026-01-01T09:00:00Z']);
