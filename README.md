@@ -1386,7 +1386,11 @@ outside the generated service still gets the declared value. A `datetime`
 default is an instant, so it carries a zone (`at: datetime =
 "2026-01-01T02:00:00+02:00"`); MySQL's literal has none and receives the UTC
 spelling (`DEFAULT '2026-01-01 00:00:00'`), and the runtime codec converts an
-offset the same way instead of dropping it. Inline records, unions and
+offset the same way instead of dropping it. The default published to the
+runtime is the stored spelling too (`2026-01-01T00:00:00Z`), so a row that
+predates the field reads back the same on `kv` and SQL; a default finer than a
+millisecond is `A059`, because `DATETIME(3)` would cut it and every insert
+relying on the default would then be refused. Inline records, unions and
 `list`/`map` land in `JSON` columns.
 
 Only entities become tables: `arcod migrate` (and the migrations the service
