@@ -207,3 +207,37 @@ test('a unique datetime claims one key for two offsets', async () => {
   }
 });
 
+
+// The same canonicalization applies inside an "in" list: a client may write
+// each element in its own offset, and the list must still match the one row.
+const inImpl = [
+  'export async function inside(input, io) {',
+  "  const page = await io.find('Item', { where: { at: { in: [input.at, '2030-01-01T00:00:00Z'] } } });",
+  '  return { result: { items: page.items } };',
+  '}',
+].join(String.fromCharCode(10));
+
+const inSource = source
+  .replace("    public op find", "    public op inside(at: datetime) -> { items: list<Item> } {" + String.fromCharCode(10) + "      route: \"POST /v1/inside\"" + String.fromCharCode(10) + "      effects: store.find" + String.fromCharCode(10) + "      errors: Invalid" + String.fromCharCode(10) + "    }" + String.fromCharCode(10) + "" + String.fromCharCode(10) + "    public op find");
+
+test('an "in" list canonicalizes each element', async () => {
+  const svc = await startService(inSource, { impl: { put: putImpl, find: findImpl, inside: inImpl } });
+  try {
+    const created = await fetch(svc.base + '/v1/items', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ at: '2026-01-01T02:00:00+02:00' }),
+    });
+    assert.equal(created.status, 201);
+    const res = await fetch(svc.base + '/v1/inside', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ at: '2025-12-31T19:00:00-05:00' }),
+    });
+    assert.equal(res.status, 201);
+    assert.equal((await res.json()).items.length, 1);
+  } finally {
+    await svc.stop();
+  }
+});
+
