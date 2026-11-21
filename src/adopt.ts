@@ -77,6 +77,11 @@ function stringType(schema: any): TypeExpr {
   const args: TypeArg[] = [];
   if (typeof schema.minLength === 'number') args.push(numericArg('min', schema.minLength));
   if (typeof schema.maxLength === 'number') args.push(numericArg('max', schema.maxLength));
+  // `format: binary` is a file payload and `format: byte` is the same payload
+  // base64-encoded; both name the `bytes` scalar, which takes the same length
+  // arguments. Adopting either as `string` lost the fact that the field is not
+  // text.
+  if (format === 'binary' || format === 'byte') return named('bytes', args);
   return named('string', args);
 }
 

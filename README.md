@@ -1900,7 +1900,7 @@ This is a vertical slice, not a finished language.
   `effects`/`rules`/`contract`/`examples`/`budget` blocks inside a service all
   keep `}  // note`, and a one-line record or enum keeps its shape instead of
   expanding. `arcod diff`
-  compares canonicalized specs; `arcod adopt` imports OpenAPI 3.x JSON only; a Swagger 2.0 document is refused with its version instead of being adopted without its `basePath` and `definitions`.
+  compares canonicalized specs; `arcod adopt` imports OpenAPI 3.x JSON only; a Swagger 2.0 document is refused with its version instead of being adopted without its `basePath` and `definitions`. A property with `format: binary` (a file payload) or `format: byte` (the base64 form of one) becomes `bytes`, keeping its `minLength`/`maxLength` as the length arguments, because adopting it as `string` dropped the fact that the field is not text.
 - of the rule predicates `arcod test` supports only `once`; any other
   predicate is reported as `skip` and counted apart in the summary (`W040`),
   never silently dropped.
