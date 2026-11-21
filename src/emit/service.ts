@@ -1378,6 +1378,19 @@ function checkRecordFields(meta, record, place) {
       });
     }
   }
+  // An enum field holds one of its members. The op boundary validates an
+  // input, but a record built inside a body never crosses that boundary, and
+  // both stores kept a non-member in a status column as if the enum allowed it.
+  const enums = meta.enums || {};
+  for (const field of Object.keys(enums)) {
+    const value = record[field];
+    if (value === null || value === undefined) continue;
+    if (!enums[field].includes(String(value))) {
+      throw new ArcodError('Invalid', {
+        message: place + ': ' + field + ' must be one of ' + enums[field].join(', '),
+      });
+    }
+  }
   // Declared bounds are part of the entity: a value outside them would store
   // the row the schema promises clients never see, so both facades answer 400
   // with the field and the bound instead of keeping it.
@@ -2965,6 +2978,20 @@ function entityInstants(mod: ModuleNode, decl: TypeDecl): Record<string, number>
   return table;
 }
 
+// An enum field's declared members, kept for the record check: the op boundary
+// already validates an input, but a record built inside a body does not pass a
+// boundary at all.
+function entityEnums(mod: ModuleNode, decl: TypeDecl): Record<string, string[]> {
+  const enums: Record<string, string[]> = {};
+  if (decl.type.kind !== 'record') return enums;
+  const table = constraintTable(mod, decl.type.fields);
+  for (const field of Object.keys(table)) {
+    const members = table[field].enum;
+    if (members && members.length > 0) enums[field] = members;
+  }
+  return enums;
+}
+
 // A container field's declared shape, kept apart from the column: list<..>,
 // map<..> and a named record all store as JSON, so the column type cannot tell
 // an array from an object. The runtime record check reads this map.
@@ -2991,8 +3018,8 @@ function entityShapes(mod: ModuleNode, decl: TypeDecl): Record<string, FieldShap
   return shapes;
 }
 
-function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
-  const table: Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
+function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; enums: Record<string, string[]>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
+  const table: Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; enums: Record<string, string[]>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
   const uniques: Array<[string, string[]]> = [];
   for (const rule of svc.rules) {
     if (rule.kind !== 'unique') continue;
@@ -3013,6 +3040,7 @@ function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | nu
       bounds: entityBounds(mod, decl),
       instants: entityInstants(mod, decl),
       shapes: entityShapes(mod, decl),
+      enums: entityEnums(mod, decl),
       uniqueGroups: groups,
       defaults: entityDefaults(mod, decl),
     };
@@ -3020,8 +3048,8 @@ function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | nu
   return table;
 }
 
-function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
-  const table: Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
+function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; enums: Record<string, string[]>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
+  const table: Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; shapes: Record<string, FieldShape>; enums: Record<string, string[]>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
   const uniquesByEntity: Record<string, string[][]> = {};
   for (const rule of svc.rules) {
     if (rule.kind !== 'unique') continue;
@@ -3037,6 +3065,7 @@ function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] |
       bounds: entityBounds(mod, decl),
       instants: entityInstants(mod, decl),
       shapes: entityShapes(mod, decl),
+      enums: entityEnums(mod, decl),
       uniqueGroups: groups,
       defaults: entityDefaults(mod, decl),
     };
