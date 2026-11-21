@@ -30,7 +30,7 @@ const source = [
   '    public op put(at: datetime) -> Item {',
   '      route: "POST /v1/items"',
   '      effects: store.insert, uuid.new',
-  '      errors: Invalid',
+  '      errors: Invalid, Conflict',
   '    }',
   '',
   '    public op find(at: datetime) -> { items: list<Item> } {',
@@ -176,6 +176,32 @@ test('the sql driver stores and filters the same instant as kv', async () => {
     assert.equal(res.status, 201);
     const page = await res.json();
     assert.equal(page.items.length, 1);
+  } finally {
+    await svc.stop();
+  }
+});
+
+
+// A unique rule is a promise about the stored value. Two spellings of one
+// instant must therefore claim the same key, or kv would store two rows the
+// contract says cannot exist (mysql's UNIQUE column already refused).
+const uniqueSource = source.replace("  effects {\n", "  rules {\n    unique Item.at\n  }\n\n  effects {\n");
+
+test('a unique datetime claims one key for two offsets', async () => {
+  const svc = await startService(uniqueSource, { impl: { put: putImpl, find: findImpl } });
+  try {
+    const first = await fetch(svc.base + '/v1/items', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ at: '2026-01-01T02:00:00+02:00' }),
+    });
+    assert.equal(first.status, 201);
+    const second = await fetch(svc.base + '/v1/items', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ at: '2026-01-01T00:00:00Z' }),
+    });
+    assert.equal(second.status, 409, 'the same instant is the same unique value');
   } finally {
     await svc.stop();
   }
