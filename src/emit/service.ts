@@ -1101,9 +1101,18 @@ function checkWhereFields(meta, where) {
 // the driver (500). Both name the field and the declared columns now.
 function checkOrderFields(meta, order) {
   for (const rule of order) {
-    if (!meta.columns.some((column) => column.name === rule.field)) {
+    const column = meta.columns.find((item) => item.name === rule.field);
+    if (!column) {
       throw new ArcodError('Invalid', {
-        message: 'order: unknown field "' + rule.field + '"; declared: ' + meta.columns.map((column) => column.name).join(', '),
+        message: 'order: unknown field "' + rule.field + '"; declared: ' + meta.columns.map((item) => item.name).join(', '),
+      });
+    }
+    // A container is JSON: kv sorted its String() ("[object Object]" for a
+    // record, "a,b" for a list) while sql sorted the JSON text, so the same
+    // order answered two different pages. Only a scalar has an order.
+    if (column.base === 'json' || column.base === 'list' || column.base === 'map') {
+      throw new ArcodError('Invalid', {
+        message: 'order: field "' + rule.field + '" is a ' + column.base + '; order only names a scalar field',
       });
     }
   }
