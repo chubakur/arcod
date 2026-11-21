@@ -497,7 +497,7 @@ class Printer {
         this.emitComments(fields[i].loc.offset, 1);
         this.raw(1, param(fields[i]) + (i < fields.length - 1 ? ',' : ''));
       }
-      this.bodyTail(t.loc.end);
+      this.bodyTail(t.loc.end, 1);
       this.closeLine(0, '}', t.loc.end);
       return;
     }
@@ -524,7 +524,7 @@ class Printer {
       this.emitComments(f.loc.offset, 1);
       this.raw(1, param(f));
     }
-    this.bodyTail(e.loc.end);
+    this.bodyTail(e.loc.end, 1);
     this.closeLine(0, '}', e.loc.end);
   }
 
@@ -544,7 +544,7 @@ class Printer {
       this.emitComments(locs[index].offset, 1);
       this.raw(1, e.values[index] + (index < e.values.length - 1 ? ',' : ''));
     }
-    this.bodyTail(e.loc.end);
+    this.bodyTail(e.loc.end, 1);
     this.closeLine(0, '}', e.loc.end);
   }
 
@@ -578,6 +578,7 @@ class Printer {
       if (i > 0) this.blank();
       body[i]();
     }
+    this.bodyTail(s.loc.end, 1);
     this.closeLine(0, '}', s.loc.end);
   }
 
@@ -611,6 +612,7 @@ class Printer {
     };
     clause('allow', e.allow);
     clause('deny', e.deny);
+    if (close) this.bodyTail(close.offset, 2);
     this.closeLine(1, '}', close?.offset ?? -1);
   }
 
@@ -627,6 +629,7 @@ class Printer {
         case 'index': this.raw(2, 'index ' + r.path); break;
       }
     }
+    if (close) this.bodyTail(close.offset, 2);
     this.closeLine(1, '}', close?.offset ?? -1);
   }
 
@@ -640,6 +643,7 @@ class Printer {
       if (i > 0) this.blank();
       this.op(ops[i], 2);
     }
+    if (close) this.bodyTail(close.offset, 2);
     this.closeLine(1, '}', close?.offset ?? -1);
   }
 
@@ -655,6 +659,7 @@ class Printer {
       this.emitComments(c.loc.offset, indent + 1);
       this.clause(c, indent + 1);
     }
+    this.bodyTail(op.loc.end, indent + 1);
     this.closeLine(indent, '}', op.loc.end);
   }
 
@@ -717,6 +722,7 @@ class Printer {
       if (ex.then.length) this.section('then', ex.then, 3);
       this.closeLine(2, '}', ex.loc.end);
     }
+    if (close) this.bodyTail(close.offset, 2);
     this.closeLine(1, '}', close?.offset ?? -1);
   }
 
@@ -740,6 +746,7 @@ class Printer {
       s += expr(item.expr);
       this.raw(2, s);
     }
+    if (close) this.bodyTail(close.offset, 2);
     this.closeLine(1, '}', close?.offset ?? -1);
   }
 
@@ -758,13 +765,15 @@ class Printer {
   // else: it has no line of its own anymore.
   // Comments written after the last field of a type/error/enum body, still
   // inside its braces, are printed at the body's indent before the brace.
-  private bodyTail(end: number): void {
+  private bodyTail(end: number, indent: number): void {
     const cs = this.bodyTails.get(end);
     if (!cs || cs.length === 0) return;
+    this.pending = [];
     for (const c of cs) {
-      if (c.startsWith('//')) this.raw(1, c);
-      else for (const line of c.split('\n')) this.raw(1, line);
+      if (c.startsWith('//')) this.raw(indent, c);
+      else for (const line of c.split('\n')) this.raw(indent, line);
     }
+    this.pending = [];
   }
 
   private blockTail(loc: Loc | undefined, indent: number): void {
@@ -930,19 +939,51 @@ export function formatSource(source: string, file: string): string {
   // of its own, so the leading rule would anchor it past the declaration.
   const bodyTails = new Map<number, string[]>();
   const bodies: Array<{ key: number; lastEnd: number; close: number }> = [];
+  const addBody = (key: number, lastEnd: number, close: number): void => {
+    if (close > lastEnd) bodies.push({ key, lastEnd, close });
+  };
   for (const t of mod.types) {
     if (t.type.kind !== 'record') continue;
     const last = t.type.fields[t.type.fields.length - 1];
-    bodies.push({ key: t.loc.end, lastEnd: last ? last.loc.end : t.type.loc.offset, close: t.loc.end });
+    addBody(t.loc.end, last ? last.loc.end : t.type.loc.offset, t.loc.end);
   }
   for (const e of mod.errors) {
     if (e.fields.length === 0) continue;
-    bodies.push({ key: e.loc.end, lastEnd: e.fields[e.fields.length - 1].loc.end, close: e.loc.end });
+    addBody(e.loc.end, e.fields[e.fields.length - 1].loc.end, e.loc.end);
   }
   for (const e of mod.enums) {
     const locs = e.valueLocs ?? [];
     if (locs.length === 0) continue;
-    bodies.push({ key: e.loc.end, lastEnd: locs[locs.length - 1].end, close: e.loc.end });
+    addBody(e.loc.end, locs[locs.length - 1].end, e.loc.end);
+  }
+  // A service owns several bodies: its own braces, each operation's body, and
+  // the contract/rules/effects/examples/budget blocks. A comment after the
+  // last child used to be keyed on the closing brace and dropped, because the
+  // brace printer only looked for trailing comments.
+  for (const s of mod.services) {
+    const ends = [
+      ...s.uses.map((u) => u.loc.end),
+      ...s.rules.map((r) => r.loc.end),
+      ...s.contract.map((op) => op.loc.end),
+      ...s.sagas.map((sg) => sg.loc.end),
+      ...s.examples.map((ex) => ex.loc.end),
+    ];
+    if (s.effects) ends.push(s.effects.loc.end);
+    if (s.budget) ends.push(s.budget.loc.end);
+    addBody(s.loc.end, ends.length > 0 ? Math.max(...ends) : s.loc.offset, s.loc.end);
+    for (const op of s.contract) {
+      const clauses = op.clauses.map((c) => c.loc.end);
+      addBody(op.loc.end, clauses.length > 0 ? Math.max(...clauses) : op.loc.offset, op.loc.end);
+    }
+    const closes = s.blockCloses ?? {};
+    const lastOp = s.contract[s.contract.length - 1];
+    const lastRule = s.rules[s.rules.length - 1];
+    const lastExample = s.examples[s.examples.length - 1];
+    if (closes.contract && lastOp) addBody(closes.contract.offset, lastOp.loc.end, closes.contract.offset);
+    if (closes.rules && lastRule) addBody(closes.rules.offset, lastRule.loc.end, closes.rules.offset);
+    if (closes.effects && s.effects) addBody(closes.effects.offset, s.effects.loc.offset, closes.effects.offset);
+    if (closes.examples && lastExample) addBody(closes.examples.offset, lastExample.loc.end, closes.examples.offset);
+    if (closes.budget && s.budget) addBody(closes.budget.offset, s.budget.loc.offset, closes.budget.offset);
   }
   for (const c of comments) {
     // A comment written between the module header braces belongs to the block,
@@ -1018,7 +1059,14 @@ export function formatSource(source: string, file: string): string {
     // node of its own: the next anchor is the next declaration or the end of
     // the file, which would pull the note out of the braces (and, with a
     // following declaration, make it read as a comment about that one).
-    const body = bodies.find((item) => c.start > item.lastEnd && c.end < item.close && (target < 0 || target >= item.close));
+    let body: { key: number; lastEnd: number; close: number } | undefined;
+    for (const item of bodies) {
+      if (!(c.start > item.lastEnd && c.end < item.close)) continue;
+      if (!(target < 0 || target >= item.close)) continue;
+      // Nested bodies (an operation inside a contract) both match; the
+      // innermost one owns the comment.
+      if (!body || item.close < body.close) body = item;
+    }
     if (body) {
       const arr = bodyTails.get(body.key) ?? [];
       arr.push(c.text);

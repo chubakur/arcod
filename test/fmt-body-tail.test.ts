@@ -55,6 +55,54 @@ test('an enum body keeps a comment after its last value', () => {
   assert.equal(format(out), out);
 });
 
+const service = (contract: string[]): string => [
+  'module m @0.1.0 {}',
+  'use capability arcod.std.kv @1',
+  'service S : http {',
+  '  uses store: kv',
+  '  contract {',
+  ...contract,
+  '  }',
+  '}',
+  '',
+].join('\n');
+
+test('a comment after the last operation stays inside the contract block', () => {
+  const out = format(service([
+    '    public op a() -> { ok: bool } {',
+    '      route: "/v1/a"',
+    '    }',
+    '    // note after the last op',
+  ]));
+  assert.match(out, /^    \}\n    \/\/ note after the last op\n  \}\n\}$/m);
+  assert.equal(format(out), out);
+});
+
+test('a comment after the last clause stays inside the operation', () => {
+  const out = format(service([
+    '    public op a() -> { ok: bool } {',
+    '      route: "/v1/a"',
+    '      // inside the op',
+    '    }',
+    '    public op b() -> { ok: bool } {',
+    '      route: "/v1/b"',
+    '    }',
+  ]));
+  // It used to be printed above the next operation, at the contract's indent.
+  assert.match(out, /^      route: "\/v1\/a"\n      \/\/ inside the op\n    \}$/m);
+  assert.equal(format(out), out);
+});
+
+test('a comment after the last service block stays inside the service', () => {
+  const out = format(service([
+    '    public op a() -> { ok: bool } {',
+    '      route: "/v1/a"',
+    '    }',
+  ]).replace('  }\n}\n', '  }\n  // the service ends here\n}\n'));
+  assert.match(out, /^  \}\n  \/\/ the service ends here\n\}$/m);
+  assert.equal(format(out), out);
+});
+
 test('a multi-line block comment inside a record keeps its alignment and is idempotent', () => {
   const out = format('module m @0.1.0 {}\ntype Row = {\n  /* a note\n     across lines */\n  id: uuid\n}\n');
   assert.equal(out, [

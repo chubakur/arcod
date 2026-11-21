@@ -1913,7 +1913,9 @@ This is a vertical slice, not a finished language.
   `meta { ... }` stays with the entry it precedes (or at the end of the block),
   a comment inside a `workflow` or `ui` block stays on the clause it precedes
   (or at the end of that block, also when the clause itself is a dropped default
-  such as `theme: auto`), a comment written inside a `slide` stays in that
+  such as `theme: auto`), the same holds for the last clause of a service or
+  operation body and of the `contract`/`rules`/`effects`/`examples`/`budget`
+  blocks, a comment written inside a `slide` stays in that
   slide (above its `body`, or after it before the closing brace), a comment
   after the last declaration is printed at the end of the file, a comment that trails
   code on the same line stays there (it is re-attached to the deepest node that
