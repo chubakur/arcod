@@ -1717,10 +1717,17 @@ async function handleRequest(req, res, start) {
     if (url.pathname === '/healthz') {
       try {
         await store.ping();
-        send(res, 200, JSON.stringify({ status: 'ok', service: CONFIG.service, kv: 'up' }));
+        // The probe names the store it actually pinged: a sql service used to
+        // answer kv: up, which reads as a healthy cache while the database
+        // is the thing under test. kv keeps its key, a sql service says sql.
+        const health = { status: 'ok', service: CONFIG.service };
+        health[CONFIG.store] = 'up';
+        send(res, 200, JSON.stringify(health));
         finish('/healthz', '', 200, start, req);
       } catch {
-        send(res, 503, JSON.stringify({ status: 'degraded', kv: 'down' }));
+        const health = { status: 'degraded' };
+        health[CONFIG.store] = 'down';
+        send(res, 503, JSON.stringify(health));
         finish('/healthz', '', 503, start, req);
       }
       return;
@@ -2059,6 +2066,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
     maxBody: limits.max,
     concurrency: budgetConcurrency(svc),
     timeoutMs: 30000,
+    store: storageKind(svc),
     consumedError: consumedErrorName(svc) ?? (errors.Gone ? 'Gone' : 'NotFound'),
   };
 
