@@ -529,7 +529,15 @@ class SqlStore {
     }
 
     const at = opts.cursor ? decodeCursor(opts.cursor) : null;
-    if (at && Array.isArray(at.v) && at.v.length === order.length) {
+    // A cursor from another order (or a corrupt one) used to vanish as if it
+    // were no cursor at all: the query answered page one again and a client
+    // that follows next looped forever. The shape is checked, not assumed.
+    if (opts.cursor && (!at || !Array.isArray(at.v) || at.v.length !== order.length)) {
+      throw new ArcodError('Invalid', {
+      message: 'cursor: not a page of this order (expected ' + order.length + ' sort value' + (order.length === 1 ? '' : 's') + '); ask for the first page with this order',
+      });
+    }
+    if (at) {
       where.push(this.keysetClause(columns, order, at.v, at.id));
     }
 

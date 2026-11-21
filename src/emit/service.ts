@@ -828,18 +828,25 @@ class MemoryStore {
     });
     if (opts.cursor) {
       const at = decodeCursor(opts.cursor);
-      if (at && Array.isArray(at.v)) {
-        const after = (item) => {
-          for (let index = 0; index < order.length; index++) {
-            const rule = order[index];
-            const value = item.value && typeof item.value === 'object' ? sortValue(item.value[rule.field]) : null;
-            const diff = compareValues(value, at.v[index]);
-            if (diff !== 0) return diff * rule.dir;
-          }
-          return compareValues(item.id, at.id);
-        };
-        items = items.filter((item) => after(item) > 0);
+      // A cursor from another order (or a corrupt one) used to vanish as if
+      // it were no cursor: the page started over and a client that follows
+      // next looped forever. The shape is checked here for the same reason
+      // the sql stores check it.
+      if (!at || !Array.isArray(at.v) || at.v.length !== order.length) {
+        throw new ArcodError('Invalid', {
+          message: 'cursor: not a page of this order (expected ' + order.length + ' sort value' + (order.length === 1 ? '' : 's') + '); ask for the first page with this order',
+        });
       }
+      const after = (item) => {
+        for (let index = 0; index < order.length; index++) {
+          const rule = order[index];
+          const value = item.value && typeof item.value === 'object' ? sortValue(item.value[rule.field]) : null;
+          const diff = compareValues(value, at.v[index]);
+          if (diff !== 0) return diff * rule.dir;
+        }
+        return compareValues(item.id, at.id);
+      };
+      items = items.filter((item) => after(item) > 0);
     }
     const hasMore = items.length > limit;
     const page = hasMore ? items.slice(0, limit) : items;
@@ -2270,18 +2277,24 @@ function kvEntityIoLines(): string[] {
     '      });',
     '      if (opts.cursor) {',
     '        const at = decodeCursor(opts.cursor);',
-    '        if (at && Array.isArray(at.v)) {',
-    '          const after = (item) => {',
-    '            for (let index = 0; index < order.length; index++) {',
-    '              const rule = order[index];',
-    '              const value = item.value && typeof item.value === "object" ? sortValue(item.value[rule.field]) : null;',
-    '              const diff = compareValues(value, at.v[index]);',
-    '              if (diff !== 0) return diff * rule.dir;',
-    '            }',
-    '            return compareValues(item.id, at.id);',
-    '          };',
-    '          items = items.filter((item) => after(item) > 0);',
+    '        // A cursor from another order (or a corrupt one) used to vanish',
+    '        // as if it were none: the page started over and a client that',
+    '        // follows next looped forever. The shape is checked here too.',
+    '        if (!at || !Array.isArray(at.v) || at.v.length !== order.length) {',
+    "          throw new ArcodError('Invalid', {",
+    "            message: 'cursor: not a page of this order (expected ' + order.length + ' sort value' + (order.length === 1 ? '' : 's') + '); ask for the first page with this order',",
+    '          });',
     '        }',
+    '        const after = (item) => {',
+    '          for (let index = 0; index < order.length; index++) {',
+    '            const rule = order[index];',
+    '            const value = item.value && typeof item.value === "object" ? sortValue(item.value[rule.field]) : null;',
+    '            const diff = compareValues(value, at.v[index]);',
+    '            if (diff !== 0) return diff * rule.dir;',
+    '          }',
+    '          return compareValues(item.id, at.id);',
+    '        };',
+    '        items = items.filter((item) => after(item) > 0);',
     '      }',
     '      const page = items.slice(0, limit);',
     '      const tail = page[page.length - 1];',
