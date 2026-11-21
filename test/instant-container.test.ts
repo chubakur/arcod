@@ -40,6 +40,12 @@ function spec(store: 'kv' | 'sql'): string {
     '      errors: Invalid',
     '    }',
     '',
+    '    public op findIn(choices: list) -> { items: list<Event> } {',
+    '      route: "POST /v1/find-in"',
+    '      effects: store.find',
+    '      errors: Invalid',
+    '    }',
+    '',
     '    public op find(marks: list<datetime>) -> { items: list<Event> } {',
     '      route: "POST /v1/find"',
     '      effects: store.find',
@@ -71,6 +77,12 @@ const impl: Record<string, string> = {
   find: [
     'export async function find(input, io) {',
     "  const page = await io.find('Event', { where: { marks: input.marks } });",
+    '  return { result: { items: page.items } };',
+    '}',
+  ].join(String.fromCharCode(10)),
+  findIn: [
+    'export async function findIn(input, io) {',
+    "  const page = await io.find('Event', { where: { marks: { in: input.choices } } });",
     '  return { result: { items: page.items } };',
     '}',
   ].join(String.fromCharCode(10)),
@@ -161,6 +173,29 @@ for (const store of ['kv', 'sql'] as const) {
       const invalid = await find(['yesterday']);
       assert.equal(invalid.status, 400);
       assert.match(await invalid.text(), /marks must hold an ISO 8601 datetime/);
+    } finally {
+      await svc.stop();
+    }
+  });
+
+
+  test(store + ': an in filter respells every expected container', async () => {
+    const svc = await startService(spec(store), { impl });
+    try {
+      const created = await fetch(svc.base + '/v1/events', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ at: '2026-01-01T09:00:00Z', marks: ['2026-01-01T12:00:00+03:00'], tags: {}, grid: [] }),
+      });
+      assert.equal(created.status, 201);
+      const res = await fetch(svc.base + '/v1/find-in', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ choices: [['2026-01-01T00:00:00Z'], ['2026-01-01T12:00:00+03:00']] }),
+      });
+      assert.equal(res.status, 201);
+      const page = await res.json();
+      assert.equal(page.items.length, 1, 'the offset list matches the stored one');
     } finally {
       await svc.stop();
     }
