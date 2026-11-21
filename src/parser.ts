@@ -593,7 +593,7 @@ class Parser {
     while (!this.is('}')) {
       const start = this.expect('example');
       const name = this.expectIdent('example name').value;
-      const example: ExampleNode = { kind: 'example', name, given: [], when: [], then: [], loc: locOf(this.prev()) };
+      const example: ExampleNode = { kind: 'example', name, given: [], when: [], then: [], sectionCloses: {}, loc: locOf(this.prev()) };
       this.expect('{');
       while (!this.is('}')) {
         const section = this.expectIdent('example section').value;
@@ -615,6 +615,7 @@ class Parser {
           this.accept(';');
         }
         this.expect('}');
+        example.sectionCloses![section as 'given' | 'when' | 'then'] = locOf(this.prev());
         example[section as 'given' | 'when' | 'then'] = stmts;
       }
       const end = this.expect('}');

@@ -17,7 +17,7 @@ function strip(x: unknown): unknown {
   // canonical print moves them, so they are not part of the semantics this
   // test compares.
   return JSON.parse(JSON.stringify(x, (k, v) => (
-    /locs?$/i.test(k) || k === 'blockCloses' || k === 'blockOpens' || k === 'source' || k === 'file' ? undefined : v
+    /locs?$/i.test(k) || k === 'blockCloses' || k === 'blockOpens' || k === 'sectionCloses' || k === 'source' || k === 'file' ? undefined : v
   )));
 }
 

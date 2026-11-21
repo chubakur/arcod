@@ -271,6 +271,9 @@ export interface ExampleNode {
   given: Stmt[];
   when: Stmt[];
   then: Stmt[];
+  // Closing brace of each section: a comment after the last statement of a
+  // section that is not the last one must stay in it, not move to the next.
+  sectionCloses?: Partial<Record<'given' | 'when' | 'then', Loc>>;
   loc: Loc;
 }
 

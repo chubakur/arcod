@@ -145,7 +145,9 @@ test('a comment after the last example statement stays inside the example', () =
     '}',
     '',
   ].join('\n'));
-  assert.match(out, /^      \}\n      \/\/ last check note\n    \}$/m);
+  // The note is after the last statement of then, so it stays in then (it
+  // used to be dropped, then briefly printed inside the example body).
+  assert.match(out, /^        true\n        \/\/ last check note\n      \}\n    \}$/m);
   assert.equal(format(out), out);
 });
 
@@ -164,6 +166,39 @@ test('a comment after the last environment line stays inside the block', () => {
     '',
   ].join('\n'));
   assert.match(out, /^environment dev \{\n  bind store -> redis\n  \/\/ last env note\n\}$/m);
+  assert.equal(format(out), out);
+});
+
+test('a comment after the last statement of given stays in given', () => {
+  const out = format([
+    'module m @0.1.0 {}',
+    'use capability arcod.std.kv @1',
+    'service S : http {',
+    '  uses store: kv',
+    '  contract {',
+    '    public op a() -> { ok: bool } {',
+    '      route: "/v1/a"',
+    '    }',
+    '  }',
+    '  examples {',
+    '    example one {',
+    '      given {',
+    '        true',
+    '        // note after given',
+    '      }',
+    '      when {',
+    '        a()',
+    '      }',
+    '      then {',
+    '        true',
+    '      }',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n'));
+  // It used to be printed as the first line of the when section.
+  assert.match(out, /^        true\n        \/\/ note after given\n      \}\n      when \{$/m);
   assert.equal(format(out), out);
 });
 

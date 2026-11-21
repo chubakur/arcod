@@ -728,9 +728,9 @@ class Printer {
       this.blank();
       this.emitComments(ex.loc.offset, 2);
       this.raw(2, 'example ' + ex.name + ' {');
-      if (ex.given.length) this.section('given', ex.given, 3);
-      if (ex.when.length) this.section('when', ex.when, 3);
-      if (ex.then.length) this.section('then', ex.then, 3);
+      if (ex.given.length) this.section('given', ex.given, 3, ex.sectionCloses?.given);
+      if (ex.when.length) this.section('when', ex.when, 3, ex.sectionCloses?.when);
+      if (ex.then.length) this.section('then', ex.then, 3, ex.sectionCloses?.then);
       this.bodyTail(ex.loc.end, 3);
       this.closeLine(2, '}', ex.loc.end);
     }
@@ -738,13 +738,14 @@ class Printer {
     this.closeLine(1, '}', close?.offset ?? -1);
   }
 
-  private section(name: string, stmts: Stmt[], indent: number): void {
+  private section(name: string, stmts: Stmt[], indent: number, close?: Loc): void {
     this.raw(indent, name + ' {');
     for (const st of stmts) {
       this.emitComments(st.loc.offset, indent + 1);
       if (st.kind === 'let') this.raw(indent + 1, 'let ' + st.name + ' = ' + expr(st.expr));
       else this.raw(indent + 1, expr(st.expr));
     }
+    if (close) this.bodyTail(close.offset, indent + 1);
     this.raw(indent, '}');
   }
 
@@ -998,6 +999,13 @@ export function formatSource(source: string, file: string): string {
       const stmts = [...ex.given, ...ex.when, ...ex.then];
       const ends = stmts.map((st) => st.loc.end);
       addBody(ex.loc.end, ends.length > 0 ? Math.max(...ends) : ex.loc.offset, ex.loc.end);
+      for (const key of ['given', 'when', 'then'] as const) {
+        const close = ex.sectionCloses?.[key];
+        if (!close) continue;
+        const list = ex[key];
+        const inner = list.map((st) => st.loc.end);
+        addBody(close.offset, inner.length > 0 ? Math.max(...inner) : close.offset - 1, close.offset);
+      }
     }
     const closes = s.blockCloses ?? {};
     const lastOp = s.contract[s.contract.length - 1];
