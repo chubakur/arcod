@@ -993,7 +993,13 @@ function matchesWhere(value, where) {
           message: 'where "' + op + '" on "' + field + '" compares with null; a null never matches, use a concrete value',
         });
       }
-      if (actual == null && op !== 'eq' && op !== 'ne' && op !== 'in') return false;
+      // SQL compares NULL with anything as NULL, so a row whose field has no
+      // value never matches -- and that includes "ne": col <> 'x' is not
+      // true for a NULL col. kv read an absent field as "different from x",
+      // and an empty contains hit it too (''.includes('')), so the same
+      // filter found rows sql never returns. eq and in already agreed by
+      // accident; the guard now names the rule once.
+      if (actual == null) return false;
       if (op === 'eq' && !sameValue(actual, expected)) return false;
       if (op === 'ne' && sameValue(actual, expected)) return false;
       if (op === 'in' && !(Array.isArray(expected) && expected.some((item) => sameValue(item, actual)))) return false;
