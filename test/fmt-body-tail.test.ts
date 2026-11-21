@@ -103,6 +103,52 @@ test('a comment after the last service block stays inside the service', () => {
   assert.equal(format(out), out);
 });
 
+test('a comment after the last service meta entry stays inside meta', () => {
+  const out = format([
+    'module m @0.1.0 {}',
+    'use capability arcod.std.kv @1',
+    'service S : http {',
+    '  meta {',
+    '    title: "shop"',
+    '    // last meta note',
+    '  }',
+    '  uses store: kv',
+    '}',
+    '',
+  ].join('\n'));
+  assert.match(out, /^  meta \{\n    title: "shop"\n    \/\/ last meta note\n  \}$/m);
+  assert.equal(format(out), out);
+});
+
+test('a comment after the last example statement stays inside the example', () => {
+  const out = format([
+    'module m @0.1.0 {}',
+    'use capability arcod.std.kv @1',
+    'service S : http {',
+    '  uses store: kv',
+    '  contract {',
+    '    public op a() -> { ok: bool } {',
+    '      route: "/v1/a"',
+    '    }',
+    '  }',
+    '  examples {',
+    '    example one {',
+    '      when {',
+    '        a()',
+    '      }',
+    '      then {',
+    '        true',
+    '        // last check note',
+    '      }',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n'));
+  assert.match(out, /^      \}\n      \/\/ last check note\n    \}$/m);
+  assert.equal(format(out), out);
+});
+
 test('a multi-line block comment inside a record keeps its alignment and is idempotent', () => {
   const out = format('module m @0.1.0 {}\ntype Row = {\n  /* a note\n     across lines */\n  id: uuid\n}\n');
   assert.equal(out, [

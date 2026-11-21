@@ -355,8 +355,11 @@ class Printer {
   // node starts after them, so they used to slide to the next declaration or
   // out of the file; they are printed before that body's closing brace.
   private bodyTails: Map<number, string[]>;
+  // Comments after the last entry of a service meta block, keyed by the
+  // service offset. They used to be printed above the next uses line.
+  private serviceMetaTails: Map<number, string[]>;
 
-  constructor(comments: Map<number, string[]>, trailing: Map<number, string[]> = new Map(), moduleComments: string[] = [], tailComments: string[] = [], metaTail: string[] = [], braceTrailing: Map<number, string[]> = new Map(), bodyTails: Map<number, string[]> = new Map()) {
+  constructor(comments: Map<number, string[]>, trailing: Map<number, string[]> = new Map(), moduleComments: string[] = [], tailComments: string[] = [], metaTail: string[] = [], braceTrailing: Map<number, string[]> = new Map(), bodyTails: Map<number, string[]> = new Map(), serviceMetaTails: Map<number, string[]> = new Map()) {
     this.comments = comments;
     this.trailing = trailing;
     this.moduleComments = moduleComments;
@@ -364,6 +367,7 @@ class Printer {
     this.metaTail = metaTail;
     this.braceTrailing = braceTrailing;
     this.bodyTails = bodyTails;
+    this.serviceMetaTails = serviceMetaTails;
   }
 
   // The last line of a block, with the comment that trailed its closing brace.
@@ -562,6 +566,13 @@ class Printer {
         if (commented) this.emitComments(locs[i].offset, 2);
         this.raw(2, k + ': ' + quoteStr(v));
       });
+      const metaTail = this.serviceMetaTails.get(s.loc.offset);
+      if (metaTail) {
+        for (const c of metaTail) {
+          if (c.startsWith('//')) this.raw(2, c);
+          else for (const line of c.split('\n')) this.raw(2, line);
+        }
+      }
       this.raw(1, '}');
       this.blank();
     }
@@ -720,6 +731,7 @@ class Printer {
       if (ex.given.length) this.section('given', ex.given, 3);
       if (ex.when.length) this.section('when', ex.when, 3);
       if (ex.then.length) this.section('then', ex.then, 3);
+      this.bodyTail(ex.loc.end, 3);
       this.closeLine(2, '}', ex.loc.end);
     }
     if (close) this.bodyTail(close.offset, 2);
@@ -938,6 +950,7 @@ export function formatSource(source: string, file: string): string {
   // field. A comment written after that field but before the brace has no node
   // of its own, so the leading rule would anchor it past the declaration.
   const bodyTails = new Map<number, string[]>();
+  const serviceMetaTails = new Map<number, string[]>();
   const bodies: Array<{ key: number; lastEnd: number; close: number }> = [];
   const addBody = (key: number, lastEnd: number, close: number): void => {
     if (close > lastEnd) bodies.push({ key, lastEnd, close });
@@ -974,6 +987,11 @@ export function formatSource(source: string, file: string): string {
     for (const op of s.contract) {
       const clauses = op.clauses.map((c) => c.loc.end);
       addBody(op.loc.end, clauses.length > 0 ? Math.max(...clauses) : op.loc.offset, op.loc.end);
+    }
+    for (const ex of s.examples) {
+      const stmts = [...ex.given, ...ex.when, ...ex.then];
+      const ends = stmts.map((st) => st.loc.end);
+      addBody(ex.loc.end, ends.length > 0 ? Math.max(...ends) : ex.loc.offset, ex.loc.end);
     }
     const closes = s.blockCloses ?? {};
     const lastOp = s.contract[s.contract.length - 1];
@@ -1050,6 +1068,22 @@ export function formatSource(source: string, file: string): string {
       trailing.set(target, arr);
       continue;
     }
+    // A comment after the last entry of a service meta block belongs inside
+    // that block, not above the next declaration (the module meta block keeps
+    // its own tail; a service had no such rule).
+    let metaTailHit = false;
+    for (const s of mod.services) {
+      const loc = s.metaLoc;
+      if (!loc || !(c.start > loc.offset && c.end < loc.end)) continue;
+      const entries = s.metaEntryLocs ?? [];
+      const lastEnd = entries.length > 0 ? entries[entries.length - 1].end : loc.offset;
+      if (c.start <= lastEnd) continue;
+      const arr = serviceMetaTails.get(s.loc.offset) ?? [];
+      arr.push(c.text);
+      serviceMetaTails.set(s.loc.offset, arr);
+      metaTailHit = true;
+    }
+    if (metaTailHit) continue;
     // A leading comment belongs to the first node that starts after it ends.
     let target = -1;
     for (const o of offsets) {
@@ -1082,5 +1116,5 @@ export function formatSource(source: string, file: string): string {
     arr.push(c.text);
     leading.set(target, arr);
   }
-  return new Printer(leading, trailing, moduleComments, tailComments, metaTail, braceTrailing, bodyTails).module(mod);
+  return new Printer(leading, trailing, moduleComments, tailComments, metaTail, braceTrailing, bodyTails, serviceMetaTails).module(mod);
 }
