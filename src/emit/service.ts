@@ -1032,21 +1032,46 @@ function checkOrderFields(meta, order) {
 // A record field the entity does not declare is a bug: kv keeps it, while the
 // sql stores name the columns in every statement and drop it - the same insert
 // would mean two different records per driver. Name it instead.
-// A datetime is text and it is a date: Date.parse on its own accepts a bare
-// year, so the first ten characters must be YYYY-MM-DD. What follows (a T or
-// a space, milliseconds, a zone) stays free because both drivers serialize
-// and read back the shape they already produced.
-function isDateTimeText(value) {
-  if (typeof value !== 'string' || value.length < 10) return false;
-  for (let index = 0; index < 10; index += 1) {
-    if (index === 4 || index === 7) {
-      if (value.charAt(index) !== '-') return false;
-      continue;
-    }
-    const code = value.charCodeAt(index);
-    if (code < 48 || code > 57) return false;
+// A datetime is an instant, and both drivers store the same one or the record
+// means two things. kv keeps the record verbatim as JSON; mysql keeps a
+// DATETIME(3) column and postgres a timestamptz, and both spell it back as
+// UTC. So the accepted text is canonicalized here, once: a T separator,
+// milliseconds, a Z suffix. An offset is converted (not stripped: +03:00 is a
+// different instant), a missing zone means UTC, a bare date means midnight.
+// A fourth fraction digit is refused instead of cut: silently dropping
+// microseconds is the drift this check exists to stop.
+const DATE_TIME = /^(\\d{4})-(\\d{2})-(\\d{2})(?:[T ](\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d{1,9}))?)?(Z|[+-]\\d{2}:?\\d{2})?)?$/;
+
+function canonicalDateTime(value) {
+  if (typeof value !== 'string') return null;
+  const parts = DATE_TIME.exec(value);
+  if (!parts) return null;
+  const year = Number(parts[1]);
+  const month = Number(parts[2]);
+  const day = Number(parts[3]);
+  const hour = Number(parts[4] || 0);
+  const minute = Number(parts[5] || 0);
+  const second = Number(parts[6] || 0);
+  const fraction = parts[7] || '';
+  if (fraction.length > 3) return null;
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  let offset = 0;
+  const zone = parts[8];
+  if (zone && zone !== 'Z') {
+    const digits = zone.slice(1).replace(':', '');
+    const zoneHour = Number(digits.slice(0, 2));
+    const zoneMinute = Number(digits.slice(2));
+    if (zoneHour > 23 || zoneMinute > 59) return null;
+    offset = (zone.charAt(0) === '-' ? -1 : 1) * (zoneHour * 60 + zoneMinute);
   }
-  return !Number.isNaN(Date.parse(value));
+  const millis = Number((fraction + '000').slice(0, 3));
+  const local = Date.UTC(year, month - 1, day, hour, minute, second, millis);
+  // 2026-02-30 is not a day: Date rolls it into March, so the calendar day
+  // the text names must be the one it lands on before the offset is applied.
+  const named = new Date(local);
+  if (named.getUTCFullYear() !== year || named.getUTCMonth() !== month - 1 || named.getUTCDate() !== day) return null;
+  const iso = new Date(local - offset * 60000).toISOString();
+  return iso.slice(0, 19) + (millis === 0 ? '' : '.' + iso.slice(20, 23)) + 'Z';
 }
 
 // An id names the row: a patch carrying another value would move the primary
@@ -1106,13 +1131,17 @@ function checkRecordFields(meta, record, place) {
   }
   // A datetime field holds an instant, as text: kv kept "yesterday" or 42
   // while mysql answered 500 at the driver, so one insert had three outcomes.
+  // What is stored is the canonical spelling: kv keeps the value verbatim, so
+  // an accepted offset or a space would read back differently than mysql's.
   for (const column of meta.columns) {
     if (column.base !== 'datetime') continue;
     const value = record[column.name];
     if (value === null || value === undefined) continue;
-    if (!isDateTimeText(value)) {
+    const canonical = canonicalDateTime(value);
+    if (canonical === null) {
       throw new ArcodError('Invalid', { message: place + ': ' + column.name + ' must be an ISO 8601 datetime' });
     }
+    record[column.name] = canonical;
   }
   // Declared bounds are part of the entity: a value outside them would store
   // the row the schema promises clients never see, so both facades answer 400
