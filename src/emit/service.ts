@@ -1301,7 +1301,12 @@ function looksLikeUrl(text) {
 }
 
 function checkRecordFields(meta, record, place) {
-  if (!record || typeof record !== 'object') return;
+  // A record is an object. A body that hands a string or null to io.insert used
+  // to fail later and worse: kv's Object.assign spread the characters into
+  // numbered fields, and a null died on .id as a 500 instead of a named 400.
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    throw new ArcodError('Invalid', { message: place + ': the record must be an object' });
+  }
   for (const field of Object.keys(record)) {
     if (!meta.columns.some((column) => column.name === field)) {
       throw new ArcodError('Invalid', {
@@ -2294,6 +2299,7 @@ function kvEntityIoLines(): string[] {
     '    async insert(entity, record) {',
     '      metricCapability("store.insert");',
     '      const meta = requestEntity(entity);',
+    "      if (record == null || typeof record !== \"object\" || Array.isArray(record)) throw new ArcodError('Invalid', { message: 'insert ' + entity + ': the record must be an object' });",
     '      const value = withDefaults(meta, record);',
     "      if (value.id == null || value.id === '') throw new ArcodError('Invalid', { message: 'insert ' + entity + ': missing id' });",
     '      checkRecordFields(meta, value, "insert " + entity);',
@@ -2431,6 +2437,7 @@ function sqlEntityIoLines(): string[] {
     '    async insert(entity, record) {',
     '      metricCapability("store.insert");',
     '      const meta = requestEntity(entity);',
+    "      if (record == null || typeof record !== \"object\" || Array.isArray(record)) throw new ArcodError('Invalid', { message: 'insert ' + entity + ': the record must be an object' });",
     '      const value = withDefaults(meta, record);',
     "      if (value.id == null || value.id === '') throw new ArcodError('Invalid', { message: 'insert ' + entity + ': missing id' });",
     '      checkRecordFields(meta, value, "insert " + entity);',
