@@ -1921,7 +1921,11 @@ This is a vertical slice, not a finished language.
   a service, an operation, a type or enum, a saga, an example and the
   `effects`/`rules`/`contract`/`examples`/`budget` blocks inside a service all
   keep `}  // note`, and a one-line record or enum keeps its shape instead of
-  expanding. `arcod diff`
+  expanding. A comment written inside a record, error or enum body after its
+  last field stays in that body, before the closing brace (it used to slide to
+  the next declaration or the end of the file), and a multi-line block comment
+  keeps its relative indentation, so a second `fmt` pass changes nothing.
+  `arcod diff`
   compares canonicalized specs; `arcod adopt` imports OpenAPI 3.x JSON only; a Swagger 2.0 document is refused with its version instead of being adopted without its `basePath` and `definitions`. A property with `format: binary` (a file payload) or `format: byte` (the base64 form of one) becomes `bytes`, keeping its `minLength`/`maxLength` as the length arguments, because adopting it as `string` dropped the fact that the field is not text.
 - of the rule predicates `arcod test` supports only `once`; any other
   predicate is reported as `skip` and counted apart in the summary (`W040`),

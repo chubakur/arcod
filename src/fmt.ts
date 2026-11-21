@@ -120,6 +120,21 @@ interface Comment {
   trailing: boolean;
 }
 
+function blockText(raw: string, column: number): string {
+  const lines = raw.split('\n');
+  for (let i = 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.trim() === '') {
+      lines[i] = '';
+      continue;
+    }
+    let cut = 0;
+    while (cut < column && cut < line.length && (line[cut] === ' ' || line[cut] === '\t')) cut += 1;
+    lines[i] = line.slice(cut);
+  }
+  return lines.join('\n');
+}
+
 function extractComments(source: string): Comment[] {
   const out: Comment[] = [];
   // A comment trails code when something other than blanks precedes it on its
@@ -153,7 +168,13 @@ function extractComments(source: string): Comment[] {
       i += 2;
       while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) i++;
       i = Math.min(i + 2, source.length);
-      out.push({ start, end: i, text: source.slice(start, i), trailing: trailingAt(start) });
+      // The first line's column is the comment's own indent. Continuation
+      // lines are kept relative to it, so the printer can move the whole
+      // comment to its target indent. Storing the raw slice made a second
+      // format pass add the indent again: a block comment inside a record
+      // grew two spaces per run.
+      const column = start - (source.lastIndexOf('\n', start - 1) + 1);
+      out.push({ start, end: i, text: blockText(source.slice(start, i), column), trailing: trailingAt(start) });
       continue;
     }
     i++;
@@ -330,14 +351,19 @@ class Printer {
   // Comments written after a closing brace on its own line, keyed by the
   // closing node's end. The block prints them back on that brace line.
   private braceTrailing: Map<number, string[]>;
+  // Comments written inside a type/error/enum body after its last field. No
+  // node starts after them, so they used to slide to the next declaration or
+  // out of the file; they are printed before that body's closing brace.
+  private bodyTails: Map<number, string[]>;
 
-  constructor(comments: Map<number, string[]>, trailing: Map<number, string[]> = new Map(), moduleComments: string[] = [], tailComments: string[] = [], metaTail: string[] = [], braceTrailing: Map<number, string[]> = new Map()) {
+  constructor(comments: Map<number, string[]>, trailing: Map<number, string[]> = new Map(), moduleComments: string[] = [], tailComments: string[] = [], metaTail: string[] = [], braceTrailing: Map<number, string[]> = new Map(), bodyTails: Map<number, string[]> = new Map()) {
     this.comments = comments;
     this.trailing = trailing;
     this.moduleComments = moduleComments;
     this.tailComments = tailComments;
     this.metaTail = metaTail;
     this.braceTrailing = braceTrailing;
+    this.bodyTails = bodyTails;
   }
 
   // The last line of a block, with the comment that trailed its closing brace.
@@ -348,7 +374,9 @@ class Printer {
   }
 
   private raw(indent: number, text: string): void {
-    let line = '  '.repeat(indent) + text;
+    // An empty line stays empty: indenting it would write trailing spaces into
+    // a comment or the end of a block.
+    let line = text === '' ? '' : '  '.repeat(indent) + text;
     if (this.pending.length > 0) {
       line += '  ' + this.pending.join(' ');
       this.pending = [];
@@ -458,7 +486,10 @@ class Printer {
   private typeDecl(t: TypeDecl): void {
     this.emitComments(t.loc.offset, 0);
     const fields = t.type.kind === 'record' ? t.type.fields : [];
-    if (fields.some((field) => this.comments.has(field.loc.offset) || this.trailing.has(field.loc.offset))) {
+    // A comment after the last field still lives inside the braces: it makes
+    // the record multi-line on its own.
+    const tail = this.bodyTails.has(t.loc.end);
+    if (tail || fields.some((field) => this.comments.has(field.loc.offset) || this.trailing.has(field.loc.offset))) {
       // One commented field turns the record multi-line, so the comment keeps
       // the field it describes instead of floating above the declaration.
       this.raw(0, 'type ' + t.name + ' = {');
@@ -466,6 +497,7 @@ class Printer {
         this.emitComments(fields[i].loc.offset, 1);
         this.raw(1, param(fields[i]) + (i < fields.length - 1 ? ',' : ''));
       }
+      this.bodyTail(t.loc.end);
       this.closeLine(0, '}', t.loc.end);
       return;
     }
@@ -474,11 +506,12 @@ class Printer {
 
   private errorDecl(e: ErrorDecl): void {
     this.emitComments(e.loc.offset, 0);
-    if (e.fields.length === 0) {
+    const tail = this.bodyTails.has(e.loc.end);
+    if (e.fields.length === 0 && !tail) {
       this.closeLine(0, 'error ' + e.name, e.loc.end);
       return;
     }
-    const commented = e.fields.some((field) => this.comments.has(field.loc.offset) || this.trailing.has(field.loc.offset));
+    const commented = tail || e.fields.some((field) => this.comments.has(field.loc.offset) || this.trailing.has(field.loc.offset));
     if (!commented) {
       this.raw(0, 'error ' + e.name + ' {');
       for (const f of e.fields) this.raw(1, param(f));
@@ -491,14 +524,16 @@ class Printer {
       this.emitComments(f.loc.offset, 1);
       this.raw(1, param(f));
     }
+    this.bodyTail(e.loc.end);
     this.closeLine(0, '}', e.loc.end);
   }
 
   private enumDecl(e: { kind: string; name: string; values: string[]; valueLocs?: Loc[]; loc: Loc }): void {
     this.emitComments(e.loc.offset, 0);
     const locs = e.valueLocs ?? [];
-    const commented = locs.length === e.values.length &&
-      e.values.some((_, index) => this.comments.has(locs[index].offset) || this.trailing.has(locs[index].offset));
+    const tail = this.bodyTails.has(e.loc.end);
+    const commented = tail || (locs.length === e.values.length &&
+      e.values.some((_, index) => this.comments.has(locs[index].offset) || this.trailing.has(locs[index].offset)));
     if (!commented) {
       this.closeLine(0, 'enum ' + e.name + ' { ' + e.values.join(', ') + ' }', e.loc.end);
       return;
@@ -509,6 +544,7 @@ class Printer {
       this.emitComments(locs[index].offset, 1);
       this.raw(1, e.values[index] + (index < e.values.length - 1 ? ',' : ''));
     }
+    this.bodyTail(e.loc.end);
     this.closeLine(0, '}', e.loc.end);
   }
 
@@ -720,6 +756,17 @@ class Printer {
   // Comments written after the last clause of a block still belong inside it.
   // A trailing comment on the closing brace itself is dropped, as everywhere
   // else: it has no line of its own anymore.
+  // Comments written after the last field of a type/error/enum body, still
+  // inside its braces, are printed at the body's indent before the brace.
+  private bodyTail(end: number): void {
+    const cs = this.bodyTails.get(end);
+    if (!cs || cs.length === 0) return;
+    for (const c of cs) {
+      if (c.startsWith('//')) this.raw(1, c);
+      else for (const line of c.split('\n')) this.raw(1, line);
+    }
+  }
+
   private blockTail(loc: Loc | undefined, indent: number): void {
     if (!loc) return;
     const cs = this.comments.get(loc.offset);
@@ -878,6 +925,25 @@ export function formatSource(source: string, file: string): string {
   const metaTail: string[] = [];
   // Comments after a closing brace, anchored on the node that brace closes.
   const braceTrailing = new Map<number, string[]>();
+  // Bodies (a record type, an error, an enum) and the offset of their last
+  // field. A comment written after that field but before the brace has no node
+  // of its own, so the leading rule would anchor it past the declaration.
+  const bodyTails = new Map<number, string[]>();
+  const bodies: Array<{ key: number; lastEnd: number; close: number }> = [];
+  for (const t of mod.types) {
+    if (t.type.kind !== 'record') continue;
+    const last = t.type.fields[t.type.fields.length - 1];
+    bodies.push({ key: t.loc.end, lastEnd: last ? last.loc.end : t.type.loc.offset, close: t.loc.end });
+  }
+  for (const e of mod.errors) {
+    if (e.fields.length === 0) continue;
+    bodies.push({ key: e.loc.end, lastEnd: e.fields[e.fields.length - 1].loc.end, close: e.loc.end });
+  }
+  for (const e of mod.enums) {
+    const locs = e.valueLocs ?? [];
+    if (locs.length === 0) continue;
+    bodies.push({ key: e.loc.end, lastEnd: locs[locs.length - 1].end, close: e.loc.end });
+  }
   for (const c of comments) {
     // A comment written between the module header braces belongs to the block,
     // not to the first declaration after it. Trailing ones keep the normal path
@@ -948,6 +1014,17 @@ export function formatSource(source: string, file: string): string {
     for (const o of offsets) {
       if (o >= c.end) { target = o; break; }
     }
+    // A comment inside a record/error/enum body, after its last field, has no
+    // node of its own: the next anchor is the next declaration or the end of
+    // the file, which would pull the note out of the braces (and, with a
+    // following declaration, make it read as a comment about that one).
+    const body = bodies.find((item) => c.start > item.lastEnd && c.end < item.close && (target < 0 || target >= item.close));
+    if (body) {
+      const arr = bodyTails.get(body.key) ?? [];
+      arr.push(c.text);
+      bodyTails.set(body.key, arr);
+      continue;
+    }
     if (target < 0) {
       // Nothing starts after this comment: it closes the file.
       tailComments.push(c.text);
@@ -957,5 +1034,5 @@ export function formatSource(source: string, file: string): string {
     arr.push(c.text);
     leading.set(target, arr);
   }
-  return new Printer(leading, trailing, moduleComments, tailComments, metaTail, braceTrailing).module(mod);
+  return new Printer(leading, trailing, moduleComments, tailComments, metaTail, braceTrailing, bodyTails).module(mod);
 }
