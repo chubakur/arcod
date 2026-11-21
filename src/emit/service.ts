@@ -837,6 +837,13 @@ class MemoryStore {
           message: 'cursor: not a page of this order (expected ' + order.length + ' sort value' + (order.length === 1 ? '' : 's') + '); ask for the first page with this order',
         });
       }
+      // A cursor's values are spelled by the store that minted it: kv sorts a
+      // moment as an epoch number, MySQL prints '2026-01-01 00:00:00.000',
+      // Postgres leaves the space out. Comparing a foreign spelling answers a
+      // silently wrong page, so the tag is refused and the client starts over.
+      if (at.s && at.s !== 'kv') {
+        throw new ArcodError('Invalid', { message: 'cursor: issued by the ' + at.s + ' store; ask for the first page here' });
+      }
       const after = (item) => {
         for (let index = 0; index < order.length; index++) {
           const rule = order[index];
@@ -853,7 +860,7 @@ class MemoryStore {
     let next = null;
     if (hasMore && page.length > 0) {
       const tail = page[page.length - 1];
-      next = encodeCursor(order.map((rule) => (tail.value && typeof tail.value === 'object' ? sortValue(tail.value[rule.field]) : null)), tail.id);
+      next = encodeCursor(order.map((rule) => (tail.value && typeof tail.value === 'object' ? sortValue(tail.value[rule.field]) : null)), tail.id, 'kv');
     }
     return {
       items: page.map((item) => (item.value && typeof item.value === 'object' && !Array.isArray(item.value) ? Object.assign({ id: item.id }, item.value) : item.value)),
@@ -924,8 +931,8 @@ function parseOrder(order) {
   });
 }
 
-function encodeCursor(values, id) {
-  return Buffer.from(JSON.stringify({ v: values, id })).toString('base64url');
+function encodeCursor(values, id, store) {
+  return Buffer.from(JSON.stringify({ v: values, id, s: store })).toString('base64url');
 }
 
 function decodeCursor(cursor) {
@@ -2289,6 +2296,9 @@ function kvEntityIoLines(): string[] {
     "            message: 'cursor: not a page of this order (expected ' + order.length + ' sort value' + (order.length === 1 ? '' : 's') + '); ask for the first page with this order',",
     '          });',
     '        }',
+    '        if (at.s && at.s !== "kv") {',
+    "          throw new ArcodError('Invalid', { message: 'cursor: issued by the ' + at.s + ' store; ask for the first page here' });",
+    '        }',
     '        const after = (item) => {',
     '          for (let index = 0; index < order.length; index++) {',
     '            const rule = order[index];',
@@ -2303,7 +2313,7 @@ function kvEntityIoLines(): string[] {
     '      const page = items.slice(0, limit);',
     '      const tail = page[page.length - 1];',
     '      const next = items.length > limit && tail',
-    '        ? encodeCursor(order.map((rule) => (tail.value && typeof tail.value === "object" ? sortValue(tail.value[rule.field]) : null)), tail.id)',
+    '        ? encodeCursor(order.map((rule) => (tail.value && typeof tail.value === "object" ? sortValue(tail.value[rule.field]) : null)), tail.id, "kv")',
     '        : null;',
     '      return {',
     '        items: page.map((item) => (item.value && typeof item.value === "object" && !Array.isArray(item.value) ? Object.assign({ id: item.id }, item.value) : item.value)),',

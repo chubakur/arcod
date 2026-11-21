@@ -178,3 +178,39 @@ test('kv: a cursor from another order is 400, not a restart of the first page', 
     await svc.stop();
   }
 });
+
+// The values a cursor carries are spelled by the store that minted it, and the
+// tag says which one that was. Comparing another store's spelling would answer
+// a silently wrong page, so a foreign tag is Invalid before any query.
+async function checkStoreTag(store: any, label: string) {
+  const statements: string[] = [];
+  store.query = async (sql: string) => {
+    statements.push(sql);
+    return { rows: [], affected: 0 };
+  };
+  const foreign = Buffer.from(JSON.stringify({ v: ['b'], id: 'b', s: 'kv' })).toString('base64url');
+  await assert.rejects(
+    () => store.entityFind('item', columns, { order: 'title asc', cursor: foreign }),
+    (error: any) => {
+      assert.equal(error.name, 'Invalid', label + ': a foreign cursor is Invalid');
+      assert.match(String(error.message), /cursor: issued by the kv store; ask for the first page here/, label);
+      return true;
+    },
+  );
+  assert.equal(statements.length, 0, label + ': a foreign cursor never reaches the driver');
+  const own = Buffer.from(JSON.stringify({ v: ['b'], id: 'b', s: label })).toString('base64url');
+  await store.entityFind('item', columns, { order: 'title asc', cursor: own });
+  assert.equal(statements.length, 1, label + ': a cursor of this store still pages');
+}
+
+test('mysql refuses a cursor from another store', async () => {
+  const { SQL_STORE_SOURCE } = await import('../src/emit/sql-store.ts');
+  const { SqlStore } = await loadStore(SQL_STORE_SOURCE, 'SqlStore');
+  await checkStoreTag(new SqlStore('mysql://localhost:3306/arcod'), 'mysql');
+});
+
+test('postgres refuses a cursor from another store', async () => {
+  const { PG_SQL_STORE_SOURCE, PG_STORE_SOURCE } = await import('../src/emit/pg-store.ts');
+  const { PgStore } = await loadStore(PG_SQL_STORE_SOURCE, 'PgStore', PG_STORE_SOURCE);
+  await checkStoreTag(new PgStore('postgres://localhost:5432/arcod'), 'postgres');
+});

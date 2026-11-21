@@ -587,6 +587,11 @@ class PgStore {
       });
     }
     if (at) {
+      // The values were spelled by the store that minted the cursor; comparing
+      // another store's spelling would answer a silently wrong page.
+      if (at.s && at.s !== 'postgres') {
+        throw new ArcodError('Invalid', { message: 'cursor: issued by the ' + at.s + ' store; ask for the first page here' });
+      }
       where.push(this.keysetClause(columns, order, at.v, at.id));
     }
 
@@ -609,7 +614,7 @@ class PgStore {
     let next = null;
     if (hasMore && page.length > 0) {
       const tail = page[page.length - 1];
-      next = encodeCursor(order.map((r) => (tail[r.field] == null ? null : tail[r.field])), tail.id);
+      next = encodeCursor(order.map((r) => (tail[r.field] == null ? null : tail[r.field])), tail.id, 'postgres');
     }
     return { items: page, next };
   }
