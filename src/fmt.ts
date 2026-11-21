@@ -856,6 +856,7 @@ class Printer {
       if (keys.length > 0) s += '(' + keys.map((k) => k + ': ' + expr(d.args[k])).join(', ') + ')';
       this.raw(1, s);
     }
+    this.bodyTail(e.loc.end, 1);
     this.closeLine(0, '}', e.loc.end);
   }
 
@@ -973,6 +974,11 @@ export function formatSource(source: string, file: string): string {
   // the contract/rules/effects/examples/budget blocks. A comment after the
   // last child used to be keyed on the closing brace and dropped, because the
   // brace printer only looked for trailing comments.
+  for (const e of mod.environments) {
+    const ends = e.binds.map((b) => b.loc.end);
+    if (e.deploy) ends.push(e.deploy.loc.end);
+    addBody(e.loc.end, ends.length > 0 ? Math.max(...ends) : e.loc.offset, e.loc.end);
+  }
   for (const s of mod.services) {
     const ends = [
       ...s.uses.map((u) => u.loc.end),

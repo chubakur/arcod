@@ -149,6 +149,24 @@ test('a comment after the last example statement stays inside the example', () =
   assert.equal(format(out), out);
 });
 
+test('a comment after the last environment line stays inside the block', () => {
+  const out = format([
+    'module m @0.1.0 {}',
+    'use capability arcod.std.kv @1',
+    'service S : http {',
+    '  uses store: kv',
+    '}',
+    '',
+    'environment dev {',
+    '  bind store -> redis',
+    '  // last env note',
+    '}',
+    '',
+  ].join('\n'));
+  assert.match(out, /^environment dev \{\n  bind store -> redis\n  \/\/ last env note\n\}$/m);
+  assert.equal(format(out), out);
+});
+
 test('a multi-line block comment inside a record keeps its alignment and is idempotent', () => {
   const out = format('module m @0.1.0 {}\ntype Row = {\n  /* a note\n     across lines */\n  id: uuid\n}\n');
   assert.equal(out, [
