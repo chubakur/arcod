@@ -1105,6 +1105,31 @@ function canonicalDateTime(value) {
   return iso.slice(0, 19) + (millis === 0 ? '' : '.' + iso.slice(20, 23)) + 'Z';
 }
 
+// A field declared as a container of instants (list<datetime>,
+// map<list<datetime>>) is JSON text, and neither driver types it: the row read
+// back exactly as the caller wrote it, while a scalar datetime column read back
+// canonical. STORES[entity].instants says how many list/map wrappers sit above
+// the instant, so the same canonical spelling lands at every leaf.
+function canonicalInstants(value, depth, place, field) {
+  if (value === null || value === undefined) return value;
+  if (depth === 0) {
+    const canonical = canonicalDateTime(value);
+    if (canonical === null) {
+      throw new ArcodError('Invalid', { message: place + ': ' + field + ' must hold an ISO 8601 datetime' });
+    }
+    return canonical;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => canonicalInstants(item, depth - 1, place, field));
+  }
+  if (typeof value === 'object') {
+    const out = {};
+    for (const key of Object.keys(value)) out[key] = canonicalInstants(value[key], depth - 1, place, field);
+    return out;
+  }
+  throw new ArcodError('Invalid', { message: place + ': ' + field + ' must be a list or map of datetime' });
+}
+
 // An id names the row: a patch carrying another value would move the primary
 // key on sql and leave the stored record disagreeing with its key on kv. An
 // echo of the same id (a client resending the whole record) stays legal.
@@ -1173,6 +1198,14 @@ function checkRecordFields(meta, record, place) {
       throw new ArcodError('Invalid', { message: place + ': ' + column.name + ' must be an ISO 8601 datetime' });
     }
     record[column.name] = canonical;
+  }
+  // A container of instants takes the same spelling at every leaf, so a row
+  // does not read back differently depending on how the caller wrote it.
+  const instantFields = meta.instants || {};
+  for (const field of Object.keys(instantFields)) {
+    const value = record[field];
+    if (value === null || value === undefined) continue;
+    record[field] = canonicalInstants(value, instantFields[field], place, field);
   }
   // Declared bounds are part of the entity: a value outside them would store
   // the row the schema promises clients never see, so both facades answer 400
@@ -2704,8 +2737,43 @@ function entityBounds(mod: ModuleNode, decl: TypeDecl): Record<string, FieldBoun
   return bounds;
 }
 
-function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
-  const table: Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
+// How many list/map wrappers sit above an instant, or -1 when the type is not
+// a container of instants at all. list<datetime> is 1, map<list<Moment>>
+// (Moment an alias) is 2. The count is the whole fact the runtime needs: JSON
+// arrays and objects are walked generically, so list and map need no separate
+// case, and a record or union inside a container is left as written.
+function instantDepthOf(mod: ModuleNode, type: TypeExpr, depth = 0): number {
+  if (depth > 8) return -1;
+  if (type.kind === 'optional') return instantDepthOf(mod, type.inner, depth + 1);
+  if (type.kind !== 'named') return -1;
+  if (type.name === 'datetime') return 0;
+  const decl = mod.types.find((item) => item.name === type.name);
+  if (decl) return instantDepthOf(mod, decl.type, depth + 1);
+  if (type.name !== 'list' && type.name !== 'map') return -1;
+  // list<K> has one argument; map<K, V> has two and the instant lives in V,
+  // so take the last type argument rather than the key type.
+  const typed = type.args.filter((item) => item.isType);
+  const arg = type.name === 'map' ? typed[typed.length - 1] : (typed[0] ?? type.args[0]);
+  const inner = arg ? (arg.value as TypeExpr) : null;
+  if (!inner || (inner.kind !== 'named' && inner.kind !== 'optional')) return -1;
+  const rest = instantDepthOf(mod, inner, depth + 1);
+  return rest < 0 ? -1 : rest + 1;
+}
+
+// Only containers are listed: a scalar datetime column already goes through
+// canonicalDateTime, and listing it twice would be a second rule for one fact.
+function entityInstants(mod: ModuleNode, decl: TypeDecl): Record<string, number> {
+  const table: Record<string, number> = {};
+  if (decl.type.kind !== 'record') return table;
+  for (const field of decl.type.fields) {
+    const depth = instantDepthOf(mod, field.type);
+    if (depth > 0) table[field.name] = depth;
+  }
+  return table;
+}
+
+function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
+  const table: Record<string, { prefix: string; columns: Column[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
   const uniques: Array<[string, string[]]> = [];
   for (const rule of svc.rules) {
     if (rule.kind !== 'unique') continue;
@@ -2724,6 +2792,7 @@ function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | nu
       // io.aggregate on kv died on `meta.columns.some` with a 500.
       columns: recordColumns(mod, decl, groups),
       bounds: entityBounds(mod, decl),
+      instants: entityInstants(mod, decl),
       uniqueGroups: groups,
       defaults: entityDefaults(mod, decl),
     };
@@ -2731,8 +2800,8 @@ function entityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | nu
   return table;
 }
 
-function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
-  const table: Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
+function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] | null = null): Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> {
+  const table: Record<string, { table: string; columns: unknown[]; bounds: Record<string, FieldBounds>; instants: Record<string, number>; uniqueGroups: string[][]; defaults: Record<string, DefaultValue> }> = {};
   const uniquesByEntity: Record<string, string[][]> = {};
   for (const rule of svc.rules) {
     if (rule.kind !== 'unique') continue;
@@ -2746,6 +2815,7 @@ function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] |
       table: decl.name.toLowerCase(),
       columns: recordColumns(mod, decl, groups),
       bounds: entityBounds(mod, decl),
+      instants: entityInstants(mod, decl),
       uniqueGroups: groups,
       defaults: entityDefaults(mod, decl),
     };
