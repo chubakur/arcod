@@ -303,9 +303,9 @@
           <div class="card" style="padding:18px 22px">
             <div style="display:flex; gap:26px; flex-wrap:wrap; font:13px/1.5 var(--mono); color:var(--muted)">
               <span><b style="color:var(--text); font-size:18px">0</b><br>runtime deps</span>
-              <span><b style="color:var(--text); font-size:18px">98</b><br>diagnostics</span>
+              <span><b style="color:var(--text); font-size:18px">109</b><br>diagnostics</span>
               <span><b style="color:var(--text); font-size:18px">9</b><br>capabilities</span>
-              <span><b style="color:var(--text); font-size:18px">775</b><br>tests</span>
+              <span><b style="color:var(--text); font-size:18px">947</b><br>tests</span>
             </div>
           </div>
         </div>
@@ -316,39 +316,42 @@
   <section id="news">
     <div class="wrap">
       <div class="kicker">what shipped this week</div>
-      <h2>Three things shipped on 2026-11-19.</h2>
+      <h2>Three things shipped on 2026-11-20.</h2>
       <p class="sub">Each is covered by tests in the repository.</p>
       <div class="grid-3">
         <div class="card">
-          <span class="num">2026-11-19 · EMBEDDINGS</span>
-          <h3>Vectors from the same binding as chat</h3>
-          <p><code>io.embed(texts)</code> asks the bound model for one vector per input, in
-          request order — the body never hashes text or invents a vector. A binding can make
-          the width a promise: <code>bind model -&gt; ollama(model: "nomic-embed-text", dim: 768)</code>.
-          A vector of another size fails the operation with a named error instead of landing
-          next to the rest; <code>dim</code> itself is checked (<code>A077</code>), and an empty
-          batch returns <code>[]</code> without a request. <code>examples/vector</code> keeps a
-          note and its vector in one record and ranks hits by cosine.</p>
+          <span class="num">2026-11-20 · WRITE</span>
+          <h3>A write has to match the declared field</h3>
+          <p>A value the declaration forbids is now <code>400 Invalid</code> on both
+          <code>kv</code> and SQL, instead of a row that reads differently per driver:
+          <code>42</code> in a text field, <code>1.5</code> in an <code>int</code>,
+          <code>"false"</code> in a <code>bool</code>, <code>"yesterday"</code> in a
+          <code>datetime</code>, and anything outside <code>string(min: 3, max: 5)</code>.
+          An unknown field names the declared ones, and an update cannot change the
+          <code>id</code>. A bound pair that admits no value
+          (<code>int(min: 10, max: 5)</code>) is <code>A090</code> at check time, before any
+          caller sees a 400.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-19 · REDIS</span>
-          <h3>A broker restart no longer looks like a hang</h3>
-          <p>When Redis closed the socket, a command already sent waited forever: a queue
-          consumer parked on <code>receive()</code> and the service silently stopped taking
-          messages. Both clients now reject every pending call with
-          <code>redis connection closed</code>, and a new socket starts with an empty buffer so
-          a half-read reply cannot poison it. Subscribers re-declare every topic that still has
-          listeners after a reconnect, so a live page keeps its events instead of going quiet.</p>
+          <span class="num">2026-11-20 · STORE</span>
+          <h3>A total without walking the pages</h3>
+          <p><code>io.aggregate('Invoice', { field: 'amount', op: 'sum', where: { paid: false } })</code>
+          returns <code>sum</code>, <code>avg</code>, <code>min</code> or <code>max</code> over
+          one numeric field. SQL runs one statement and <code>kv</code> folds the filtered
+          namespace after the same match; an empty sum is <code>0</code>, an empty
+          <code>avg</code>/<code>min</code>/<code>max</code> is <code>null</code>, and an
+          unknown op or field is <code>Invalid</code> with the name in the message. Reading
+          it needs <code>store.aggregate</code> in <code>effects</code>.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-19 · BUILD</span>
-          <h3>A failed build keeps the last tree that worked</h3>
-          <p>The build writes to a staging directory and renames it after the last file, so a
-          late failure — a missing bind import, a plugin without its adapter — leaves the
-          previous <code>.arcod/build</code> byte-identical instead of an empty scaffold. The
-          migration plan and its SQL are published with that same tree, and
-          <code>NNNN_*.sql</code> or prompt files the contract no longer owns are pruned: a
-          removed operation leaves no prompt behind, a dropped table leaves no migration.</p>
+          <span class="num">2026-11-20 · TEST</span>
+          <h3>An LLM service tests with no model running</h3>
+          <p><code>arcod test</code> already supplied memory records, blobs, identity and a
+          queue; it now supplies the model too. <code>LLM_DRIVER=memory</code> answers a chat
+          with a deterministic reply and returns an embedding that is a stable vector of the
+          declared <code>dim</code>. <code>examples/chat</code> and
+          <code>examples/vector</code> run their examples on a machine with no Ollama, while
+          a deployment still talks to a real endpoint.</p>
         </div>
       </div>
     </div>
@@ -391,7 +394,7 @@
       <h2>One file in. A running system out.</h2>
       <p class="sub"><code>arcod make</code> runs the same steps the standalone commands do, so the pipeline cannot drift from the CLI.</p>
       <div class="steps">
-        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, access, routes, examples. 98 diagnostics, errors stop the build.</p></div>
+        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, access, routes, examples. 109 diagnostics, errors stop the build.</p></div>
         <div class="step"><h3>Plan</h3><p>A deterministic task DAG: files, dependencies, acceptance criteria, <code>--json</code>.</p></div>
         <div class="step"><h3>Prompts</h3><p>One prompt per operation with a token budget and a hash for caching.</p></div>
         <div class="step"><h3>Build &amp; test</h3><p>Service, UI, compose, manifests — then the model's own examples run against it.</p></div>
@@ -508,6 +511,25 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <code>UNIQUE KEY</code> — with a checksummed changelog the service
           applies on boot. Re-runs are no-ops; an edited migration refuses to
           start.</p>
+        </div>
+        <div class="card">
+          <h3>Totals and sums in one call</h3>
+          <p><code>io.count</code> returns a number and ignores <code>limit</code>/<code>cursor</code>;
+          <code>io.aggregate(entity, { field, op })</code> returns <code>sum</code>,
+          <code>avg</code>, <code>min</code> or <code>max</code> over one numeric field with the
+          same <code>where</code> operators as <code>find</code>. On SQL each is one statement,
+          on <code>kv</code> one fold of the filtered namespace; the effect is declared as
+          <code>store.count</code> or <code>store.aggregate</code>.</p>
+        </div>
+        <div class="card">
+          <h3>One row, one shape on every driver</h3>
+          <p>The generated store checks a write against the record it declares before
+          either driver sees it: a boolean field refuses <code>"false"</code>, an
+          <code>int</code> refuses <code>1.5</code>, a text or bytes field refuses a
+          number, a <code>datetime</code> refuses a word, a patch cannot change the
+          <code>id</code>, and a field the entity does not declare names the ones it does.
+          Declared bounds travel with the same check, so <code>string(min: 3, max: 5)</code>
+          is a 400 on insert and on update.</p>
         </div>
         <div class="card">
           <h3>One model, two SQL dialects</h3>
@@ -720,6 +742,7 @@ deploy.dev.json          deploy manifest per environment</code></pre>
             <li><b><code>find</code> on <code>kv</code> is a scan with a filter</b>, not a query planner: one entity namespace matched in memory. On <code>sql</code> the same <code>find</code> is pushed into <code>WHERE</code>/<code>ORDER BY</code>/<code>LIMIT</code>. Indexes are single-field (<code>index Task.dueAt</code>); composite and partial indexes are not generated.</li>
             <li><b>Vector search is a scan.</b> <code>examples/vector</code> reads the notes it can find and ranks them in the body: there is no ANN index and no distance <code>order by</code> in the store. Cosine scores stay between -1 and 1, so a caller can pick a threshold; a large corpus needs an index this example does not have.</li>
             <li><b>SSR embeds one first screen.</b> A page whose operations all need input cannot fill it and gets <code>W030</code>; later changes still come from the generated form, not from streamed updates.</li>
+            <li><b><code>datetime</code> keeps milliseconds on SQL.</b> A datetime column is <code>DATETIME(3)</code>, so a timestamp written with six fractional digits reads back trimmed on MySQL while <code>kv</code> keeps the string as sent; sub-millisecond precision is not preserved across drivers.</li>
             <li><b>A unique claim on <code>kv</code> outlives the record</b>: the claim key has no TTL, so an expired record holds its value until removed or updated. On <code>sql</code>, uniqueness is the table constraint, so nothing to clean up.</li>
             <li><b>Workflows</b> are parsed, described and validated — no runner is generated (<code>W022</code>); a job runs only when it declares an <code>on:</code> queue consumer (<code>W017</code>).</li>
             <li><b>Streams and queues are in-process</b> until you bind them to Redis; only then do replicas share events. OpenAPI publishes a <code>bearerAuth</code> scheme for a service that uses <code>auth: identity</code>, and the token requirement is listed only on operations that need it; a <code>public</code> operation opts out with <code>security: []</code>.</li>
