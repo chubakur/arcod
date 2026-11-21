@@ -37,10 +37,7 @@ export function canonicalInstant(text: string): string | null {
 // milliseconds (`DATETIME(3)`). An offset is converted, not stripped: dropping
 // `+03:00` would move the instant three hours.
 export function utcDateTime(text: string): string | null {
-  if (!isIsoInstant(text)) return null;
-  const at = Date.parse(withColonOffset(text));
-  if (Number.isNaN(at)) return null;
-  const iso = new Date(at).toISOString();
-  const fraction = iso.slice(20, 23);
-  return iso.slice(0, 19).replace('T', ' ') + (fraction === '000' ? '' : '.' + fraction);
+  // One resolver decides the instant; this only respells it for MySQL.
+  const canonical = canonicalInstant(text);
+  return canonical === null ? null : canonical.replace('T', ' ').replace('Z', '');
 }
