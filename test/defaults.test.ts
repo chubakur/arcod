@@ -113,13 +113,15 @@ test('A059 refuses a datetime default that is not a zoned instant', () => {
     '  id: uuid,',
     '  naive: datetime = "2026-01-01T00:00:00",',
     '  rollover: datetime = "2026-02-30T00:00:00Z",',
+    '  micro: datetime = "2026-01-01T00:00:00.123456Z",',
     '  junk: datetime = "tomorrow"',
     '}',
   ].join('\n');
   const diags = check(parse(spec, 'main.arc'));
   const a059 = diags.filter((item) => item.code === 'A059');
-  assert.deepEqual(a059.map((item) => item.path).sort(), ['types.Stamp.junk', 'types.Stamp.naive', 'types.Stamp.rollover']);
-  for (const item of a059) assert.match(item.message, /ISO-8601 instant with a time zone/);
+  assert.deepEqual(a059.map((item) => item.path).sort(), ['types.Stamp.junk', 'types.Stamp.micro', 'types.Stamp.naive', 'types.Stamp.rollover']);
+  assert.match(a059.find((item) => item.path === 'types.Stamp.micro')!.message, /finer than a millisecond/);
+  for (const item of a059.filter((item) => item.path !== 'types.Stamp.micro')) assert.match(item.message, /ISO-8601 instant with a time zone/);
 });
 
 // CHAR(36) takes any string and BIGINT silently truncates, so these two
@@ -191,3 +193,48 @@ test('A059 rejects a default that is not a literal of the field type', async () 
   const good = check(parse(source, 'main.arc'));
   assert.ok(!good.some((item) => item.code === 'A059'), 'the example itself is clean');
 });
+
+// A default is filled in by the store, and the store keeps one spelling. The
+// declared offset must be converted there too, or a row without the field
+// would read back differently on kv (as written) and sql (as UTC).
+test('a datetime default is inserted in the canonical spelling', async () => {
+  const spec = [
+    'module stamps @0.1.0 {}',
+    'use capability arcod.std.kv @1',
+    'use capability arcod.std.ids @1',
+    '',
+    'type Stamp = { id: uuid, at: datetime = "2026-01-01T02:00:00+02:00" }',
+    '',
+    'error Invalid',
+    '',
+    'service Stamps : http {',
+    '  uses store: kv',
+    '  uses uuid: ids',
+    '',
+    '  effects {',
+    '    allow store.insert, uuid.new',
+    '  }',
+    '',
+    '  contract {',
+    '    public op create() -> Stamp {',
+    '      route: "POST /v1/stamps"',
+    '      effects: store.insert, uuid.new',
+    '      errors: Invalid',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join(String.fromCharCode(10));
+  const impl = {
+    create: 'export async function create(input, io) { return { result: await io.insert("Stamp", { id: io.new() }) }; }',
+  };
+  const svc = await startService(spec, { impl });
+  try {
+    const res = await fetch(svc.base + '/v1/stamps', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(res.status, 201);
+    assert.equal((await res.json()).at, '2026-01-01T00:00:00Z');
+  } finally {
+    await svc.stop();
+  }
+});
+

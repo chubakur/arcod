@@ -20,6 +20,19 @@ export function isIsoInstant(text: string): boolean {
   return new Date(at).toISOString().slice(0, 10) === day;
 }
 
+// The one spelling a stored instant has (a default, an insert, a `where`
+// filter): UTC, milliseconds, `T`, `Z`. Two drivers and the model read the
+// same value only if the text is the same, so the compiler resolves a default
+// through this function instead of publishing it as written.
+export function canonicalInstant(text: string): string | null {
+  if (!isIsoInstant(text)) return null;
+  const at = Date.parse(withColonOffset(text));
+  if (Number.isNaN(at)) return null;
+  const iso = new Date(at).toISOString();
+  const fraction = iso.slice(20, 23);
+  return iso.slice(0, 19) + (fraction === '000' ? '' : '.' + fraction) + 'Z';
+}
+
 // The spelling MySQL accepts in a DATETIME literal: no `T`, no zone, UTC and
 // milliseconds (`DATETIME(3)`). An offset is converted, not stripped: dropping
 // `+03:00` would move the instant three hours.

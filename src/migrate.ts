@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Expr, ModuleNode, Param, ServiceNode, TypeDecl, TypeExpr } from './ast.ts';
 import { MYSQL, type SqlDialect } from './dialects.ts';
 import { storageUse } from './capabilities.ts';
-import { isIsoInstant } from './instant.ts';
+import { canonicalInstant, isIsoInstant } from './instant.ts';
 
 export interface Migration {
   version: string;
@@ -87,7 +87,18 @@ export function defaultValue(
       if (!isIsoInstant(value)) {
         return { ok: false, reason: JSON.stringify(value) + ' is not an ISO-8601 instant with a time zone' };
       }
-      return { ok: true, value };
+      // DATETIME(3) keeps milliseconds and the runtime field is canonical to
+      // them: a finer fraction would be cut in the DDL and refused by the
+      // store, so every insert relying on the default answered 400.
+      const fraction = /\.(\d+)/.exec(value);
+      if (fraction && fraction[1].length > 3) {
+        return { ok: false, reason: JSON.stringify(value) + ' is finer than a millisecond' };
+      }
+      // The default is published to the runtime in the same spelling a store
+      // keeps, so a row that predates the field reads back the same on both.
+      const canonical = canonicalInstant(value);
+      if (canonical === null) return { ok: false, reason: JSON.stringify(value) + ' is not an ISO-8601 instant with a time zone' };
+      return { ok: true, value: canonical };
     case 'int':
       // BIGINT has no fractional part; a DDL DEFAULT 1.5 is an error on
       // Postgres and a silent truncation on MySQL, so it is a model mistake.
