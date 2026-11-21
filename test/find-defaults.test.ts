@@ -15,7 +15,7 @@ const spec = [
   'use capability arcod.std.kv @1',
   'use capability arcod.std.ids @1',
   '',
-  'type Note = { id: uuid, title: string, done: bool = false, body: string? }',
+  'type Note = { id: uuid, title: string, done: bool = false, score: int = 10, body: string? }',
   '',
   'error Invalid',
   'error NotFound',
@@ -25,7 +25,7 @@ const spec = [
   '  uses uuid: ids',
   '',
   '  effects {',
-  '    allow store.find, store.fetch',
+  '    allow store.find, store.fetch, store.count, store.aggregate',
   '  }',
   '',
   '  contract {',
@@ -38,6 +38,16 @@ const spec = [
   '      route: "GET /v1/notes/:id"',
   '      effects: store.fetch',
   '      errors: NotFound',
+  '    }',
+  '',
+  '    public op open() -> { items: list<Note> } {',
+  '      route: "GET /v1/open"',
+  '      effects: store.find',
+  '    }',
+  '',
+  '    public op total() -> int {',
+  '      route: "GET /v1/total"',
+  '      effects: store.aggregate',
   '    }',
   '  }',
   '}',
@@ -59,6 +69,17 @@ const impl: Record<string, string> = {
   get: [
     'export async function get(input, io) {',
     "  return { result: await io.fetch('Note', input.id) };",
+    '}',
+  ].join(String.fromCharCode(10)),
+  open: [
+    'export async function open(input, io) {',
+    "  const page = await io.find('Note', { where: { done: false } });",
+    '  return { result: { items: page.items } };',
+    '}',
+  ].join(String.fromCharCode(10)),
+  total: [
+    'export async function total(input, io) {',
+    "  return { result: await io.aggregate('Note', { field: 'score', op: 'sum' }) };",
     '}',
   ].join(String.fromCharCode(10)),
 };
@@ -137,7 +158,7 @@ const stored = (id: string, record: Record<string, unknown>) =>
 test('find fills a declared default for a record that predates the field', async () => {
   const redis = fakeRedis({
     'note:legacy': stored('legacy', { title: 'old' }),
-    'note:taken': stored('taken', { title: 'new', done: true, body: 'kept' }),
+    'note:taken': stored('taken', { title: 'new', done: true, score: 3, body: 'kept' }),
   });
   const port = await listen(redis.server);
   const svc = await startService(spec, {
@@ -168,6 +189,21 @@ test('find fills a declared default for a record that predates the field', async
     const one = (await (await fetch(svc.base + '/v1/notes/legacy')).json()) as Record<string, unknown>;
     assert.equal(one.done, false, 'fetch agrees with find');
     assert.equal(one.body, null);
+    assert.equal(one.score, 10, 'fetch answers the numeric default too');
+
+    // A filter and an aggregate run on the record a read presents, so a row
+    // that predates the field must match `done = false` and carry score = 10;
+    // filtering the raw record would hide it and drop it from the sum.
+    const open = (await (await fetch(svc.base + '/v1/open')).json()) as {
+      items: Array<Record<string, unknown>>;
+    };
+    assert.deepEqual(
+      open.items.map((item) => item.id).sort(),
+      ['legacy'],
+      'where sees the declared default, not an absent key',
+    );
+    const total = await (await fetch(svc.base + '/v1/total')).json();
+    assert.equal(total, 13, 'sum counts the defaulted score of the legacy row');
   } finally {
     await svc.stop();
     await new Promise((resolve) => redis.server.close(resolve));

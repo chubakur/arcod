@@ -48,7 +48,8 @@ a live kv or MySQL service answers. Reading is not checked: a row already in the
 store is returned as it is, with declared defaults filled in on both `fetch` and
 `find` (a default declared after the row was written fills on either read), and
 every declared column named — an optional field with no value reads back as `null` on every
-driver (kv used to leave the key out while a nullable column answered `NULL`).
+driver. `where`, `order` and an aggregate see that same record, so a defaulted
+field takes part in a filter and a sum even when the stored row predates it. (kv used to leave the key out while a nullable column answered `NULL`).
 
 ## Related
 

@@ -2270,7 +2270,9 @@ function guardedHandlers(svc: ServiceNode): string {
 // surface delegates to the store's typed operations. Unique is the table's
 // UNIQUE KEY (a duplicate is the declared Conflict), find is pushed into SQL.
 // Entity methods for the kv driver: records live under meta.prefix, so
-// count/find/aggregate scan that prefix and filter in memory.
+// count/find/aggregate scan that prefix and filter in memory. The scan applies
+// declared defaults first: a row that predates a field must match `where` on
+// that field and count in a sum, exactly as fetch and find present it.
 function kvEntityIoLines(): string[] {
   return [
     '    async count(entity, query) {',
@@ -2279,7 +2281,7 @@ function kvEntityIoLines(): string[] {
     '      const opts = query || {};',
     '      if (opts.where) checkWhereFields(meta, opts.where);',
     '      const rows = await store.scan(meta.prefix);',
-    '      let items = rows.map((row) => recordOf(row.value));',
+    '      let items = rows.map((row) => withDefaults(meta, recordOf(row.value)));',
     '      if (opts.where) items = items.filter((item) => matchesWhere(item, opts.where));',
     '      return items.length;',
     '    },',
@@ -2301,7 +2303,7 @@ function kvEntityIoLines(): string[] {
     '        throw new ArcodError("Invalid", { message: "aggregate: field " + JSON.stringify(field) + " is not numeric" });',
     '      }',
     '      const rows = await store.scan(meta.prefix);',
-    '      let items = rows.map((row) => recordOf(row.value));',
+    '      let items = rows.map((row) => withDefaults(meta, recordOf(row.value)));',
     '      if (opts.where) items = items.filter((item) => matchesWhere(item, opts.where));',
     '      let total = 0; let seen = 0; let best = null;',
     '      for (const item of items) {',
@@ -2406,7 +2408,7 @@ function kvEntityIoLines(): string[] {
     '      const order = parseOrder(opts.order);',
     '      checkOrderFields(meta, order);',
     '      const rows = await store.scan(meta.prefix);',
-    '      let items = rows.map((row) => ({ id: row.key.slice(meta.prefix.length), value: recordOf(row.value) }));',
+    '      let items = rows.map((row) => ({ id: row.key.slice(meta.prefix.length), value: withDefaults(meta, recordOf(row.value)) }));',
     '      if (opts.where) items = items.filter((item) => matchesWhere(item.value, opts.where));',
     '      items.sort((left, right) => {',
     '        for (const rule of order) {',
