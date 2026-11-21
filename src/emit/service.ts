@@ -1492,6 +1492,22 @@ function withDefaults(meta, record) {
   return value;
 }
 
+// A field declared optional may simply have no value, and a store that never
+// received one said so in two ways: kv kept no key at all (JSON drops
+// undefined), while a nullable column read back as NULL, so one fetch answered
+// two shapes per driver. Every record that is read (fetch or find) now names
+// every declared column, with null where it has no value; a default still wins
+// because withDefaults runs first. The insert response is untouched: it is the
+// record the body handed over, and both drivers answer it the same.
+function fillDeclared(meta, record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return record;
+  const value = Object.assign({}, record);
+  for (const column of meta.columns) {
+    if (value[column.name] === undefined) value[column.name] = null;
+  }
+  return value;
+}
+
 __STREAM_SOURCE__
 
 // ---------- http ----------
@@ -2294,7 +2310,7 @@ function kvEntityIoLines(): string[] {
     '      metricCapability("store.fetch");',
     '      const meta = requestEntity(entity);',
     "      const raw = await store.get(meta.prefix + String(id));",
-    '      return raw == null ? null : withDefaults(meta, recordOf(raw));',
+    '      return raw == null ? null : fillDeclared(meta, withDefaults(meta, recordOf(raw)));',
     '    },',
     '    async insert(entity, record) {',
     '      metricCapability("store.insert");',
@@ -2420,7 +2436,7 @@ function kvEntityIoLines(): string[] {
     '        ? encodeCursor(order.map((rule) => (tail.value && typeof tail.value === "object" ? sortValue(tail.value[rule.field]) : null)), tail.id, "kv")',
     '        : null;',
     '      return {',
-    '        items: page.map((item) => (item.value && typeof item.value === "object" && !Array.isArray(item.value) ? Object.assign({ id: item.id }, item.value) : item.value)),',
+    '        items: page.map((item) => (item.value && typeof item.value === "object" && !Array.isArray(item.value) ? fillDeclared(meta, Object.assign({ id: item.id }, item.value)) : item.value)),',
     '        next,',
     '      };',
     '    },',
@@ -2432,7 +2448,7 @@ function sqlEntityIoLines(): string[] {
     '      metricCapability("store.fetch");',
     '      const meta = requestEntity(entity);',
     '      const found = await store.entityFetch(meta.table, meta.columns, id);',
-    '      return found == null ? null : withDefaults(meta, found);',
+    '      return found == null ? null : fillDeclared(meta, withDefaults(meta, found));',
     '    },',
     '    async insert(entity, record) {',
     '      metricCapability("store.insert");',
@@ -2461,7 +2477,8 @@ function sqlEntityIoLines(): string[] {
     '      metricCapability("store.find");',
     '      const meta = requestEntity(entity);',
     '      if (query && query.where) checkWhereFields(meta, query.where);',
-    '      return await store.entityFind(meta.table, meta.columns, query);',
+    '      const page = await store.entityFind(meta.table, meta.columns, query);',
+    '      return { items: page.items.map((item) => fillDeclared(meta, item)), next: page.next };',
     '    },',
     '    async count(entity, query) {',
     '      metricCapability("store.count");',
