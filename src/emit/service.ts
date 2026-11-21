@@ -1714,7 +1714,10 @@ async function handleRequest(req, res, start) {
       finish(page.route, '', 200, start, req);
       return;
     }
-    if (url.pathname === '/healthz') {
+    // A probe and a scrape are reads: POST /healthz used to answer the probe
+    // too, so a client that posted to the wrong URL saw a healthy 200 instead
+    // of a 404. Only GET and HEAD are the probe's.
+    if (url.pathname === '/healthz' && (req.method === 'GET' || req.method === 'HEAD')) {
       try {
         await store.ping();
         // The probe names the store it actually pinged: a sql service used to
@@ -1733,7 +1736,7 @@ async function handleRequest(req, res, start) {
       return;
     }
 
-    if (url.pathname === '/metrics') {
+    if (url.pathname === '/metrics' && (req.method === 'GET' || req.method === 'HEAD')) {
       send(res, 200, prometheusMetrics(), 'text/plain; version=0.0.4; charset=utf-8');
       finish('/metrics', '', 200, start, req);
       return;

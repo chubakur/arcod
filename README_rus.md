@@ -1329,8 +1329,8 @@ arcod run --impl examples/onetimemessage-pwd
   `arcod_request_duration_seconds` (гистограмма с фиксированными бакетами),
   `arcod_errors_total` (по operation), `arcod_inflight_requests` (gauge) и
   `arcod_capability_calls_total` (`store.insert`, `store.find`, `remote.*`).
-- **`/healthz`.** Пингует то хранилище, которое сервис реально использует, и
-  называет его в ответе: `{"status":"ok","service":"Tasks","kv":"up"}` на kv,
+- **`/healthz`.** Только на `GET`/`HEAD`: пингует то хранилище, которое сервис
+  реально использует, и называет его в ответе: `{"status":"ok","service":"Tasks","kv":"up"}` на kv,
   `{"status":"ok","service":"Tasks","sql":"up"}` на sql; неудачный пинг —
   `503` с тем же ключом и значением `"down"`.
 - **Request timeouts.** `server.requestTimeout`/`headersTimeout` и

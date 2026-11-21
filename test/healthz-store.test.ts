@@ -58,6 +58,13 @@ for (const store of ['kv', 'sql'] as const) {
         [store]: 'up',
       });
       assert.equal(Object.prototype.hasOwnProperty.call(body, store === 'kv' ? 'sql' : 'kv'), false, 'the other store is not named');
+
+      const posted = await fetch(svc.base + '/healthz', { method: 'POST' });
+      assert.equal(posted.status, 404, 'a probe is a read; a POST is not answered by it');
+      const scraped = await fetch(svc.base + '/metrics', { method: 'POST' });
+      assert.equal(scraped.status, 404, 'a scrape is a read too');
+      const metrics = await fetch(svc.base + '/metrics');
+      assert.equal(metrics.status, 200, 'GET /metrics still answers');
     } finally {
       await svc.stop();
     }

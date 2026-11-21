@@ -1377,8 +1377,8 @@ no dependencies, no config required:
   `arcod_request_duration_seconds` (histogram with fixed buckets),
   `arcod_errors_total` (by operation), `arcod_inflight_requests` (gauge) and
   `arcod_capability_calls_total` (`store.insert`, `store.find`, `remote.*`).
-- **`/healthz`.** Pings the store the service actually uses and names it in the
-  answer: `{"status":"ok","service":"Tasks","kv":"up"}` on kv,
+- **`/healthz`.** On `GET`/`HEAD` only, pings the store the service actually
+  uses and names it in the answer: `{"status":"ok","service":"Tasks","kv":"up"}` on kv,
   `{"status":"ok","service":"Tasks","sql":"up"}` on sql; a failed ping is
   `503` with the same key set to `"down"`.
 - **Request timeouts.** `server.requestTimeout`/`headersTimeout` and an
