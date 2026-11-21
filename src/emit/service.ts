@@ -1002,9 +1002,13 @@ function matchesWhere(value, where) {
       // and a record into "[object Object]", so the same query found nothing.
       // Both drivers compare the JSON text now.
       if (op === 'contains') {
+        // A bool column holds 1/0: String(true) matched on kv while sql put
+        // "1" in the text, so the same query found different rows.
         const haystack = actual == null
           ? ''
-          : (typeof actual === 'object' ? JSON.stringify(actual) : String(actual));
+          : typeof actual === 'object'
+            ? JSON.stringify(actual)
+            : typeof actual === 'boolean' ? (actual ? '1' : '0') : String(actual);
         if (!haystack.includes(String(expected))) return false;
       }
       if (op === 'gt' && !(compareValues(sortValue(actual), sortValue(expected)) > 0)) return false;
