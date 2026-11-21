@@ -167,9 +167,10 @@ filter names the same instant whatever its offset. A container of instants
 takes that spelling at every leaf too: `list<datetime>` and `map<string,
 datetime>` (nested any depth) store each element — and each map value — as the
 same UTC/milliseconds text, so a row does not read back in the spelling a
-caller happened to write; a value inside a container that is not an instant,
-or a container that is not a list or map, is `400 Invalid` there. A day the
-calendar does not have, a time past 23:59, or a fraction finer than a
+caller happened to write, and a `where` filter on such a field is respelled
+the same way, so the same instant with an offset finds the row. A value inside
+a container that is not an instant, or a container that is not a list or map,
+is `400 Invalid` there. A day the calendar does not have, a time past 23:59, or a fraction finer than a
 millisecond is `400 Invalid` instead of being rolled over by one driver and
 cut by the other. A patch cannot change
 `id`: echoing the same value is fine, another value is `400 Invalid` on both

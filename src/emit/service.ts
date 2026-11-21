@@ -1026,6 +1026,34 @@ function checkWhereFields(meta, where) {
         message: 'where: unknown field "' + field + '"; declared: ' + meta.columns.map((item) => item.name).join(', '),
       });
     }
+    // A container of instants is compared by its JSON text, so the expected
+    // value needs the stored spelling too: the same instant written with an
+    // offset matched no row while the scalar column matched it.
+    const instantDepth = (meta.instants || {})[field];
+    if (instantDepth) {
+      const raw = where[field];
+      if (raw === null || raw === undefined) continue;
+      if (Array.isArray(raw)) {
+        where[field] = canonicalInstants(raw, instantDepth, 'where', field);
+        continue;
+      }
+      if (typeof raw === 'object') {
+        for (const op of Object.keys(raw)) {
+          if (!KNOWN_WHERE_OPERATORS.includes(op) || op === 'contains') continue;
+          const expected = raw[op];
+          if (expected === null || expected === undefined) continue;
+          if (op === 'in') {
+            if (Array.isArray(expected)) raw[op] = expected.map((item) => canonicalInstants(item, instantDepth, 'where', field));
+            continue;
+          }
+          if (op === 'eq' || op === 'ne') raw[op] = canonicalInstants(expected, instantDepth, 'where', field);
+        }
+        continue;
+      }
+      // A bare scalar cannot be equal to a list; matchesWhere answers no rows,
+      // so it stays a filter and not a shape error.
+      continue;
+    }
     if (column.base !== 'datetime') continue;
     const cond = where[field];
     if (cond === null || cond === undefined) continue;

@@ -30,13 +30,19 @@ function spec(store: 'kv' | 'sql'): string {
     '  uses uuid: ids',
     '',
     '  effects {',
-    '    allow store.insert, store.fetch, uuid.new',
+    '    allow store.insert, store.fetch, store.find, uuid.new',
     '  }',
     '',
     '  contract {',
     '    public op put(at: datetime, marks: list<datetime>, tags: map<string, datetime>, grid: list<list<datetime>>) -> Event {',
     '      route: "POST /v1/events"',
     '      effects: store.insert, uuid.new',
+    '      errors: Invalid',
+    '    }',
+    '',
+    '    public op find(marks: list<datetime>) -> { items: list<Event> } {',
+    '      route: "POST /v1/find"',
+    '      effects: store.find',
     '      errors: Invalid',
     '    }',
     '',
@@ -60,6 +66,12 @@ const impl: Record<string, string> = {
   get: [
     'export async function get(input, io) {',
     "  return { result: await io.fetch('Event', input.id) };",
+    '}',
+  ].join(String.fromCharCode(10)),
+  find: [
+    'export async function find(input, io) {',
+    "  const page = await io.find('Event', { where: { marks: input.marks } });",
+    '  return { result: { items: page.items } };',
     '}',
   ].join(String.fromCharCode(10)),
 };
@@ -125,6 +137,33 @@ for (const store of ['kv', 'sql'] as const) {
     });
     assert.equal(res.status, 400, res.text);
     assert.match(res.text, /marks must be a list or map of datetime/);
+  });
+
+
+  test(store + ': a filter names the same instant whatever its spelling', async () => {
+    const svc = await startService(spec(store), { impl });
+    try {
+      const created = await fetch(svc.base + '/v1/events', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ at: '2026-01-01T12:00:00+03:00', marks: ['2026-01-01T12:00:00+03:00'], tags: {}, grid: [] }),
+      });
+      assert.equal(created.status, 201);
+      const find = (marks: unknown[]) => fetch(svc.base + '/v1/find', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ marks }),
+      });
+      const canonical = await find(['2026-01-01T09:00:00Z']);
+      assert.equal((await canonical.json()).items.length, 1, 'the stored spelling matches');
+      const offset = await find(['2026-01-01T12:00:00+03:00']);
+      assert.equal((await offset.json()).items.length, 1, 'the offset names the same instant');
+      const invalid = await find(['yesterday']);
+      assert.equal(invalid.status, 400);
+      assert.match(await invalid.text(), /marks must hold an ISO 8601 datetime/);
+    } finally {
+      await svc.stop();
+    }
   });
 
   test(store + ': a null element stays null', async () => {
