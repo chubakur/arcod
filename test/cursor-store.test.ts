@@ -82,6 +82,27 @@ async function firstPage(store: 'kv' | 'sql') {
   return { svc, page };
 }
 
+// The sql memory driver (arcod test / SQL_DRIVER=memory) is the same kv store,
+// so its cursors are kv-spelled and tagged kv: a real mysql cursor is refused
+// there for the same reason a kv one is refused live -- the values differ.
+test('the sql memory driver mints kv-tagged cursors and refuses a mysql one', async () => {
+  const svc = await startService(sourceOf('sql'), { impl });
+  try {
+    await post(svc.base, '/v1/items', { seq: 1 });
+    await post(svc.base, '/v1/items', { seq: 2 });
+    const res = await post(svc.base, '/v1/page', {});
+    assert.equal(res.status, 201);
+    const page = await res.json();
+    assert.equal(payload(page.next).s, 'kv', 'the memory driver is the kv store');
+    const foreign = Buffer.from(JSON.stringify({ v: [1], id: 'x', s: 'mysql' })).toString('base64url');
+    const bad = await post(svc.base, '/v1/page', { cursor: foreign });
+    assert.equal(bad.status, 400, 'a live mysql cursor is refused by the memory driver');
+    assert.match(String((await bad.json()).message), /issued by the mysql store/);
+  } finally {
+    await svc.stop();
+  }
+});
+
 test('kv names its cursors and refuses another store\'s', async () => {
   const { svc, page } = await firstPage('kv');
   try {
