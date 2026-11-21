@@ -1497,7 +1497,7 @@ function withDefaults(meta, record) {
 // undefined), while a nullable column read back as NULL, so one fetch answered
 // two shapes per driver. Every record that is read (fetch or find) now names
 // every declared column, with null where it has no value; a default still wins
-// because withDefaults runs first. The insert response is untouched: it is the
+// because both reads run withDefaults first (find used to skip it). The insert response is untouched: it is the
 // record the body handed over, and both drivers answer it the same.
 function fillDeclared(meta, record) {
   if (!record || typeof record !== 'object' || Array.isArray(record)) return record;
@@ -2447,7 +2447,7 @@ function kvEntityIoLines(): string[] {
     '        ? encodeCursor(order.map((rule) => (tail.value && typeof tail.value === "object" ? sortValue(tail.value[rule.field]) : null)), tail.id, "kv")',
     '        : null;',
     '      return {',
-    '        items: page.map((item) => (item.value && typeof item.value === "object" && !Array.isArray(item.value) ? fillDeclared(meta, Object.assign({ id: item.id }, item.value)) : item.value)),',
+    '        items: page.map((item) => (item.value && typeof item.value === "object" && !Array.isArray(item.value) ? fillDeclared(meta, withDefaults(meta, Object.assign({ id: item.id }, item.value))) : item.value)),',
     '        next,',
     '      };',
     '    },',
@@ -2489,7 +2489,7 @@ function sqlEntityIoLines(): string[] {
     '      const meta = requestEntity(entity);',
     '      if (query && query.where) checkWhereFields(meta, query.where);',
     '      const page = await store.entityFind(meta.table, meta.columns, query);',
-    '      return { items: page.items.map((item) => fillDeclared(meta, item)), next: page.next };',
+    '      return { items: page.items.map((item) => fillDeclared(meta, withDefaults(meta, item))), next: page.next };',
     '    },',
     '    async count(entity, query) {',
     '      metricCapability("store.count");',

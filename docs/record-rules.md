@@ -45,8 +45,9 @@ op input ──▶ contract boundary ──▶ body ──▶ io.insert / io.upd
 
 The same check runs in both facades, so `arcod test` (memory drivers) answers what
 a live kv or MySQL service answers. Reading is not checked: a row already in the
-store is returned as it is, with declared defaults filled in, and every declared
-column named — an optional field with no value reads back as `null` on every
+store is returned as it is, with declared defaults filled in on both `fetch` and
+`find` (a default declared after the row was written fills on either read), and
+every declared column named — an optional field with no value reads back as `null` on every
 driver (kv used to leave the key out while a nullable column answered `NULL`).
 
 ## Related
