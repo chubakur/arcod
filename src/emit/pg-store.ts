@@ -618,11 +618,14 @@ class PgStore {
         });
       }
       // A bytea cast to text is the escape "\x6869", while kv holds the bytes
-      // and MySQL the raw BLOB: there is no text form both stores share, so
-      // contains on a bytes field is refused.
-      if (op === 'contains' && col.base === 'bytes') {
+      // and MySQL the raw BLOB, and NUMERIC(30,6) prints "1.500000" where kv
+      // holds 1.5: there is no text form both stores share, so contains on
+      // bytes and on a non-integer number is refused.
+      if (op === 'contains' && (col.base === 'bytes' || col.base === 'decimal' || col.base === 'float' || col.base === 'number')) {
         throw new ArcodError('Invalid', {
-          message: 'where "contains" on "' + col.name + '" needs text, and a bytes field has none: kv holds the bytes, MySQL the raw BLOB and Postgres a bytea escape; compare bytes with eq/ne/in',
+          message: col.base === 'bytes'
+            ? 'where "contains" on "' + col.name + '" needs text, and a bytes field has none: kv holds the bytes, MySQL the raw BLOB and Postgres a bytea escape; compare bytes with eq/ne/in'
+            : 'where "contains" on "' + col.name + '" searches text, and a ' + col.base + ' column has no stable text: each store picks its own scale and exponent; compare numbers with eq/ne/in or a range',
         });
       }
       // A non-list under "in" used to fall through the chain: the clause
