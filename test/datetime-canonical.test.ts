@@ -241,3 +241,36 @@ test('an "in" list canonicalizes each element', async () => {
   }
 });
 
+
+// The update path checks a patch, and the same canonicalization has to reach
+// what is stored: a patch written in another offset must not leave the row
+// with a second spelling of the same instant.
+test('an update patch is stored canonically too', async () => {
+  const src = source
+    .replace("    public op find", "    public op touch(id: uuid, at: datetime) -> Item {" + String.fromCharCode(10) + "      route: \"POST /v1/touch\"" + String.fromCharCode(10) + "      effects: store.update" + String.fromCharCode(10) + "      errors: Invalid, NotFound" + String.fromCharCode(10) + "    }" + String.fromCharCode(10) + "" + String.fromCharCode(10) + "    public op find");
+  const touchImpl = [
+    'export async function touch(input, io) {',
+    '  return { result: await io.update("Item", String(input.id), { at: input.at }) };',
+    '}',
+  ].join(String.fromCharCode(10));
+  const svc = await startService(src, { impl: { put: putImpl, find: findImpl, touch: touchImpl } });
+  try {
+    const created = await fetch(svc.base + '/v1/items', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ at: '2026-01-01T00:00:00Z' }),
+    });
+    assert.equal(created.status, 201);
+    const id = JSON.parse(await created.text()).id;
+    const res = await fetch(svc.base + '/v1/touch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, at: '2026-06-01T05:00:00+05:00' }),
+    });
+    assert.equal(res.status, 201);
+    assert.equal(JSON.parse(await res.text()).at, '2026-06-01T00:00:00Z');
+  } finally {
+    await svc.stop();
+  }
+});
+
