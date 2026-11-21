@@ -1136,7 +1136,9 @@ const top = await io.aggregate('Invoice', { field: 'amount', op: 'max' });
 `where` operators as `find`/`count`. SQL runs a single `SUM/AVG/MIN/MAX`
 statement and returns no rows; kv folds the filtered namespace. `sum` of nothing
 is `0`, `avg`/`min`/`max` of nothing is `null`. An unknown `op`, an unknown
-field or a non-numeric value is `Invalid` with the name in the message — a
+field or a non-numeric field — decided by its declared type, so an empty table
+or a text column of digits is still `Invalid` — is `Invalid` with the name in the
+message — a
 report never goes quiet and never guesses. Reading it needs `store.aggregate`
 in `effects`.
 

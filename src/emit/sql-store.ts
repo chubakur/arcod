@@ -491,6 +491,9 @@ class SqlStore {
     if (!fn) throw new ArcodError('Invalid', { message: 'aggregate: unknown op \"' + op + '\"; use sum, avg, min or max' });
     const col = columns.find((c) => c.name === field);
     if (!col) throw new ArcodError('Invalid', { message: 'aggregate: unknown field \"' + field + '\"' });
+    if (!['int', 'float', 'number', 'decimal'].includes(col.base)) {
+      throw new ArcodError('Invalid', { message: 'aggregate: field ' + JSON.stringify(field) + ' is not numeric' });
+    }
     const where = [];
     for (const [name, cond] of Object.entries(opts.where || {})) {
       const target = columns.find((c) => c.name === name);

@@ -258,7 +258,9 @@ test('sql: a where key the entity does not declare never reaches the driver', as
     for (const run of [
       () => store.entityFind('item', columns, { where: { nmae: 'a' } }),
       () => store.entityCount('item', columns, { where: { nmae: 'a' } }),
-      () => store.entityAggregate('item', columns, { field: 'tag', op: 'sum', where: { nmae: 'a' } }),
+      // A numeric field keeps this about the where typo: the aggregate names a
+      // non-numeric field before it reads a row now.
+      () => store.entityAggregate('item', columns.concat([{ name: 'size', base: 'int' }]), { field: 'size', op: 'sum', where: { nmae: 'a' } }),
     ]) {
       await assert.rejects(run, (error: any) => {
         assert.equal(error.name, 'Invalid', dialect);

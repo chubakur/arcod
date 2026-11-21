@@ -775,8 +775,15 @@ class MemoryStore {
     if (op !== 'sum' && op !== 'avg' && op !== 'min' && op !== 'max') {
       throw new ArcodError('Invalid', { message: 'aggregate: unknown op "' + op + '"; use sum, avg, min or max' });
     }
-    if (!columns.some((column) => column.name === field)) {
+    const column = columns.find((item) => item.name === field);
+    if (!column) {
       throw new ArcodError('Invalid', { message: 'aggregate: unknown field "' + field + '"' });
+    }
+    // A total needs a number. Folding rows answered 0 for an empty table, and
+    // a text column of digits was summed as numbers; sql either did the same
+    // or failed inside the driver. The declared type decides, not the rows.
+    if (!['int', 'float', 'number', 'decimal'].includes(column.base)) {
+      throw new ArcodError('Invalid', { message: 'aggregate: field "' + field + '" is not numeric' });
     }
     const rows = await this.scan('tbl:' + table + ':');
     let items = rows.map((row) => recordOf(row.value));
@@ -2090,8 +2097,12 @@ function kvEntityIoLines(): string[] {
     '      if (op !== "sum" && op !== "avg" && op !== "min" && op !== "max") {',
     '        throw new ArcodError("Invalid", { message: "aggregate: unknown op \\"" + op + "\\"; use sum, avg, min or max" });',
     '      }',
-    '      if (!meta.columns.some((column) => column.name === field)) {',
+    '      const column = meta.columns.find((item) => item.name === field);',
+    '      if (!column) {',
     '        throw new ArcodError("Invalid", { message: "aggregate: unknown field \\"" + field + "\\"" });',
+    '      }',
+    '      if (!["int", "float", "number", "decimal"].includes(column.base)) {',
+    '        throw new ArcodError("Invalid", { message: "aggregate: field " + JSON.stringify(field) + " is not numeric" });',
     '      }',
     '      const rows = await store.scan(meta.prefix);',
     '      let items = rows.map((row) => recordOf(row.value));',

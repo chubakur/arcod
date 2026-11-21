@@ -1059,7 +1059,9 @@ const top = await io.aggregate('Invoice', { field: 'amount', op: 'max' });
 операторами `where`, что у `find`/`count`. SQL делает один запрос
 `SUM/AVG/MIN/MAX` и не возвращает строк; kv сворачивает отфильтрованный
 namespace. `sum` пустого — `0`, `avg`/`min`/`max` пустого — `null`. Неизвестный
-`op`, неизвестное поле или нечисловое значение — `Invalid` с именем в сообщении:
+`op`, неизвестное поле или нечисловое поле (решает объявленный тип, поэтому
+пустая таблица и текстовая колонка из цифр — тоже `Invalid`) — `Invalid` с
+именем в сообщении:
 отчёт не молчит и не угадывает. Для вызова нужен `store.aggregate` в `effects`.
 
 `examples/tasks` (Redis, в тестах `KV_DRIVER=memory`) и `examples/tasks-sql`
