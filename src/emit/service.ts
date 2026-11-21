@@ -1006,12 +1006,43 @@ function requestEntity(entity) {
 // clause used to be dropped (every row) and kv answered an empty page. Both
 // drivers now name the field and the declared ones.
 // This body is emitted verbatim into index.mjs: no TypeScript-only syntax.
+// A datetime filter names the same instant however it is spelled: kv compares
+// the stored text, so "+02:00" in a query matched nothing while sql converted
+// it and matched. The filter is canonicalized exactly like a record field, and
+// one the column cannot hold is a 400 rather than a page that misses rows.
+function datetimeCondition(value, field) {
+  const canonical = canonicalDateTime(value);
+  if (canonical === null) {
+    throw new ArcodError('Invalid', { message: 'where: ' + field + ' must be an ISO 8601 datetime' });
+  }
+  return canonical;
+}
+
 function checkWhereFields(meta, where) {
   for (const field of Object.keys(where || {})) {
-    if (!meta.columns.some((column) => column.name === field)) {
+    const column = meta.columns.find((item) => item.name === field);
+    if (!column) {
       throw new ArcodError('Invalid', {
-        message: 'where: unknown field "' + field + '"; declared: ' + meta.columns.map((column) => column.name).join(', '),
+        message: 'where: unknown field "' + field + '"; declared: ' + meta.columns.map((item) => item.name).join(', '),
       });
+    }
+    if (column.base !== 'datetime') continue;
+    const cond = where[field];
+    if (cond === null || cond === undefined) continue;
+    if (scalarOf(cond)) {
+      where[field] = datetimeCondition(cond, field);
+      continue;
+    }
+    for (const op of Object.keys(cond)) {
+      if (!KNOWN_WHERE_OPERATORS.includes(op) || op === 'contains') continue;
+      const expected = cond[op];
+      if (expected === null || expected === undefined) continue;
+      if (op === 'in') {
+        // A non-list is named by matchesWhere; a list is checked element-wise.
+        if (Array.isArray(expected)) cond[op] = expected.map((item) => (item === null ? item : datetimeCondition(item, field)));
+        continue;
+      }
+      cond[op] = datetimeCondition(expected, field);
     }
   }
 }

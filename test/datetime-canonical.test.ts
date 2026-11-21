@@ -23,13 +23,19 @@ const source = [
   '  uses uuid: ids',
   '',
   '  effects {',
-  '    allow store.insert, uuid.new',
+  '    allow store.insert, store.find, uuid.new',
   '  }',
   '',
   '  contract {',
   '    public op put(at: datetime) -> Item {',
   '      route: "POST /v1/items"',
   '      effects: store.insert, uuid.new',
+  '      errors: Invalid',
+  '    }',
+  '',
+  '    public op find(at: datetime) -> { items: list<Item> } {',
+  '      route: "POST /v1/find"',
+  '      effects: store.find',
   '      errors: Invalid',
   '    }',
   '  }',
@@ -43,8 +49,15 @@ const putImpl = [
   '}',
 ].join('\n');
 
+const findImpl = [
+  'export async function find(input, io) {',
+  "  const page = await io.find('Item', { where: { at: input.at } });",
+  '  return { result: { items: page.items } };',
+  '}',
+].join('\n');
+
 async function put(at: unknown) {
-  const svc = await startService(source, { impl: { put: putImpl } });
+  const svc = await startService(source, { impl: { put: putImpl, find: findImpl } });
   let out = { status: 0, text: '' };
   try {
     const res = await fetch(svc.base + '/v1/items', {
@@ -100,3 +113,42 @@ test('a time that does not exist is refused', async () => {
   assert.equal(res.status, 400);
   assert.match(res.text, /insert Item: at must be an ISO 8601 datetime/);
 });
+
+test('a filter spelled with another offset finds the row', async () => {
+  const svc = await startService(source, { impl: { put: putImpl, find: findImpl } });
+  try {
+    const created = await fetch(svc.base + '/v1/items', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ at: '2026-01-01T02:00:00+02:00' }),
+    });
+    assert.equal(created.status, 201);
+    const res = await fetch(svc.base + '/v1/find', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ at: '2025-12-31T19:00:00-05:00' }),
+    });
+    assert.equal(res.status, 201);
+    const page = await res.json();
+    assert.equal(page.items.length, 1, 'the same instant is the same filter value');
+    assert.equal(page.items[0].at, '2026-01-01T00:00:00Z');
+  } finally {
+    await svc.stop();
+  }
+});
+
+test('a filter that is not an ISO datetime is a 400, not a silent empty page', async () => {
+  const svc = await startService(source, { impl: { put: putImpl, find: findImpl } });
+  try {
+    const res = await fetch(svc.base + '/v1/find', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ at: 'yesterday' }),
+    });
+    assert.equal(res.status, 400);
+    assert.match(await res.text(), /where: at must be an ISO 8601 datetime/);
+  } finally {
+    await svc.stop();
+  }
+});
+
