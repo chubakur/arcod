@@ -77,7 +77,8 @@ second read returns 410 Gone.
 
 Every demo under `examples/` is a working service, not a snippet:
 [docs/examples.md](docs/examples.md) says what each one proves and how to run
-it.
+it. Every rule a record must satisfy before it is stored — and the message each
+one answers — is in [docs/record-rules.md](docs/record-rules.md).
 
 ```bash
 arcod run --down   # stop
