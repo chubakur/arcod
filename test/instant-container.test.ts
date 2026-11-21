@@ -15,12 +15,15 @@ function spec(store: 'kv' | 'sql'): string {
     'use capability arcod.std.' + store + ' @1',
     'use capability arcod.std.ids @1',
     '',
+    'type Marks = list<datetime>',
+    '',
     'type Event = {',
     '  id: uuid,',
     '  at: datetime,',
     '  marks: list<datetime>,',
     '  tags: map<string, datetime>,',
-    '  grid: list<list<datetime>>',
+    '  grid: list<list<datetime>>,',
+    '  alias: Marks',
     '}',
     '',
     'error Invalid',
@@ -34,7 +37,7 @@ function spec(store: 'kv' | 'sql'): string {
     '  }',
     '',
     '  contract {',
-    '    public op put(at: datetime, marks: list<datetime>, tags: map<string, datetime>, grid: list<list<datetime>>) -> Event {',
+    '    public op put(at: datetime, marks: list<datetime>, tags: map<string, datetime>, grid: list<list<datetime>>, alias: Marks) -> Event {',
     '      route: "POST /v1/events"',
     '      effects: store.insert, uuid.new',
     '      errors: Invalid',
@@ -66,7 +69,7 @@ function spec(store: 'kv' | 'sql'): string {
 const impl: Record<string, string> = {
   put: [
     'export async function put(input, io) {',
-    "  return { result: await io.insert('Event', { id: io.new(), at: input.at, marks: input.marks, tags: input.tags, grid: input.grid }) };",
+    "  return { result: await io.insert('Event', { id: io.new(), at: input.at, marks: input.marks, tags: input.tags, grid: input.grid, alias: input.alias }) };",
     '}',
   ].join(String.fromCharCode(10)),
   get: [
@@ -116,6 +119,7 @@ for (const store of ['kv', 'sql'] as const) {
       marks: ['2026-01-01T12:00:00+03:00', '2026-01-01T09:00:00Z'],
       tags: { first: '2026-01-01T12:00:00+03:00' },
       grid: [['2026-01-01T09:00:00.000Z']],
+      alias: ['2026-01-01T12:00:00+03:00'],
     });
     assert.equal(res.status, 201, res.text);
     const expected = '2026-01-01T09:00:00Z';
@@ -123,6 +127,7 @@ for (const store of ['kv', 'sql'] as const) {
     assert.deepEqual(res.created?.marks, [expected, expected], 'each element is canonical');
     assert.deepEqual(res.created?.tags, { first: expected }, 'a map value is canonical');
     assert.deepEqual(res.created?.grid, [[expected]], 'a nested list is canonical');
+    assert.deepEqual(res.created?.alias, [expected], 'an alias of a list is canonical');
     // The row read back from the store, not only echoed by insert.
     assert.deepEqual(res.stored?.marks, [expected, expected], 'read back canonical');
     assert.deepEqual(res.stored?.tags, { first: expected }, 'map read back canonical');
@@ -135,6 +140,7 @@ for (const store of ['kv', 'sql'] as const) {
       marks: ['2026-01-01T09:00:00Z', 'yesterday'],
       tags: {},
       grid: [],
+      alias: [],
     });
     assert.equal(res.status, 400, res.text);
     assert.match(res.text, /marks must hold an ISO 8601 datetime/);
