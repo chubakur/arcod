@@ -9,6 +9,7 @@ import { check } from '../src/check.ts';
 import { loadRegistry } from '../src/registry.ts';
 import { buildExample, implBodiesFor } from '../src/build.ts';
 import { runExamples } from '../src/test.ts';
+import { main } from '../src/cli.ts';
 
 // examples/ is the project's promise: every file there is a working service.
 // Nothing enforced that across the whole directory — a change to the checker
@@ -150,4 +151,28 @@ test('every environment of every example checks without errors', async () => {
   }
   assert.deepEqual(broken, [], broken.join('\n'));
   assert.ok(checked >= 20, 'the examples still declare environments: ' + checked);
+});
+
+// `arcod check 'examples/**'` is the one command that is supposed to cover the
+// whole directory. It expanded to no file at all for a long time, and a green
+// exit for zero projects reads exactly like a green exit for sixteen.
+test('a ** pattern reaches every shipped example', async () => {
+  const out: string[] = [];
+  const realLog = console.log;
+  const before = process.exitCode;
+  process.exitCode = 0;
+  console.log = (...args: unknown[]) => { out.push(args.map((item) => String(item)).join(' ')); };
+  let code = 0;
+  try {
+    await main(['check', join(examplesDir, '**')]);
+    code = Number(process.exitCode ?? 0);
+  } finally {
+    console.log = realLog;
+    process.exitCode = before;
+  }
+  const printed = out.join('\n');
+  assert.equal(code, 0, printed);
+  for (const example of await examples()) {
+    assert.match(printed, new RegExp(example.name + '[/\\\\]main\\.arc'), example.name + ' was not checked');
+  }
 });
