@@ -26,6 +26,16 @@ async function documented(file: string): Promise<Set<string>> {
   return new Set([...text.matchAll(/\b([AW][0-9]{3})\b/g)].map((match) => match[1]));
 }
 
+// The landing page states the size of the surface ("111 diagnostics", "N
+// tests"). The diagnostic number is checkable against the compiler, so it is
+// checked: a code added without the site says something the compiler does not.
+test('the site counts the diagnostic codes the compiler emits', async () => {
+  const html = await readFile(join(root, 'docs', 'index.html'), 'utf8');
+  const shown = html.match(/>([0-9]+)<\/b><br>diagnostics</);
+  assert.ok(shown, 'docs/index.html states a diagnostic count');
+  assert.equal(Number(shown[1]), (await emitted()).size, 'the site and the checker agree on the count');
+});
+
 test('every emitted diagnostic is documented in both READMEs', async () => {
   const codes = await emitted();
   assert.ok(codes.size > 60, 'the source scan found ' + codes.size + ' codes');
