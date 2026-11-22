@@ -580,10 +580,10 @@ class Printer {
     if (s.uses.length > 0) body.push(() => { for (const c of s.uses) this.capUse(c); });
     if (s.roles.length > 0) body.push(() => this.raw(1, 'roles: ' + s.roles.join(', ')));
     if (s.effects) body.push(() => this.effects(s.effects!, s.blockCloses?.effects));
-    if (s.rules.length > 0) body.push(() => this.rules(s.rules, s.blockCloses?.rules, s.blockOpens?.rules));
-    if (s.contract.length > 0) body.push(() => this.contract(s.contract, s.blockCloses?.contract, s.blockOpens?.contract));
+    if (s.rules.length > 0 || this.hasBodyTail(s.blockCloses?.rules)) body.push(() => this.rules(s.rules, s.blockCloses?.rules, s.blockOpens?.rules));
+    if (s.contract.length > 0 || this.hasBodyTail(s.blockCloses?.contract)) body.push(() => this.contract(s.contract, s.blockCloses?.contract, s.blockOpens?.contract));
     for (const sg of s.sagas) body.push(() => this.saga(sg));
-    if (s.examples.length > 0) body.push(() => this.examples(s.examples, s.blockCloses?.examples, s.blockOpens?.examples));
+    if (s.examples.length > 0 || this.hasBodyTail(s.blockCloses?.examples)) body.push(() => this.examples(s.examples, s.blockCloses?.examples, s.blockOpens?.examples));
     if (s.budget) body.push(() => this.budget(s.budget!, s.blockCloses?.budget));
     for (let i = 0; i < body.length; i++) {
       if (i > 0) this.blank();
@@ -778,6 +778,15 @@ class Printer {
   // else: it has no line of its own anymore.
   // Comments written after the last field of a type/error/enum body, still
   // inside its braces, are printed at the body's indent before the brace.
+  // Whether a block end carries a comment written after its last clause. An
+  // empty block has no child to hold that comment, so the printer has to keep
+  // the block itself: dropping `contract {` would drop the note with it.
+  private hasBodyTail(loc: Loc | undefined): boolean {
+    if (!loc) return false;
+    const cs = this.bodyTails.get(loc.offset);
+    return cs !== undefined && cs.length > 0;
+  }
+
   private bodyTail(end: number, indent: number): void {
     const cs = this.bodyTails.get(end);
     if (!cs || cs.length === 0) return;
@@ -1011,10 +1020,19 @@ export function formatSource(source: string, file: string): string {
     const lastOp = s.contract[s.contract.length - 1];
     const lastRule = s.rules[s.rules.length - 1];
     const lastExample = s.examples[s.examples.length - 1];
-    if (closes.contract && lastOp) addBody(closes.contract.offset, lastOp.loc.end, closes.contract.offset);
-    if (closes.rules && lastRule) addBody(closes.rules.offset, lastRule.loc.end, closes.rules.offset);
+    // An empty block still owns a comment written between its braces: with no
+    // child to hold it the note used to fall past the closing brace and vanish
+    // (a block with no declarations is not printed at all). Registering the
+    // block with its keyword as the last child keeps that comment inside.
+    const blockBody = (key: 'contract' | 'rules' | 'examples', close: Loc | undefined, lastEnd: number | undefined): void => {
+      if (!close) return;
+      const open = s.blockOpens?.[key];
+      addBody(close.offset, lastEnd ?? (open ? open.offset - 1 : close.offset - 1), close.offset);
+    };
+    blockBody('contract', closes.contract, lastOp?.loc.end);
+    blockBody('rules', closes.rules, lastRule?.loc.end);
     if (closes.effects && s.effects) addBody(closes.effects.offset, s.effects.loc.offset, closes.effects.offset);
-    if (closes.examples && lastExample) addBody(closes.examples.offset, lastExample.loc.end, closes.examples.offset);
+    blockBody('examples', closes.examples, lastExample?.loc.end);
     if (closes.budget && s.budget) addBody(closes.budget.offset, s.budget.loc.offset, closes.budget.offset);
   }
   for (const c of comments) {
