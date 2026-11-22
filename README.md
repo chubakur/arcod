@@ -1261,8 +1261,11 @@ The compiler derives the procedure for a body (`src/plan-body.ts`) from the
 model: a `uuid` parameter gives `load`, `ids.new`+`kv.set` give `new` and
 `save`, `once` and `atomic` give `takeIf`, and `on error E: store.has(id)`
 means "the check does not consume the record" and puts `verify` before
-consumption. Operation names are not used. If a step cannot be derived, prompt
-generation fails with `unresolved` instead of guessing.
+consumption. Operation names are not used. An operation with no effect and no
+result still gets one step, `return {}`: the emitted handler answers `null` for
+an undefined result and treats a falsy return as `Internal`, so a body that
+returns nothing is the one body that cannot work. If a step cannot be derived,
+prompt generation fails with `unresolved` instead of guessing.
 
 Bodies are wired in with `arcod build --impl`: the compiler inlines them into the
 service, builds the `io` adapter (records `{b, h}`, compare-and-delete through
