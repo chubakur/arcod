@@ -303,9 +303,9 @@
           <div class="card" style="padding:18px 22px">
             <div style="display:flex; gap:26px; flex-wrap:wrap; font:13px/1.5 var(--mono); color:var(--muted)">
               <span><b style="color:var(--text); font-size:18px">0</b><br>runtime deps</span>
-              <span><b style="color:var(--text); font-size:18px">109</b><br>diagnostics</span>
+              <span><b style="color:var(--text); font-size:18px">111</b><br>diagnostics</span>
               <span><b style="color:var(--text); font-size:18px">9</b><br>capabilities</span>
-              <span><b style="color:var(--text); font-size:18px">947</b><br>tests</span>
+              <span><b style="color:var(--text); font-size:18px">1068</b><br>tests</span>
             </div>
           </div>
         </div>
@@ -316,42 +316,40 @@
   <section id="news">
     <div class="wrap">
       <div class="kicker">what shipped this week</div>
-      <h2>Three things shipped on 2026-11-20.</h2>
+      <h2>Three things shipped on 2026-11-21.</h2>
       <p class="sub">Each is covered by tests in the repository.</p>
       <div class="grid-3">
         <div class="card">
-          <span class="num">2026-11-20 · WRITE</span>
-          <h3>A write has to match the declared field</h3>
-          <p>A value the declaration forbids is now <code>400 Invalid</code> on both
-          <code>kv</code> and SQL, instead of a row that reads differently per driver:
-          <code>42</code> in a text field, <code>1.5</code> in an <code>int</code>,
-          <code>"false"</code> in a <code>bool</code>, <code>"yesterday"</code> in a
-          <code>datetime</code>, and anything outside <code>string(min: 3, max: 5)</code>.
-          An unknown field names the declared ones, and an update cannot change the
-          <code>id</code>. A bound pair that admits no value
-          (<code>int(min: 10, max: 5)</code>) is <code>A090</code> at check time, before any
-          caller sees a 400.</p>
+          <span class="num">2026-11-21 · STORE</span>
+          <h3>A row older than its field still reads right</h3>
+          <p>A row written before <code>done: bool = false</code> existed has no
+          <code>done</code> key on <code>kv</code>. <code>fetch</code> filled the declared
+          default, <code>find</code> answered <code>null</code> for the same row, and
+          <code>where { done: false }</code> did not match it at all. Both reads and the
+          filter now apply the declaration: <code>find</code>, <code>where</code>,
+          <code>order</code> and <code>sum(score)</code> see the defaulted field, and a
+          value a row did store is never overwritten by the default.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-20 · STORE</span>
-          <h3>A total without walking the pages</h3>
-          <p><code>io.aggregate('Invoice', { field: 'amount', op: 'sum', where: { paid: false } })</code>
-          returns <code>sum</code>, <code>avg</code>, <code>min</code> or <code>max</code> over
-          one numeric field. SQL runs one statement and <code>kv</code> folds the filtered
-          namespace after the same match; an empty sum is <code>0</code>, an empty
-          <code>avg</code>/<code>min</code>/<code>max</code> is <code>null</code>, and an
-          unknown op or field is <code>Invalid</code> with the name in the message. Reading
-          it needs <code>store.aggregate</code> in <code>effects</code>.</p>
+          <span class="num">2026-11-21 · FORMAT</span>
+          <h3><code>arcod fmt</code> keeps the comment where you wrote it</h3>
+          <p>A comment after the last field of a record, after the last clause of an
+          operation, at the tail of an <code>example</code> body, inside an
+          <code>environment</code> block or at the end of a <code>given</code>/
+          <code>when</code> section used to slide onto the next declaration or to the
+          end of the file. It now stays inside its own block, and a multi-line block
+          comment keeps its indentation, so a second <code>fmt</code> pass changes
+          nothing.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-20 · TEST</span>
-          <h3>An LLM service tests with no model running</h3>
-          <p><code>arcod test</code> already supplied memory records, blobs, identity and a
-          queue; it now supplies the model too. <code>LLM_DRIVER=memory</code> answers a chat
-          with a deterministic reply and returns an embedding that is a stable vector of the
-          declared <code>dim</code>. <code>examples/chat</code> and
-          <code>examples/vector</code> run their examples on a machine with no Ollama, while
-          a deployment still talks to a real endpoint.</p>
+          <span class="num">2026-11-21 · CHECK</span>
+          <h3>Two more mistakes stop before the build</h3>
+          <p><code>A091</code> refuses <code>unique</code> on a field the store cannot
+          index — a JSON column in MySQL — instead of a rule that only holds on other
+          drivers. <code>A092</code> refuses an operation whose route the runtime already
+          answers (<code>/healthz</code>, <code>/metrics</code>), so a contract cannot
+          quietly shadow the probe. The checker now carries 111 codes, all listed in the
+          README.</p>
         </div>
       </div>
     </div>
@@ -394,7 +392,7 @@
       <h2>One file in. A running system out.</h2>
       <p class="sub"><code>arcod make</code> runs the same steps the standalone commands do, so the pipeline cannot drift from the CLI.</p>
       <div class="steps">
-        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, access, routes, examples. 109 diagnostics, errors stop the build.</p></div>
+        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, access, routes, examples. 111 diagnostics, errors stop the build.</p></div>
         <div class="step"><h3>Plan</h3><p>A deterministic task DAG: files, dependencies, acceptance criteria, <code>--json</code>.</p></div>
         <div class="step"><h3>Prompts</h3><p>One prompt per operation with a token budget and a hash for caching.</p></div>
         <div class="step"><h3>Build &amp; test</h3><p>Service, UI, compose, manifests — then the model's own examples run against it.</p></div>
@@ -496,7 +494,10 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <p><code>done: bool = false</code> is written once and honoured by the migration
           (<code>DEFAULT 0</code>), by <code>io.insert</code> (only missing fields are
           filled, an explicit <code>null</code> wins) and by the OpenAPI schema
-          (<code>default</code>, field no longer <code>required</code>).</p>
+          (<code>default</code>, field no longer <code>required</code>). A default
+          declared after rows already exist fills on read as well: <code>fetch</code>,
+          <code>find</code>, a <code>where</code> filter, <code>order</code> and an
+          aggregate all see the declared value on a row that never stored it.</p>
         </div>
         <div class="card">
           <h3>Input checked at the boundary</h3>
@@ -603,6 +604,22 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           dialect, port, reference, files, images and body sources. The tree is published
           atomically — a late failure leaves the previous <code>.arcod/build</code> untouched —
           and migrations, prompts and SQL the contract no longer owns are pruned.</p>
+        </div>
+        <div class="card">
+          <h3>A filter refuses what cannot mean anything</h3>
+          <p><code>contains</code> on a <code>bytes</code>, <code>datetime</code> or
+          <code>decimal</code> field is an <code>Invalid</code> naming the operator, not a
+          text search that happens to match; a range comparison must name a scalar field;
+          a <code>list</code> or record field cannot be an <code>order</code> key; and a
+          record field compares by value, so the key order in the filter does not decide
+          the match.</p>
+        </div>
+        <div class="card">
+          <h3>A formatter that keeps your comments</h3>
+          <p><code>arcod fmt</code> prints the canonical form — one style, one AST, one
+          output — and a comment stays attached to the declaration, field, clause or
+          block it was written in, including the last one in a body. A second pass over
+          its own output changes nothing, so <code>fmt --check</code> is safe in CI.</p>
         </div>
       </div>
 
@@ -746,6 +763,7 @@ deploy.dev.json          deploy manifest per environment</code></pre>
             <li><b>A unique claim on <code>kv</code> outlives the record</b>: the claim key has no TTL, so an expired record holds its value until removed or updated. On <code>sql</code>, uniqueness is the table constraint, so nothing to clean up.</li>
             <li><b>Workflows</b> are parsed, described and validated — no runner is generated (<code>W022</code>); a job runs only when it declares an <code>on:</code> queue consumer (<code>W017</code>).</li>
             <li><b>Streams and queues are in-process</b> until you bind them to Redis; only then do replicas share events. OpenAPI publishes a <code>bearerAuth</code> scheme for a service that uses <code>auth: identity</code>, and the token requirement is listed only on operations that need it; a <code>public</code> operation opts out with <code>security: []</code>.</li>
+            <li><b><code>arcod fmt</code> re-lays out a record type on one line</b> — it is a canonical printer, not a style-preserving one; the comment survives, your line breaks do not.</li>
             <li><b>JavaScript only.</b> PHP, Go and Python would be separate emitters.</li>
             <li><b><code>arcod terraform</code> targets Yandex Cloud only</b> and renders no state backend; <code>terraform validate</code> is not part of CI yet.</li>
           </ul>
