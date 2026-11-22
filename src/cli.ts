@@ -446,7 +446,13 @@ async function runFmtPattern(flags: Flags, pattern: string): Promise<void> {
     }
     changed++;
     if (flags.write) {
-      await writeFile(specPath, formatted, 'utf8');
+      try {
+        await writeFile(specPath, formatted, 'utf8');
+      } catch (err) {
+        failed++;
+        console.log(label + ': cannot write: ' + writeReason(err));
+        continue;
+      }
       console.log('formatted ' + label);
     } else {
       console.log(label + ': not formatted');
@@ -490,7 +496,13 @@ async function runFmt(flags: Flags): Promise<void> {
     return;
   }
   if (flags.write) {
-    await writeFile(loaded.specPath, formatted, 'utf8');
+    try {
+      await writeFile(loaded.specPath, formatted, 'utf8');
+    } catch (err) {
+      console.error('arcod: cannot write ' + loaded.specPath + ': ' + writeReason(err));
+      process.exitCode = 1;
+      return;
+    }
     console.log('formatted ' + loaded.specPath);
     return;
   }
@@ -761,21 +773,22 @@ async function runMigrate(flags: Flags): Promise<void> {
 // already translates a missing input file and load() says "cannot read ...: no
 // such file or directory", so every --out path answers the same way instead of
 // leaking "EISDIR: illegal operation on a directory, open '...'".
+function writeReason(err: unknown): string {
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === 'EISDIR') return 'is a directory (pass a file path)';
+  if (code === 'ENOTDIR' || code === 'EEXIST') return 'a parent path is a file, not a directory';
+  if (code === 'EACCES' || code === 'EPERM') return 'permission denied';
+  if (code === 'ENOSPC') return 'no space left on device';
+  return err instanceof Error ? err.message : String(err);
+}
+
 async function writeOut(path: string, text: string): Promise<boolean> {
   try {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, text);
     return true;
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    const reason =
-      code === 'EISDIR' ? 'is a directory (pass a file path)' :
-      code === 'ENOTDIR' ? 'a parent path is a file, not a directory' :
-      code === 'EEXIST' ? 'a parent path is a file, not a directory' :
-      code === 'EACCES' ? 'permission denied' :
-      code === 'ENOSPC' ? 'no space left on device' :
-      (err as Error).message;
-    console.error('arcod: cannot write ' + path + ': ' + reason);
+    console.error('arcod: cannot write ' + path + ': ' + writeReason(err));
     process.exitCode = 1;
     return false;
   }
