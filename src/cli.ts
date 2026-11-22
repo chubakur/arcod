@@ -249,7 +249,16 @@ async function expandSpecs(pattern: string): Promise<string[]> {
     const part = parts[index];
     const last = index === parts.length - 1;
     if (part === '**') {
-      await walk(dir, index + 1);
+      // A trailing ** means "every project at or below this directory". It used
+      // to expand to nothing: the zero-level step returned at once (index was
+      // past the end) and the recursion only ever descended, so
+      // `arcod check 'projects/**'` checked no file and still exited 0.
+      if (last) {
+        const spec = await findSpec(dir).catch(() => null);
+        if (spec) pushFile(spec);
+      } else {
+        await walk(dir, index + 1);
+      }
       const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
       for (const entry of entries) {
         if (entry.isDirectory()) await walk(join(dir, entry.name), index);

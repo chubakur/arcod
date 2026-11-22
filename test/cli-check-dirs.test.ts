@@ -58,6 +58,32 @@ test('a pattern of directories checks each project it finds', async () => {
   assert.equal(result.out.includes('empty'), false, 'a directory without a spec is not a report');
 });
 
+test('a trailing ** finds the spec of every project below a directory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'arcod-dirs-'));
+  await mkdir(join(root, 'one'), { recursive: true });
+  await mkdir(join(root, 'deep', 'two'), { recursive: true });
+  await mkdir(join(root, 'deep', 'three', 'four'), { recursive: true });
+  await writeFile(join(root, 'one', 'main.arc'), GOOD, 'utf8');
+  await writeFile(join(root, 'deep', 'two', 'main.arc'), GOOD, 'utf8');
+  await writeFile(join(root, 'deep', 'three', 'four', 'main.arc'), GOOD, 'utf8');
+  const result = await run(['check', join(root, '**')]);
+  assert.equal(result.code, 0, result.out + result.err);
+  assert.match(result.out, /one[\\/]main\.arc/);
+  assert.match(result.out, /two[\\/]main\.arc/);
+  assert.match(result.out, /four[\\/]main\.arc/, 'the walk descends more than one level');
+});
+
+test('** in the middle still names files at any depth', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'arcod-dirs-'));
+  await mkdir(join(root, 'deep', 'two'), { recursive: true });
+  await writeFile(join(root, 'main.arc'), GOOD, 'utf8');
+  await writeFile(join(root, 'deep', 'two', 'main.arc'), GOOD, 'utf8');
+  const result = await run(['check', join(root, '**', 'main.arc')]);
+  assert.equal(result.code, 0, result.out + result.err);
+  assert.match(result.out, /two[\\/]main\.arc/);
+  assert.match(result.out, new RegExp(root.split('/').pop() + '[\\\\/]main\\.arc'), 'the zero-level match is kept');
+});
+
 test('one broken project does not stop the others', async () => {
   const root = await mkdtemp(join(tmpdir(), 'arcod-dirs-'));
   await mkdir(join(root, 'bad'));
