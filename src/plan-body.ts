@@ -317,9 +317,15 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
     steps.push('return { result: ... }');
   }
 
+  // A body with no effect and no result still has to answer an object: the
+  // emitted handler rejects a falsy return as `Internal` and sends `null` for
+  // an undefined result. Without a step the prompt carried only the signature,
+  // which reads as "work it out yourself" to a local model.
+  if (steps.length === 0) steps.push('return {}');
+
   return { intents, steps, unresolved };
 }
 
 export function planText(plan: BodyPlan): string {
-  return plan.steps.length > 0 ? plan.steps.join('; ') : '(no procedure derived)';
+  return plan.steps.join('; ');
 }
