@@ -78,22 +78,26 @@ function assertCommandFlags(command: string | undefined, args: string[]): void {
   const allowed = command ? COMMAND_FLAGS[command] : undefined;
   if (!allowed) return;
   const set = new Set(allowed);
+  // One spelling map for both rules below: the shorthand is accepted under its
+  // long name everywhere, so a rule written against `--write` must not miss
+  // `-w` (and the error still quotes what the caller typed).
+  const seen = new Set<string>();
   for (const arg of args) {
     if (!arg.startsWith('-') || arg === '-h' || arg === '--help') continue;
     const canonical = arg === '-d' ? '--detach' : arg === '-w' ? '--write' : arg;
     if (!set.has(canonical)) throw new UsageError('unknown flag: ' + arg);
+    seen.add(canonical);
   }
   // The help writes `--reference | --impl`, but parsing both meant the second
   // one silently lost: a reference build answered for a request that asked for
   // impl bodies. Alternatives are now an error instead of a preference.
-  if (set.has('--reference') && set.has('--impl') && args.includes('--reference') && args.includes('--impl')) {
+  if (set.has('--reference') && set.has('--impl') && seen.has('--reference') && seen.has('--impl')) {
     throw new UsageError('--reference and --impl are alternatives; pass one');
   }
   // Same shape for fmt's two modes: --check asks a question, --write answers it
   // by rewriting. Passing both used to pick the check branch and silently drop
-  // the rewrite the caller asked for. The shorthand -w counts as --write.
-  const canonicalArgs = args.map((arg) => (arg === '-w' ? '--write' : arg === '-d' ? '--detach' : arg));
-  if (set.has('--check') && set.has('--write') && canonicalArgs.includes('--check') && canonicalArgs.includes('--write')) {
+  // the rewrite the caller asked for.
+  if (set.has('--check') && set.has('--write') && seen.has('--check') && seen.has('--write')) {
     throw new UsageError('--check and --write are alternatives; pass one');
   }
 }
