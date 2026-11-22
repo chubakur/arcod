@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { probeDocker } from './docker.ts';
 import { parse, ParseError } from './parser.ts';
 import { check } from './check.ts';
 import { buildPlan, formatPlan } from './plan.ts';
@@ -1154,9 +1155,9 @@ async function stopProject(flags: Flags): Promise<number> {
     console.log('arcod run: nothing to stop — no .arcod/build/docker-compose.yml');
     return 0;
   }
-  const docker = spawnSync('docker', ['info'], { stdio: 'ignore' });
-  if (docker.status !== 0) {
-    console.error('docker is not running or unavailable');
+  const docker = probeDocker();
+  if (!docker.ok) {
+    console.error(docker.message);
     return 1;
   }
   return compose({ composeFile, dir: buildDir }, ['down', '--remove-orphans'], flags);
@@ -1207,9 +1208,9 @@ async function runRun(flags: Flags): Promise<void> {
   } else {
     console.log('arcod run: scaffold (operations return 501 until implemented)');
   }
-  const docker = spawnSync('docker', ['info'], { stdio: 'ignore' });
-  if (docker.status !== 0) {
-    console.error('docker is not running or unavailable');
+  const docker = probeDocker();
+  if (!docker.ok) {
+    console.error(docker.message);
     process.exitCode = 1;
     return;
   }

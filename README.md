@@ -192,7 +192,7 @@ drivers. Full example: `examples/signup`.
 | `arcod build --reference` | the same plus built-in demo bodies for `create`/`read` |
 | `arcod test [dir]` | boots the generated service and runs the model's `examples` |
 | `arcod make [dir]` | the whole cycle in one command: check → prompts → bodies → build → test |
-| `arcod run [dir]` | build + `docker compose up --build` |
+| `arcod run [dir]` | build + `docker compose up --build`; the `docker info` probe gives up after 15 s and says the daemon is not answering instead of hanging |
 | `arcod run --down` | stop what this project started (`docker compose down --remove-orphans`); no rebuild, the `.arcod/build` artifacts stay |
 | `arcod providers` | capability and provider table with ports and the declaring package (`origin`, `-` for built-ins); `--json` also carries each provider's declared bind `options`; `--plugins` lists manifests found on `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
 | `arcod deploy [dir]` | deployment target and `deploy.<env>.json` manifest; `--env`, `--json` |
