@@ -1095,7 +1095,14 @@ async function runBuild(flags: Flags): Promise<void> {
   const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
   const errors = diags.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
-    printDiagnostics(errors, loaded.specPath);
+    // A spec that does not check is the most likely --json failure of all: a
+    // caller gating CI must get the diagnostics as data, not as prose that
+    // leaves stdout empty.
+    if (flags.json) {
+      console.log(JSON.stringify({ error: 'check failed', diagnostics: errors }, null, 2));
+    } else {
+      printDiagnostics(errors, loaded.specPath);
+    }
     process.exitCode = 1;
     return;
   }

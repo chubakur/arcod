@@ -121,3 +121,30 @@ test('test --json keeps the report shape when the reference gap stops it', async
   assert.deepEqual(parsed.missing, ['list', 'move']);
   assert.match(parsed.advice ?? '', /arcod impl/);
 });
+
+
+// A spec that does not check stops build before anything is emitted. The
+// diagnostics used to go to stdout as prose even under --json, so a CI gate
+// that parsed the output got an empty report and a printed hint.
+test('build --json answers check errors with their diagnostics', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-json-'));
+  await writeFile(join(dir, 'main.arc'), [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  roles: user',
+    '  contract {',
+    '    public op list() -> bool {',
+    '      route: "GET /v1/list"',
+    '      roles: user',
+    '    }',
+    '  }',
+    '}',
+  ].join(String.fromCharCode(10)), 'utf8');
+  const result = await run(['build', dir, '--json']);
+  assert.equal(result.code, 1);
+  assert.equal(result.err, '', 'the failure is data, not a printed line');
+  const parsed = JSON.parse(result.out) as { error?: string; diagnostics?: Array<{ code: string; message: string }> };
+  assert.equal(parsed.error, 'check failed');
+  assert.deepEqual((parsed.diagnostics ?? []).map((d) => d.code), ['A046', 'A048']);
+  assert.match(parsed.diagnostics?.[0]?.message ?? '', /identity capability/);
+});
