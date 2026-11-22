@@ -1306,3 +1306,29 @@ test('--reference names the operations it has no demo body for', async () => {
   assert.equal(test.code, 1);
   assert.match(test.err, /no demo body for ping, echo/);
 });
+
+test('ast --check gates on semantic errors and --json bypasses the gate', async () => {
+  // A spec can parse and still fail check: a public op without a route is
+  // A050. `ast --check` is the CI-facing gate, so it has to report the
+  // diagnostic and exit 1 instead of printing an AST nobody should trust.
+  const dir = await tempDir();
+  const file = join(dir, 'main.arc');
+  await writeFile(file, [
+    'module m @0.1.0 {}',
+    'service Ping : http {',
+    '  contract {',
+    '    public op ping() -> string {',
+    '      post: result == "pong"',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n'), 'utf8');
+  const gated = await run(['ast', file, '--check']);
+  assert.equal(gated.code, 1);
+  assert.match(gated.out, /A050/);
+  assert.ok(!gated.out.trimStart().startsWith('{'), 'no AST is printed when the gate trips');
+  const json = await run(['ast', file, '--check', '--json']);
+  assert.equal(json.code, 0, '--json is a machine surface and skips the human gate');
+  assert.equal(JSON.parse(json.out).name, 'm');
+});
