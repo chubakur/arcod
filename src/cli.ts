@@ -241,7 +241,17 @@ export async function main(argv: string[]): Promise<void> {
       process.exitCode = 2;
       return;
     }
-    console.error(error instanceof Error ? error.message : String(error));
+    // The last refusal a machine meets is a path it cannot read: load() says
+    // "cannot read <path>: no such file or directory" and that line used to be
+    // the only answer under --json too. The message is unchanged, but stdout
+    // now carries it as {error} like every other refusal, so a script does not
+    // have to scrape stderr for the one case it cannot anticipate.
+    const message = error instanceof Error ? error.message : String(error);
+    if (flags?.json) {
+      console.log(JSON.stringify({ error: message }, null, 2));
+    } else {
+      console.error(message);
+    }
     process.exitCode = 1;
   }
 }

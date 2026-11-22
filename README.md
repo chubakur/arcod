@@ -247,8 +247,9 @@ whichever flag the code checked first. `--json` always means JSON: `test
 --json` on a spec with nothing declared prints `{"examples": [], "rules": []}`
 instead of the sentence the human path prints, and a spec that does not parse
 answers `{error: "parse failed", diagnostics}` on stdout for every command that
-takes `--json` — the failure the human path prints on stderr is the same
-diagnostic, not a second contract.
+takes `--json`, a path it cannot read answers `{error: "cannot read ..."}`, and
+the failure the human path prints on stderr is the same diagnostic, not a
+second contract.
 
 A directory that holds several specs and no `main.arc`/`spec.arc`/`arcod.arc`
 reads the first by name but says so on stderr, listing the others; pass a path

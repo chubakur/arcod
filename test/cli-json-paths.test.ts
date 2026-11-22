@@ -237,3 +237,23 @@ test('the human form still prints the parse failure on stderr', async () => {
   assert.equal(result.out, '');
   assert.match(result.err, /broken\.arc:2:3 {2}error {2}parse {2}/);
 });
+
+
+// The other half of load(): the path exists in the command line but not on
+// disk. The message was already human ("cannot read <path>: ..."), but it
+// reached stderr only, leaving stdout empty under --json.
+test('a path that cannot be read answers {error} under --json', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-json-'));
+  const missing = join(dir, 'nope.arc');
+  for (const command of ['check', 'plan', 'build', 'test', 'migrate', 'prompts', 'impl', 'deploy']) {
+    const result = await run([command, missing, '--json']);
+    assert.equal(result.code, 1, command + ' fails an unreadable path');
+    assert.equal(result.err, '', command + ' keeps stderr clean');
+    const parsed = JSON.parse(result.out) as { error?: string };
+    assert.match(parsed.error ?? '', /^cannot read .*nope\.arc: no such file or directory$/, command);
+  }
+  const human = await run(['check', missing]);
+  assert.equal(human.code, 1);
+  assert.equal(human.out, '');
+  assert.match(human.err, /^cannot read .*nope\.arc: no such file or directory$/m);
+});
