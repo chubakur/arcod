@@ -337,7 +337,11 @@ async function runCheckPattern(flags: Flags, pattern: string): Promise<void> {
       // One broken file must not abandon the other projects: report it with
       // its location, count it as failed and keep going.
       failed++;
-      const message = error instanceof Error ? error.message : String(error);
+      // A pattern keeps walking after one bad file, so this message is the
+      // only report that file gets: the label already names it, so a read
+      // failure should say "permission denied", not repeat the path inside a
+      // syscall string.
+      const message = fsReason(error);
       const loc = error instanceof ParseError ? error.loc : null;
       if (flags.json) {
         reports.push({ file: specPath, diagnostics: [], error: { message, line: loc?.line, col: loc?.col } });

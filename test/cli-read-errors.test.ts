@@ -53,3 +53,22 @@ test('an unreadable directory is not reported as having no spec', { skip: proces
     await chmod(dir, 0o755);
   }
 });
+
+test('check over a pattern reports an unreadable file without EACCES', { skip: process.getuid?.() === 0 }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-read-'));
+  const good = join(dir, 'a.arc');
+  const locked = join(dir, 'b.arc');
+  await writeFile(good, 'module a @0.1.0 {}' + NL, 'utf8');
+  await writeFile(locked, 'module b @0.1.0 {}' + NL, 'utf8');
+  await chmod(locked, 0o000);
+  try {
+    const result = await runCli(['check', join(dir, '*.arc')]);
+    assert.equal(result.code, 1);
+    assert.match(result.stdout, /a\.arc: ok/);
+    assert.match(result.stdout, /b\.arc  error  permission denied/);
+    assert.equal(result.stdout.includes('EACCES'), false, 'no syscall text in a per-file report');
+    assert.match(result.stdout, /2 file\(s\), 1 with errors/);
+  } finally {
+    await chmod(locked, 0o644);
+  }
+});
