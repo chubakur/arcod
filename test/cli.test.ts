@@ -656,6 +656,39 @@ test('prompts --full explains the io surface instead of sketching it', async () 
   assert.match(prompt, /export async function /);
 });
 
+test('prompts names an underivable plan and exits 1, JSON included', async () => {
+  // The prompts it can write are still worth writing, so the command does not
+  // throw the folder away: it says which operation has no procedure and sets
+  // exit 1. The JSON manifest carries the same reason for a caller.
+  const dir = await tempDir('arcod-cli-prompts-unresolved-');
+  await cp(new URL('../examples/onetimemessage', import.meta.url), dir, { recursive: true });
+  const spec = join(dir, 'main.arc');
+  // \`atomic read { get; del }\` consumes the key; without Gone the plan cannot
+  // say what a second read returns.
+  let text = await readFile(spec, 'utf8');
+  text = text
+    .replace('error Gone\n', '')
+    .replace('    invariant read.at_most_once: once(read, by: id, else: Gone)\n', '')
+    .replace('      errors: NotFound, Gone', '      errors: NotFound')
+    .replace('        read(id) is Gone\n', '');
+  await writeFile(spec, text);
+
+  const human = await run(['prompts', spec]);
+  assert.equal(human.code, 1);
+  assert.match(human.err, /cannot derive a procedure from the model:/);
+  assert.match(human.err, /consume is required but the operation declares no error/);
+  assert.match(human.out, /written to .*prompts$/);
+  const files = await readdir(join(dir, '.arcod', 'build', 'prompts'));
+  assert.ok(files.includes('read.md'), 'the prompt that could be built is still written');
+  assert.ok(files.includes('manifest.json'));
+
+  const json = await run(['prompts', spec, '--json']);
+  assert.equal(json.code, 1);
+  const manifest = JSON.parse(json.out) as { tasks: Array<{ op: string; unresolved: string[] }> };
+  const read = manifest.tasks.find((task) => task.op === 'read')!;
+  assert.equal(read.unresolved.length, 1);
+  assert.match(read.unresolved[0], /consume is required/);
+});
 test('upgrade reports the current version and refuses an unknown target', async () => {
   const already = await run(['upgrade', signupUrl.pathname]);
   assert.equal(already.code, 0);

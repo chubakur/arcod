@@ -226,6 +226,13 @@ arcod make . --skip-impl --no-test   # check + prompts + build only
 Each step is the same function as the standalone command, so the pipeline cannot
 drift from the CLI. It stops at the first failure and says where.
 
+A plan that cannot be derived stops `make` at the prompts step with
+`cannot derive a procedure for: <task>: <reason>` — for example `atomic read {
+get; del }` consumes the key, so the read operation must declare what a second
+call returns. `arcod prompts` still writes the prompts it could build, names the
+operation, and exits 1; the manifest carries the same reason under the task's
+`unresolved` field.
+
 Numeric flags are checked where they are parsed: `--port` 1..65535, `--replicas`
 1..1000, `--max-tokens` 1..1000000. A bad value prints `invalid value for
 --flag` and exits 2, instead of writing `NaN` into a manifest.
