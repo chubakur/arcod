@@ -253,6 +253,41 @@ test('A018 names a route as the reason when the presentation operation exists', 
   assert.deepEqual(messages, Array(4).fill('operation S.x without a route cannot be called from ui'));
 });
 
+test('A018 in a presentation says nonexistent only when the operation is missing', () => {
+  // The sibling test pins the route half of the same branch. The typo half had
+  // no test of its own, so a change that answered "nonexistent" for every
+  // reference would have passed: one binding names S.nope, the other three
+  // name an operation that exists and has no route.
+  const deck = parse([
+    'module noroute @0.1.0 {}',
+    'service S : http {',
+    '  contract {',
+    '    public op x() -> string { }',
+    '  }',
+    '}',
+    'ui Deck {',
+    '  kind: spa',
+    '  route: "/"',
+    '  title: "T"',
+    '  layout: presentation',
+    '  start: S.x',
+    '  join: S.x',
+    '  state: S.x',
+    '  advance: S.nope',
+    '  slide "One" {',
+    '    body: "b"',
+    '  }',
+    '}',
+  ].join('\n'), 'main.arc');
+  const messages = check(deck).filter((item) => item.code === 'A018').map((item) => item.message);
+  assert.deepEqual(messages.sort(), [
+    'operation S.x without a route cannot be called from ui',
+    'operation S.x without a route cannot be called from ui',
+    'operation S.x without a route cannot be called from ui',
+    'ui references a nonexistent operation S.nope',
+  ].sort());
+});
+
 test('budget reaches the plan and the runtime', () => {
   const task = buildPlan(ast).tasks.find((item) => item.kind === 'implement');
   assert.deepEqual(task?.budget, { tokens: 40000, time: '2h' });
