@@ -45,6 +45,18 @@ test('the site counts the diagnostic codes the compiler emits', async () => {
 // and a capability added without the site would claim a surface that is not
 // there. "0 runtime deps" is not checked — package.json dependencies is the
 // definition and it has stayed empty.
+// The page states the diagnostic count twice: the badge and a sentence in the
+// weekly notes ("carries N codes"). The badge was checked and the sentence was
+// not, so the page said 112 and 111 at the same time. Every stated count is now
+// read and compared.
+test('no sentence on the site contradicts the diagnostic count', async () => {
+  const html = await readFile(join(root, 'docs', 'index.html'), 'utf8');
+  const size = (await emitted()).size;
+  const stated = [...html.matchAll(/([0-9]+) codes\b/g)].map((match) => Number(match[1]));
+  assert.ok(stated.length > 0, 'the page states the count in a sentence');
+  assert.deepEqual(stated.filter((n) => n !== size), [], 'the page states ' + size + ' codes everywhere');
+});
+
 test('the site counts the capabilities the compiler binds', async () => {
   const html = await readFile(join(root, 'docs', 'index.html'), 'utf8');
   const shown = html.match(/>([0-9]+)<\/b><br>capabilities</);
