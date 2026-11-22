@@ -190,6 +190,7 @@ function collectOffsets(m: ModuleNode): number[] {
   // A comment inside `meta { ... }` belongs to the entry it precedes: without
   // these offsets it slid out of the block (the header check below claimed it).
   for (const loc of m.metaEntryLocs ?? []) out.push(loc.offset);
+  if (m.metaLoc) out.push(m.metaLoc.offset);
   for (const u of m.uses) out.push(u.loc.offset);
   for (const t of m.types) {
     out.push(t.loc.offset);
@@ -219,11 +220,14 @@ function collectOffsets(m: ModuleNode): number[] {
 // line has no node starting on its line; these ends give it an anchor, so
 // `} // end service` survives a format instead of being dropped.
 function collectEnds(m: ModuleNode, out: number[]): void {
+  out.push(m.loc.end);
+  if (m.metaClose) out.push(m.metaClose.end);
   for (const t of m.types) out.push(t.loc.end);
   for (const e of m.errors) out.push(e.loc.end);
   for (const e of m.enums) out.push(e.loc.end);
   for (const s of m.services) {
     out.push(s.loc.end);
+    if (s.metaClose) out.push(s.metaClose.end);
     for (const op of s.contract) out.push(op.loc.end);
     for (const sg of s.sagas) {
       out.push(sg.loc.end);
@@ -250,6 +254,9 @@ function collectEnds(m: ModuleNode, out: number[]): void {
 function collectBlockCloses(m: ModuleNode, out: number[]): void {
   for (const s of m.services) {
     for (const loc of Object.values(s.blockCloses ?? {})) if (loc) out.push(loc.offset);
+    for (const ex of s.examples) {
+      for (const loc of Object.values(ex.sectionCloses ?? {})) if (loc) out.push(loc.offset);
+    }
   }
 }
 
@@ -272,6 +279,7 @@ function collectService(s: ServiceNode, out: number[]): void {
   out.push(s.loc.offset);
   for (const loc of Object.values(s.blockOpens ?? {})) if (loc) out.push(loc.offset);
   for (const loc of s.metaEntryLocs ?? []) out.push(loc.offset);
+  if (s.metaLoc) out.push(s.metaLoc.offset);
   for (const c of s.uses) out.push(c.loc.offset);
   if (s.rolesLoc) out.push(s.rolesLoc.offset);
   if (s.effects) {
@@ -294,6 +302,7 @@ function collectService(s: ServiceNode, out: number[]): void {
   }
   for (const ex of s.examples) {
     out.push(ex.loc.offset);
+    for (const loc of Object.values(ex.sectionOpens ?? {})) if (loc) out.push(loc.offset);
     for (const stmt of [...ex.given, ...ex.when, ...ex.then]) out.push(stmt.loc.offset);
   }
   if (s.budget) {
@@ -441,6 +450,7 @@ class Printer {
       const locs = m.metaEntryLocs ?? [];
       const commented = locs.length === entries.length &&
         entries.some((_, i) => this.comments.has(locs[i].offset) || this.trailing.has(locs[i].offset));
+      if (m.metaLoc) this.emitComments(m.metaLoc.offset, 1);
       this.raw(1, 'meta {');
       entries.forEach(([k, v], i) => {
         if (commented) this.emitComments(locs[i].offset, 2);
@@ -450,13 +460,14 @@ class Printer {
         if (c.startsWith('//')) this.raw(2, c);
         else for (const line of c.split('\n')) this.raw(2, line);
       }
-      this.raw(1, '}');
+      if (m.metaClose) this.closeLine(1, '}', m.metaClose.end);
+      else this.raw(1, '}');
     }
     for (const c of this.moduleComments) {
       if (c.startsWith('//')) this.raw(1, c);
       else for (const line of c.split('\n')) this.raw(1, line);
     }
-    this.raw(0, '}');
+    this.closeLine(0, '}', m.loc.end);
 
     const groups: Array<[string, () => void]> = [];
     if (m.uses.length) groups.push(['uses', () => { this.declarations(m.uses, (u) => this.use(u)); }]);
@@ -568,6 +579,7 @@ class Printer {
       const locs = s.metaEntryLocs ?? [];
       const commented = locs.length === entries.length &&
         entries.some((_, i) => this.comments.has(locs[i].offset) || this.trailing.has(locs[i].offset));
+      if (s.metaLoc) this.emitComments(s.metaLoc.offset, 1);
       this.raw(1, 'meta {');
       entries.forEach(([k, v], i) => {
         if (commented) this.emitComments(locs[i].offset, 2);
@@ -580,7 +592,8 @@ class Printer {
           else for (const line of c.split('\n')) this.raw(2, line);
         }
       }
-      this.raw(1, '}');
+      if (s.metaClose) this.closeLine(1, '}', s.metaClose.end);
+      else this.raw(1, '}');
       this.blank();
     }
     const body: Array<() => void> = [];
@@ -740,9 +753,9 @@ class Printer {
       this.blank();
       this.emitComments(ex.loc.offset, 2);
       this.raw(2, 'example ' + ex.name + ' {');
-      if (ex.given.length) this.section('given', ex.given, 3, ex.sectionCloses?.given);
-      if (ex.when.length) this.section('when', ex.when, 3, ex.sectionCloses?.when);
-      if (ex.then.length) this.section('then', ex.then, 3, ex.sectionCloses?.then);
+      if (ex.given.length) this.section('given', ex.given, 3, ex.sectionCloses?.given, ex.sectionOpens?.given);
+      if (ex.when.length) this.section('when', ex.when, 3, ex.sectionCloses?.when, ex.sectionOpens?.when);
+      if (ex.then.length) this.section('then', ex.then, 3, ex.sectionCloses?.then, ex.sectionOpens?.then);
       this.bodyTail(ex.loc.end, 3);
       this.closeLine(2, '}', ex.loc.end);
     }
@@ -750,7 +763,8 @@ class Printer {
     this.closeLine(1, '}', close?.offset ?? -1);
   }
 
-  private section(name: string, stmts: Stmt[], indent: number, close?: Loc): void {
+  private section(name: string, stmts: Stmt[], indent: number, close?: Loc, head?: Loc): void {
+    if (head) this.emitComments(head.offset, indent);
     this.raw(indent, name + ' {');
     for (const st of stmts) {
       this.emitComments(st.loc.offset, indent + 1);
@@ -758,7 +772,8 @@ class Printer {
       else this.raw(indent + 1, expr(st.expr));
     }
     if (close) this.bodyTail(close.offset, indent + 1);
-    this.raw(indent, '}');
+    if (close) this.closeLine(indent, '}', close.offset);
+    else this.raw(indent, '}');
   }
 
   private budget(b: BudgetNode, close?: Loc): void {

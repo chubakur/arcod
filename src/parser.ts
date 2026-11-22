@@ -71,6 +71,7 @@ class Parser {
     const meta: Record<string, string> = {};
     let metaLoc: ModuleNode['metaLoc'];
     let metaEntryLocs: Loc[] = [];
+    let metaClose: ModuleNode['metaClose'];
     this.expect('{');
     let sawMeta = false;
     while (!this.is('}')) {
@@ -84,6 +85,7 @@ class Parser {
         Object.assign(meta, parsed.values);
         metaLoc = parsed.loc;
         metaEntryLocs = parsed.locs;
+        metaClose = parsed.close;
         continue;
       }
       // The header braces hold meta only. Skipping anything else would turn a
@@ -95,7 +97,7 @@ class Parser {
     const end = this.expect('}');
 
     const mod: ModuleNode = {
-      kind: 'module', name, version, meta, metaLoc, metaEntryLocs, uses: [], types: [], errors: [], enums: [],
+      kind: 'module', name, version, meta, metaLoc, metaEntryLocs, metaClose, uses: [], types: [], errors: [], enums: [],
       services: [], workflows: [], environments: [], uis: [], file: this.file, source: this.source,
       loc: this.loc(start, end),
     };
@@ -119,7 +121,7 @@ class Parser {
     return mod;
   }
 
-  private parseMeta(): { values: Record<string, string>; locs: Loc[]; loc: Loc } {
+  private parseMeta(): { values: Record<string, string>; locs: Loc[]; loc: Loc; close: Loc } {
     const values: Record<string, string> = {};
     const locs: Loc[] = [];
     const open = this.expect('{');
@@ -137,7 +139,7 @@ class Parser {
     }
     const close = this.expect('}');
     const loc = locOf(open);
-    return { values, locs, loc: { ...loc, endLine: close.line, endCol: close.col, end: close.end } };
+    return { values, locs, loc: { ...loc, endLine: close.line, endCol: close.col, end: close.end }, close: locOf(close) };
   }
 
   private parseUse(): UseNode {
@@ -277,6 +279,7 @@ class Parser {
         Object.assign(svc.meta, parsedMeta.values);
         svc.metaLoc = parsedMeta.loc;
         svc.metaEntryLocs = parsedMeta.locs;
+        svc.metaClose = parsedMeta.close;
         continue;
       }
       if (this.accept('uses')) { svc.uses.push(this.parseCapUse()); continue; }
@@ -601,7 +604,8 @@ class Parser {
         if (section !== 'given' && section !== 'when' && section !== 'then') {
           this.error('expected given, when or then, got ' + section);
         }
-        this.expect('{');
+        const sectionOpen = this.expect('{');
+        (example.sectionOpens ??= {})[section as 'given' | 'when' | 'then'] = locOf(sectionOpen);
         const stmts: Stmt[] = [];
         while (!this.is('}')) {
           if (this.accept('let')) {

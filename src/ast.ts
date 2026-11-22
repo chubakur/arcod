@@ -19,6 +19,9 @@ export interface ModuleNode {
   // comment written inside the block where the author put it.
   metaLoc?: Loc;
   metaEntryLocs?: Loc[];
+  // The closing brace of the meta block: fmt puts a comment written after it
+  // back on that brace instead of dropping it.
+  metaClose?: Loc;
   uses: UseNode[];
   types: TypeDecl[];
   errors: ErrorDecl[];
@@ -174,6 +177,7 @@ export interface ServiceNode {
   meta: Record<string, string>;
   metaLoc?: Loc;
   metaEntryLocs?: Loc[];
+  metaClose?: Loc;
   uses: CapUse[];
   contract: OpNode[];
   sagas: SagaNode[];
@@ -278,6 +282,9 @@ export interface ExampleNode {
   // Closing brace of each section: a comment after the last statement of a
   // section that is not the last one must stay in it, not move to the next.
   sectionCloses?: Partial<Record<'given' | 'when' | 'then', Loc>>;
+  // The opening brace of each section: fmt anchors a comment written after
+  // `when {` there, since the section keyword itself has no node.
+  sectionOpens?: Partial<Record<'given' | 'when' | 'then', Loc>>;
   loc: Loc;
 }
 
