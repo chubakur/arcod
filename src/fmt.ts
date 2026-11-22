@@ -556,7 +556,10 @@ class Printer {
     this.emitComments(s.loc.offset, 0);
     const head = (s.external ? 'external service ' : 'service ') + s.name + ' : ' + s.impl + ' {';
     this.raw(0, head);
-    if (Object.keys(s.meta).length > 0) {
+    // An empty `meta {` is dropped, unless it carries a comment: the note has
+    // no entry to sit above and would otherwise be lost with the block.
+    const metaTailComments = this.serviceMetaTails.get(s.loc.offset);
+    if (Object.keys(s.meta).length > 0 || (metaTailComments !== undefined && metaTailComments.length > 0)) {
       const entries = Object.entries(s.meta);
       const locs = s.metaEntryLocs ?? [];
       const commented = locs.length === entries.length &&

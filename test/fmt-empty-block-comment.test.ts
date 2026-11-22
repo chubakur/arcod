@@ -77,3 +77,44 @@ test('a block with nothing inside is still dropped', () => {
   parse(out, 'main.arc');
   assert.equal(formatSource(out, 'main.arc'), out);
 });
+
+test('a comment inside an empty service meta block keeps the block', () => {
+  const source = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  meta {',
+    '    // owner comes later',
+    '  }',
+    '  contract {',
+    '    public op a() -> int {',
+    '      route: "GET /a"',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join(NL);
+  const out = formatSource(source, 'main.arc');
+  assert.match(out, /meta \{[\s\S]*owner comes later[\s\S]*\}/);
+  parse(out, 'main.arc');
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
+
+test('an empty service meta block without a comment is dropped', () => {
+  const source = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  meta {',
+    '  }',
+    '  contract {',
+    '    public op a() -> int {',
+    '      route: "GET /a"',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join(NL);
+  const out = formatSource(source, 'main.arc');
+  assert.doesNotMatch(out, /meta/);
+  parse(out, 'main.arc');
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
