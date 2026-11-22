@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 import net from 'node:net';
-import type { Expr, ModuleNode, OpNode, ServiceNode } from './ast.ts';
+import type { Expr, ModuleNode, OpNode, ServiceNode, TypeExpr } from './ast.ts';
 import { pickService, routeOf, statusForError } from './emit/service.ts';
 
 export interface ExampleResult {
@@ -33,6 +33,10 @@ interface Context {
   ops: OpNode[];
   baseUrl: string;
   statusToError: Map<number, string>;
+  // A parameter declared as a record travels as the whole object: unwrap()
+  // below collapses any value carrying `id` to that id, which is right for a
+  // path capture or a scalar id and wrong for a record-typed parameter.
+  recordTypes: Set<string>;
 }
 
 function declaredEmbedDim(mod: ModuleNode): number | null {
@@ -74,11 +78,14 @@ export async function runExamples(mod: ModuleNode, buildDir: string): Promise<Te
   child.stderr?.on('data', (chunk) => stderr.push(String(chunk)));
 
   const baseUrl = 'http://127.0.0.1:' + port;
+  const recordTypes = new Set<string>();
+  for (const decl of mod.types) if (decl.type.kind === 'record') recordTypes.add(decl.name);
   const ctx: Context = {
     service,
     ops: service.contract.filter((op) => op.kind === 'op'),
     baseUrl,
     statusToError: buildStatusMap(service),
+    recordTypes,
   };
 
   try {
@@ -355,7 +362,9 @@ async function invoke(op: OpNode, args: Value[], ctx: Context): Promise<Value> {
     const payload: Record<string, unknown> = {};
     const remaining = op.params.filter((param) => !pathParams.includes(param.name));
     remaining.forEach((param) => {
-      payload[param.name] = unwrap(byName.get(param.name));
+      payload[param.name] = isRecordType(param.type, ctx.recordTypes)
+        ? byName.get(param.name)
+        : unwrap(byName.get(param.name));
     });
     body = JSON.stringify(payload);
   }
@@ -418,6 +427,12 @@ function errorName(value: Value): string | null {
   if (!value || typeof value !== 'object') return null;
   const name = (value as { __error?: unknown }).__error;
   return typeof name === 'string' ? name : null;
+}
+
+function isRecordType(type: TypeExpr | null, recordTypes: Set<string>): boolean {
+  if (!type) return false;
+  if (type.kind === 'record') return true;
+  return type.kind === 'named' && recordTypes.has(type.name);
 }
 
 function unwrap(value: Value): unknown {
