@@ -1390,3 +1390,40 @@ test('ast --check gates on semantic errors and --json bypasses the gate', async 
   assert.equal(json.code, 0, '--json is a machine surface and skips the human gate');
   assert.equal(JSON.parse(json.out).name, 'm');
 });
+
+test('prompts on a contract with no operations says so and leaves nothing behind', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-noops-'));
+  const oneOp = [
+    'module shrink @0.1.0 {}',
+    'service S : http {',
+    '  contract {',
+    '    public op ping() -> string {',
+    '      route: "GET /v1/ping"',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join(String.fromCharCode(10));
+  const noOps = ['module shrink @0.1.0 {}', 'service S : http {', '}', ''].join(String.fromCharCode(10));
+  try {
+    await writeFile(join(dir, 'main.arc'), oneOp, 'utf8');
+    const first = await run(['prompts', dir]);
+    assert.equal(first.code, 0);
+    const files = await readdir(join(dir, '.arcod', 'build', 'prompts'));
+    assert.ok(files.includes('ping.md'));
+    assert.ok(files.includes('manifest.json'));
+
+    // The contract shrank: the prompt of a removed operation must not survive,
+    // and a contract with no operations leaves no prompts.json at all.
+    await writeFile(join(dir, 'main.arc'), noOps, 'utf8');
+    const second = await run(['prompts', dir]);
+    assert.equal(second.code, 0);
+    assert.match(second.out, /no operations in shrink — no prompts to build/);
+    const after = await readdir(join(dir, '.arcod', 'build', 'prompts')).catch(() => [] as string[]);
+    assert.ok(!after.includes('ping.md'));
+    const manifest = await readFile(join(dir, '.arcod', 'build', 'prompts.json'), 'utf8').catch(() => null);
+    assert.equal(manifest, null);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
