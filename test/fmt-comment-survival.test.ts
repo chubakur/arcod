@@ -14,24 +14,31 @@ const ROOT = new URL('..', import.meta.url).pathname;
 const examples = readdirSync(join(ROOT, 'examples'))
   .filter((dir) => existsSync(join(ROOT, 'examples', dir, 'main.arc')));
 
-test('every example keeps a comment appended to each of its code lines', () => {
+const MARKERS: Array<{ open: string; close: string }> = [
+  { open: '// c', close: '' },
+  { open: '/* c', close: ' */' },
+];
+
+for (const marker of MARKERS) {
+test('every example keeps ' + marker.open + ' appended to each of its code lines', () => {
   assert.ok(examples.length > 0, 'no examples found');
   for (const dir of examples) {
     const file = join('examples', dir, 'main.arc');
     const source = readFileSync(join(ROOT, file), 'utf8');
     const lines = source.split('\n');
     const tagged = lines
-      .map((line, i) => (line.trim() === '' || line.trim().startsWith('//') ? line : line + '  // c' + i))
+      .map((line, i) => (line.trim() === '' || line.trim().startsWith('//') ? line : line + '  ' + marker.open + i + marker.close))
       .join('\n');
     const out = formatSource(tagged, file);
     const missing: string[] = [];
     lines.forEach((line, i) => {
       const trimmed = line.trim();
       if (trimmed === '' || trimmed.startsWith('//')) return;
-      const marker = '// c' + i;
-      if (!out.includes(marker + '\n') && !out.endsWith(marker)) missing.push(i + 1 + ': ' + trimmed.slice(0, 60));
+      const text = marker.open + i + marker.close;
+      if (!out.includes(text + '\n') && !out.endsWith(text)) missing.push(i + 1 + ': ' + trimmed.slice(0, 60));
     });
     assert.deepEqual(missing, [], dir + ' lost comments on: ' + missing.join(' | '));
     assert.equal(formatSource(out, file), out, dir + ' is not idempotent with comments');
   }
 });
+}
