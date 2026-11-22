@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -237,6 +237,38 @@ environment dev {
 }
 `;
 
+test('a cached body says so and never reaches the model again', async () => {
+  // Removing impl/ping.mjs keeps the response cache in .arcod/cache: the next
+  // run has a body to write again, and the impl detail has to say the words
+  // came from the cache. A second request would mean the cache key drifted.
+  let hits = 0;
+  const server = createServer((req, res) => {
+    hits += 1;
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ response: 'export async function ping() {\n  return "pong";\n}' }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const endpoint = 'http://127.0.0.1:' + (server.address() as AddressInfo).port;
+  try {
+    const dir = await project(BARE);
+    const first = await runPipeline(parse(BARE, 'main.arc'), dir, { endpoint, noTest: true });
+    assert.equal(first.ok, true);
+    const firstImpl = first.steps.find((step) => step.name === 'impl')!;
+    assert.doesNotMatch(firstImpl.detail, /cached/);
+
+    await rm(join(dir, 'impl', 'ping.mjs'));
+    const second = await runPipeline(parse(BARE, 'main.arc'), dir, { endpoint, noTest: true });
+    assert.equal(second.ok, true);
+    const impl = second.steps.find((step) => step.name === 'impl')!;
+    assert.match(impl.detail, /1\/1 bodies · .* · 1 cached/);
+    assert.equal(hits, 1, 'the second body comes from .arcod/cache, not the model');
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
 test('an underivable body fails the prompts step and names the operation', async () => {
   // \`atomic read { get; del }\` consumes the key, so the operation must say what
   // happens when it is already gone. Here \`read\` declares only NotFound: the
