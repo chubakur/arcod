@@ -196,7 +196,7 @@ drivers. Full example: `examples/signup`.
 | `arcod run --down` | stop what this project started (`docker compose down --remove-orphans`); no rebuild, the `.arcod/build` artifacts stay |
 | `arcod run --detach --json` | one object instead of the start lines: `mode` (reference/scaffold/impl), `name`, `version`, `build`, `url`, `port`, `stop`; the compose log goes to stderr, so stdout stays parseable. `--json` without `--detach` is a usage error (a foreground run never returns), and a failed start answers `{error}` |
 | `arcod providers` | capability and provider table with ports and the declaring package (`origin`, `-` for built-ins); `--json` also carries each provider's declared bind `options`; `--plugins` lists manifests found on `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
-| `arcod deploy [dir]` | deployment target and `deploy.<env>.json` manifest; `--env`, `--json` |
+| `arcod deploy [dir]` | deployment target and `deploy.<env>.json` manifest; `--env`, `--json` (a refusal — no environment, no target, unknown provider — answers `{error}`, not a stderr line) |
 | `arcod k8s [dir]` | Kubernetes objects for the compose topology (namespace, configmap, provider deployments, app, ingress); `--helm` for a chart, `--out dir` to write files |
 | `arcod terraform [dir]` | Terraform for the cloud view: network, managed services for the binds, secrets as variables; `--env`, `--out dir`; Yandex Cloud |
 | `arcod prompts [dir]` | prompts only: compact by default, `--full` for the detailed task prompt (header, contract, io list, storage shape); `--max-tokens`, `--json` |

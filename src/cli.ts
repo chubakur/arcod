@@ -618,15 +618,37 @@ async function runDeploy(flags: Flags): Promise<void> {
     const tail = declared.length
       ? ' — declared: ' + declared.join(', ')
       : ' — module ' + loaded.mod.name + ' declares none; add `environment staging { deploy docker }`';
-    throw new Error('no environment to deploy' + (flags.env ? ': ' + flags.env : '') + tail);
+    const message = 'no environment to deploy' + (flags.env ? ': ' + flags.env : '') + tail;
+    // A --json caller gets no manifest here, so the refusal is the payload;
+    // throwing left stdout empty and the reason on stderr.
+    if (flags.json) {
+      console.log(JSON.stringify({ error: message }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
+    throw new Error(message);
   }
   if (!env.deploy) {
+    // No target, no manifest: the note is prose, the refusal is data.
+    if (flags.json) {
+      console.log(JSON.stringify({ error: 'environment ' + env.name + ' declares no deploy target; docker is assumed by default' }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
     console.log(env.name + ': deploy is not declared (docker is assumed by default)');
     console.log('available providers: ' + deployNames().join(', '));
     return;
   }
   const spec = deployProvider(env.deploy.provider);
-  if (!spec) throw new Error('unknown deploy provider ' + env.deploy.provider + '; available: ' + deployNames().join(', '));
+  if (!spec) {
+    const message = 'unknown deploy provider ' + env.deploy.provider + '; available: ' + deployNames().join(', ');
+    if (flags.json) {
+      console.log(JSON.stringify({ error: message }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
+    throw new Error(message);
+  }
 
   if (flags.json) {
     console.log(JSON.stringify(deployManifest(loaded.mod, env), null, 2));

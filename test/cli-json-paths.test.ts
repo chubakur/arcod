@@ -176,3 +176,24 @@ test('migrate, prompts and impl answer check errors as the shared object', async
     assert.deepEqual((parsed.diagnostics ?? []).map((d) => d.code), ['A046', 'A048'], command);
   }
 });
+
+
+// deploy --json used to answer an empty stdout and a prose reason on stderr for
+// every refusal: no environment, no target in the environment, unknown
+// provider. A caller that parses the manifest got nothing at all.
+test('deploy --json answers its three refusals as {error}', async () => {
+  const cases: Array<{ spec: string[]; env?: string; match: RegExp }> = [
+    { spec: ['module m @0.1.0 {}', 'service S : http {', '  contract {', '    public op ping() -> string { route: "GET /v1/ping" }', '  }', '}'], match: /no environment to deploy/ },
+    { spec: ['module m @0.1.0 {}', 'environment prod {', '}', 'service S : http {', '  contract {', '    public op ping() -> string { route: "GET /v1/ping" }', '  }', '}'], match: /declares no deploy target/ },
+    { spec: ['module m @0.1.0 {}', 'environment prod {', '  deploy nope', '}', 'service S : http {', '  contract {', '    public op ping() -> string { route: "GET /v1/ping" }', '  }', '}'], match: /unknown deploy provider nope/ },
+  ];
+  for (const item of cases) {
+    const dir = await mkdtemp(join(tmpdir(), 'arcod-json-'));
+    await writeFile(join(dir, 'main.arc'), item.spec.join(String.fromCharCode(10)), 'utf8');
+    const result = await run(['deploy', dir, '--json']);
+    assert.equal(result.code, 1, item.match + ': ' + result.out + result.err);
+    assert.equal(result.err, '', 'the reason is not a stderr line: ' + result.err);
+    const parsed = JSON.parse(result.out) as { error?: string };
+    assert.match(parsed.error ?? '', item.match);
+  }
+});
