@@ -344,9 +344,10 @@
         <div class="card">
           <span class="num">2026-11-21 · CHECK</span>
           <h3>Two more mistakes stop before the build</h3>
-          <p><code>A091</code> refuses <code>unique</code> on a field the store cannot
-          index — a JSON column in MySQL — instead of a rule that only holds on other
-          drivers. <code>A092</code> refuses an operation whose route the runtime already
+          <p><code>A091</code> refuses <code>unique</code> on a field no driver can
+          index — a <code>list</code>, <code>map</code> or <code>bytes</code> field —
+          instead of a rule that only holds on another store. <code>A092</code> refuses
+          an operation whose route the runtime already
           answers (<code>/healthz</code>, <code>/metrics</code>), so a contract cannot
           quietly shadow the probe. The checker now carries 111 codes, all listed in the
           README.</p>
