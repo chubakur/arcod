@@ -4,7 +4,7 @@
 // there is worse than a crash.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -278,4 +278,44 @@ test('a build refusal answers {error} under --json and keeps exit 2', async () =
   assert.equal(human.code, 2);
   assert.equal(human.out, '');
   assert.match(human.err, /^arcod: duplicate top-level name "LINES"/m);
+});
+
+
+// The artifact writers (migrate, prompts) hit a bad .arcod/build before any
+// --out path does. The human form was already good ("cannot write <path>: a
+// parent path is a file, not a directory"), but --json still printed it on
+// stderr and left stdout empty.
+test('a failed artifact write answers {error} under --json', async () => {
+  const dir = await copyExample('tasks-sql');
+  await rm(join(dir, '.arcod'), { recursive: true, force: true });
+  await mkdir(join(dir, '.arcod'), { recursive: true });
+  await writeFile(join(dir, '.arcod', 'build'), 'x', 'utf8');
+  for (const [command, artifact] of [['migrate', 'migrations'], ['prompts', 'prompts']] as Array<[string, string]>) {
+    const result = await run([command, dir, '--json']);
+    assert.equal(result.code, 1, command + ' fails the write');
+    assert.equal(result.err, '', command + ' keeps stderr clean');
+    const parsed = JSON.parse(result.out) as { error?: string };
+    assert.match(parsed.error ?? '', new RegExp('^cannot write .*build[/\\\\]' + artifact + ': a parent path is a file, not a directory$'), command);
+    assert.equal(parsed.error?.includes('ENOTDIR'), false, command + ' does not print the syscall name');
+  }
+  const human = await run(['migrate', dir]);
+  assert.equal(human.code, 1);
+  assert.equal(human.out, '');
+  assert.match(human.err, /^arcod: cannot write .*build[/\\\\]migrations: a parent path is a file, not a directory$/m);
+});
+
+// A pattern that matches nothing exits 2 (the caller's command line is wrong),
+// but the reason went to stderr only under --json.
+test('a pattern that matches nothing answers {error} under --json', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-json-'));
+  const pattern = join(dir, 'zzz-nope-*.arc');
+  const result = await run(['check', pattern, '--json']);
+  assert.equal(result.code, 2);
+  assert.equal(result.err, '');
+  const parsed = JSON.parse(result.out) as { error?: string };
+  assert.equal(parsed.error, 'no files match ' + pattern);
+  const human = await run(['check', pattern]);
+  assert.equal(human.code, 2);
+  assert.equal(human.out, '');
+  assert.equal(human.err, 'arcod: no files match ' + pattern);
 });

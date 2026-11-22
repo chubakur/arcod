@@ -245,11 +245,13 @@ rather than a flag that is accepted and ignored. The same goes for
 enforced: `--reference --impl` on one line is an error, not a preference for
 whichever flag the code checked first. `--json` always means JSON: `test
 --json` on a spec with nothing declared prints `{"examples": [], "rules": []}`
-instead of the sentence the human path prints, and a spec that does not parse
-answers `{error: "parse failed", diagnostics}` on stdout for every command that
-takes `--json`, a path it cannot read answers `{error: "cannot read ..."}`, and
-the failure the human path prints on stderr is the same diagnostic, not a
-second contract.
+instead of the sentence the human path prints. A refusal is data too: a spec
+that does not parse answers `{error: "parse failed", diagnostics}` on stdout for
+every command that takes `--json`, a path it cannot read answers
+`{error: "cannot read ..."}`, a pattern that matches nothing answers
+`{error: "no files match ..."}` with exit 2, and an artifact it cannot write
+answers `{error: "cannot write ..."}` with exit 1 — the failure the human path
+prints on stderr is the same diagnostic, not a second contract.
 
 A directory that holds several specs and no `main.arc`/`spec.arc`/`arcod.arc`
 reads the first by name but says so on stderr, listing the others; pass a path
