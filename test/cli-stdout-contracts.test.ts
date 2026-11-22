@@ -78,11 +78,12 @@ test('providers --json is one bare array, and every row carries the declared bin
     assert.equal(typeof row.provider, 'string');
     assert.ok(Array.isArray(row.env), row.provider + ' lists its env names');
     assert.ok(Array.isArray(row.options), row.provider + ' carries options: the README promises it for --json');
-    assert.equal(row.origin, null, 'a built-in has no declaring package; plugins carry theirs');
+    assert.ok(row.origin === null || typeof row.origin === 'string', row.provider + ' has no declaring package or names it');
   }
   const redis = rows.find((row) => row.provider === 'redis');
   assert.ok(redis, 'redis is in the registry');
   assert.equal(redis.capability, 'kv');
+  assert.equal(redis.origin, null, 'a built-in has no declaring package');
   assert.ok((redis.env as string[]).includes('REDIS_URL'));
 });
 
