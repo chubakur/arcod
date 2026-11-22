@@ -54,7 +54,7 @@ test('the workflow demo carries its graph into the deploy manifest', () => {
     [
       { name: 'prepare', call: 'Reports.prepare', needs: [], returns: 'Snapshot', onFail: null },
       { name: 'render', call: 'Reports.render', needs: ['prepare'], returns: 'Report', onFail: null },
-      { name: 'send', call: 'Reports.send', needs: ['render'], returns: 'string', onFail: 'stop' },
+      { name: 'send', call: 'Reports.send', needs: ['render'], returns: 'bool', onFail: 'stop' },
     ],
   );
 });

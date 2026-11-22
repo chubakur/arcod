@@ -19,7 +19,7 @@ service Reports : http {
       route: "POST /v1/render"
     }
 
-    public op send(report: Report) -> string {
+    public op send(report: Report) -> bool {
       route: "POST /v1/send"
     }
   }
@@ -52,7 +52,7 @@ service Reports : http {
         let receipt = send(report)
       }
       then {
-        receipt != null
+        receipt == true
       }
     }
   }
@@ -74,7 +74,7 @@ workflow Nightly {
     needs: prepare
   }
 
-  step send(report: Report) -> string {
+  step send(report: Report) -> bool {
     call: Reports.send
     needs: render
     onFail: stop
