@@ -106,3 +106,52 @@ test('fmt --write over a pattern counts an unwritable file as failed', { skip: p
   assert.match(result.out, /locked\.arc: cannot write: permission denied/);
   assert.match(result.out, /formatted .*free\.arc/, 'one locked file does not stop the others');
 });
+
+// prompts and migrate create .arcod/build themselves, so a bad layout there
+// reaches Node's mkdir/writeFile before any --out path does. It used to answer
+// "ENOTDIR: not a directory, mkdir '...'" and then print the artifact summary;
+// now it names the path, says what is wrong, and stops.
+async function bare(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-write-'));
+  await cp(join(examplesDir, 'tasks-sql', 'main.arc'), join(dir, 'main.arc'));
+  await cp(join(examplesDir, 'tasks-sql', 'impl'), join(dir, 'impl'), { recursive: true });
+  return dir;
+}
+
+test('prompts where .arcod/build is a file names the path, not ENOTDIR', async () => {
+  const dir = await bare();
+  await mkdir(join(dir, '.arcod'), { recursive: true });
+  await writeFile(join(dir, '.arcod', 'build'), 'x', 'utf8');
+  const result = await run(['prompts', dir]);
+  assert.equal(result.code, 1);
+  assert.match(result.err, /^arcod: cannot write .*build[/\\]prompts: a parent path is a file, not a directory$/m);
+  assert.equal(result.err.includes('ENOTDIR'), false, 'the syscall name is not the message');
+  assert.equal(result.out, '', 'nothing was written, so no task list is printed');
+});
+
+test('migrate where .arcod/build is a file says the same', async () => {
+  const dir = await bare();
+  await mkdir(join(dir, '.arcod'), { recursive: true });
+  await writeFile(join(dir, '.arcod', 'build'), 'x', 'utf8');
+  const result = await run(['migrate', dir]);
+  assert.equal(result.code, 1);
+  assert.match(result.err, /^arcod: cannot write .*build[/\\]migrations: a parent path is a file, not a directory$/m);
+  assert.equal(result.err.includes('ENOTDIR'), false);
+  assert.equal(result.out, '', 'no plan is reported for a file that is not on disk');
+});
+
+test('prompts on a read-only build tree says permission denied', { skip: process.getuid?.() === 0 }, async () => {
+  const dir = await bare();
+  const build = join(dir, '.arcod', 'build');
+  await mkdir(build, { recursive: true });
+  await chmod(build, 0o555);
+  try {
+    const result = await run(['prompts', dir]);
+    assert.equal(result.code, 1);
+    assert.match(result.err, /^arcod: cannot write .*build[/\\]prompts: permission denied$/m);
+    assert.equal(result.err.includes('EACCES'), false);
+    assert.equal(result.out, '');
+  } finally {
+    await chmod(build, 0o755);
+  }
+});

@@ -740,14 +740,15 @@ async function runMigrate(flags: Flags): Promise<void> {
   if (plan.migrations.length === 0) {
     // A model that lost its last table must not leave the previous plan on
     // disk: nothing would ever rewrite or remove those files.
-    await pruneMigrations(join(loaded.dir, '.arcod', 'build', 'migrations'), new Set());
+    const stale = join(loaded.dir, '.arcod', 'build', 'migrations');
+    if (!(await artifactStep(stale, () => pruneMigrations(stale, new Set())))) return;
     if (flags.json) console.log(JSON.stringify(plan, null, 2));
     else console.log('no stored entities in ' + svc.name + ' — nothing to migrate');
     return;
   }
 
   const dir = join(loaded.dir, '.arcod', 'build', 'migrations');
-  await mkdir(dir, { recursive: true });
+  if (!(await artifactStep(dir, () => mkdir(dir, { recursive: true })))) return;
   // Only the files this plan owns survive: a shrunken model renumbers and
   // renames migrations, and an orphan 0003_old.up.sql next to the new changelog
   // is SQL a runner could glob and apply.
@@ -756,12 +757,13 @@ async function runMigrate(flags: Flags): Promise<void> {
     owned.add(migration.version + '_' + migration.name + '.up.sql');
     owned.add(migration.version + '_' + migration.name + '.down.sql');
   }
-  await pruneMigrations(dir, owned);
-  await writeFile(join(dir, 'changelog.json'), JSON.stringify(plan.migrations, null, 2));
+  if (!(await artifactStep(dir, () => pruneMigrations(dir, owned)))) return;
+  const files: Array<[string, string]> = [[join(dir, 'changelog.json'), JSON.stringify(plan.migrations, null, 2)]];
   for (const migration of plan.migrations) {
-    await writeFile(join(dir, migration.version + '_' + migration.name + '.up.sql'), migration.up);
-    await writeFile(join(dir, migration.version + '_' + migration.name + '.down.sql'), migration.down);
+    files.push([join(dir, migration.version + '_' + migration.name + '.up.sql'), migration.up]);
+    files.push([join(dir, migration.version + '_' + migration.name + '.down.sql'), migration.down]);
   }
+  if (!(await writeArtifacts(files))) return;
 
   if (flags.json) {
     console.log(JSON.stringify(plan, null, 2));
@@ -784,6 +786,29 @@ function fsReason(err: unknown): string {
   if (code === 'EACCES' || code === 'EPERM') return 'permission denied';
   if (code === 'ENOSPC') return 'no space left on device';
   return err instanceof Error ? err.message : String(err);
+}
+
+// prompts and migrate write into .arcod/build themselves, so a bad path
+// there — a file where the folder goes, a read-only build tree — reached
+// Node's mkdir/writeFile directly and printed "ENOTDIR: not a directory,
+// mkdir '...'". Same wording as writeOut, and the summary line is skipped:
+// a plan that is not on disk must not be reported as written.
+async function artifactStep(path: string, work: () => Promise<unknown>): Promise<boolean> {
+  try {
+    await work();
+    return true;
+  } catch (err) {
+    console.error('arcod: cannot write ' + path + ': ' + fsReason(err));
+    process.exitCode = 1;
+    return false;
+  }
+}
+
+async function writeArtifacts(files: Array<[string, string]>): Promise<boolean> {
+  for (const [path, text] of files) {
+    if (!(await artifactStep(path, () => writeFile(path, text)))) return false;
+  }
+  return true;
 }
 
 async function writeOut(path: string, text: string): Promise<boolean> {
@@ -935,23 +960,22 @@ async function runPrompts(flags: Flags): Promise<void> {
   // a model that shrank keeps feeding the agent a prompt for an operation that
   // no longer exists.
   if (set.tasks.length === 0) {
-    await prunePromptFiles(dir, new Set());
-    await rm(join(artifactDir, 'prompts.json'), { force: true });
-    await rm(join(dir, 'manifest.json'), { force: true });
+    if (!(await artifactStep(dir, () => prunePromptFiles(dir, new Set())))) return;
+    if (!(await artifactStep(join(artifactDir, 'prompts.json'), () => rm(join(artifactDir, 'prompts.json'), { force: true })))) return;
+    if (!(await artifactStep(join(dir, 'manifest.json'), () => rm(join(dir, 'manifest.json'), { force: true })))) return;
     if (flags.json) console.log(JSON.stringify(manifest, null, 2));
     else console.log('no operations in ' + loaded.mod.name + ' — no prompts to build');
     return;
   }
 
-  await mkdir(dir, { recursive: true });
-  await prunePromptFiles(dir, set.tasks.map((task) => task.op + '.md'));
-  for (const task of set.tasks) {
-    await writeFile(join(dir, task.op + '.md'), task.prompt, 'utf8');
-  }
-  await writeFile(join(artifactDir, 'prompts.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  if (!(await artifactStep(dir, () => mkdir(dir, { recursive: true })))) return;
+  if (!(await artifactStep(dir, () => prunePromptFiles(dir, set.tasks.map((task) => task.op + '.md'))))) return;
+  const files: Array<[string, string]> = set.tasks.map((task) => [join(dir, task.op + '.md'), task.prompt]);
+  files.push([join(artifactDir, 'prompts.json'), JSON.stringify(manifest, null, 2) + '\n']);
   // The build writes the same manifest inside the folder; refresh it here too,
   // so a `prompts` run after a build cannot leave the build's older task list.
-  await writeFile(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+  files.push([join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n']);
+  if (!(await writeArtifacts(files))) return;
 
   if (flags.json) {
     console.log(JSON.stringify(manifest, null, 2));
