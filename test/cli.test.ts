@@ -1427,3 +1427,22 @@ test('prompts on a contract with no operations says so and leaves nothing behind
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('build says which bodies it used and when impl/ is empty', async () => {
+  const withBodies = await tempDir('arcod-cli-build-impl-');
+  await cp(new URL('../examples/notes-ssr', import.meta.url), withBodies, { recursive: true });
+  const ok = await run(['build', join(withBodies, 'main.arc'), '--impl']);
+  assert.equal(ok.code, 0, ok.err);
+  assert.match(ok.out, /arcod build \(impl\): \d+ files in /);
+  assert.match(ok.out, / {2}bodies: .*create/);
+  assert.match(ok.out, / {2}images: /);
+
+  // --impl with nothing in impl/ is not an error: the service still builds, and
+  // the line tells the user the one command that would fill it in.
+  const noBodies = await tempDir('arcod-cli-build-empty-');
+  await cp(new URL('../examples/notes-ssr', import.meta.url), noBodies, { recursive: true });
+  await rm(join(noBodies, 'impl'), { recursive: true, force: true });
+  const bare = await run(['build', join(noBodies, 'main.arc'), '--impl']);
+  assert.equal(bare.code, 0, bare.err);
+  assert.match(bare.out, /no bodies in impl\/; run arcod impl first/);
+});
