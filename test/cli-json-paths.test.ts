@@ -4,7 +4,7 @@
 // there is worse than a crash.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -256,4 +256,26 @@ test('a path that cannot be read answers {error} under --json', async () => {
   assert.equal(human.code, 1);
   assert.equal(human.out, '');
   assert.match(human.err, /^cannot read .*nope\.arc: no such file or directory$/m);
+});
+
+
+// A build refusal is a project mistake (exit 2), but --json is still the
+// machine surface: two impl bodies declaring one top-level name answered a
+// prose line on stderr and an empty stdout.
+test('a build refusal answers {error} under --json and keeps exit 2', async () => {
+  const dir = await copyExample('tasks-sql');
+  for (const op of ['create', 'list']) {
+    const file = join(dir, 'impl', op + '.mjs');
+    await writeFile(file, (await readFile(file, 'utf8')) + String.fromCharCode(10) + 'const LINES = [];' + String.fromCharCode(10), 'utf8');
+  }
+  const result = await run(['build', dir, '--impl', '--json']);
+  assert.equal(result.code, 2, 'a project mistake stays exit 2');
+  assert.equal(result.err, '', 'the reason is not left on stderr');
+  const parsed = JSON.parse(result.out) as { error?: string };
+  assert.match(parsed.error ?? '', /duplicate top-level name "LINES"/);
+  assert.match(parsed.error ?? '', /impl.create\.mjs and impl.list\.mjs/);
+  const human = await run(['build', dir, '--impl']);
+  assert.equal(human.code, 2);
+  assert.equal(human.out, '');
+  assert.match(human.err, /^arcod: duplicate top-level name "LINES"/m);
 });

@@ -237,7 +237,14 @@ export async function main(argv: string[]): Promise<void> {
     // A build refusal (for example two impl bodies declaring the same name) is
     // a mistake in the project, not a crash: one line and exit 2.
     if (error instanceof BuildError) {
-      console.error('arcod: ' + error.message);
+      // A project mistake the machine caller also has to read: the exit code
+      // stays 2, but --json gets the reason as an object instead of a line it
+      // would have to scrape off stderr.
+      if (flags?.json) {
+        console.log(JSON.stringify({ error: error.message }, null, 2));
+      } else {
+        console.error('arcod: ' + error.message);
+      }
       process.exitCode = 2;
       return;
     }
