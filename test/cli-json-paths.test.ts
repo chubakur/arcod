@@ -197,3 +197,43 @@ test('deploy --json answers its three refusals as {error}', async () => {
     assert.match(parsed.error ?? '', item.match);
   }
 });
+
+
+// A spec that does not parse is a refusal too, and --json is the machine
+// surface: every command used to answer with an empty stdout and a prose line
+// on stderr, so a script had to parse the one shape the compiler refused to
+// give it. The object is the same {error, diagnostics} check uses.
+test('a spec that does not parse answers {error} under --json, for every command', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-json-'));
+  const file = join(dir, 'broken.arc');
+  await writeFile(file, ['module broken @0.1.0 {', '  service {'].join(String.fromCharCode(10)), 'utf8');
+  for (const command of ['check', 'plan', 'build', 'test', 'migrate', 'prompts', 'impl']) {
+    const result = await run([command, file, '--json']);
+    assert.equal(result.code, 1, command + ' fails a spec that does not parse');
+    assert.equal(result.err, '', command + ' writes no prose to stderr: ' + result.err);
+    const parsed = JSON.parse(result.out) as {
+      error?: string;
+      diagnostics?: Array<{ code: string; severity: string; file: string; message: string; range: { line: number; col: number } }>;
+    };
+    assert.equal(parsed.error, 'parse failed', command);
+    const [found] = parsed.diagnostics ?? [];
+    assert.ok(found, command + ' names the diagnostic');
+    assert.equal(found.code, 'parse', command);
+    assert.equal(found.severity, 'error', command);
+    assert.equal(found.file, 'broken.arc', command);
+    assert.equal(found.range.line, 2, command + ' points at the offending line');
+    assert.match(found.message, /module header/, command);
+  }
+});
+
+// The human form keeps its own contract: the location line goes to stderr and
+// stdout stays empty, as the check tests already pin.
+test('the human form still prints the parse failure on stderr', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-json-'));
+  const file = join(dir, 'broken.arc');
+  await writeFile(file, ['module broken @0.1.0 {', '  service {'].join(String.fromCharCode(10)), 'utf8');
+  const result = await run(['check', file]);
+  assert.equal(result.code, 1);
+  assert.equal(result.out, '');
+  assert.match(result.err, /broken\.arc:2:3 {2}error {2}parse {2}/);
+});

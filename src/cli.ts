@@ -205,7 +205,26 @@ export async function main(argv: string[]): Promise<void> {
   } catch (error) {
     if (error instanceof ParseError) {
       const loc = error.loc;
-      console.error(basename(flags?.spec ?? 'main.arc') + ':' + loc.line + ':' + loc.col + '  error  parse  ' + error.message);
+      const file = basename(flags?.spec ?? 'main.arc');
+      // Every other refusal under --json is an object on stdout (check says
+      // {error, diagnostics}), but a spec that does not parse used to leave
+      // stdout empty and a prose line on stderr: a script had to scrape the
+      // one shape the compiler would not hand it. The diagnostic carries the
+      // same code the human form prints.
+      if (flags?.json) {
+        console.log(JSON.stringify({
+          error: 'parse failed',
+          diagnostics: [{
+            code: 'parse',
+            severity: 'error',
+            file,
+            message: error.message,
+            range: { line: loc.line, col: loc.col },
+          }],
+        }, null, 2));
+      } else {
+        console.error(file + ':' + loc.line + ':' + loc.col + '  error  parse  ' + error.message);
+      }
       process.exitCode = 1;
       return;
     }

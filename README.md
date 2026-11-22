@@ -181,7 +181,7 @@ drivers. Full example: `examples/signup`.
 
 | Command | What it does |
 |---|---|
-| `arcod check [dir]` | parse, check types, bindings, effects and rules; `--json`; `--strict` turns on W013 (missing budget); `--env <name>` checks one environment; a quoted pattern such as `'examples/*/main.arc'` checks every match, reports each file by its path, keeps going after a file that does not parse, and fails if any has an error; `**` spans directories, so `'projects/**'` checks the spec of every project below `projects`, at any depth |
+| `arcod check [dir]` | parse, check types, bindings, effects and rules; `--json`; `--strict` turns on W013 (missing budget); `--env <name>` checks one environment; a quoted pattern such as `'examples/*/main.arc'` checks every match, reports each file by its path, keeps going after a file that does not parse, and fails if any has an error; `--json` answers a spec that does not parse with `{error: "parse failed", diagnostics}`; `**` spans directories, so `'projects/**'` checks the spec of every project below `projects`, at any depth |
 | `arcod ast [dir]` | print the canonical AST; `--check` also runs the checks |
 | `arcod plan [dir]` | deterministic task DAG: files, dependencies, acceptance criteria |
 | `arcod openapi [dir]` | OpenAPI 3.1 on stdout: paths from `route`, schemas from `types`, errors mapped as in the runtime, examples from the `examples` block; `--service <name>` picks one service; `--out <file>` writes it instead of printing |
@@ -245,7 +245,10 @@ rather than a flag that is accepted and ignored. The same goes for
 enforced: `--reference --impl` on one line is an error, not a preference for
 whichever flag the code checked first. `--json` always means JSON: `test
 --json` on a spec with nothing declared prints `{"examples": [], "rules": []}`
-instead of the sentence the human path prints.
+instead of the sentence the human path prints, and a spec that does not parse
+answers `{error: "parse failed", diagnostics}` on stdout for every command that
+takes `--json` — the failure the human path prints on stderr is the same
+diagnostic, not a second contract.
 
 A directory that holds several specs and no `main.arc`/`spec.arc`/`arcod.arc`
 reads the first by name but says so on stderr, listing the others; pass a path
