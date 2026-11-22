@@ -6,32 +6,21 @@ module nightly @0.1.0 {
   }
 }
 
-use capability arcod.std.kv @1
-
 type Snapshot = { label: string }
 type Report = { rows: int }
 
 service Reports : http {
-  uses store: kv
-
-  effects {
-    allow store.insert, store.find
-  }
-
   contract {
     public op prepare() -> Snapshot {
       route: "POST /v1/prepare"
-      effects: store.insert
     }
 
     public op render(snapshot: Snapshot) -> Report {
       route: "POST /v1/render"
-      effects: store.insert
     }
 
     public op send(report: Report) -> string {
       route: "POST /v1/send"
-      effects: store.insert
     }
   }
 
@@ -93,6 +82,5 @@ workflow Nightly {
 }
 
 environment dev {
-  bind store -> redis(host: "kv", port: 6379)
   deploy docker
 }
