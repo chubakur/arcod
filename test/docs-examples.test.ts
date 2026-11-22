@@ -51,13 +51,13 @@ test('the README points a reader at the index', async () => {
 });
 
 
-async function rows(): Promise<Array<{ name: string; ops: string[] }>> {
+async function rows(): Promise<Array<{ name: string; ops: string[]; store: string }>> {
   const text = await readFile(join(root, 'docs', 'examples.md'), 'utf8');
   return text
     .split('\n')
-    .map((line) => /^\| \`([^\`]+)\` \| ([^|]+) \|/.exec(line))
+    .map((line) => /^\| \`([^\`]+)\` \| ([^|]+) \| ([^|]+) \|/.exec(line))
     .filter((match): match is RegExpExecArray => Boolean(match))
-    .map((match) => ({ name: match[1], ops: match[2].split(',').map((op) => op.trim()).filter(Boolean) }));
+    .map((match) => ({ name: match[1], ops: match[2].split(',').map((op) => op.trim()).filter(Boolean), store: match[3].trim() }));
 }
 
 test('the Ops column names exactly the callable operations of the spec', async () => {
@@ -70,5 +70,19 @@ test('the Ops column names exactly the callable operations of the spec', async (
         .map((op) => op.name))
       .sort();
     assert.deepEqual([...row.ops].sort(), actual, `docs/examples.md lists the wrong Ops for ${row.name}`);
+  }
+});
+
+
+test('the Store column starts with the kind the service uses', async () => {
+  for (const row of await rows()) {
+    const source = await readFile(join(root, 'examples', row.name, 'main.arc'), 'utf8');
+    const mod = parse(source, `examples/${row.name}/main.arc`);
+    const kinds = mod.services.flatMap((service) => service.uses
+      .filter((use) => use.alias === 'store')
+      .map((use) => use.capability));
+    assert.ok(kinds.length > 0, `${row.name} declares no store`);
+    const documented = row.store.split(/ \+ | \(/)[0];
+    assert.equal(documented, kinds[0], `docs/examples.md says ${row.name} stores in "${row.store}"`);
   }
 });
