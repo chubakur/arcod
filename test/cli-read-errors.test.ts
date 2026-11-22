@@ -1,0 +1,55 @@
+// A spec the process cannot read used to answer with Node's syscall text
+// ("EACCES: permission denied, open '...'") out of load(), and a directory it
+// could not list answered "no .arc file found in <dir>" — sending the user to
+// look for a missing spec that is already there. Both now say what happened.
+// The exit code is checked through the real entry point, since the message is
+// printed by main()'s top-level catch and not by a command.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+
+const root = fileURLToPath(new URL('..', import.meta.url));
+const execFileAsync = promisify(execFile);
+const NL = String.fromCharCode(10);
+
+async function runCli(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  try {
+    const { stdout, stderr } = await execFileAsync(process.execPath, ['bin/arcod.mjs', ...args], { cwd: root });
+    return { code: 0, stdout, stderr };
+  } catch (err) {
+    const failed = err as { code?: number; stdout?: string; stderr?: string };
+    return { code: failed.code ?? -1, stdout: failed.stdout ?? '', stderr: failed.stderr ?? '' };
+  }
+}
+
+test('an unreadable spec says permission denied, not EACCES', { skip: process.getuid?.() === 0 }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-read-'));
+  const file = join(dir, 'main.arc');
+  await writeFile(file, 'module read @0.1.0 {}' + NL, 'utf8');
+  await chmod(file, 0o000);
+  try {
+    const result = await runCli(['check', file]);
+    assert.equal(result.code, 1);
+    assert.equal(result.stderr.trim(), 'cannot read ' + file + ': permission denied');
+  } finally {
+    await chmod(file, 0o644);
+  }
+});
+
+test('an unreadable directory is not reported as having no spec', { skip: process.getuid?.() === 0 }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-read-'));
+  await writeFile(join(dir, 'main.arc'), 'module read @0.1.0 {}' + NL, 'utf8');
+  await chmod(dir, 0o000);
+  try {
+    const result = await runCli(['check', dir]);
+    assert.equal(result.code, 1);
+    assert.equal(result.stderr.trim(), 'cannot read ' + dir + ': permission denied');
+  } finally {
+    await chmod(dir, 0o755);
+  }
+});

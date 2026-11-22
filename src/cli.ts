@@ -450,7 +450,7 @@ async function runFmtPattern(flags: Flags, pattern: string): Promise<void> {
         await writeFile(specPath, formatted, 'utf8');
       } catch (err) {
         failed++;
-        console.log(label + ': cannot write: ' + writeReason(err));
+        console.log(label + ': cannot write: ' + fsReason(err));
         continue;
       }
       console.log('formatted ' + label);
@@ -499,7 +499,7 @@ async function runFmt(flags: Flags): Promise<void> {
     try {
       await writeFile(loaded.specPath, formatted, 'utf8');
     } catch (err) {
-      console.error('arcod: cannot write ' + loaded.specPath + ': ' + writeReason(err));
+      console.error('arcod: cannot write ' + loaded.specPath + ': ' + fsReason(err));
       process.exitCode = 1;
       return;
     }
@@ -537,7 +537,7 @@ async function runAdopt(args: string[]): Promise<void> {
     const code = (err as NodeJS.ErrnoException).code;
     console.error(code === 'ENOENT'
       ? 'cannot read ' + file + ': no such file or directory'
-      : 'cannot read ' + file + ': ' + (err as Error).message);
+      : 'cannot read ' + file + ': ' + fsReason(err));
     process.exitCode = 1;
     return;
   }
@@ -773,7 +773,7 @@ async function runMigrate(flags: Flags): Promise<void> {
 // already translates a missing input file and load() says "cannot read ...: no
 // such file or directory", so every --out path answers the same way instead of
 // leaking "EISDIR: illegal operation on a directory, open '...'".
-function writeReason(err: unknown): string {
+function fsReason(err: unknown): string {
   const code = (err as NodeJS.ErrnoException).code;
   if (code === 'EISDIR') return 'is a directory (pass a file path)';
   if (code === 'ENOTDIR' || code === 'EEXIST') return 'a parent path is a file, not a directory';
@@ -788,7 +788,7 @@ async function writeOut(path: string, text: string): Promise<boolean> {
     await writeFile(path, text);
     return true;
   } catch (err) {
-    console.error('arcod: cannot write ' + path + ': ' + writeReason(err));
+    console.error('arcod: cannot write ' + path + ': ' + fsReason(err));
     process.exitCode = 1;
     return false;
   }
@@ -1411,7 +1411,12 @@ async function load(target?: string): Promise<Loaded> {
   let specPath: string;
   let dir: string;
 
-  const info = await stat(resolved).catch(() => null);
+  const info = await stat(resolved).catch((err) => {
+    // "no such file" is the one stat failure that means what it says; an
+    // unreadable parent is a permission problem, not a typo.
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw new Error('cannot read ' + resolved + ': ' + fsReason(err));
+  });
   if (info?.isFile()) {
     specPath = resolved;
     dir = join(resolved, '..');
@@ -1424,14 +1429,27 @@ async function load(target?: string): Promise<Loaded> {
     specPath = await findSpec(dir);
   }
 
-  const source = await readFile(specPath, 'utf8');
+  let source: string;
+  try {
+    source = await readFile(specPath, 'utf8');
+  } catch (err) {
+    throw new Error('cannot read ' + specPath + ': ' + fsReason(err));
+  }
   const mod = parse(source, basename(specPath));
   return { mod, specPath, dir };
 }
 
 async function findSpec(dir: string): Promise<string> {
   const preferred = ['main.arc', 'spec.arc', 'arcod.arc'];
-  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    // load() only calls this for a directory it can stat, so failing here is a
+    // permission problem; "no .arc file found" would send the user hunting
+    // for a spec that is already there.
+    throw new Error('cannot read ' + dir + ': ' + fsReason(err));
+  }
   const files = entries.filter((e) => e.isFile() && e.name.endsWith('.arc')).map((e) => e.name).sort();
 
   for (const name of preferred) {
