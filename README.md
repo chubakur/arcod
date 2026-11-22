@@ -190,7 +190,7 @@ drivers. Full example: `examples/signup`.
 | `arcod build [dir]` | scaffold: routes, adapters, tests, infrastructure in `.arcod/build`; bodies are TODO; `--json` reports mode, dir, dialect, files, images and bodies as one object |
 | `arcod build --impl` | bodies from `impl/*.mjs`, the `io` adapter, nothing invented |
 | `arcod build --reference` | the same plus built-in demo bodies for `create`/`read` |
-| `arcod test [dir]` | boots the generated service and runs the model's `examples` |
+| `arcod test [dir]` | boots the generated service and runs the model's `examples`; `--json` prints the report (`{examples, rules}`, plus `diagnostics` when the spec does not pass check) and never prose |
 | `arcod make [dir]` | the whole cycle in one command: check → prompts → bodies → build → test |
 | `arcod run [dir]` | build + `docker compose up --build`; the `docker info` probe gives up after 15 s and says the daemon is not answering instead of hanging |
 | `arcod run --down` | stop what this project started (`docker compose down --remove-orphans`); no rebuild, the `.arcod/build` artifacts stay |
