@@ -161,11 +161,18 @@ test('run reports a docker binary that disappears before compose', async () => {
   const bin = join(dir, 'bin');
   await mkdir(bin);
   // Answers `docker info` (the probe) and removes itself, so the compose call
-  // that follows cannot resolve the binary.
-  await writeFile(join(bin, 'docker'), '#!/bin/sh\nif [ "$1" = info ]; then rm -f "$0"; exit 0; fi\nexit 1\n', { mode: 0o755 });
+  // that follows cannot resolve the binary. /bin/rm is spelled out because with
+  // only the shim dir on PATH there is no `rm` to find, and a plain `rm` left
+  // the shim in place — the compose call then exited 1 with no message at all.
+  await writeFile(join(bin, 'docker'), '#!/bin/sh\nif [ "$1" = info ]; then /bin/rm -f "$0"; exit 0; fi\nexit 1\n', { mode: 0o755 });
 
   const before = process.env.PATH;
-  process.env.PATH = bin + ':' + before;
+  // The shim dir only. With the host PATH behind it, a runner that does have
+  // docker found the real binary once the shim had deleted itself and ran
+  // `compose up --build` for real: the foreground compose never returned and
+  // CI killed the job at its 20-minute limit (run 45063415633). This test is
+  // about having no docker binary left, so nothing behind the shim may exist.
+  process.env.PATH = bin;
   let result: Result;
   try {
     result = await run(['run', dir]);
