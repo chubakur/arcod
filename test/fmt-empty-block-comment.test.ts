@@ -118,3 +118,33 @@ test('an empty service meta block without a comment is dropped', () => {
   parse(out, 'main.arc');
   assert.equal(formatSource(out, 'main.arc'), out);
 });
+
+test('a comment trailing the opening brace of an empty block survives', () => {
+  const source = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  contract {  // nothing yet',
+    '  }',
+    '}',
+    '',
+  ].join(NL);
+  const out = formatSource(source, 'main.arc');
+  assert.match(out, /contract \{ {2}\/\/ nothing yet/);
+  parse(out, 'main.arc');
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
+
+test('a comment trailing the closing brace of an empty block survives', () => {
+  const source = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  contract {',
+    '  }  // nothing yet',
+    '}',
+    '',
+  ].join(NL);
+  const out = formatSource(source, 'main.arc');
+  assert.match(out, /} {2}\/\/ nothing yet/);
+  parse(out, 'main.arc');
+  assert.equal(formatSource(out, 'main.arc'), out);
+});

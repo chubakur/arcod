@@ -583,10 +583,10 @@ class Printer {
     if (s.uses.length > 0) body.push(() => { for (const c of s.uses) this.capUse(c); });
     if (s.roles.length > 0) body.push(() => this.raw(1, 'roles: ' + s.roles.join(', ')));
     if (s.effects) body.push(() => this.effects(s.effects!, s.blockCloses?.effects));
-    if (s.rules.length > 0 || this.hasBodyTail(s.blockCloses?.rules)) body.push(() => this.rules(s.rules, s.blockCloses?.rules, s.blockOpens?.rules));
-    if (s.contract.length > 0 || this.hasBodyTail(s.blockCloses?.contract)) body.push(() => this.contract(s.contract, s.blockCloses?.contract, s.blockOpens?.contract));
+    if (s.rules.length > 0 || this.hasBlockComments(s.blockCloses?.rules, s.blockOpens?.rules)) body.push(() => this.rules(s.rules, s.blockCloses?.rules, s.blockOpens?.rules));
+    if (s.contract.length > 0 || this.hasBlockComments(s.blockCloses?.contract, s.blockOpens?.contract)) body.push(() => this.contract(s.contract, s.blockCloses?.contract, s.blockOpens?.contract));
     for (const sg of s.sagas) body.push(() => this.saga(sg));
-    if (s.examples.length > 0 || this.hasBodyTail(s.blockCloses?.examples)) body.push(() => this.examples(s.examples, s.blockCloses?.examples, s.blockOpens?.examples));
+    if (s.examples.length > 0 || this.hasBlockComments(s.blockCloses?.examples, s.blockOpens?.examples)) body.push(() => this.examples(s.examples, s.blockCloses?.examples, s.blockOpens?.examples));
     if (s.budget) body.push(() => this.budget(s.budget!, s.blockCloses?.budget));
     for (let i = 0; i < body.length; i++) {
       if (i > 0) this.blank();
@@ -781,13 +781,16 @@ class Printer {
   // else: it has no line of its own anymore.
   // Comments written after the last field of a type/error/enum body, still
   // inside its braces, are printed at the body's indent before the brace.
-  // Whether a block end carries a comment written after its last clause. An
-  // empty block has no child to hold that comment, so the printer has to keep
-  // the block itself: dropping `contract {` would drop the note with it.
-  private hasBodyTail(loc: Loc | undefined): boolean {
-    if (!loc) return false;
-    const cs = this.bodyTails.get(loc.offset);
-    return cs !== undefined && cs.length > 0;
+  // Whether a block carries a comment with nowhere else to go: after its last
+  // clause, or trailing its opening or closing brace. An empty block has no
+  // child to hold such a note, so the printer has to keep the block itself:
+  // dropping `contract {` would drop the comment with it.
+  private hasBlockComments(close: Loc | undefined, head: Loc | undefined): boolean {
+    if (head && this.trailing.has(head.offset)) return true;
+    if (!close) return false;
+    const tail = this.bodyTails.get(close.offset);
+    if (tail !== undefined && tail.length > 0) return true;
+    return this.braceTrailing.has(close.offset);
   }
 
   private bodyTail(end: number, indent: number): void {

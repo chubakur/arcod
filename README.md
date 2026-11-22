@@ -1923,7 +1923,8 @@ This is a vertical slice, not a finished language.
   such as `theme: auto`), the same holds for the last clause of a service or
   operation body, of the `contract`/`rules`/`effects`/`examples`/`budget`
   blocks (an empty `contract`/`rules`/`examples` block is dropped by fmt, but a
-  block that carries a comment inside it is kept so the note is not lost), of a
+  block that carries a comment inside it, or trailing its opening or closing
+  brace, is kept so the note is not lost), of a
   service `meta` block (an empty one is dropped unless it carries a comment), of an `example` body and of an
   `environment` block and a `given`/`when`/`then` section of an example, a
   comment written inside a `slide` stays in that
