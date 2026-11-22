@@ -123,14 +123,24 @@ function handle(msg: Message): void {
   }
 }
 
+// The stream the answers go to. Defaults to stdout, which is what an editor
+// sees; a test passes a PassThrough so the framing code runs in this process.
+let out: NodeJS.WritableStream = process.stdout;
+
 function write(payload: object): void {
   const body = JSON.stringify(payload);
-  process.stdout.write('Content-Length: ' + Buffer.byteLength(body) + '\r\n\r\n' + body);
+  out.write('Content-Length: ' + Buffer.byteLength(body) + '\r\n\r\n' + body);
 }
 
-function serve(): void {
+// Editors always run the server as a child process, which is why the framing
+// code was never measured: a split chunk or a message without Content-Length
+// is exactly what a real editor produces, and nothing here was covered. The
+// streams are a parameter now, so the same code runs in-process.
+function serve(io: { input?: NodeJS.ReadableStream; output?: NodeJS.WritableStream } = {}): void {
+  out = io.output ?? process.stdout;
+  const input: NodeJS.ReadableStream = io.input ?? process.stdin;
   let buffer = Buffer.alloc(0);
-  process.stdin.on('data', (chunk: Buffer) => {
+  input.on('data', (chunk: Buffer) => {
     buffer = Buffer.concat([buffer, chunk]);
     // Parse as many complete Content-Length-framed messages as are available.
     for (;;) {
