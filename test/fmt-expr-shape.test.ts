@@ -45,3 +45,29 @@ test('parentheses around an `is` comparison are dropped and mean the same', () =
   assert.equal(e.left.kind, 'is');
   assert.equal(e.left.error, 'NotFound');
 });
+
+test('a call keeps the parentheses its callee needs', () => {
+  // member and call both bind tighter than every operator: \`(x + y).abs()\`
+  // needs its parentheses, \`s.get(x).value\` does not gain any. No example
+  // spells either shape, so both printer paths were unexercised.
+  const src = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  contract {',
+    '    public op a(x: int, y: int) -> int {',
+    '      route: ""',
+    '      post: (x + y).abs() == x',
+    '    }',
+    '    public op b(x: int) -> int {',
+    '      route: ""',
+    '      post: s.get(x).value == x',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /post: \(x \+ y\)\.abs\(\) == x/);
+  assert.match(out, /post: s\.get\(x\)\.value == x/);
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
