@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -62,6 +62,25 @@ function runChild(argv: string[]): Result {
 
 async function tempDir(prefix = 'arcod-cli-'): Promise<string> {
   return mkdtemp(join(tmpdir(), prefix));
+}
+
+// 'atomic read { get; del }' needs an error for an already-consumed key.
+// Dropping Gone from the one-time-message demo leaves its plan underivable
+// while the spec itself still checks clean (one warning, no model needed).
+async function underivableProject(): Promise<{ dir: string; spec: string }> {
+  const dir = await tempDir('arcod-cli-unresolved-');
+  await cp(new URL('../examples/onetimemessage', import.meta.url), dir, { recursive: true });
+  const spec = join(dir, 'main.arc');
+  let text = await readFile(spec, 'utf8');
+  text = text
+    .replace('error Gone\n', '')
+    .replace('    invariant read.at_most_once: once(read, by: id, else: Gone)\n', '')
+    .replace('      errors: NotFound, Gone', '      errors: NotFound')
+    .replace('        read(id) is Gone\n', '');
+  await writeFile(spec, text);
+  // No impl/ bodies: the run has to derive the plan, not skip the prompts.
+  await rm(join(dir, 'impl'), { recursive: true, force: true });
+  return { dir, spec };
 }
 
 test('help and version answer without a spec', async () => {
@@ -601,6 +620,23 @@ test('make exits 1 and stops when check fails', async () => {
 });
 
 
+test('make stops at cannot-derive and keeps that step in --json', async () => {
+  const { spec } = await underivableProject();
+  const json = await run(['make', spec, '--json']);
+  assert.equal(json.code, 1);
+  const result = JSON.parse(json.out) as { ok: boolean; steps: Array<{ name: string; ok: boolean; error?: string }> };
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.steps.map((step) => step.name), ['check', 'prompts']);
+  const prompts = result.steps[1];
+  assert.equal(prompts.ok, false);
+  assert.match(prompts.error ?? '', /cannot derive a procedure for: T-\d+: consume is required/);
+
+  const human = await run(['make', spec]);
+  assert.equal(human.code, 1);
+  assert.match(human.out, /prompts\s+fail/);
+  assert.match(human.out, /stopped in/);
+});
+
 test('build refuses two impl bodies with one top-level name, exit 2', async () => {
   const dir = await tempDir('arcod-cli-dupname-');
   await cp(new URL('../examples/tasks-sql', import.meta.url), dir, { recursive: true });
@@ -660,18 +696,7 @@ test('prompts names an underivable plan and exits 1, JSON included', async () =>
   // The prompts it can write are still worth writing, so the command does not
   // throw the folder away: it says which operation has no procedure and sets
   // exit 1. The JSON manifest carries the same reason for a caller.
-  const dir = await tempDir('arcod-cli-prompts-unresolved-');
-  await cp(new URL('../examples/onetimemessage', import.meta.url), dir, { recursive: true });
-  const spec = join(dir, 'main.arc');
-  // \`atomic read { get; del }\` consumes the key; without Gone the plan cannot
-  // say what a second read returns.
-  let text = await readFile(spec, 'utf8');
-  text = text
-    .replace('error Gone\n', '')
-    .replace('    invariant read.at_most_once: once(read, by: id, else: Gone)\n', '')
-    .replace('      errors: NotFound, Gone', '      errors: NotFound')
-    .replace('        read(id) is Gone\n', '');
-  await writeFile(spec, text);
+  const { dir, spec } = await underivableProject();
 
   const human = await run(['prompts', spec]);
   assert.equal(human.code, 1);
