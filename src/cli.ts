@@ -653,9 +653,7 @@ async function runK8s(flags: Flags): Promise<void> {
   const emitted = flags.helm ? helmChart(loaded.mod, options) : k8sManifests(loaded.mod, options);
   if (flags.out) {
     for (const file of emitted) {
-      const path = join(flags.out, file.path);
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, file.content, { encoding: 'utf8', mode: 0o644 });
+      if (!(await writeOut(join(flags.out, file.path), file.content))) return;
     }
     console.log('wrote ' + emitted.length + ' file(s) to ' + flags.out);
     return;
@@ -674,9 +672,7 @@ async function runTerraform(flags: Flags): Promise<void> {
   const files = terraformFiles(loaded.mod, { environment: flags.env, registry: loadRegistry(loaded.dir) });
   if (flags.out) {
     for (const file of files) {
-      const path = join(flags.out, file.path);
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, file.content, { encoding: 'utf8', mode: 0o644 });
+      if (!(await writeOut(join(flags.out, file.path), file.content))) return;
     }
     console.log('wrote ' + files.length + ' file(s) to ' + flags.out);
     return;
@@ -761,6 +757,30 @@ async function runMigrate(flags: Flags): Promise<void> {
   }
 }
 
+// A raw EISDIR/EACCES names the syscall, not what the user did. `adopt`
+// already translates a missing input file and load() says "cannot read ...: no
+// such file or directory", so every --out path answers the same way instead of
+// leaking "EISDIR: illegal operation on a directory, open '...'".
+async function writeOut(path: string, text: string): Promise<boolean> {
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, text);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    const reason =
+      code === 'EISDIR' ? 'is a directory (pass a file path)' :
+      code === 'ENOTDIR' ? 'a parent path is a file, not a directory' :
+      code === 'EEXIST' ? 'a parent path is a file, not a directory' :
+      code === 'EACCES' ? 'permission denied' :
+      code === 'ENOSPC' ? 'no space left on device' :
+      (err as Error).message;
+    console.error('arcod: cannot write ' + path + ': ' + reason);
+    process.exitCode = 1;
+    return false;
+  }
+}
+
 async function runOpenapi(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
@@ -778,8 +798,7 @@ async function runOpenapi(flags: Flags): Promise<void> {
   // graphql and grpc already write a file (and create its directory); the
   // OpenAPI document is the same kind of artifact, so --out behaves the same.
   const path = isAbsolute(target) ? target : join(loaded.dir, target);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(doc, null, 2) + '\n');
+  if (!(await writeOut(path, JSON.stringify(doc, null, 2) + '\n'))) return;
   console.log('wrote ' + path);
 }
 
@@ -801,8 +820,7 @@ async function runGraphql(flags: Flags): Promise<void> {
   // Writing a file into a fresh build directory is the normal case; k8s --out
   // already creates its tree, so the single-file emitters must too instead of
   // failing with a raw ENOENT.
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, sdl);
+  if (!(await writeOut(path, sdl))) return;
   console.log('wrote ' + path);
 }
 
@@ -821,8 +839,7 @@ async function runGrpc(flags: Flags): Promise<void> {
     return;
   }
   const path = isAbsolute(target) ? target : join(loaded.dir, target);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, proto);
+  if (!(await writeOut(path, proto))) return;
   console.log('wrote ' + path);
 }
 
