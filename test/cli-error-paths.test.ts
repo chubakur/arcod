@@ -260,3 +260,18 @@ test('run --scaffold names the stubs and keeps the foreground compose', async ()
   assert.doesNotMatch(result.out, /stop: arcod run/, 'a foreground run prints no stop hint');
   assert.match(await readFile(log, 'utf8'), /compose -f .*docker-compose\.yml up --build$/m);
 });
+
+// --dialect is checked once, in one place, and the mistake is the user's: a
+// typo has to read as a usage error with the accepted values, not as a build
+// that half-ran.
+test('an unknown --dialect is a usage error and builds nothing', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-dialect-'));
+  await writeFile(join(dir, 'main.arc'), RUNSPEC, 'utf8');
+
+  const result = await run(['build', dir, '--dialect', 'sqlite']);
+
+  assert.equal(result.code, 2, 'usage errors exit 2: ' + result.out + result.err);
+  assert.match(result.err, /unknown dialect sqlite \(mysql, postgres\)/);
+  assert.match(result.err, /hint: arcod build --help/);
+  assert.equal(existsSync(join(dir, '.arcod', 'build')), false, 'nothing was built');
+});
