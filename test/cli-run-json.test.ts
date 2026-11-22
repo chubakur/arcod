@@ -154,3 +154,23 @@ test('run --detach --json answers check errors with their diagnostics', async ()
   assert.equal(report.diagnostics.some((d: { code: string }) => d.code === 'A048'), true, r.out);
   assert.doesNotMatch(r.out, /^A048/m, 'diagnostics are data, not printed lines');
 });
+
+
+// The object must describe the port that was asked for, not the default: a
+// script picks a free port and reads back the URL it should poll.
+test('run --detach --json reports the port from --port', async () => {
+  const dir = await project(ONE_OP.replace('ping', 'create').replace('-> string', '-> bool'));
+  const fake = await fakeDocker(dir, '#!/bin/sh\nif [ "$1" = info ]; then exit 0; fi\nexit 0\n');
+  const before = process.env.PATH;
+  process.env.PATH = fake.path + ':' + (before ?? '');
+  let r: Result;
+  try {
+    r = await run(['run', dir, '--detach', '--json', '--scaffold', '--port', '9091']);
+  } finally {
+    process.env.PATH = before;
+  }
+  assert.equal(r.code, 0, r.err);
+  const report = JSON.parse(r.out) as { port: number; url: string };
+  assert.equal(report.port, 9091);
+  assert.equal(report.url, 'http://localhost:9091');
+});
