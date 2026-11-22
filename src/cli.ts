@@ -252,7 +252,8 @@ async function expandSpecs(pattern: string): Promise<string[]> {
       // A trailing ** means "every project at or below this directory". It used
       // to expand to nothing: the zero-level step returned at once (index was
       // past the end) and the recursion only ever descended, so
-      // `arcod check 'projects/**'` checked no file and still exited 0.
+      // `arcod check 'projects/**'` said "no files match" and exited 2 for a
+      // pattern that names every project below the directory.
       if (last) {
         const spec = await findSpec(dir).catch(() => null);
         if (spec) pushFile(spec);

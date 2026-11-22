@@ -154,8 +154,9 @@ test('every environment of every example checks without errors', async () => {
 });
 
 // `arcod check 'examples/**'` is the one command that is supposed to cover the
-// whole directory. It expanded to no file at all for a long time, and a green
-// exit for zero projects reads exactly like a green exit for sixteen.
+// whole directory. For a long time it expanded to no file at all and answered
+// "no files match" with exit 2 — a pattern naming sixteen projects behaved as
+// if the directory were empty, and the fix has to keep finding all sixteen.
 test('a ** pattern reaches every shipped example', async () => {
   const out: string[] = [];
   const realLog = console.log;
