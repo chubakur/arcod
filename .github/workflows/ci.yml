@@ -37,7 +37,11 @@ jobs:
       - name: typecheck
         run: npx tsc --noEmit
       - name: tests
-        run: node --test test/*.test.ts
+        # A test that reaches a real docker starts a foreground `compose up`
+        # that never returns; the job then dies at its 20-minute limit and
+        # GitHub reports the run as "cancelled" (45063415633), naming no test.
+        # The cap turns any future hang into a failed test with a name.
+        run: node --test --test-timeout=120000 test/*.test.ts
       - name: check example
         run: node bin/arcod.mjs check examples/onetimemessage
       - name: run example
