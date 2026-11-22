@@ -4,7 +4,7 @@
 // covered.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -207,4 +207,56 @@ test('run explains the missing demo body and offers the scaffold', async () => {
   assert.match(result.err, /demo handlers cover create and read only/);
   assert.match(result.err, /--scaffold/, 'the flag that would start is named');
   assert.equal(/templates only for/.test(result.err), false, 'the emitter wording stays out: ' + result.err);
+});
+
+// A spec that does not check must not reach docker: 'arcod run' probed the
+// daemon and called compose even when the diagnostics already said the spec
+// was broken.
+test('run refuses a broken spec before it asks docker', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-run-'));
+  await writeFile(join(dir, 'main.arc'), BROKEN, 'utf8');
+  const bin = join(dir, 'bin');
+  const log = join(dir, 'docker.log');
+  await mkdir(bin);
+  await writeFile(join(bin, 'docker'), '#!/bin/sh\necho "$@" >> ' + log + '\nexit 0\n', { mode: 0o755 });
+
+  const before = process.env.PATH;
+  process.env.PATH = bin;
+  let result: Result;
+  try {
+    result = await run(['run', dir]);
+  } finally {
+    process.env.PATH = before;
+  }
+
+  assert.equal(result.code, 1, result.out + result.err);
+  assert.match(result.out, /A048/, 'the diagnostic code is printed');
+  assert.equal(existsSync(log), false, 'docker is never asked about a spec that does not build');
+});
+
+// --scaffold is the third head of 'arcod run': bodies are stubs, the service
+// still starts, and the compose call stays in the foreground.
+test('run --scaffold names the stubs and keeps the foreground compose', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-run-'));
+  await writeFile(join(dir, 'main.arc'), RUNSPEC, 'utf8');
+  const bin = join(dir, 'bin');
+  const log = join(dir, 'docker.log');
+  await mkdir(bin);
+  await writeFile(join(bin, 'docker'),
+    '#!/bin/sh\nif [ "$1" = info ]; then exit 0; fi\necho "$@" >> ' + log + '\nexit 3\n',
+    { mode: 0o755 });
+
+  const before = process.env.PATH;
+  process.env.PATH = bin;
+  let result: Result;
+  try {
+    result = await run(['run', dir, '--scaffold']);
+  } finally {
+    process.env.PATH = before;
+  }
+
+  assert.equal(result.code, 3, 'the compose status is the exit status: ' + result.out + result.err);
+  assert.match(result.out, /arcod run: scaffold/);
+  assert.doesNotMatch(result.out, /stop: arcod run/, 'a foreground run prints no stop hint');
+  assert.match(await readFile(log, 'utf8'), /compose -f .*docker-compose\.yml up --build$/m);
 });
