@@ -4,7 +4,8 @@ Every directory under `examples/` is a working service, not a snippet: each
 one checks clean, builds with its own inputs, and its `examples { }` block runs
 against the emitted service (`node --test test/examples.test.ts` proves all
 three for all of them). This page is the index: what to read a demo for, and how
-to run it.
+to run it. `test/docs-examples.test.ts` fails when the table and `examples/`
+disagree, so a new demo cannot land without its row.
 
 | Demo | Ops | Store | What it is worth reading for |
 | --- | --- | --- | --- |
