@@ -43,6 +43,9 @@ export function isLocalEndpoint(endpoint: string): boolean {
 
 export interface ImplResult {
   id: string;
+  // The operation the body belongs to: the report is read by people, and a
+  // task id like T-0002 says nothing about which body failed.
+  op: string;
   file: string;
   ok: boolean;
   cached: boolean;
@@ -179,6 +182,7 @@ async function runTask(task: PromptTask, outDir: string, cacheDir: string, optio
   const cachePath = join(cacheDir, key + '.mjs');
   const base: ImplResult = {
     id: task.id,
+    op: task.op,
     file: target,
     ok: false,
     cached: false,
@@ -228,7 +232,7 @@ export function formatImplReport(results: ImplResult[], options: ImplOptions): s
     const mark = item.ok ? 'ok  ' : 'fail';
     const cached = item.cached ? ' cached' : '';
     const detail = item.error ? '  ' + item.error : '  ' + item.bytes + ' bytes, ' + estimateTokens(String(item.bytes)) + '~ tokens out';
-    lines.push('  ' + mark + ' ' + item.id + cached + detail);
+    lines.push('  ' + mark + ' ' + item.op + cached + detail);
   }
   return lines.join('\n');
 }

@@ -176,9 +176,10 @@ test('a remote endpoint needs an explicit allow-remote', async () => {
 
 test('formatImplReport marks ok, cached and failed bodies', () => {
   const report = formatImplReport([
-    { id: 'ping', file: '/tmp/ping.mjs', ok: true, cached: false, tokens: 10, bytes: 120 },
-    { id: 'echo', file: '/tmp/echo.mjs', ok: true, cached: true, tokens: 12, bytes: 90 },
-    { id: 'read', file: '/tmp/read.mjs', ok: false, cached: false, tokens: 9, bytes: 0, error: 'syntax error' },
+    // The report names the operation; the task id stays internal.
+    { id: 'T-0001', op: 'ping', file: '/tmp/ping.mjs', ok: true, cached: false, tokens: 10, bytes: 120 },
+    { id: 'T-0002', op: 'echo', file: '/tmp/echo.mjs', ok: true, cached: true, tokens: 12, bytes: 90 },
+    { id: 'T-0003', op: 'read', file: '/tmp/read.mjs', ok: false, cached: false, tokens: 9, bytes: 0, error: 'syntax error' },
   ], { ...DEFAULT_IMPL, model: 'qwen2.5-coder' });
   assert.match(report, /^impl: 2\/3 bodies, model qwen2\.5-coder/);
   assert.match(report, /context: num_ctx=\d+, temperature=[\d.]+, seed=\d+/);

@@ -73,6 +73,6 @@ test('impl exits 1 when the model writes a body that does not parse', async () =
 
   assert.equal(result.code, 1, 'a failed body is a failed command: ' + result.out + result.err);
   assert.match(result.out, /impl: 0\/1 bodies/, 'the report counts the failure');
-  assert.match(result.out, /fail T-\d+/, 'the failing task is marked');
+  assert.match(result.out, /fail ping/, 'the failing operation is named, not its task id');
   assert.match(result.out, /impl\/ping\.mjs:2/, 'and the error names the file and line');
 });
