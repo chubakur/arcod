@@ -1151,15 +1151,6 @@ function referenceGap(error: unknown, firstLine: string): ReferenceGap | null {
   return { line: firstLine, missing, advice };
 }
 
-function explainReferenceGap(error: unknown, firstLine: string): boolean {
-  const gap = referenceGap(error, firstLine);
-  if (!gap) return false;
-  console.error(gap.line);
-  console.error(gap.advice);
-  process.exitCode = 1;
-  return true;
-}
-
 async function runBuild(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });

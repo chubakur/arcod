@@ -54,6 +54,24 @@ test('an unreadable directory is not reported as having no spec', { skip: proces
   }
 });
 
+test('an explicit spec under an unsearchable directory names the permission, not a typo', { skip: process.getuid?.() === 0 }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-read-'));
+  const file = join(dir, 'main.arc');
+  await writeFile(file, 'module read @0.1.0 {}' + NL, 'utf8');
+  await chmod(dir, 0o000);
+  try {
+    // stat() cannot tell "there is no such file" from "I may not look", so a
+    // path inside a directory without +x used to fall into the typo branch and
+    // advise the user to check a path that is spelled correctly.
+    const result = await runCli(['check', file]);
+    assert.equal(result.code, 1);
+    assert.equal(result.stderr.trim(), 'cannot read ' + file + ': permission denied');
+    assert.doesNotMatch(result.stderr, /ENOENT|no such file/, 'the file is there; the directory is not searchable');
+  } finally {
+    await chmod(dir, 0o755);
+  }
+});
+
 test('check over a pattern reports an unreadable file without EACCES', { skip: process.getuid?.() === 0 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'arcod-read-'));
   const good = join(dir, 'a.arc');
