@@ -4,7 +4,7 @@
 // covered.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -110,3 +110,78 @@ for (const artifact of ARTIFACTS) {
     assert.equal(existsSync(target), false, artifact.command + ' wrote ' + artifact.out + ' for a broken spec');
   });
 }
+
+// `arcod run` shells out to docker. When the binary is there for the health
+// probe but gone for compose (a stopped daemon, a PATH that changed under the
+// process), spawnSync reports ENOENT in child.error and the command must say so
+// and exit 1 — the branch printed nothing at all until now.
+const RUNSPEC = [
+  'module runme @0.1.0 {}',
+  '',
+  'use capability arcod.std.kv @1',
+  'use capability arcod.std.ids @1',
+  '',
+  'type Id = uuid',
+  '',
+  'service Ping : http {',
+  '  uses store: kv(ttl: 60s)',
+  '  uses uuid: ids',
+  '',
+  '  contract {',
+  '    public op create() -> Id {',
+  '      route: "POST /v1/ping"',
+  '      effects: store.set, uuid.new',
+  '      post: result != null',
+  '    }',
+  '',
+  '    public op read(id: Id) -> bool {',
+  '      route: "GET /v1/ping/:id"',
+  '      effects: store.get',
+  '    }',
+  '  }',
+  '',
+  '  effects {',
+  '    allow store.get, store.set, uuid.new',
+  '    deny net, fs, exec',
+  '  }',
+  '}',
+  '',
+  'environment dev {',
+  '  bind store -> redis(host: "kv", port: 6379)',
+  '  bind uuid -> local',
+  '  deploy docker',
+  '}',
+  '',
+].join('\n');
+
+test('run reports a docker binary that disappears before compose', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-run-'));
+  await writeFile(join(dir, 'main.arc'), RUNSPEC, 'utf8');
+
+  const bin = join(dir, 'bin');
+  await mkdir(bin);
+  // Answers `docker info` (the probe) and removes itself, so the compose call
+  // that follows cannot resolve the binary.
+  await writeFile(join(bin, 'docker'), '#!/bin/sh\nif [ "$1" = info ]; then rm -f "$0"; exit 0; fi\nexit 1\n', { mode: 0o755 });
+
+  const before = process.env.PATH;
+  process.env.PATH = bin + ':' + before;
+  let result: Result;
+  try {
+    result = await run(['run', dir]);
+  } finally {
+    process.env.PATH = before;
+  }
+
+  assert.equal(result.code, 1, result.out + result.err);
+  assert.match(result.err, /docker/, 'the message names docker, not a bare stack');
+  assert.match(result.err, /ENOENT|not found/, 'and says the binary was not found');
+});
+
+test('run --down on a project that was never built is a no-op, not an error', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-run-'));
+  await writeFile(join(dir, 'main.arc'), RUNSPEC, 'utf8');
+  const result = await run(['run', dir, '--down']);
+  assert.equal(result.code, 0, result.out + result.err);
+  assert.match(result.out, /nothing to stop/);
+});
