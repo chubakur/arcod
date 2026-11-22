@@ -148,3 +148,31 @@ test('build --json answers check errors with their diagnostics', async () => {
   assert.deepEqual((parsed.diagnostics ?? []).map((d) => d.code), ['A046', 'A048']);
   assert.match(parsed.diagnostics?.[0]?.message ?? '', /identity capability/);
 });
+
+
+// The shared refusal: every command that reads a contract answers the same
+// object when the spec does not check. migrate, prompts and impl printed prose
+// under --json while build and test already answered data.
+test('migrate, prompts and impl answer check errors as the shared object', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-json-'));
+  await writeFile(join(dir, 'main.arc'), [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  roles: user',
+    '  contract {',
+    '    public op list() -> bool {',
+    '      route: "GET /v1/list"',
+    '      roles: user',
+    '    }',
+    '  }',
+    '}',
+  ].join(String.fromCharCode(10)), 'utf8');
+  for (const command of ['migrate', 'prompts', 'impl']) {
+    const result = await run([command, dir, '--json']);
+    assert.equal(result.code, 1, command + ': ' + result.out + result.err);
+    assert.equal(result.err, '', command + ' prints no prose');
+    const parsed = JSON.parse(result.out) as { error?: string; diagnostics?: Array<{ code: string }> };
+    assert.equal(parsed.error, 'check failed', command);
+    assert.deepEqual((parsed.diagnostics ?? []).map((d) => d.code), ['A046', 'A048'], command);
+  }
+});

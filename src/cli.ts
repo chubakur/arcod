@@ -654,8 +654,7 @@ async function runK8s(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
   if (errors.length > 0) {
-    printDiagnostics(errors, loaded.specPath);
-    process.exitCode = 1;
+    refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
   const options = {
@@ -681,8 +680,7 @@ async function runTerraform(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
   if (errors.length > 0) {
-    printDiagnostics(errors, loaded.specPath);
-    process.exitCode = 1;
+    refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
   const files = terraformFiles(loaded.mod, { environment: flags.env, registry: loadRegistry(loaded.dir) });
@@ -722,8 +720,7 @@ async function runMigrate(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
   if (errors.length > 0) {
-    printDiagnostics(errors, loaded.specPath);
-    process.exitCode = 1;
+    refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
   const svc = pickService(loaded.mod);
@@ -827,8 +824,7 @@ async function runOpenapi(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
   if (errors.length > 0) {
-    printDiagnostics(errors, loaded.specPath);
-    process.exitCode = 1;
+    refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
   const doc = emitOpenapi(loaded.mod, { service: flags.service });
@@ -848,8 +844,7 @@ async function runGraphql(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
   if (errors.length > 0) {
-    printDiagnostics(errors, loaded.specPath);
-    process.exitCode = 1;
+    refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
   const sdl = graphqlSchema(loaded.mod, { service: flags.service });
@@ -870,8 +865,7 @@ async function runGrpc(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((d) => d.severity === 'error');
   if (errors.length > 0) {
-    printDiagnostics(errors, loaded.specPath);
-    process.exitCode = 1;
+    refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
   const proto = grpcProto(loaded.mod, { service: flags.service });
@@ -944,8 +938,7 @@ async function runPrompts(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((item) => item.severity === 'error');
   if (errors.length > 0) {
-    printDiagnostics(errors, loaded.specPath);
-    process.exitCode = 1;
+    refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
 
@@ -1021,8 +1014,7 @@ async function runImplCmd(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const errors = check(loaded.mod, { registry: loadRegistry(loaded.dir) }).filter((item) => item.severity === 'error');
   if (errors.length > 0) {
-    printDiagnostics(errors, loaded.specPath);
-    process.exitCode = 1;
+    refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
 
@@ -1095,15 +1087,7 @@ async function runBuild(flags: Flags): Promise<void> {
   const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
   const errors = diags.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
-    // A spec that does not check is the most likely --json failure of all: a
-    // caller gating CI must get the diagnostics as data, not as prose that
-    // leaves stdout empty.
-    if (flags.json) {
-      console.log(JSON.stringify({ error: 'check failed', diagnostics: errors }, null, 2));
-    } else {
-      printDiagnostics(errors, loaded.specPath);
-    }
-    process.exitCode = 1;
+    refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
   try {
@@ -1163,10 +1147,10 @@ async function runTest(flags: Flags): Promise<void> {
     // report, with the diagnostics under their own key.
     if (flags.json) {
       console.log(JSON.stringify({ examples: [], rules: [], diagnostics: errors }, null, 2));
-    } else {
-      printDiagnostics(errors, loaded.specPath);
+      process.exitCode = 1;
+      return;
     }
-    process.exitCode = 1;
+    refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
 
@@ -1292,14 +1276,9 @@ async function runRun(flags: Flags): Promise<void> {
   const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
   const errors = diags.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
-    // Same contract as build and test: a caller that parses stdout gets a
-    // report with the diagnostics under their own key, never prose.
-    if (flags.json) {
-      console.log(JSON.stringify({ error: 'check failed', diagnostics: errors }, null, 2));
-    } else {
-      printDiagnostics(errors, loaded.specPath);
-    }
-    process.exitCode = 1;
+    // test answers a report of its own shape; every other reader answers the
+    // shared refusal.
+    refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
 
@@ -1390,6 +1369,20 @@ function compose(result: { composeFile: string; dir: string }, args: string[], f
     return 1;
   }
   return child.status ?? 1;
+}
+
+// Every command that reads a contract refuses a spec that does not check, and
+// --json callers need that refusal as data. It lived in eight copies: build,
+// test and run answered JSON while migrate, prompts and impl still printed
+// prose, so a script that parsed stdout got nothing. One helper, one shape;
+// commands without --json keep the human form through the same call.
+function refuseCheckErrors(flags: Flags, errors: Diagnostic[], specPath: string): void {
+  if (flags.json) {
+    console.log(JSON.stringify({ error: 'check failed', diagnostics: errors }, null, 2));
+  } else {
+    printDiagnostics(errors, specPath);
+  }
+  process.exitCode = 1;
 }
 
 function printDiagnostics(diags: Diagnostic[], specPath: string, label?: string): void {
