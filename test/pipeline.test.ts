@@ -237,6 +237,24 @@ environment dev {
 }
 `;
 
+test('a build that refuses two bodies stops the pipeline at build', async () => {
+  // The build step owns body validation: two impl files that declare the same
+  // top-level name make the tree ambiguous. The pipeline has to stop there,
+  // name the collision and never run the examples against that tree.
+  const dir = await project(WITH_EXAMPLE);
+  await mkdir(join(dir, 'impl'), { recursive: true });
+  await writeFile(join(dir, 'impl', 'ping.mjs'), 'const LINES = [];\nexport async function ping() { return "pong"; }\n', 'utf8');
+  await writeFile(join(dir, 'impl', 'echo.mjs'), 'const LINES = [];\nexport async function echo(input) { return input.text; }\n', 'utf8');
+  const result = await runPipeline(parse(WITH_EXAMPLE, 'main.arc'), dir, { skipImpl: true });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.steps.map((step) => step.name), ['check', 'prompts', 'impl', 'build']);
+  const build = result.steps[3];
+  assert.equal(build.ok, false);
+  assert.match(build.error ?? '', /duplicate top-level name "LINES"/);
+  assert.ok(!result.steps.some((step) => step.name === 'test'), 'no test on a tree that did not build');
+  assert.match(formatPipeline(result, 'demo@0.1.0'), /build +fail /);
+});
+
 test('a cached body says so and never reaches the model again', async () => {
   // Removing impl/ping.mjs keeps the response cache in .arcod/cache: the next
   // run has a body to write again, and the impl detail has to say the words
