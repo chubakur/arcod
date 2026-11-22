@@ -1096,6 +1096,24 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // W047 — a service declares a role no operation names. The vocabulary is
+    // real (A047 rejects an undeclared role), so a role nobody uses reads like
+    // an access rule that is enforced, and it is not.
+    if (svc.roles.length > 0) {
+      const named = new Set<string>();
+      for (const op of svc.contract) {
+        for (const clause of op.clauses) {
+          if (clause.kind === 'roles') for (const role of clause.names) named.add(role);
+        }
+      }
+      for (const role of svc.roles) {
+        if (named.has(role)) continue;
+        diags.push(diag('W047', 'warning', mod.file, svc.rolesLoc ?? svc.loc, `services.${svc.name}.roles`,
+          `role ${role} is declared by the service but no operation names it`,
+          'drop it, or add roles: ' + role + ' to an operation'));
+      }
+    }
+
     // A070 — a route is "METHOD /path". A bare path used to fall through to
     // GET with path "/" in OpenAPI and in the router, so the operation
     // answered a URL nobody wrote.

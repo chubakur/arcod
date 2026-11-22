@@ -1700,6 +1700,10 @@ Warnings:
   (`oncee(read, ...)`) or a predicate v0.1 does not execute. `arcod test` now
   prints the rule as `skip` and counts it apart instead of dropping it from the
   report, so a green run never hides an invariant that was only a comment.
+- `W047` a service declares a role no operation names. The vocabulary is
+  enforced (`A047` rejects a role the service never declared), so an unused
+  entry reads like an access rule that works: drop it, or name it in an
+  operation's `roles:` clause.
 - `W046` a cloud environment binds a stateful provider the plan cannot
   provision (`mysql`, `mariadb` have no yandex resource): the plan would look
   complete and create nothing for that bind. Bind `postgres` for a managed
