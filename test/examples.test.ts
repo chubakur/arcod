@@ -36,7 +36,6 @@ async function examples(): Promise<Array<{ name: string; spec: string; source: s
 // An undocumented W041 (an example calling an op with a parameter missing) and
 // the orders W046 both sat green in this suite until they were named here.
 const DOCUMENTED_WARNINGS: Record<string, Record<string, string>> = {
-  files: { W012: 'B47: list() declares list<FileId> while the impl returns records' },
   'tasks-sql': { W046: 'prod keeps mysql so the missing managed resource stays visible' },
   nightly: { W022: 'workflows are declarative in v0.1: the graph lands in the deploy manifest, no runner yet' },
 };

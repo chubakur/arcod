@@ -17,6 +17,10 @@ type FileName = bytes(min: 1, max: 255)
 type Contents = bytes(min: 1, max: 64kb)
 type Visibility = string
 
+// A listing row as the browser renders it: the share sheet shows a name and a
+// size, so handing back ids alone would force one fetch per row.
+type FileRef = { id: FileId, name: FileName, owner: UserId, ownerName: UserId, visibility: Visibility, allowed: list<UserId>, size: int }
+
 error Unauthorized
 error Forbidden
 error NotFound
@@ -43,7 +47,7 @@ service FileShare : http {
       on error Invalid: visibility != null
     }
 
-    public op list() -> list<FileId> {
+    public op list() -> list<FileRef> {
       route: "GET /v1/files"
       effects: store.scan
       errors: none
@@ -91,6 +95,21 @@ service FileShare : http {
         got.name == "notes.txt"
         got.body == "hello"
         shared == true
+      }
+    }
+
+    // A listing carries what the browser renders (name, size, sharing), and the
+    // name sorts first so the assertion does not depend on the scan order.
+    example listing_carries_metadata {
+      when {
+        let id = upload("a-plan.txt", "v1", "public", [])
+        let listing = list()
+        let got = download(listing[0].id)
+      }
+      then {
+        listing[0].name == "a-plan.txt"
+        listing[0].size == 2
+        got.body == "v1"
       }
     }
 

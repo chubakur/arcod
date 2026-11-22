@@ -20,7 +20,7 @@ to run it.
 | `quiz` | start, join, state, advance, vote, rate, comment | kv + stream | Live state over a stream, a host page with a QR code, and a UI built from the same ops. |
 | `chat` | start, send, history | sql + llm | Dialogue history and model answers; the page is `layout: chat`; the model is bound, not called from the body. |
 | `vector` | add, search | kv + llm | `io.embed` and a vector search; the embedding width comes from the bind (`dim`) and is enforced. |
-| `files` | upload, list, download, setVisibility, users | sql + identity + blob | Bytes in the blob store, metadata in the row, Keycloak identities for sharing. `list` keeps W012 (B47: the contract and the demo body disagree). |
+| `files` | upload, list, download, setVisibility, users | sql + identity + blob | Bytes in the blob store, metadata in the row, Keycloak identities for sharing. `list` returns `FileRef` rows (name, size, sharing), so the browser renders a listing without one fetch per file. |
 | `kanban` | create, list, move, remove, image | sql + identity + blob | A per-caller board: `owner:` guards, images read back by the owner, `auth` ops. |
 | `signup` | create, find | kv | Constrained types: `email`, `url`, a closed `Plan` enum and a schema default, checked at the boundary. |
 | `notes-ssr` | list, create | kv | Server-rendered pages instead of a SPA: the same contract, a different `ui` kind. |
