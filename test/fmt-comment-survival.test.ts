@@ -49,12 +49,30 @@ function lostMarkers(source: string, open: string, close: string, file: string):
     .join('\n');
   const out = formatSource(tagged, file);
   const missing: string[] = [];
+  const doubled: string[] = [];
+  // A marker is the last thing on its line, so one comment is one line ending
+  // with it. Counting the lines that end with the marker catches a printer that
+  // keeps the comment and also prints a second copy of it.
+  const endings = (text: string): number => {
+    let total = out.endsWith(text) ? 1 : 0;
+    let from = 0;
+    while (true) {
+      const at = out.indexOf(text + '\n', from);
+      if (at < 0) break;
+      total += 1;
+      from = at + 1;
+    }
+    return total;
+  };
   lines.forEach((line, i) => {
     if (!isCode[i]) return;
     const text = open + i + close;
-    if (!out.includes(text + '\n') && !out.endsWith(text)) missing.push(i + 1 + ': ' + line.trim().slice(0, 60));
+    const seen = endings(text);
+    if (seen === 0) missing.push(i + 1 + ': ' + line.trim().slice(0, 60));
+    if (seen > 1) doubled.push(i + 1 + ': ' + line.trim().slice(0, 60));
   });
   assert.deepEqual(missing, [], file + ' lost comments on: ' + missing.join(' | '));
+  assert.deepEqual(doubled, [], file + ' printed a comment more than once: ' + doubled.join(' | '));
   assert.equal(formatSource(out, file), out, file + ' is not idempotent with comments');
   return missing;
 }
