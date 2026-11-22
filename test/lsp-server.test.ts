@@ -174,3 +174,31 @@ test('the LSP server answers initialize, edits and shutdown over stdio', async (
     await client.stop();
   }
 });
+
+// Two robustness promises had no test: a frame whose body is not JSON is
+// answered with -32700 instead of killing the server, and a URI that is not
+// valid percent-encoding still maps to a file path (decodeURIComponent throws)
+// instead of taking diagnostics down with it.
+test('a malformed frame is answered, and a URI with a bad escape still maps', async () => {
+  const client = new Client();
+  try {
+    await client.request(1, 'initialize', { processId: process.pid, rootUri: null, capabilities: {} });
+
+    const body = '{"jsonrpc":"2.0","id":7,"method":';
+    client.child.stdin.write('Content-Length: ' + Buffer.byteLength(body) + '\r\n\r\n' + body);
+    const parseError = await client.waitFor((f) => f.error?.code === -32700, 'parse error');
+    assert.equal(parseError.id, null, 'the request id could not be read, so the error carries null');
+    assert.match(String(parseError.error.message), /JSON/);
+
+    // The server is still serving: a 100% in a path is not valid escape text.
+    const bad = 'file:///tmp/arcod-lsp/100%.arc';
+    client.send({ method: 'textDocument/didOpen', params: { textDocument: { uri: bad, languageId: 'arcod', version: 1, text: GOOD } } });
+    const diags = await client.waitFor((f) => f.method === 'textDocument/publishDiagnostics' && f.params?.uri === bad, 'diagnostics for a bad URI');
+    assert.deepEqual(diags.params.diagnostics.filter((d: any) => d.severity === 1), []);
+
+    const symbols = await client.request(2, 'textDocument/documentSymbol', { textDocument: { uri: bad } });
+    assert.ok(Array.isArray(symbols.result) && symbols.result.length > 0, 'the document is still the one that was opened');
+  } finally {
+    await client.stop();
+  }
+});
