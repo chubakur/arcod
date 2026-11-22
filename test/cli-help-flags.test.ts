@@ -20,7 +20,6 @@ function blockFor(command: string): string {
   }
   return block.join('\n');
 }
-
 for (const [command, flags] of Object.entries(COMMAND_FLAGS)) {
   test(command + ': every accepted flag is on both help pages', () => {
     const summary = blockFor(command);

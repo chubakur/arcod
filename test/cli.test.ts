@@ -107,6 +107,16 @@ test('an unknown command prints help and exits 2', async () => {
   assert.match(r.out + r.err, /usage:/);
 });
 
+// The summary page once said "fmt/upgrade share --check and --write", and the
+// README repeated it. upgrade never had --check: a CI gate written from that
+// sentence would have failed on a usage error instead of on version drift.
+test('upgrade has no --check: the promised gate is a usage error', async () => {
+  const r = await run(['upgrade', 'examples/chat', '--check']);
+  assert.equal(r.code, 2);
+  assert.match(r.err, /arcod: unknown flag: --check/);
+  assert.match(r.err, /hint: arcod upgrade --help/);
+});
+
 test('an unknown flag is a usage error, not a crash', async () => {
   const r = await run(['check', '--bogus']);
   assert.equal(r.code, 2);

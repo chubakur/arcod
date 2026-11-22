@@ -1782,7 +1782,7 @@ bodies even when impl/ is populated.
 
 fmt prints the canonical AST form; diff structural-diffs two specs (canonicalized
 first); adopt turns an OpenAPI 3.x JSON doc into a spec; upgrade migrates a spec
-across language versions (--to, --write). fmt/upgrade share --check and --write.
+across language versions (--to, --write). fmt takes --check and --write; upgrade takes --to and --write.
 
 build defaults to a scaffold: contracts, routes, adapters and infra, with TODO handlers.
 --reference additionally emits the built-in demo bodies (create/read over kv).

@@ -213,7 +213,7 @@ UTC, миллисекунды, `T`, `Z` — поэтому смещение в �
 `--no-test`, `--model`, `--endpoint`, `--reference`, `--port`.
 У `ast` — `--check` (разобрать и прогнать проверки), у `test` — `--impl`,
 у `run` — `--impl`, `--scaffold` или `--detach --json`, у `check` — `--strict`.
-У `fmt`/`upgrade` — `--check`, `--write`, `--to <version>`.
+У `fmt` — `--check`/`--write`; у `upgrade` — `--to <version>`/`--write`.
 
 ```bash
 arcod make .            # первая сборка с нуля
