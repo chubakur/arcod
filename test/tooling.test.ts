@@ -7,7 +7,7 @@ import { diffSpecs } from '../src/diff.ts';
 import { adoptOpenapi } from '../src/adopt.ts';
 import { LANG_VERSION, migrateSpec, VersionError, compareVersions } from '../src/versions.ts';
 import { scaffold, isValidName, serviceName, moduleName } from '../src/new.ts';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -246,6 +246,36 @@ test('arcod new scaffolds a spec that parses and checks clean', async () => {
     // error is handled and every operation has an example.
     const diags = check(mod);
     assert.equal(diags.length, 0, diags.map((e) => e.code + ' ' + e.message).join('; '));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('arcod new names a file in the way instead of leaking ENOTDIR', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-new-file-'));
+  try {
+    await writeFile(join(dir, 'taken'), 'occupied');
+    await assert.rejects(() => scaffold('taken', dir), (error: Error) => {
+      assert.match(error.message, /already exists and is not a directory/);
+      assert.ok(!error.message.includes('ENOTDIR'), 'raw errno leaked: ' + error.message);
+      assert.ok(!error.message.includes('mkdir'), 'raw syscall leaked: ' + error.message);
+      return true;
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('arcod new needs --force for a non-empty project and keeps unrelated files', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-new-force-'));
+  try {
+    await scaffold('demo', dir);
+    await writeFile(join(dir, 'demo', 'notes.txt'), 'keep me');
+    await assert.rejects(() => scaffold('demo', dir), /already exists and is not empty/);
+    await scaffold('demo', dir, { force: true });
+    assert.equal(await readFile(join(dir, 'demo', 'notes.txt'), 'utf8'), 'keep me');
+    assert.match(await readFile(join(dir, 'demo', 'main.arc'), 'utf8'), /module demo @0\.1\.0/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -1,7 +1,7 @@
 // arcod new: scaffold a minimal, valid service so a new project starts from a
 // spec that parses and checks clean, not from an empty directory.
 
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parse } from './parser.ts';
 import { check } from './check.ts';
@@ -114,6 +114,14 @@ export interface ScaffoldOptions {
 export async function scaffold(name: string, target: string, options: ScaffoldOptions = {}): Promise<ScaffoldResult> {
   const dir = join(target, name);
   const files: string[] = [];
+
+  // A file where the project directory should go is a different mistake than
+  // a non-empty directory: mkdir would answer with a raw ENOTDIR from deep
+  // inside the scaffold. Name it here, where the user can act on it.
+  const info = await stat(dir).catch(() => null);
+  if (info && !info.isDirectory()) {
+    throw new Error(dir + ' already exists and is not a directory (pick another name or remove it)');
+  }
 
   const existing = await readdir(dir).catch(() => null);
   if (existing && existing.length > 0 && !options.force) {

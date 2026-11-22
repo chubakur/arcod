@@ -202,7 +202,7 @@ UTC, миллисекунды, `T`, `Z` — поэтому смещение в �
 | `arcod grpc [dir]` | proto3 того же контракта: один rpc на операцию с маршрутом, `<Op>Request`/`<Op>Response`, типы без молчаливого расширения, HTTP-маршрут и gRPC-коды ошибок в комментариях; `--service <имя>`, `--out <файл>` |
 | `arcod adopt <openapi.json>` | обратная к `openapi`: читает OpenAPI 3.x JSON и выдаёт `.arc` (schemas→types/enums, paths→ops с `{id}`→`:id`, bearer-требование→`auth op`) |
 | `arcod upgrade [dir]` | миграция версии языка: `--to <version>`, `--write`; сегодня версия одна (0.1.0), так что это identity или отказ на неизвестную цель |
-| `arcod new <name>` | скаффолдит минимальный валидный сервис: `<name>/main.arc`, `.gitignore`, `impl/README.md` (сгенерённая спека парсится и проходит check); не пишет в непустой каталог без `--force` |
+| `arcod new <name>` | скаффолдит минимальный валидный сервис: `<name>/main.arc`, `.gitignore`, `impl/README.md` (сгенерённая спека парсится и проходит check); не пишет в непустой каталог без `--force`, а файл на месте каталога называет по имени |
 | `arcod lsp` | языковой сервер (LSP) по stdio для редакторов (VS Code, Neovim, JetBrains) |
 
 У каждой подкоманды своя справка: `arcod <cmd> --help` печатает её и выходит 0;
