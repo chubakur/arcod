@@ -58,6 +58,19 @@ async function project(spec: string): Promise<string> {
   return dir;
 }
 
+// plan is a projection of the parsed AST, like ast — not an emitter. It prints
+// a work plan for a spec with a check error and exits 0, while migrate, build,
+// terraform, prompts and impl refuse. That difference is deliberate (a plan
+// reads the tree; a gate belongs in check), but nothing pinned it: making plan
+// refuse would have been a silent change.
+test('plan is a projection: a spec with a check error still has a plan', async () => {
+  const dir = await project(BROKEN);
+  const result = await run(['plan', join(dir, 'main.arc'), '--json']);
+  assert.equal(result.code, 0, result.out + result.err);
+  const plan = JSON.parse(result.out) as { tasks?: unknown[] };
+  assert.ok(Array.isArray(plan.tasks) && plan.tasks.length > 0, 'a plan carries tasks');
+});
+
 test('terraform refuses a spec with an error and names it', async () => {
   const dir = await project(BROKEN);
   const result = await run(['terraform', join(dir, 'main.arc')]);
