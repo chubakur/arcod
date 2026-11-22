@@ -1054,10 +1054,19 @@ function dialectFlag(flags: Flags): 'mysql' | 'postgres' | undefined {
 // The demo handlers cover create/read only. Without a translation the emitter's
 // internal wording ("got: ping") is what the user sees, naming neither the fix
 // nor the flag that asked for it. build and test share the sentence, the verb.
-function explainReferenceGap(error: unknown, firstLine: string): boolean {
+interface ReferenceGap {
+  line: string;
+  missing: string[];
+  advice: string;
+}
+
+// The same gap has to travel as data when --json asked for data: build and test
+// each print a JSON object on success, so prose on the failure path is the one
+// shape a parser cannot read. One function returns the parts, the callers pick
+// the surface.
+function referenceGap(error: unknown, firstLine: string): ReferenceGap | null {
   const message = error instanceof Error ? error.message : String(error);
-  if (!/templates only for/.test(message)) return false;
-  console.error(firstLine);
+  if (!/templates only for/.test(message)) return null;
   // The emitter names every operation it was given ("got: create, read, ping").
   // Naming the ones without a demo body is the difference between "write some
   // impl file" and "write impl/ping.mjs".
@@ -1066,12 +1075,17 @@ function explainReferenceGap(error: unknown, firstLine: string): boolean {
     .split(',')
     .map((name) => name.trim())
     .filter((name) => name.length > 0 && name !== 'create' && name !== 'read');
-  if (missing.length > 0) {
-    const files = missing.map((name) => 'impl/' + name + '.mjs').join(', ');
-    console.error('no demo body for ' + missing.join(', ') + ': run `arcod impl` (or `arcod make`) first, or add ' + files + ' by hand.');
-  } else {
-    console.error('run `arcod impl` (or `arcod make`) first, or add impl/<op>.mjs by hand.');
-  }
+  const advice = missing.length > 0
+    ? 'no demo body for ' + missing.join(', ') + ': run `arcod impl` (or `arcod make`) first, or add ' + missing.map((name) => 'impl/' + name + '.mjs').join(', ') + ' by hand.'
+    : 'run `arcod impl` (or `arcod make`) first, or add impl/<op>.mjs by hand.';
+  return { line: firstLine, missing, advice };
+}
+
+function explainReferenceGap(error: unknown, firstLine: string): boolean {
+  const gap = referenceGap(error, firstLine);
+  if (!gap) return false;
+  console.error(gap.line);
+  console.error(gap.advice);
   process.exitCode = 1;
   return true;
 }
@@ -1117,7 +1131,17 @@ async function runBuild(flags: Flags): Promise<void> {
     }
     for (const file of result.files) console.log('  ' + file);
   } catch (error) {
-    if (explainReferenceGap(error, 'no operation bodies to build: --reference covers only create and read.')) return;
+    const gap = referenceGap(error, 'no operation bodies to build: --reference covers only create and read.');
+    if (gap) {
+      if (flags.json) {
+        console.log(JSON.stringify({ error: gap.line, missing: gap.missing, advice: gap.advice }, null, 2));
+      } else {
+        console.error(gap.line);
+        console.error(gap.advice);
+      }
+      process.exitCode = 1;
+      return;
+    }
     throw error;
   }
 }
@@ -1166,7 +1190,18 @@ async function runTest(flags: Flags): Promise<void> {
       dialect: dialectFlag(flags),
     });
   } catch (error) {
-    if (explainReferenceGap(error, 'no operation bodies to test: impl/ is empty and the demo handlers cover only create/read.')) return;
+    const gap = referenceGap(error, 'no operation bodies to test: impl/ is empty and the demo handlers cover only create/read.');
+    if (gap) {
+      // A report is still a report: the arrays stay, the gap sits beside them.
+      if (flags.json) {
+        console.log(JSON.stringify({ examples: [], rules: [], error: gap.line, missing: gap.missing, advice: gap.advice }, null, 2));
+      } else {
+        console.error(gap.line);
+        console.error(gap.advice);
+      }
+      process.exitCode = 1;
+      return;
+    }
     throw error;
   }
   const report = await runExamples(loaded.mod, result.dir);

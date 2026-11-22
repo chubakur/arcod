@@ -89,3 +89,35 @@ test('impl refuses a broken spec before it spends a model call', async () => {
   assert.equal(result.code, 1, result.out + result.err);
   assert.match(result.out, /A048/, 'the role that was never declared is named');
 });
+
+// The reference gap — no demo body for an operation the create/read templates
+// do not cover — used to answer --json with two prose lines and an empty stdout.
+// Every other failure above is data, so this one is too.
+async function bareExample(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-json-'));
+  await cp(join(examplesDir, 'tasks-sql', 'main.arc'), join(dir, 'main.arc'));
+  return dir;
+}
+
+test('build --json reports the reference gap as data', async () => {
+  const dir = await bareExample();
+  const result = await run(['build', dir, '--reference', '--json']);
+  assert.equal(result.code, 1);
+  assert.equal(result.err, '', 'a parser reads stdout; the failure is not prose');
+  const parsed = JSON.parse(result.out) as { error?: string; missing?: string[]; advice?: string };
+  assert.match(parsed.error ?? '', /^no operation bodies to build: --reference covers only create and read\.$/);
+  assert.deepEqual(parsed.missing, ['list', 'move'], 'the operations without a body are named');
+  assert.match(parsed.advice ?? '', /impl\/list\.mjs/);
+});
+
+test('test --json keeps the report shape when the reference gap stops it', async () => {
+  const dir = await bareExample();
+  const result = await run(['test', dir, '--json']);
+  assert.equal(result.code, 1);
+  assert.equal(result.err, '');
+  const parsed = JSON.parse(result.out) as { examples?: unknown[]; rules?: unknown[]; missing?: string[]; advice?: string };
+  assert.deepEqual(parsed.examples, [], 'a failed run is still an empty report');
+  assert.deepEqual(parsed.rules, []);
+  assert.deepEqual(parsed.missing, ['list', 'move']);
+  assert.match(parsed.advice ?? '', /arcod impl/);
+});
