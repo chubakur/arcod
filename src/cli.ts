@@ -1103,7 +1103,14 @@ async function runTest(flags: Flags): Promise<void> {
   const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
   const errors = diags.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
-    printDiagnostics(errors, loaded.specPath);
+    // --json is a contract here too: a caller that parses stdout must not get
+    // prose just because the spec has a check error. The report stays a
+    // report, with the diagnostics under their own key.
+    if (flags.json) {
+      console.log(JSON.stringify({ examples: [], rules: [], diagnostics: errors }, null, 2));
+    } else {
+      printDiagnostics(errors, loaded.specPath);
+    }
     process.exitCode = 1;
     return;
   }

@@ -63,3 +63,32 @@ test('arcod test --json keeps stdout a JSON report when it is empty', async () =
   assert.deepEqual(report.examples, []);
   assert.deepEqual(report.rules, []);
 });
+
+
+// The same promise on the failure path: a spec that does not pass check has no
+// report to print, but a --json caller still gets JSON (the diagnostics), not
+// the human diagnostic lines.
+test('arcod test --json stays JSON when the spec fails check', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-quiet-'));
+  await writeFile(join(dir, 'main.arc'), [
+    'module quiet @0.1.0 {',
+    '}',
+    '',
+    'type Weird = float128',
+    '',
+    'service Notes : http {',
+    '  contract {',
+    '    public op list() -> bool {',
+    '      route: "GET /v1/notes"',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n'), 'utf8');
+  const result = await run(['test', join(dir, 'main.arc'), '--json']);
+  assert.equal(result.code, 1);
+  const report = JSON.parse(result.out) as { examples: unknown[]; rules: unknown[]; diagnostics: Array<{ code: string }> };
+  assert.deepEqual(report.examples, []);
+  assert.deepEqual(report.rules, []);
+  assert.equal(report.diagnostics[0].code, 'A088');
+});
