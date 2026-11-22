@@ -71,3 +71,33 @@ test('a call keeps the parentheses its callee needs', () => {
   assert.match(out, /post: s\.get\(x\)\.value == x/);
   assert.equal(formatSource(out, 'main.arc'), out);
 });
+
+test('unary minus keeps the operand parentheses the precedence needs', () => {
+  // Unary prints its operand at 7, above the product level (6): a negated
+  // product keeps its parentheses, a product of a negation does not. No
+  // example negates anything, so both sides of that decision were unexercised.
+  const src = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  contract {',
+    '    public op a(x: int, y: int) -> bool {',
+    '      route: ""',
+    '      post: -x * y == 0',
+    '    }',
+    '    public op b(x: int, y: int) -> bool {',
+    '      route: ""',
+    '      post: -(x * y) == 0',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /post: -x \* y == 0/);
+  assert.match(out, /post: -\(x \* y\) == 0/);
+  const clause: any = parse(out, 'main.arc').services[0].contract[1].clauses.find((c: any) => c.kind === 'post');
+  const e = clause.expr;
+  assert.equal(e.left.kind, 'unary');
+  assert.equal(e.left.operand.kind, 'binary');
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
