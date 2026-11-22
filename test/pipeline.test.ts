@@ -170,6 +170,93 @@ test('a body that breaks its example fails the pipeline and names the example', 
   assert.match(testStep.error ?? '', /ping_ok/);
 });
 
+
+const ATOMIC_CONSUME = `module demo @0.1.0 {
+  meta {
+    owner: "@you"
+    status: draft
+    since: "2026-11-22"
+  }
+}
+
+use capability arcod.std.kv @1
+use capability arcod.std.ids @1
+
+type MessageId = uuid
+type Body = bytes(min: 1, max: 64kb)
+
+error NotFound
+error Invalid
+
+service Notes : http {
+  uses store: kv(ttl: 900s)
+  uses uuid: ids
+
+  effects {
+    allow store.get, store.set, store.del, store.has, uuid.new
+    deny net, fs, exec
+  }
+
+  rules {
+    atomic read { get; del }
+  }
+
+  contract {
+    public op create(body: Body) -> MessageId {
+      route: "POST /v1/notes"
+      errors: Invalid
+      post: result != null
+    }
+
+    public op read(id: MessageId) -> Body {
+      route: "GET /v1/notes/:id"
+      errors: NotFound
+      post: !store.has(id)
+    }
+  }
+
+  examples {
+    example create_and_read {
+      when { let id = create("hi") }
+      then {
+        read(id) == "hi"
+        read(uuid("00000000-0000-0000-0000-000000000000")) is NotFound
+      }
+    }
+
+    example rejects_empty {
+      when { let e = create("") }
+      then { e is Invalid }
+    }
+  }
+}
+
+environment dev {
+  bind store -> redis(host: "kv", port: 6379)
+  bind uuid -> local
+}
+`;
+
+test('an underivable body fails the prompts step and names the operation', async () => {
+  // \`atomic read { get; del }\` consumes the key, so the operation must say what
+  // happens when it is already gone. Here \`read\` declares only NotFound: the
+  // model cannot invent Gone, and \`arcod make\` has to stop at the prompts step
+  // with the plan's own words instead of writing prompts it cannot fill.
+  const dir = await project(ATOMIC_CONSUME);
+  const result = await runPipeline(parse(ATOMIC_CONSUME, 'main.arc'), dir, { skipImpl: true });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.steps.map((step) => step.name), ['check', 'prompts']);
+  const prompts = result.steps[1];
+  assert.equal(prompts.ok, false);
+  assert.match(prompts.error ?? '', /^cannot derive a procedure for: T-\d+: consume is required/);
+  assert.match(prompts.detail, /consume is required but the operation declares no error/);
+  const text = formatPipeline(result, 'demo@0.1.0');
+  assert.match(text, /check +ok /);
+  assert.match(text, /prompts +fail /);
+  assert.match(text, /stopped in/);
+  assert.doesNotMatch(text, /done in/);
+});
+
 test('a step that throws becomes a failed step, not a stack trace', async () => {
   // The prompts step is the first one that writes under the project. Make the
   // project path a regular file: mkdir fails with ENOTDIR, and the pipeline
