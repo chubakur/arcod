@@ -1179,13 +1179,26 @@ async function runRun(flags: Flags): Promise<void> {
     return;
   }
 
-  const result = await buildExample(loaded.mod, loaded.dir, {
-    port: flags.port,
-    reference: !flags.scaffold && !flags.impl,
-    implDir: flags.impl ? undefined : null,
-    registry: loadRegistry(loaded.dir),
-    dialect: dialectFlag(flags),
-  });
+  // The reference handlers cover create and read as a pair; a service that
+  // declares only one of them never builds. Without this the user reads the
+  // emitter's own wording ("templates only for create, read; got: ping"),
+  // which names neither the missing body nor a flag that would start anyway.
+  let result: Awaited<ReturnType<typeof buildExample>>;
+  try {
+    result = await buildExample(loaded.mod, loaded.dir, {
+      port: flags.port,
+      reference: !flags.scaffold && !flags.impl,
+      implDir: flags.impl ? undefined : null,
+      registry: loadRegistry(loaded.dir),
+      dialect: dialectFlag(flags),
+    });
+  } catch (error) {
+    if (explainReferenceGap(error, 'arcod run: the demo handlers cover create and read only, and this service does not declare both.')) {
+      console.error('or start with the stubs instead: arcod run ' + (flags.spec ?? '.') + ' --scaffold');
+      return;
+    }
+    throw error;
+  }
   if (result.impl.length > 0) {
     console.log('arcod run: impl bodies (' + result.impl.join(', ') + ')');
   } else if (result.reference) {

@@ -185,3 +185,19 @@ test('run --down on a project that was never built is a no-op, not an error', as
   assert.equal(result.code, 0, result.out + result.err);
   assert.match(result.out, /nothing to stop/);
 });
+
+// The reference handlers need create and read together; a service that has only
+// create never builds. `arcod run` used to surface the emitter's internal
+// sentence ("templates only for create, read; got: create"), which names no
+// missing body and no flag that would start anyway.
+test('run explains the missing demo body and offers the scaffold', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-run-'));
+  const createOnly = RUNSPEC.replace(/    public op read[\s\S]*?\n    \}\n/, '');
+  assert.equal(createOnly.includes('op read'), false, 'the fixture has one operation');
+  await writeFile(join(dir, 'main.arc'), createOnly, 'utf8');
+  const result = await run(['run', dir]);
+  assert.equal(result.code, 1, result.out + result.err);
+  assert.match(result.err, /demo handlers cover create and read only/);
+  assert.match(result.err, /--scaffold/, 'the flag that would start is named');
+  assert.equal(/templates only for/.test(result.err), false, 'the emitter wording stays out: ' + result.err);
+});
