@@ -1478,6 +1478,31 @@ test('external services report broken or unbound declarations', async () => {
   ));
   assert.ok(wrong.some((item) => item.code === 'A039'), 'A039 rejects a provisioned provider');
 
+  // The two cases above name Ledger in `effects { allow ... }`. A service that
+  // appears only in an operation's `effects:` clause is used just as much, and
+  // the check read the allow list alone: the warning would have stayed silent
+  // for the one spelling an operation actually calls.
+  const viaOp = check(parse([
+    'module extw @0.1.0 {}',
+    'external service Ledger : http {',
+    '  contract {',
+    '    op record(entry: string) -> bool {',
+    '      route: "POST /v1/entries"',
+    '    }',
+    '  }',
+    '}',
+    'service Orders : http {',
+    '  contract {',
+    '    public op charge() -> bool {',
+    '      route: "POST /v1/orders"',
+    '      effects: Ledger.record',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n'), 'main.arc'));
+  const viaOpOnly = viaOp.filter((item) => item.code === 'W026').map((item) => item.message);
+  assert.deepEqual(viaOpOnly, ['external service Ledger is not bound in the environment']);
+
   const local = check(parse(
     (await readFile(paymentsUrl, 'utf8')).replace('external service Ledger : http {', 'external service Ledger : http {\n  uses store: kv()'),
     'main.arc',
