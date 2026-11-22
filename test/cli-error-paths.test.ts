@@ -5,6 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../src/cli.ts';
@@ -80,3 +81,32 @@ test('upgrade says a spec is already at the target version', async () => {
   assert.equal(result.code, 0, result.err);
   assert.match(result.out, /: already at 0\.1\.0$/m);
 });
+
+// The same refusal belongs to every artifact command: openapi, graphql, grpc,
+// k8s and prompts each check the model first. A `--out` that writes a file for
+// a broken spec is worse than a diagnostic: the artifact looks built.
+const ARTIFACTS: Array<{ command: string; args: string[]; out: string }> = [
+  { command: 'openapi', args: ['--out', 'api/openapi.json'], out: 'api/openapi.json' },
+  { command: 'graphql', args: ['--out', 'api/schema.graphql'], out: 'api/schema.graphql' },
+  { command: 'grpc', args: ['--out', 'api/service.proto'], out: 'api/service.proto' },
+  { command: 'k8s', args: ['--out', 'deploy/k8s'], out: 'deploy/k8s' },
+];
+
+test('prompts refuses a broken spec and writes no prompt set', async () => {
+  const dir = await project(BROKEN);
+  const result = await run(['prompts', join(dir, 'main.arc')]);
+  assert.equal(result.code, 1, result.out + result.err);
+  assert.match(result.out, /A048/);
+  assert.equal(existsSync(join(dir, '.arcod', 'build', 'prompts')), false, 'no prompt set for a broken spec');
+});
+
+for (const artifact of ARTIFACTS) {
+  test(artifact.command + ' refuses a broken spec and writes no artifact', async () => {
+    const dir = await project(BROKEN);
+    const target = join(dir, artifact.out);
+    const result = await run([artifact.command, join(dir, 'main.arc'), ...artifact.args]);
+    assert.equal(result.code, 1, result.out + result.err);
+    assert.match(result.out, /A048/);
+    assert.equal(existsSync(target), false, artifact.command + ' wrote ' + artifact.out + ' for a broken spec');
+  });
+}
