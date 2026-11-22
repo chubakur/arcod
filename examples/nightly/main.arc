@@ -6,17 +6,34 @@ module nightly @0.1.0 {
   }
 }
 
-type Snapshot = { label: string }
-type Report = { rows: int }
+use capability arcod.std.kv @1
+use capability arcod.std.ids @1
+
+type Snapshot = { id: uuid, label: string, takenAt: datetime }
+type Report = { rows: int, snapshot: uuid }
+
+error NotFound
 
 service Reports : http {
+  uses store: kv
+  uses uuid: ids
+
+  effects {
+    allow store.insert, store.find, uuid.new
+  }
+
   contract {
-    public op prepare() -> Snapshot {
+    public op prepare(label: string?) -> Snapshot {
       route: "POST /v1/prepare"
+      effects: store.insert, uuid.new
     }
 
     public op render(snapshot: Snapshot) -> Report {
       route: "POST /v1/render"
+      effects: store.find
+      errors: NotFound
+      post: result != null
+      on error NotFound: snapshot != null
     }
 
     public op send(report: Report) -> bool {
@@ -28,7 +45,7 @@ service Reports : http {
 
     example prepare_snapshot {
       when {
-        let snapshot = prepare()
+        let snapshot = prepare("nightly")
       }
       then {
         snapshot.label == "nightly"
@@ -37,17 +54,18 @@ service Reports : http {
 
     example render_report {
       when {
-        let snapshot = prepare()
+        let snapshot = prepare("nightly")
         let report = render(snapshot)
       }
       then {
-        report.rows == 3
+        report.rows == 7
+        report.snapshot == snapshot.id
       }
     }
 
     example send_report {
       when {
-        let snapshot = prepare()
+        let snapshot = prepare("nightly")
         let report = render(snapshot)
         let receipt = send(report)
       }
@@ -65,7 +83,7 @@ workflow Nightly {
   retry: 2
   timeout: 30m
 
-  step prepare() -> Snapshot {
+  step prepare(label: string?) -> Snapshot {
     call: Reports.prepare
   }
 
@@ -82,5 +100,7 @@ workflow Nightly {
 }
 
 environment dev {
+  bind store -> redis(host: "kv", port: 6379)
+  bind uuid -> local
   deploy docker
 }

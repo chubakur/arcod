@@ -1,4 +1,4 @@
-// The first step's body: the snapshot a nightly run works from.
 export async function prepare(input, io) {
-  return { result: { label: 'nightly' } };
+  const label = String(input.label || 'nightly');
+  return { result: await io.insert('Snapshot', { id: io.new(), label, takenAt: new Date().toISOString() }) };
 }

@@ -682,8 +682,9 @@ Rules:
   missing zone is `A034`, a non-positive or unitless delay is `A034` too.
 
 `examples/nightly` is the demo: the three operations the steps call live in a
-service, so `arcod test` still runs them over HTTP while the graph itself stays
-declarative.
+service — `prepare` stores a snapshot, `render` reads it back through a
+record-typed parameter, `send` answers — so `arcod test` runs them over HTTP
+while the graph itself stays declarative.
 
 The graph is declarative: it lands in `deploy.<env>.json`, but no runner is
 generated yet — a workflow is described, not executed (`W022`). The manifest
