@@ -103,8 +103,35 @@ test('fmt --write over a pattern counts an unwritable file as failed', { skip: p
   await chmod(locked, 0o444);
   const result = await run(['fmt', join(dir, '*.arc'), '--write']);
   assert.equal(result.code, 1);
-  assert.match(result.out, /locked\.arc: cannot write: permission denied/);
+  // An I/O failure is not a verdict about the spec, so it goes to stderr in the
+  // single-file form; stdout keeps the per-file verdicts a gate parses.
+  assert.match(result.err, /^arcod: cannot write .*locked\.arc: permission denied$/m);
+  assert.doesNotMatch(result.out, /cannot write/, 'the stdout report carries verdicts only');
   assert.match(result.out, /formatted .*free\.arc/, 'one locked file does not stop the others');
+});
+
+test('fmt --check and --write together is a usage error, not a silent choice', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-write-'));
+  const file = join(dir, 'main.arc');
+  const NL = String.fromCharCode(10);
+  await writeFile(file, 'module   x   @0.1.0 {}' + NL, 'utf8');
+  const result = await run(['fmt', file, '--check', '--write']);
+  assert.equal(result.code, 2);
+  assert.match(result.err, /^arcod: --check and --write are alternatives; pass one$/m);
+  assert.match(result.err, /^hint: arcod fmt --help$/m);
+  assert.equal(result.out, '');
+  assert.equal(await readFile(file, 'utf8'), 'module   x   @0.1.0 {}' + NL, 'a refused command writes nothing');
+});
+
+test('the -w shorthand counts as --write for the alternatives check', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-write-'));
+  const file = join(dir, 'main.arc');
+  const NL = String.fromCharCode(10);
+  await writeFile(file, 'module   x   @0.1.0 {}' + NL, 'utf8');
+  const result = await run(['fmt', file, '--check', '-w']);
+  assert.equal(result.code, 2);
+  assert.match(result.err, /^arcod: --check and --write are alternatives; pass one$/m);
+  assert.equal(await readFile(file, 'utf8'), 'module   x   @0.1.0 {}' + NL);
 });
 
 // prompts and migrate create .arcod/build themselves, so a bad layout there

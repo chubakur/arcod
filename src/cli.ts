@@ -89,6 +89,13 @@ function assertCommandFlags(command: string | undefined, args: string[]): void {
   if (set.has('--reference') && set.has('--impl') && args.includes('--reference') && args.includes('--impl')) {
     throw new UsageError('--reference and --impl are alternatives; pass one');
   }
+  // Same shape for fmt's two modes: --check asks a question, --write answers it
+  // by rewriting. Passing both used to pick the check branch and silently drop
+  // the rewrite the caller asked for. The shorthand -w counts as --write.
+  const canonicalArgs = args.map((arg) => (arg === '-w' ? '--write' : arg === '-d' ? '--detach' : arg));
+  if (set.has('--check') && set.has('--write') && canonicalArgs.includes('--check') && canonicalArgs.includes('--write')) {
+    throw new UsageError('--check and --write are alternatives; pass one');
+  }
 }
 
 export async function main(argv: string[]): Promise<void> {
@@ -493,7 +500,13 @@ async function runFmtPattern(flags: Flags, pattern: string): Promise<void> {
         await writeFile(specPath, formatted, 'utf8');
       } catch (err) {
         failed++;
-        console.log(label + ': cannot write: ' + fsReason(err));
+        // The lines above are verdicts about the spec, so they belong on
+        // stdout; a file the process could not write is an environment error.
+        // It used to share the stdout report, where a gate parsing
+        // `<path>: ok` could read "cannot write" as a formatting verdict. It
+        // now uses the same `arcod: cannot write <path>: <reason>` line and
+        // stderr as the single-file path.
+        console.error('arcod: cannot write ' + specPath + ': ' + fsReason(err));
         continue;
       }
       console.log('formatted ' + label);

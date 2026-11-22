@@ -214,7 +214,8 @@ Flags: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`,
 `--remove-orphans`. For `make`: `--force` (regenerate bodies), `--skip-impl`,
 `--no-test`, `--model`, `--endpoint`, `--reference`, `--port`. `ast` takes
 `--check`, `test` takes `--impl`, `run` takes `--impl`, `--scaffold` or `--detach --json`, `check`
-takes `--strict`. `fmt` takes `--check`/`--write`; `upgrade` takes `--to <version>`/`--write`.
+takes `--strict`. `fmt` takes `--check`/`--write` (alternatives — `--check` asks, `--write`
+answers, so passing both is a usage error, code 2); `upgrade` takes `--to <version>`/`--write`.
 Every subcommand answers `arcod <cmd> --help` with its own usage and exits 0;
 an unknown flag prints one line plus `hint: arcod <cmd> --help` and exits 2.
 
