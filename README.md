@@ -194,6 +194,7 @@ drivers. Full example: `examples/signup`.
 | `arcod make [dir]` | the whole cycle in one command: check → prompts → bodies → build → test |
 | `arcod run [dir]` | build + `docker compose up --build`; the `docker info` probe gives up after 15 s and says the daemon is not answering instead of hanging |
 | `arcod run --down` | stop what this project started (`docker compose down --remove-orphans`); no rebuild, the `.arcod/build` artifacts stay |
+| `arcod run --detach --json` | one object instead of the start lines: `mode` (reference/scaffold/impl), `name`, `version`, `build`, `url`, `port`, `stop`; the compose log goes to stderr, so stdout stays parseable. `--json` without `--detach` is a usage error (a foreground run never returns), and a failed start answers `{error}` |
 | `arcod providers` | capability and provider table with ports and the declaring package (`origin`, `-` for built-ins); `--json` also carries each provider's declared bind `options`; `--plugins` lists manifests found on `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
 | `arcod deploy [dir]` | deployment target and `deploy.<env>.json` manifest; `--env`, `--json` |
 | `arcod k8s [dir]` | Kubernetes objects for the compose topology (namespace, configmap, provider deployments, app, ingress); `--helm` for a chart, `--out dir` to write files |
@@ -212,7 +213,7 @@ drivers. Full example: `examples/signup`.
 Flags: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`,
 `--remove-orphans`. For `make`: `--force` (regenerate bodies), `--skip-impl`,
 `--no-test`, `--model`, `--endpoint`, `--reference`, `--port`. `ast` takes
-`--check`, `test` takes `--impl`, `run` takes `--impl` or `--scaffold`, `check`
+`--check`, `test` takes `--impl`, `run` takes `--impl`, `--scaffold` or `--detach --json`, `check`
 takes `--strict`. `fmt`/`upgrade` take `--check`, `--write`, `--to <version>`.
 Every subcommand answers `arcod <cmd> --help` with its own usage and exits 0;
 an unknown flag prints one line plus `hint: arcod <cmd> --help` and exits 2.

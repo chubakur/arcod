@@ -59,7 +59,7 @@ export const COMMAND_FLAGS: Record<string, string[]> = {
   build: ['--reference', '--impl', '--port', '--dialect', '--json'],
   test: ['--impl', '--reference', '--port', '--json'],
   make: ['--force', '--skip-impl', '--no-test', '--model', '--endpoint', '--max-tokens', '--allow-remote', '--reference', '--port', '--json'],
-  run: ['--impl', '--scaffold', '--port', '--detach', '--down'],
+  run: ['--impl', '--scaffold', '--port', '--detach', '--down', '--json'],
   providers: ['--json', '--plugins'],
   deploy: ['--json', '--env'],
   k8s: ['--out', '--helm', '--image', '--host', '--namespace', '--replicas', '--ingress-class', '--env'],
@@ -1264,6 +1264,15 @@ async function stopProject(flags: Flags): Promise<number> {
 }
 
 async function runRun(flags: Flags): Promise<void> {
+  // --json describes a project that was started. A foreground run streams
+  // compose logs and never returns, so the object would be the first line of a
+  // stream nobody can parse; --down starts nothing to describe. Both are
+  // rejected where they are still a usage mistake, not silently ignored.
+  if (flags.json && !flags.detach) {
+    throw new UsageError(flags.down
+      ? '--json describes a started project; --down only stops one'
+      : '--json requires --detach: a foreground run streams logs and never returns');
+  }
   // --down is the stop button: it must work even when the project no longer
   // builds (an operation the emitters do not template yet) and must leave the
   // artifacts of the last build alone. So it never parses the spec.
@@ -1276,7 +1285,13 @@ async function runRun(flags: Flags): Promise<void> {
   const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
   const errors = diags.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
-    printDiagnostics(errors, loaded.specPath);
+    // Same contract as build and test: a caller that parses stdout gets a
+    // report with the diagnostics under their own key, never prose.
+    if (flags.json) {
+      console.log(JSON.stringify({ error: 'check failed', diagnostics: errors }, null, 2));
+    } else {
+      printDiagnostics(errors, loaded.specPath);
+    }
     process.exitCode = 1;
     return;
   }
@@ -1295,35 +1310,57 @@ async function runRun(flags: Flags): Promise<void> {
       dialect: dialectFlag(flags),
     });
   } catch (error) {
-    if (explainReferenceGap(error, 'arcod run: the demo handlers cover create and read only, and this service does not declare both.')) {
-      console.error('or start with the stubs instead: arcod run ' + (flags.spec ?? '.') + ' --scaffold');
+    const gap = referenceGap(error, 'arcod run: the demo handlers cover create and read only, and this service does not declare both.');
+    if (gap) {
+      if (flags.json) {
+        console.log(JSON.stringify({ error: gap.line, missing: gap.missing, advice: gap.advice }, null, 2));
+      } else {
+        console.error(gap.line);
+        console.error(gap.advice);
+        console.error('or start with the stubs instead: arcod run ' + (flags.spec ?? '.') + ' --scaffold');
+      }
+      process.exitCode = 1;
       return;
     }
     throw error;
   }
-  if (result.impl.length > 0) {
-    console.log('arcod run: impl bodies (' + result.impl.join(', ') + ')');
-  } else if (result.reference) {
-    console.log('arcod run: reference implementation (operation bodies are templates)');
-  } else {
-    console.log('arcod run: scaffold (operations return 501 until implemented)');
-  }
+  const mode = result.impl.length > 0 ? 'impl' : result.reference ? 'reference' : 'scaffold';
   const docker = probeDocker();
   if (!docker.ok) {
-    console.error(docker.message);
+    if (flags.json) console.log(JSON.stringify({ error: docker.message }, null, 2));
+    else console.error(docker.message);
     process.exitCode = 1;
     return;
   }
 
-  console.log('arcod run: ' + loaded.mod.name + '@' + loaded.mod.version);
-  console.log('  build: ' + result.dir);
-  console.log('  url:   http://localhost:' + result.port);
-  console.log('');
+  const url = 'http://localhost:' + result.port;
+  const stop = 'arcod run --down';
+  if (flags.json) {
+    // One object for the facts the human lines carry: a script that starts a
+    // service in the background needs the URL and how to stop it, not a regex.
+    console.log(JSON.stringify({
+      mode,
+      name: loaded.mod.name,
+      version: loaded.mod.version,
+      build: result.dir,
+      url,
+      port: result.port,
+      stop,
+    }, null, 2));
+  } else {
+    if (mode === 'impl') console.log('arcod run: impl bodies (' + result.impl.join(', ') + ')');
+    else if (result.reference) console.log('arcod run: reference implementation (operation bodies are templates)');
+    else console.log('arcod run: scaffold (operations return 501 until implemented)');
+    console.log('arcod run: ' + loaded.mod.name + '@' + loaded.mod.version);
+    console.log('  build: ' + result.dir);
+    console.log('  url:   ' + url);
+    console.log('');
+  }
 
   if (flags.detach) {
     const code = compose(result, ['up', '--build', '-d'], flags);
-    if (code === 0) {
-      console.log('stop: ' + (flags.spec ? 'arcod run ' + flags.spec + ' --down' : 'arcod run --down'));
+    if (code === 0 && !flags.json) {
+      console.log('stop: ' + (flags.spec ? 'arcod run ' + flags.spec + ' --down' : stop));
     }
     process.exitCode = code;
     return;
@@ -1334,8 +1371,10 @@ async function runRun(flags: Flags): Promise<void> {
 }
 
 function compose(result: { composeFile: string; dir: string }, args: string[], flags: Flags): number {
+  // In --json mode stdout is the payload: compose's build log goes to stderr,
+  // so the one object stays the only thing on stdout.
   const child = spawnSync('docker', ['compose', '-f', result.composeFile, ...args], {
-    stdio: 'inherit',
+    stdio: flags.json ? ['ignore', 2, 2] : 'inherit',
     cwd: result.dir,
     env: process.env,
   });
@@ -1631,9 +1670,12 @@ Emit the service, migrations, compose and pages into .arcod/build.`,
 
 Run the examples and rules against the emitted service.`,
   run: `usage: arcod run [dir|spec.arc] [--impl] [--scaffold] [--port 8080] [--detach] [--down]
+                    [--json]
 
 Build and start the project with docker compose. --detach leaves it running,
---down stops what this project started (no rebuild, no cleanup of the build).`,
+--down stops what this project started (no rebuild, no cleanup of the build).
+--json (with --detach) prints one object — mode, name, version, build, url,
+port, stop — and sends the compose log to stderr.`,
 };
 
 export const MAIN_USAGE = `arcod ${VERSION} — specification compiler for agent-built services
@@ -1667,6 +1709,7 @@ usage:
                               [--json]
   arcod test  [dir|spec.arc] [--impl] [--reference] [--port 8080] [--json]
   arcod run   [dir|spec.arc] [--impl] [--scaffold] [--port 8080] [--detach] [--down]
+                              [--json]
 
 make runs the whole loop: check, prompts, bodies, build, test. It stops at the
 first failing step; --skip-impl and --no-test cut it short, --force regenerates
