@@ -1911,7 +1911,8 @@ This is a vertical slice, not a finished language.
   and the canonical form never carries it: a file saved with a BOM is clean to
   `check` and "not formatted" to `fmt --check` until `--write` drops it.
 - `arcod fmt` is canonical and idempotent, but it re-lays out record types on one
-  line. Comments above declarations, fields, enum values, example statements,
+  line. Empty braces are always tight (`type T = {}`, `enum C {}`, `let r = {}`),
+  never `{  }`. Comments above declarations, fields, enum values, example statements,
   service `uses` lines, `allow`/`deny` lines, `budget` items and workflow step
   clauses survive, a comment inside a `saga` step turns that step from one line
   into a block, a comment on one effect name lists the effects one per line,

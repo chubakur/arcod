@@ -54,7 +54,10 @@ function expr(e: Expr, minPrec = 0): string {
     }
     case 'duration': return e.value + e.unit;
     case 'list': return '[' + e.items.map((item) => expr(item)).join(', ') + ']';
-    case 'record': return '{ ' + e.fields.map((field) => field.name + ': ' + expr(field.value)).join(', ') + ' }';
+    // Empty braces are printed tight: `'{ ' + '' + ' }'` would write two
+    // spaces no source can produce, and a record literal with no fields is
+    // otherwise a valid expression.
+    case 'record': return e.fields.length === 0 ? '{}' : '{ ' + e.fields.map((field) => field.name + ': ' + expr(field.value)).join(', ') + ' }';
     case 'ident': return e.name;
     case 'member': return expr(e.object, 8) + '.' + e.property;
     case 'call': {
@@ -97,7 +100,7 @@ function type(t: TypeExpr): string {
     }
     case 'optional': return type(t.inner) + '?';
     case 'union': return t.variants.map(type).join(' | ');
-    case 'record': return '{ ' + t.fields.map(param).join(', ') + ' }';
+    case 'record': return t.fields.length === 0 ? '{}' : '{ ' + t.fields.map(param).join(', ') + ' }';
   }
 }
 
@@ -539,7 +542,7 @@ class Printer {
     const commented = tail || (locs.length === e.values.length &&
       e.values.some((_, index) => this.comments.has(locs[index].offset) || this.trailing.has(locs[index].offset)));
     if (!commented) {
-      this.closeLine(0, 'enum ' + e.name + ' { ' + e.values.join(', ') + ' }', e.loc.end);
+      this.closeLine(0, e.values.length === 0 ? 'enum ' + e.name + ' {}' : 'enum ' + e.name + ' { ' + e.values.join(', ') + ' }', e.loc.end);
       return;
     }
     // A commented value needs its own line, exactly like a commented field.

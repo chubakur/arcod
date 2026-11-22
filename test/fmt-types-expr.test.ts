@@ -35,3 +35,30 @@ test('precedence keeps the parentheses the expression needs', () => {
   parse(out, 'main.arc');
   assert.equal(formatSource(out, 'main.arc'), out);
 });
+
+test('empty braces are printed tight, not as two spaces', () => {
+  const source = [
+    'module m @0.1.0 {}',
+    'type Empty = {}',
+    'enum Nothing {}',
+    'service S : http {',
+    '  examples {',
+    '    example e {',
+    '      when {',
+    '        let r = {}',
+    '        let again = { }',
+    '      }',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join(String.fromCharCode(10));
+  const out = formatSource(source, 'main.arc');
+  assert.match(out, /type Empty = \{\}/);
+  assert.match(out, /enum Nothing \{\}/);
+  assert.match(out, /let r = \{\}/);
+  assert.match(out, /let again = \{\}/);
+  assert.doesNotMatch(out, /\{  \}/);
+  parse(out, 'main.arc');
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
