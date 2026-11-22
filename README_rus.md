@@ -180,8 +180,8 @@ UTC, миллисекунды, `T`, `Z` — поэтому смещение в �
 | `arcod ast [dir]` | печатает канонический AST |
 | `arcod plan [dir]` | детерминированный DAG задач: файлы, зависимости, критерии приёмки |
 | `arcod openapi [dir]` | документ OpenAPI 3.1 в stdout: пути из `route`, схемы из `types`, ошибки как в рантайме, примеры из блока `examples`; `--service <имя>` выбирает сервис; `--out <файл>` пишет документ в файл вместо stdout |
-| `arcod migrate [dir]` | печатает миграции модели данных и пишет их в `.arcod/build/migrations/` (changelog + up/down `.sql`; `arcod build` пишет тот же артефакт); `--json`; `--dialect mysql\|postgres` выбирает диалект DDL; сервис применяет их при старте; файлы, которых нет в текущем плане, удаляются |
-| `arcod build [dir]` | scaffold: маршруты, адаптеры, тесты, инфраструктура в `.arcod/build`; тела — TODO; `--json` отдаёт mode, dir, dialect, files, images и bodies одним объектом |
+| `arcod migrate [dir]` | печатает миграции модели данных и пишет их в `.arcod/build/migrations/` (changelog + up/down `.sql`; `arcod build` пишет тот же артефакт); `--json` (когда спек не проходит check, `--json` отвечает `{error: "check failed", diagnostics}`); `--dialect mysql\|postgres` выбирает диалект DDL; сервис применяет их при старте; файлы, которых нет в текущем плане, удаляются |
+| `arcod build [dir]` | scaffold: маршруты, адаптеры, тесты, инфраструктура в `.arcod/build`; тела — TODO; `--json` отдаёт mode, dir, dialect, files, images и bodies одним объектом (reference-прогон без тела отвечает `{error, missing, advice}`, а спек, не проходящий check, — `{error: "check failed", diagnostics}`) |
 | `arcod build --dialect postgres` | та же сборка с postgres-клиентом, `PgStore` (entity/kv/outbox/транзакции) и postgres-миграциями; mysql по умолчанию |
 | `arcod build --impl` | тела из `impl/*.mjs`, адаптер `io`, ничего не додумывает |
 | `arcod build --reference` | то же плюс встроенные демо-тела `create`/`read` |
@@ -189,12 +189,13 @@ UTC, миллисекунды, `T`, `Z` — поэтому смещение в �
 | `arcod make [dir]` | весь цикл одной командой: check → prompts → тела → build → test |
 | `arcod run [dir]` | build + `docker compose up --build`; проба `docker info` сдаётся через 15 с и говорит, что демон не отвечает, а не висит |
 | `arcod run --down` | останавливает то, что поднял этот проект (`docker compose down --remove-orphans`); без пересборки, артефакты `.arcod/build` остаются |
+| `arcod run --detach --json` | один объект вместо строк запуска: `mode` (reference/scaffold/impl), `name`, `version`, `build`, `url`, `port`, `stop`; лог compose уходит в stderr, поэтому stdout парсится. `--json` без `--detach` — ошибка использования (foreground-run не возвращается), а неудачный старт отвечает `{error}` |
 | `arcod providers` | таблица возможностей, провайдеров, портов и пакета-объявителя (`origin`, `-` для встроенных); `--json` также отдаёт объявленные опции bind (`options`) каждого провайдера; `--plugins` — манифесты на `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
-| `arcod deploy [dir]` | target развёртывания и манифест `deploy.<env>.json`; `--env`, `--json` |
+| `arcod deploy [dir]` | target развёртывания и манифест `deploy.<env>.json`; `--env`, `--json` (отказ — нет environment, нет target, неизвестный провайдер — отвечает `{error}`, а не строкой в stderr) |
 | `arcod k8s [dir]` | объекты Kubernetes для compose-топологии (namespace, configmap, деплойменты провайдеров, сервис, ingress); `--helm` — чарт, `--out dir` — записать файлы |
 | `arcod terraform [dir]` | Terraform для облака: сеть, managed-сервисы под привязки, секреты через переменные; `--env`, `--out dir`; Yandex Cloud |
-| `arcod prompts [dir]` | только промпты: по умолчанию компактный формат, `--full` — подробная задача (заголовок, контракт, список io, форма хранения); `--max-tokens`, `--json` |
-| `arcod impl [dir]` | тела операций локальной моделью: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote`, `--json` |
+| `arcod prompts [dir]` | только промпты: по умолчанию компактный формат, `--full` — подробная задача (заголовок, контракт, список io, форма хранения); `--max-tokens`, `--json` (когда спек не проходит check, `--json` отвечает `{error: "check failed", diagnostics}`) |
+| `arcod impl [dir]` | тела операций локальной моделью: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote`, `--json` (когда спек не проходит check, `--json` отвечает `{error: "check failed", diagnostics}`) |
 | `arcod fmt [dir|pattern]` | канонический AST-форматтер в stdout; `--check` падает, если не отформатировано; `--write` перезаписывает спеку; шаблон в кавычках (`'examples/*/main.arc'`) проверяет или переписывает все совпадения, печатает файл путём и требует `--check` или `--write`; `--to <version>` сперва мигрирует. Комментарии перевешиваются на узел, к которому относятся: ведущий — на декларацию или поле, которое он предваряет (поле с комментарием делает запись многострочной), концевой остаётся на той строке, за которой стоял, — включая скобки `meta`, `rules`, `when`/`then` и самого модуля. `test/fmt-comment-survival.test.ts` дописывает маркер в каждую строку кода каждого примера — и цельных сниппетов для конструкций, которых нет ни в одном примере (клаузы и шаги `workflow`, обе закрывающие скобки), — и падает, если хоть один пропал |
 | `arcod diff <a> <b>` | структурный diff двух спек (обе канонизируются), хунки `-`/`+` |
 | `arcod graphql [dir]` | GraphQL SDL того же контракта: `GET` → Query, остальные методы → Mutation, близнецы `<Name>Input` для аргументов, HTTP-маршрут, коды ошибок и клаузулы доступа в описании поля; `--service <имя>`, `--out <файл>` |
@@ -211,7 +212,7 @@ UTC, миллисекунды, `T`, `Z` — поэтому смещение в �
 `--remove-orphans`. У `make`: `--force` (перегенерировать тела), `--skip-impl`,
 `--no-test`, `--model`, `--endpoint`, `--reference`, `--port`.
 У `ast` — `--check` (разобрать и прогнать проверки), у `test` — `--impl`,
-у `run` — `--impl` или `--scaffold`, у `check` — `--strict`.
+у `run` — `--impl`, `--scaffold` или `--detach --json`, у `check` — `--strict`.
 У `fmt`/`upgrade` — `--check`, `--write`, `--to <version>`.
 
 ```bash
