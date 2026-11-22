@@ -101,3 +101,25 @@ test('unary minus keeps the operand parentheses the precedence needs', () => {
   assert.equal(e.left.operand.kind, 'binary');
   assert.equal(formatSource(out, 'main.arc'), out);
 });
+
+test('an index is printed back as a[i], not as a call to []', () => {
+  // The parser lowers an index to call(member(object, '[]'), [i]); the printer
+  // has a dedicated branch for that shape. No spec in the repo indexes a list,
+  // so the branch was unexercised and a regression would print a.[](i).
+  const src = [
+    'module m @0.1.0 {}',
+    'service S : http {',
+    '  contract {',
+    '    public op a(xs: list<int>) -> bool {',
+    '      route: ""',
+    '      post: xs[0] == 1',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const out = formatSource(src, 'main.arc');
+  assert.match(out, /post: xs\[0\] == 1/);
+  assert.doesNotMatch(out, /\.\[\]/);
+  assert.equal(formatSource(out, 'main.arc'), out);
+});
