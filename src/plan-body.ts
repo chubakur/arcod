@@ -264,8 +264,16 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
 
   if (blobPut) {
     intents.push('write-object');
-    steps.push('await io.blobPut(' + (names.has('new') || !idParam ? 'id' : idParam.name) + ', '
-      + (bytesParam ? bytesParam.name : 'value') + ')');
+    // A write needs something to write. Without a bytes parameter the step used
+    // to read `io.blobPut(id, value)` where `value` is bound nowhere: the prompt
+    // handed a local model an undeclared name, so the body it wrote could not
+    // compile. Say the operation is under-specified instead of inventing one.
+    if (bytesParam) {
+      steps.push('await io.blobPut(' + (names.has('new') || !idParam ? 'id' : idParam.name) + ', '
+        + bytesParam.name + ')');
+    } else {
+      unresolved.push('blob.put is declared but the operation has no bytes parameter to write');
+    }
   }
 
   if (storageScan) {
