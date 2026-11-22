@@ -71,3 +71,19 @@ test('printModule prints a parsed module without comments', () => {
   assert.equal(out, 'module m @0.1.0 {\n}\n\ntype Row = { id: uuid }\n');
   assert.equal(format(source), out, 'printModule matches formatSource on a comment-free file');
 });
+
+test('a trailing block comment stays on its field line and is made one line', () => {
+  const source = [
+    'module m @0.1.0 {}',
+    'type Row = {',
+    '  id: uuid /* the key */',
+    '  name: string /* a',
+    '  longer note */',
+    '}',
+    '',
+  ].join('\n');
+  const out = format(source);
+  assert.match(out, /^  id: uuid,  \/\* the key \*\/$/m, 'the comment trails its own field');
+  assert.match(out, /^  name: string  \/\* a longer note \*\/$/m, 'a block comment trailing code is collapsed to one line');
+  assert.equal(format(out), out, 'a second pass changes nothing');
+});
