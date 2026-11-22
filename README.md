@@ -200,7 +200,7 @@ drivers. Full example: `examples/signup`.
 | `arcod terraform [dir]` | Terraform for the cloud view: network, managed services for the binds, secrets as variables; `--env`, `--out dir`; Yandex Cloud |
 | `arcod prompts [dir]` | prompts only: compact by default, `--full` for the detailed task prompt (header, contract, io list, storage shape); `--max-tokens`, `--json` |
 | `arcod impl [dir]` | generate operation bodies with a local model: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote`, `--json` |
-| `arcod fmt [dir|pattern]` | canonical AST formatter on stdout; `--check` fails if not formatted; `--write` rewrites the spec; a quoted pattern such as `'examples/*/main.arc'` checks or rewrites every match, reports each file by path and needs `--check` or `--write`; `--to <version>` migrates first. Comments are re-attached to the node they belong to: a leading one to the declaration or field it precedes (a commented field makes the record multi-line), a trailing one stays on the line it trailed — including the braces of `meta`, `rules`, `when`/`then` and the module itself. `test/fmt-comment-survival.test.ts` appends a marker to every code line of every example and fails if one goes missing |
+| `arcod fmt [dir|pattern]` | canonical AST formatter on stdout; `--check` fails if not formatted; `--write` rewrites the spec; a quoted pattern such as `'examples/*/main.arc'` checks or rewrites every match, reports each file by path and needs `--check` or `--write`; `--to <version>` migrates first. Comments are re-attached to the node they belong to: a leading one to the declaration or field it precedes (a commented field makes the record multi-line), a trailing one stays on the line it trailed — including the braces of `meta`, `rules`, `when`/`then` and the module itself. `test/fmt-comment-survival.test.ts` appends a marker to every code line of every example — and of whole-module snippets for constructs no example declares, such as a `workflow`'s clauses, steps and both closing braces — and fails if one goes missing |
 | `arcod diff <a> <b>` | structural diff of two specs (both canonicalized first), `-`/`+` hunks |
 | `arcod graphql [dir]` | GraphQL SDL for the same contract: `GET` → Query, other methods → Mutation, `<Name>Input` twins for arguments, the HTTP route, error statuses and access clauses in each field description; `--service <name>`, `--out <file>` |
 | `arcod grpc [dir]` | proto3 for the same contract: one rpc per routed op, `<Op>Request`/`<Op>Response`, types mapped without silent widening, HTTP route and gRPC error codes in comments; `--service <name>`, `--out <file>` |
@@ -680,6 +680,10 @@ Rules:
   one-shot start). An instant is ISO-8601 with an explicit zone, written bare
   (`at(2026-11-18T12:00:05Z)`) or quoted; a typo, an impossible date or a
   missing zone is `A034`, a non-positive or unitless delay is `A034` too.
+
+`examples/nightly` is the demo: the three operations the steps call live in a
+service, so `arcod test` still runs them over HTTP while the graph itself stays
+declarative.
 
 The graph is declarative: it lands in `deploy.<env>.json`, but no runner is
 generated yet — a workflow is described, not executed (`W022`). The manifest
@@ -1879,6 +1883,7 @@ examples/
   tasks-sql/           the same bodies on sql
   orders/              sql + queue: an atomic publish+fact via the outbox
   saga/                a saga: multi-step with compensation, run by the runtime
+  nightly/             a workflow: typed ports, explicit `needs`, a cron trigger
 test/             node --test
 ```
 
