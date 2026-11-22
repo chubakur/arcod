@@ -275,3 +275,22 @@ test('an unknown --dialect is a usage error and builds nothing', async () => {
   assert.match(result.err, /hint: arcod build --help/);
   assert.equal(existsSync(join(dir, '.arcod', 'build')), false, 'nothing was built');
 });
+
+// 'arcod build' is what CI gates and scripts run: a spec that does not check
+// must stop at the diagnostics, and the default head has to say out loud that
+// the bodies are stubs.
+test('build refuses a broken spec and names the diagnostic', async () => {
+  const dir = await project(BROKEN);
+  const result = await run(['build', dir]);
+  assert.equal(result.code, 1, result.out + result.err);
+  assert.match(result.out, /A048/);
+  assert.equal(existsSync(join(dir, '.arcod', 'build')), false, 'nothing was built');
+});
+
+test('build in scaffold mode says the bodies are TODO', async () => {
+  const dir = await project(RUNSPEC);
+  const result = await run(['build', dir]);
+  assert.equal(result.code, 0, result.out + result.err);
+  assert.match(result.out, /arcod build \(scaffold\)/);
+  assert.match(result.out, /operation bodies are TODO; use --reference or --impl for a runnable demo/);
+});
