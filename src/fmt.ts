@@ -273,6 +273,7 @@ function collectService(s: ServiceNode, out: number[]): void {
   for (const loc of Object.values(s.blockOpens ?? {})) if (loc) out.push(loc.offset);
   for (const loc of s.metaEntryLocs ?? []) out.push(loc.offset);
   for (const c of s.uses) out.push(c.loc.offset);
+  if (s.rolesLoc) out.push(s.rolesLoc.offset);
   if (s.effects) {
     out.push(s.effects.loc.offset);
     for (const loc of Object.values(s.effects.clauseLocs ?? {})) out.push(loc.offset);
@@ -584,7 +585,12 @@ class Printer {
     }
     const body: Array<() => void> = [];
     if (s.uses.length > 0) body.push(() => { for (const c of s.uses) this.capUse(c); });
-    if (s.roles.length > 0) body.push(() => this.raw(1, 'roles: ' + s.roles.join(', ')));
+    if (s.roles.length > 0) {
+      body.push(() => {
+        if (s.rolesLoc) this.emitComments(s.rolesLoc.offset, 1);
+        this.raw(1, 'roles: ' + s.roles.join(', '));
+      });
+    }
     if (s.effects) body.push(() => this.effects(s.effects!, s.blockCloses?.effects));
     if (s.rules.length > 0 || this.hasBlockComments(s.blockCloses?.rules, s.blockOpens?.rules)) body.push(() => this.rules(s.rules, s.blockCloses?.rules, s.blockOpens?.rules));
     if (s.contract.length > 0 || this.hasBlockComments(s.blockCloses?.contract, s.blockOpens?.contract)) body.push(() => this.contract(s.contract, s.blockCloses?.contract, s.blockOpens?.contract));

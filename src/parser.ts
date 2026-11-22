@@ -286,7 +286,8 @@ class Parser {
         closeBlock('contract');
         continue;
       }
-      if (this.accept('roles')) {
+      if (this.is('roles')) {
+        svc.rolesLoc = locOf(this.next());
         this.expect(':');
         while (true) {
           svc.roles.push(this.expectIdent('role name').value);

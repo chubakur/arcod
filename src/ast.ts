@@ -182,6 +182,10 @@ export interface ServiceNode {
   // the `roles:` clause. Roles themselves arrive with the token, the service
   // only declares which ones mean something here.
   roles: string[];
+  // The `roles:` keyword itself. Roles arrive as plain names, so the list has
+  // no offsets of its own: fmt anchors a comment written above or after that
+  // line on this token instead of dropping it.
+  rolesLoc?: Loc;
   effects: EffectsNode | null;
   examples: ExampleNode[];
   budget: BudgetNode | null;
