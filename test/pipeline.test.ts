@@ -169,3 +169,21 @@ test('a body that breaks its example fails the pipeline and names the example', 
   assert.match(testStep.detail, /failed/);
   assert.match(testStep.error ?? '', /ping_ok/);
 });
+
+test('a step that throws becomes a failed step, not a stack trace', async () => {
+  // The prompts step is the first one that writes under the project. Make the
+  // project path a regular file: mkdir fails with ENOTDIR, and the pipeline
+  // must report that as the step's error and stop, the way it reports a
+  // model failure.
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-pipeline-'));
+  const notADir = join(dir, 'main.arc');
+  await writeFile(notADir, 'this path is a file, not a project directory', 'utf8');
+  const result = await runPipeline(parse(WITH_EXAMPLE, 'main.arc'), notADir, {});
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.steps.map((step) => step.name), ['check', 'prompts']);
+  assert.equal(result.steps[1].ok, false);
+  assert.match(result.steps[1].error ?? '', /ENOTDIR|not a directory/);
+  const text = formatPipeline(result, 'demo@0.1.0');
+  assert.match(text, /prompts +fail /);
+  assert.doesNotMatch(text, /done in/);
+});
