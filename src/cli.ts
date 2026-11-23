@@ -66,7 +66,7 @@ export const COMMAND_FLAGS: Record<string, string[]> = {
   terraform: ['--out', '--env'],
   prompts: ['--json', '--full', '--max-tokens'],
   impl: ['--model', '--endpoint', '--dry-run', '--no-cache', '--allow-remote', '--json'],
-  fmt: ['--check', '--write', '--to'],
+  fmt: ['--check', '--write', '--to', '--json'],
   diff: [],
   adopt: [],
   upgrade: ['--to', '--write'],
@@ -471,19 +471,27 @@ async function runAst(flags: Flags): Promise<void> {
 // one exit code. Printing several canonical specs to a single stdout would be
 // ambiguous, so a pattern has to ask for --check or --write.
 async function runFmtPattern(flags: Flags, pattern: string): Promise<void> {
+  // A formatting gate wants the verdict as data: which file differs, how many
+  // changed, whether anything failed. The human lines stay byte-identical, and
+  // --json answers one object with the same words as each file's status.
   if (!flags.check && !flags.write) {
-    console.error('arcod: a pattern needs --check or --write; a single file prints its canonical form');
+    const message = 'a pattern needs --check or --write; a single file prints its canonical form';
+    if (flags.json) console.log(JSON.stringify({ error: message }, null, 2));
+    else console.error('arcod: ' + message);
     process.exitCode = 2;
     return;
   }
   const specs = await expandSpecs(pattern);
   if (specs.length === 0) {
-    console.error('arcod: no files match ' + pattern);
+    const message = 'no files match ' + pattern;
+    if (flags.json) console.log(JSON.stringify({ error: message }, null, 2));
+    else console.error('arcod: ' + message);
     process.exitCode = 2;
     return;
   }
   let changed = 0;
   let failed = 0;
+  const files: Array<{ file: string; status: string; error?: string; line?: number; col?: number }> = [];
   for (const specPath of specs) {
     const label = specLabel(specPath);
     let source: string;
@@ -496,7 +504,8 @@ async function runFmtPattern(flags: Flags, pattern: string): Promise<void> {
       failed++;
       const loc = error instanceof ParseError ? error.loc : null;
       const message = error instanceof Error ? error.message : String(error);
-      console.log(loc
+      if (flags.json) files.push({ file: label, status: 'failed', error: message, ...(loc ? { line: loc.line, col: loc.col } : {}) });
+      else console.log(loc
         ? label + ':' + loc.line + ':' + loc.col + '  error  parse  ' + message
         : label + '  error  ' + message);
       continue;
@@ -506,13 +515,16 @@ async function runFmtPattern(flags: Flags, pattern: string): Promise<void> {
         source = migrateSpec(source, declaredVersion(source, label), flags.to, label);
       } catch (error) {
         failed++;
-        console.log(label + ': ' + (error instanceof Error ? error.message : String(error)));
+        const message = error instanceof Error ? error.message : String(error);
+        if (flags.json) files.push({ file: label, status: 'failed', error: message });
+        else console.log(label + ': ' + message);
         continue;
       }
     }
     const formatted = formatSource(source, label);
     if (formatted === source) {
-      console.log(label + ': ok');
+      if (flags.json) files.push({ file: label, status: 'ok' });
+      else console.log(label + ': ok');
       continue;
     }
     changed++;
@@ -521,28 +533,29 @@ async function runFmtPattern(flags: Flags, pattern: string): Promise<void> {
         await writeFile(specPath, formatted, 'utf8');
       } catch (err) {
         failed++;
-        // The lines above are verdicts about the spec, so they belong on
-        // stdout; a file the process could not write is an environment error.
-        // It used to share the stdout report, where a gate parsing
-        // `<path>: ok` could read "cannot write" as a formatting verdict. It
-        // now uses the same `arcod: cannot write <path>: <reason>` line and
-        // stderr as the single-file path.
-        console.error('arcod: cannot write ' + specPath + ': ' + fsReason(err));
+        if (flags.json) files.push({ file: label, status: 'failed', error: 'cannot write: ' + fsReason(err) });
+        // A file the process could not write is an environment error; it is
+        // already carried as a failed entry under --json, so the line stays
+        // off the report stream and only the human form prints it.
+        if (!flags.json) console.error('arcod: cannot write ' + specPath + ': ' + fsReason(err));
         continue;
       }
-      console.log('formatted ' + label);
+      if (flags.json) files.push({ file: label, status: 'formatted' });
+      else console.log('formatted ' + label);
     } else {
-      console.log(label + ': not formatted');
+      if (flags.json) files.push({ file: label, status: 'not formatted' });
+      else console.log(label + ': not formatted');
     }
   }
-  if (flags.write) {
-    // A write that succeeded is not a failure; only a file we could not read,
-    // parse or migrate is.
-    process.exitCode = failed > 0 ? 1 : 0;
-    return;
+  const ok = failed === 0 && (flags.write || changed === 0);
+  if (flags.json) {
+    console.log(JSON.stringify({ mode: flags.write ? 'write' : 'check', ok, files, changed, failed }, null, 2));
+  } else if (!flags.write) {
+    console.log('\n' + specs.length + ' file(s), ' + changed + ' not formatted, ' + failed + ' failed');
   }
-  console.log('\n' + specs.length + ' file(s), ' + changed + ' not formatted, ' + failed + ' failed');
-  process.exitCode = changed > 0 || failed > 0 ? 1 : 0;
+  // A write that succeeded is not a failure; only a file we could not read,
+  // parse or migrate is.
+  process.exitCode = flags.write ? (failed > 0 ? 1 : 0) : (changed > 0 || failed > 0 ? 1 : 0);
 }
 
 async function runFmt(flags: Flags): Promise<void> {
@@ -567,12 +580,34 @@ async function runFmt(flags: Flags): Promise<void> {
   // relative to the caller over a pattern, so a gate comparing the two saw two
   // formats for the same verdict.
   const label = specLabel(loaded.specPath);
+  // One file answers with the same object a pattern does, so a gate that
+  // calls fmt on a directory and on a single spec reads one shape. The
+  // canonical text is what stdout carries by default; --json is the verdict,
+  // so it needs a mode to be a verdict about something.
+  if (flags.json && !flags.check && !flags.write) {
+    const message = '--json needs --check or --write';
+    console.log(JSON.stringify({ error: message }, null, 2));
+    process.exitCode = 2;
+    return;
+  }
+  const report = (status: string, extra: Record<string, unknown> = {}) => {
+    const changedFiles = status === 'not formatted' || status === 'formatted' ? 1 : 0;
+    console.log(JSON.stringify({
+      mode: flags.write ? 'write' : 'check',
+      ok: status === 'ok' || status === 'formatted',
+      files: [{ file: label, status, ...extra }],
+      changed: changedFiles,
+      failed: status === 'failed' ? 1 : 0,
+    }, null, 2));
+  };
   if (flags.check) {
     const current = source;
     if (current === formatted) {
-      console.log(label + ': ok');
+      if (flags.json) report('ok');
+      else console.log(label + ': ok');
     } else {
-      console.log(label + ': not formatted');
+      if (flags.json) report('not formatted');
+      else console.log(label + ': not formatted');
       process.exitCode = 1;
     }
     return;
@@ -581,11 +616,13 @@ async function runFmt(flags: Flags): Promise<void> {
     try {
       await writeFile(loaded.specPath, formatted, 'utf8');
     } catch (err) {
-      console.error('arcod: cannot write ' + label + ': ' + fsReason(err));
+      if (flags.json) report('failed', { error: 'cannot write: ' + fsReason(err) });
+      else console.error('arcod: cannot write ' + label + ': ' + fsReason(err));
       process.exitCode = 1;
       return;
     }
-    console.log('formatted ' + label);
+    if (flags.json) report(source === formatted ? 'ok' : 'formatted');
+    else console.log('formatted ' + label);
     return;
   }
   process.stdout.write(formatted);
@@ -1739,11 +1776,15 @@ Print the gRPC .proto (or write it with --out).`,
   migrate: `usage: arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres]
 
 Print the migrations for the stored entities. --dialect picks the SQL dialect.`,
-  fmt: `usage: arcod fmt [dir|spec.arc|pattern] [--check] [--write] [--to version]
+  fmt: `usage: arcod fmt [dir|spec.arc|pattern] [--check] [--write] [--to version] [--json]
 
 Print the canonical form of the spec. --check fails when the file differs,
 --write rewrites it in place, --to upgrades it across language versions.
-A quoted pattern checks or rewrites every match and reports each file by path.`,
+A quoted pattern checks or rewrites every match and reports each file by path.
+--json (with --check or --write) prints one object instead of the lines:
+{mode, ok, files: [{file, status, error?, line?, col?}], changed, failed},
+where status is "ok", "not formatted", "formatted" or "failed"; the exit code
+is the same as the human form.`,
   diff: `usage: arcod diff <a.arc|dir> <b.arc|dir>
 
 Structurally diff two specs (canonicalized first, so formatting is not a change).`,
@@ -1829,7 +1870,7 @@ usage:
   arcod graphql [dir|spec.arc] [--service name] [--out file]
   arcod grpc  [dir|spec.arc] [--service name] [--out file]
   arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres]
-  arcod fmt  [dir|spec.arc|pattern] [--check] [--write] [--to version]
+  arcod fmt  [dir|spec.arc|pattern] [--check] [--write] [--to version] [--json]
   arcod diff <a.arc|dir> <b.arc|dir>
   arcod adopt <openapi.json>
   arcod upgrade [dir|spec.arc] [--to version] [--write]
