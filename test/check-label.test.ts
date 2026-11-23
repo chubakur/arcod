@@ -64,3 +64,17 @@ test('a diagnostic names the file the same way', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('check and fmt name the same file the same way over a pattern', async () => {
+  // The two commands drifted once (one printed a bare name, the other a
+  // relative path). A gate may run both, so the label is shared.
+  const { dir, label } = await specInCwd();
+  try {
+    const checked = await run(['check', join(dir, '*.arc')]);
+    const formatted = await run(['fmt', join(dir, '*.arc'), '--check']);
+    assert.match(checked.out, new RegExp('^' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ': (ok|not formatted)$', 'm'));
+    assert.match(formatted.out, new RegExp('^' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ': (ok|not formatted)$', 'm'));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
