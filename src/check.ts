@@ -962,6 +962,8 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     // status and no message from the far side. The effect list is the body in
     // this language, so the warning anchors on that clause (B63). A warning,
     // not an error: a body may catch the failure and answer a result instead.
+    // Jobs are out: a job has no error contract, and its failure lands in the
+    // retry/dead-letter path rather than in a response body.
     // A hint may not name an error the module never declared: following it
     // would answer A078. Suggest one the module has, or say both steps.
     const moduleErrors = new Set(mod.errors.map((error) => error.name));

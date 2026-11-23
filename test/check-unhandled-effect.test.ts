@@ -120,3 +120,39 @@ test('the hint names the covering error the module does declare', () => {
   assert.equal(diags.length, 1, JSON.stringify(diags));
   assert.match(diags[0].hint ?? '', /add RateLimited to errors: ask/);
 });
+
+test('a job is not reported: there is no error contract to answer', () => {
+  const src = lines(
+    'module m @0.1.0 {}',
+    'use capability arcod.std.llm @1',
+    'use capability arcod.std.kv @1',
+    'use capability arcod.std.queue @1',
+    'service S : http {',
+    '  uses llm: llm',
+    '  uses store: kv',
+    '  uses events: queue',
+    '  effects {',
+    '    allow llm.chat, store.set, events.publish',
+    '  }',
+    '  contract {',
+    '    job tick(text: string) {',
+    '      on: events.tick',
+    '      effects: llm.chat',
+    '    }',
+    '  }',
+    '}',
+    '',
+    'environment dev {',
+    '  bind llm -> openai(model: "gpt-4o-mini")',
+    '  bind store -> redis(host: "kv")',
+    '  bind events -> redis(host: "events")',
+    '}',
+  );
+  assert.deepEqual(codes(src).filter((d) => d.code === 'W048'), []);
+});
+
+test('Forbidden covers a foreign call', () => {
+  const diags = codes(externalSpec(['errors: Forbidden', 'on error Forbidden: entry != null']).replace('error Unavailable', 'error Forbidden'))
+    .filter((d) => d.code === 'W048');
+  assert.deepEqual(diags, []);
+});
