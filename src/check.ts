@@ -962,6 +962,13 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     // status and no message from the far side. The effect list is the body in
     // this language, so the warning anchors on that clause (B63). A warning,
     // not an error: a body may catch the failure and answer a result instead.
+    // A hint may not name an error the module never declared: following it
+    // would answer A078. Suggest one the module has, or say both steps.
+    const moduleErrors = new Set(mod.errors.map((error) => error.name));
+    const covering = FALLIBLE_ERRORS.filter((name) => moduleErrors.has(name));
+    const coverHint = covering.length > 0
+      ? 'add ' + covering[0] + ' to errors: '
+      : 'declare error Unavailable, then add it to errors: ';
     for (const op of svc.contract) {
       if (op.kind !== 'op') continue;
       const declared = new Set(errorNames(op));
@@ -977,7 +984,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           reported.add(entry);
           diags.push(diag('W048', 'warning', mod.file, clause.loc, 'services.' + svc.name + '.contract.' + op.name + '.effects',
             op.name + ' calls ' + label + ', which can fail, and declares no error for it',
-            'add Unavailable to errors: ' + op.name + ' with an on error handler, or catch the failure in the body'));
+            coverHint + op.name + ' with an on error handler, or catch the failure in the body'));
         }
       }
     }

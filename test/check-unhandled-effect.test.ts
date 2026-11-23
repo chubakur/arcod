@@ -106,3 +106,17 @@ test('a local store effect is not a W048: every bind can be remote', () => {
   const diags = codes(llmSpec(['errors: Unavailable']).replace('llm.chat', 'store.set'));
   assert.deepEqual(diags.filter((d) => d.code === 'W048'), []);
 });
+
+test('the hint does not name an error the module never declared', () => {
+  const src = llmSpec([]).replace('error Unavailable' + NL, '');
+  const diags = codes(src).filter((d) => d.code === 'W048');
+  assert.equal(diags.length, 1, JSON.stringify(diags));
+  assert.match(diags[0].hint ?? '', /declare error Unavailable, then add it to errors: ask/);
+});
+
+test('the hint names the covering error the module does declare', () => {
+  const src = llmSpec([]).replace('error Unavailable', 'error RateLimited');
+  const diags = codes(src).filter((d) => d.code === 'W048');
+  assert.equal(diags.length, 1, JSON.stringify(diags));
+  assert.match(diags[0].hint ?? '', /add RateLimited to errors: ask/);
+});
