@@ -662,7 +662,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
       __STRINGS__: jsonForScript(pageStrings(locale)),
       __TITLE__: escapeHtml(options.title ?? ui.title ?? mod.name),
       __LEAD__: escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · chat with the model'),
-      __CHAT_OPS__: JSON.stringify(chat),
+      __CHAT_OPS__: jsonForScript(chat),
       __HAS_AUTH__: hasAuth || guarded ? 'true' : 'false',
     });
   }
@@ -676,7 +676,7 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
     __LOCALES__: jsonForScript(ui.locales ?? null),
     __TITLE__: escapeHtml(options.title ?? ui.title ?? mod.name),
     __LEAD__: escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · operations: ' + ops.length),
-    __OPS__: JSON.stringify(ops),
+    __OPS__: jsonForScript(ops),
     // The service swaps this marker for the first-screen result; a static page
     // carries no marker at all, so nothing can be left unsubstituted.
     __SSR__: ssrOp

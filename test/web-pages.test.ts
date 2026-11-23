@@ -153,3 +153,27 @@ for (const [example, mode] of ROUTED) {
     }
   });
 }
+
+// The chat page names its operations by role (history, send, start) rather than
+// by operation name, so the routes are matched by method and path, and the
+// message field it posts must be one of the fields the service expects.
+test('the chat page calls routes the service serves and posts a declared field', async () => {
+  const mod = parse(await readFile(new URL('../examples/chat/main.arc', import.meta.url), 'utf8'), 'main.arc');
+  const html = emitWeb(mod, { maxBytes: 65536 });
+  const service = emitService(mod);
+
+  type Compact = { method: string; path: string; params: Array<{ name: string; where: string }>; textParam?: string };
+  const pages = jsonFrom(html, 'var OPS = ') as { history: Compact; send: Compact; start: Compact | null };
+  const routes = jsonFrom(service, 'const ROUTES = ') as Array<{ method: string; path: string; op: string }>;
+
+  for (const [role, entry] of Object.entries(pages)) {
+    if (!entry || typeof entry === 'string') continue;
+    const route = routes.find((item) => item.method === entry.method && item.path === entry.path);
+    assert.ok(route, `${role} ${entry.method} ${entry.path} is routed`);
+  }
+  assert.ok(pages.send.textParam, 'the send operation names its message field');
+  assert.ok(
+    pages.send.params.some((param) => param.name === pages.send.textParam),
+    'the message field is one of the declared parameters',
+  );
+});
