@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { parse } from '../src/parser.ts';
 import { emitWeb } from '../src/emit/web.ts';
+import { emitService } from '../src/emit/service.ts';
 import { QR_SOURCE } from '../src/emit/qr-code.ts';
 
 // Every page mode is a template with markers, and the page ships to a browser
@@ -100,3 +101,55 @@ test('a title with a dollar pattern lands literally', async () => {
   assert.ok(html.includes('Notes $&amp; Co'), 'the escaped title keeps its dollar');
   assert.deepEqual([...new Set(html.match(MARKER) ?? [])], []);
 });
+
+// The page and the router name the same operations, and a page that calls a
+// route the service does not serve fails in the browser as a 404 with no error
+// in any log. Both sides are generated from one contract but by two different
+// code paths, so the agreement is pinned here rather than assumed.
+function jsonFrom(text: string, lead: string): unknown {
+  const at = text.indexOf(lead);
+  assert.notEqual(at, -1, `the generated code carries ${JSON.stringify(lead)}`);
+  const start = at + lead.length;
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i += 1) {
+    const char = text[i];
+    if (inString) {
+      if (char === '\\') i += 1;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === '[' || char === '{') depth += 1;
+    else if (char === ']' || char === '}') {
+      depth -= 1;
+      if (depth === 0) return JSON.parse(text.slice(start, i + 1));
+    }
+  }
+  throw new Error(`unterminated JSON after ${lead}`);
+}
+
+const ROUTED = [
+  ['../examples/quiz/main.arc', 'presentation'],
+  ['../examples/onetimemessage/main.arc', 'spa'],
+] as const;
+
+for (const [example, mode] of ROUTED) {
+  test(`every operation the ${mode} page calls is a route the service serves`, async () => {
+    const mod = parse(await readFile(new URL(example, import.meta.url), 'utf8'), 'main.arc');
+    const html = emitWeb(mod, { maxBytes: 65536 });
+    const service = emitService(mod);
+
+    const page = jsonFrom(html, 'var OPS = ') as Record<string, { name: string; method: string; path: string }> | Array<{ name: string; method: string; path: string }>;
+    const ops = Array.isArray(page) ? page : Object.values(page).filter(Boolean);
+    assert.ok(ops.length > 0, 'the page names at least one operation');
+
+    const routes = jsonFrom(service, 'const ROUTES = ') as Array<{ method: string; path: string; op: string }>;
+    for (const op of ops) {
+      const route = routes.find((item) => item.op === op.name);
+      assert.ok(route, `${op.name} is routed`);
+      assert.equal(op.method, route.method, `${op.name} method`);
+      assert.equal(op.path, route.path, `${op.name} path`);
+    }
+  });
+}
