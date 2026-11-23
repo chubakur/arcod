@@ -168,6 +168,10 @@ class MySqlConnection {
     this.socket = null;
     this.salt = Buffer.alloc(0);
     this.plugin = 'mysql_native_password';
+    // One socket carries one packet sequence at a time: a second statement
+    // that starts while the first awaits its rows would overwrite the single
+    // pending waiter and reset seq, and the callers would read each other's rows.
+    this.queue = Promise.resolve();
   }
 
   reset() {
@@ -337,7 +341,15 @@ class MySqlConnection {
     return xorBytes(stage1, stage3);
   }
 
-  async run(sql) {
+  // Every statement takes the connection queue: concurrent io calls are
+  // serialized on the wire and each one reads the result set of its own query.
+  run(sql) {
+    const next = this.queue.then(() => this.runSerial(sql));
+    this.queue = next.then(() => {}, () => {});
+    return next;
+  }
+
+  async runSerial(sql) {
     if (!this.socket) throw new Error('mysql: not connected');
     this.seq = 0;
     this.writePacket(Buffer.concat([Buffer.from([0x03]), Buffer.from(sql, 'utf8')]));

@@ -911,6 +911,12 @@ Semantics, enforced by the generated runtime rather than written in bodies:
   in flight (`redis connection closed`) and the next one opens a fresh
   connection. The same rule holds for the `kv` Redis client.
 
+When a service uses `sql`, one connection carries every statement and it takes
+a queue: a body's concurrent `io` calls (or a queue consumer next to an HTTP
+request) are serialized on the wire, so two operations cannot read each
+other's rows. `Promise.all` answers the same numbers as a sequential run; the
+price is throughput — one statement at a time per replica.
+
 When a service uses `queue` on the `sql` driver, a publish in an operation that
 also writes a fact goes through the **outbox**: the body runs in a transaction,
 the event is appended to `arcod_outbox` in the same transaction, and a
