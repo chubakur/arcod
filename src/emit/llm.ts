@@ -28,6 +28,14 @@ function llmMemoryVector(text) {
   return vector;
 }
 
+function llmError(kind, message, status, body) {
+  const error = new Error(message);
+  error.kind = kind;
+  error.status = status === undefined ? null : status;
+  error.body = body === undefined || body === null ? '' : String(body).slice(0, 300);
+  return error;
+}
+
 function llmModel() {
   return LLM_MODEL;
 }
@@ -60,14 +68,14 @@ async function llmEmbed(texts) {
       signal: controller.signal,
     });
     const text = await response.text();
-    if (!response.ok) throw new Error('llm: ' + response.status + ' ' + text.slice(0, 300));
+    if (!response.ok) throw llmError('refused', 'llm: ' + response.status + ' ' + text.slice(0, 300), response.status, text);
     let data;
     try {
       data = JSON.parse(text);
     } catch (error) {
-      throw new Error('llm: invalid json: ' + text.slice(0, 200));
+      throw llmError('failed', 'llm: invalid json: ' + text.slice(0, 200));
     }
-    if (!data || !Array.isArray(data.data)) throw new Error('llm: no embeddings in response');
+    if (!data || !Array.isArray(data.data)) throw llmError('failed', 'llm: no embeddings in response');
     const vectors = data.data
       .slice()
       .sort((left, right) => Number(left.index) - Number(right.index))
@@ -77,7 +85,8 @@ async function llmEmbed(texts) {
     const expected = LLM_EMBED_DIM || (vectors.length > 0 ? vectors[0].length : 0);
     for (const vector of vectors) {
       if (vector.length !== expected) {
-        throw new Error(
+        throw llmError(
+          'failed',
           'llm: embedding dim ' + vector.length + ' does not match declared dim ' + expected +
           (LLM_EMBED_DIM ? '' : ' of the first vector'),
         );
@@ -85,7 +94,8 @@ async function llmEmbed(texts) {
     }
     return vectors;
   } catch (error) {
-    if (error && error.name === 'AbortError') throw new Error('llm: timeout after ' + LLM_TIMEOUT_MS + 'ms');
+    if (error && error.name === 'AbortError') throw llmError('timeout', 'llm: timeout after ' + LLM_TIMEOUT_MS + 'ms');
+    if (error && !error.kind) throw llmError('failed', String(error && error.message ? error.message : error));
     throw error;
   } finally {
     clearTimeout(timer);
@@ -119,20 +129,21 @@ async function llmChat(messages, system) {
       signal: controller.signal,
     });
     const text = await response.text();
-    if (!response.ok) throw new Error('llm: ' + response.status + ' ' + text.slice(0, 300));
+    if (!response.ok) throw llmError('refused', 'llm: ' + response.status + ' ' + text.slice(0, 300), response.status, text);
     let data;
     try {
       data = JSON.parse(text);
     } catch (error) {
-      throw new Error('llm: invalid json: ' + text.slice(0, 200));
+      throw llmError('failed', 'llm: invalid json: ' + text.slice(0, 200));
     }
     const content = data && data.choices && data.choices[0] && data.choices[0].message
       ? data.choices[0].message.content
       : null;
-    if (typeof content !== 'string') throw new Error('llm: no content in response');
+    if (typeof content !== 'string') throw llmError('failed', 'llm: no content in response');
     return { content, model: data.model || LLM_MODEL };
   } catch (error) {
-    if (error && error.name === 'AbortError') throw new Error('llm: timeout after ' + LLM_TIMEOUT_MS + 'ms');
+    if (error && error.name === 'AbortError') throw llmError('timeout', 'llm: timeout after ' + LLM_TIMEOUT_MS + 'ms');
+    if (error && !error.kind) throw llmError('failed', String(error && error.message ? error.message : error));
     throw error;
   } finally {
     clearTimeout(timer);
