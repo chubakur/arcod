@@ -654,17 +654,11 @@ async function runDiff(args: string[]): Promise<void> {
 }
 
 async function runAdopt(args: string[]): Promise<void> {
-  // adopt reads one document; a second one used to be dropped the way a
-  // second path was for check and build. It is a usage error now.
-  const paths = args.filter((x) => !x.startsWith('-'));
-  const [file, extra] = paths;
+  // parseFlags already refused a second path for every command but diff, so
+  // the one document here is the only argument adopt ever sees.
+  const file = args.find((x) => !x.startsWith('-'));
   if (!file) {
     console.error('usage: arcod adopt <openapi.json>');
-    process.exitCode = 2;
-    return;
-  }
-  if (extra) {
-    console.error('arcod: unexpected argument: ' + extra);
     process.exitCode = 2;
     return;
   }
@@ -693,17 +687,10 @@ async function runAdopt(args: string[]): Promise<void> {
 }
 
 async function runNew(args: string[], flags: Flags): Promise<void> {
-  // One project per run: `arcod new one two` used to scaffold one and drop
-  // two. Refuse the second name before writing anything.
-  const names = args.filter((x) => !x.startsWith('-'));
-  const [name, extra] = names;
+  // One name; a second argument is refused by parseFlags before this runs.
+  const name = args.find((x) => !x.startsWith('-'));
   if (!name) {
     console.error('usage: arcod new <name>');
-    process.exitCode = 2;
-    return;
-  }
-  if (extra) {
-    console.error('arcod: unexpected argument: ' + extra);
     process.exitCode = 2;
     return;
   }

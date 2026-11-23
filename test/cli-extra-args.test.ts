@@ -92,8 +92,10 @@ test('lsp refuses an argument before it starts serving', async () => {
   assert.match(result.err, /^arcod: unexpected argument: extra$/m);
 });
 
-// The raw-argument commands had the same drop: adopt read the first document
-// and ignored the second, new scaffolded the first name and ignored the second.
+// The raw-argument commands (adopt, new) read their operand with find(), so a
+// second one is only refused by parseFlags. These pin that they never reach
+// the raw argument list and quietly pick the first: no file is read, no
+// project is scaffolded.
 test('adopt refuses a second document', async () => {
   const result = await run(['adopt', 'a.json', 'b.json']);
   assert.equal(result.code, 2);
