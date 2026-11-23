@@ -1517,6 +1517,18 @@ interface Flags {
 // A numeric flag that silently becomes NaN ends up in a manifest
 // (replicas: NaN) or in a listen() call. Reject it at the boundary with the
 // flag name and the accepted range instead.
+// A flag that names a value must get one. `args[++i]` used to hand back
+// undefined at the end of the line and `--env`/`--out` silently behaved as if
+// they had never been typed; a following `--json` was even swallowed as the
+// value. Both are a typo the CLI can name instead of dropping.
+function valueFlag(name: string, args: string[], i: number): string {
+  const value = args[i];
+  if (value === undefined || value.startsWith('-')) {
+    throw new UsageError(name + ' needs a value');
+  }
+  return value;
+}
+
 function intFlag(name: string, raw: string | undefined, min: number, max: number): number {
   const value = Number(raw);
   const ok = raw !== undefined && raw.trim() !== '' && Number.isInteger(value) && value >= min && value <= max;
@@ -1560,11 +1572,11 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--down') flags.down = true;
     else if (arg === '--reference') flags.reference = true;
     else if (arg === '--scaffold') flags.scaffold = true;
-    else if (arg === '--env') flags.env = args[++i];
-    else if (arg === '--service') flags.service = args[++i];
+    else if (arg === '--env') flags.env = valueFlag('--env', args, ++i);
+    else if (arg === '--service') flags.service = valueFlag('--service', args, ++i);
     else if (arg === '--port') flags.port = intFlag('--port', args[++i], 1, 65535);
-    else if (arg === '--model') flags.model = args[++i] ?? DEFAULT_IMPL.model;
-    else if (arg === '--endpoint') flags.endpoint = args[++i] ?? DEFAULT_IMPL.endpoint;
+    else if (arg === '--model') flags.model = valueFlag('--model', args, ++i);
+    else if (arg === '--endpoint') flags.endpoint = valueFlag('--endpoint', args, ++i);
     else if (arg === '--max-tokens') flags.maxTokens = intFlag('--max-tokens', args[++i] ?? '1600', 1, 1000000);
     else if (arg === '--dry-run') flags.dryRun = true;
     else if (arg === '--no-cache') flags.noCache = true;
@@ -1576,16 +1588,16 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--skip-impl') flags.skipImpl = true;
     else if (arg === '--no-test') flags.noTest = true;
     else if (arg === '--write' || arg === '-w') flags.write = true;
-    else if (arg === '--to') flags.to = args[++i];
+    else if (arg === '--to') flags.to = valueFlag('--to', args, ++i);
     else if (arg === '--helm') flags.helm = true;
     else if (arg === '--plugins') flags.plugins = true;
-    else if (arg === '--dialect') flags.dialect = args[++i];
-    else if (arg === '--image') flags.image = args[++i];
-    else if (arg === '--host') flags.host = args[++i];
-    else if (arg === '--namespace') flags.namespace = args[++i];
+    else if (arg === '--dialect') flags.dialect = valueFlag('--dialect', args, ++i);
+    else if (arg === '--image') flags.image = valueFlag('--image', args, ++i);
+    else if (arg === '--host') flags.host = valueFlag('--host', args, ++i);
+    else if (arg === '--namespace') flags.namespace = valueFlag('--namespace', args, ++i);
     else if (arg === '--replicas') flags.replicas = intFlag('--replicas', args[++i], 1, 1000);
-    else if (arg === '--ingress-class') flags.ingressClass = args[++i];
-    else if (arg === '--out') flags.out = args[++i];
+    else if (arg === '--ingress-class') flags.ingressClass = valueFlag('--ingress-class', args, ++i);
+    else if (arg === '--out') flags.out = valueFlag('--out', args, ++i);
     else if (!arg.startsWith('-')) flags.spec = arg;
     else throw new UsageError('unknown flag: ' + arg);
   }

@@ -218,6 +218,10 @@ takes `--strict`. `fmt` takes `--check`/`--write` (alternatives — `--check` as
 answers, so passing both is a usage error, code 2); `upgrade` takes `--to <version>`/`--write`.
 Every subcommand answers `arcod <cmd> --help` with its own usage and exits 0;
 an unknown flag prints one line plus `hint: arcod <cmd> --help` and exits 2.
+A flag that names a value must get one: `--env`, `--service`, `--to`, `--out`,
+`--dialect`, `--model`, `--endpoint`, `--image`, `--host`, `--namespace`,
+`--ingress-class` print `--env needs a value` and exit 2 rather than quietly
+meaning nothing, and a following flag is never taken as the value.
 
 ```bash
 arcod make .            # first build from scratch
