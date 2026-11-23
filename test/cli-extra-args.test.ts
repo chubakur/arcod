@@ -69,3 +69,25 @@ test('diff refuses a third path', async () => {
   assert.match(result.err, /^arcod: unexpected argument: examples\/orders$/m);
   assert.equal(result.out, '');
 });
+
+// A command with no operand dropped one the same way: `arcod version extra`
+// printed the version and said nothing about extra. These commands name the
+// word they never read instead — and lsp refuses before it starts serving.
+test('version refuses a path it would drop', async () => {
+  const result = await run(['version', 'extra']);
+  assert.equal(result.code, 2);
+  assert.match(result.err, /^arcod: unexpected argument: extra$/m);
+  assert.equal(result.out, '');
+});
+
+test('providers refuses a path it would drop', async () => {
+  const result = await run(['providers', 'examples/chat']);
+  assert.equal(result.code, 2);
+  assert.match(result.err, /^arcod: unexpected argument: examples\/chat$/m);
+});
+
+test('lsp refuses an argument before it starts serving', async () => {
+  const result = await run(['lsp', 'extra']);
+  assert.equal(result.code, 2);
+  assert.match(result.err, /^arcod: unexpected argument: extra$/m);
+});

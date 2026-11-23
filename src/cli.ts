@@ -74,6 +74,11 @@ export const COMMAND_FLAGS: Record<string, string[]> = {
   lsp: [],
 };
 
+// These commands read no path at all: `arcod version extra` printed the
+// version and dropped the word the same way a second path was dropped for
+// every other command. A path they never read is a usage error now.
+export const NO_PATH_COMMANDS = new Set(['version', 'providers', 'lsp']);
+
 function assertCommandFlags(command: string | undefined, args: string[]): void {
   const allowed = command ? COMMAND_FLAGS[command] : undefined;
   if (!allowed) return;
@@ -1673,6 +1678,9 @@ function parseFlags(args: string[], command?: string): Flags {
       // Two paths on one line used to mean the second one: `arcod build a b`
       // built b and silently dropped a. `diff` is the one command that reads
       // two paths, and it takes them from the raw arguments.
+      if (command && NO_PATH_COMMANDS.has(command)) {
+        throw new UsageError('unexpected argument: ' + arg);
+      }
       if (flags.spec !== undefined && command !== 'diff') {
         throw new UsageError('unexpected argument: ' + arg);
       }
