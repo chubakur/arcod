@@ -126,7 +126,7 @@ export async function main(argv: string[]): Promise<void> {
     }
 
     assertCommandFlags(command, rest);
-    flags = parseFlags(rest);
+    flags = parseFlags(rest, command);
     switch (command) {
       case undefined:
       case 'help':
@@ -1548,7 +1548,7 @@ function intFlag(name: string, raw: string | undefined, min: number, max: number
   return value;
 }
 
-function parseFlags(args: string[]): Flags {
+function parseFlags(args: string[], command?: string): Flags {
   const flags: Flags = {
     json: false,
     check: false,
@@ -1607,7 +1607,15 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--replicas') flags.replicas = intFlag('--replicas', valueFlag('--replicas', args, ++i), 1, 1000);
     else if (arg === '--ingress-class') flags.ingressClass = valueFlag('--ingress-class', args, ++i);
     else if (arg === '--out') flags.out = valueFlag('--out', args, ++i);
-    else if (!arg.startsWith('-')) flags.spec = arg;
+    else if (!arg.startsWith('-')) {
+      // Two paths on one line used to mean the second one: `arcod build a b`
+      // built b and silently dropped a. `diff` is the one command that reads
+      // two paths, and it takes them from the raw arguments.
+      if (flags.spec !== undefined && command !== 'diff') {
+        throw new UsageError('unexpected argument: ' + arg);
+      }
+      flags.spec = arg;
+    }
     else throw new UsageError('unknown flag: ' + arg);
   }
   return flags;
