@@ -122,6 +122,26 @@ test('a broken spec is a failed entry, not a crash and not a clean file', async 
   }
 });
 
+test('a file that cannot be written is a failed entry, not a clean run', async () => {
+  const dir = await project(chat.replace(/^service /m, 'service   '));
+  const file = join(dir, 'main.arc');
+  try {
+    const { chmod } = await import('node:fs/promises');
+    await chmod(file, 0o444);
+    const result = await run(['fmt', file, '--write', '--json']);
+    assert.equal(result.code, 1);
+    const report = JSON.parse(result.out);
+    assert.equal(report.ok, false);
+    assert.equal(report.failed, 1);
+    assert.deepEqual(report.files.map((f: { status: string }) => f.status), ['failed']);
+    assert.match(report.files[0].error, /^cannot write: /);
+  } finally {
+    const { chmod } = await import('node:fs/promises');
+    await chmod(file, 0o644).catch(() => {});
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('a --to refusal is a failed entry, not prose on stderr with empty stdout', async () => {
   const dir = await project(chat);
   try {
