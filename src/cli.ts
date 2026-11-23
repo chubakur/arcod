@@ -545,12 +545,17 @@ async function runFmt(flags: Flags): Promise<void> {
     }
   }
   const formatted = formatSource(source, basename(loaded.specPath));
+  // One file and a pattern must answer in the same shape: `arcod fmt
+  // examples/x --check` used to print the absolute path here and a path
+  // relative to the caller over a pattern, so a gate comparing the two saw two
+  // formats for the same verdict.
+  const label = specLabel(loaded.specPath);
   if (flags.check) {
     const current = source;
     if (current === formatted) {
-      console.log(loaded.specPath + ': ok');
+      console.log(label + ': ok');
     } else {
-      console.log(loaded.specPath + ': not formatted');
+      console.log(label + ': not formatted');
       process.exitCode = 1;
     }
     return;
@@ -559,11 +564,11 @@ async function runFmt(flags: Flags): Promise<void> {
     try {
       await writeFile(loaded.specPath, formatted, 'utf8');
     } catch (err) {
-      console.error('arcod: cannot write ' + loaded.specPath + ': ' + fsReason(err));
+      console.error('arcod: cannot write ' + label + ': ' + fsReason(err));
       process.exitCode = 1;
       return;
     }
-    console.log('formatted ' + loaded.specPath);
+    console.log('formatted ' + label);
     return;
   }
   process.stdout.write(formatted);
