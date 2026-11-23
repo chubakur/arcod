@@ -316,41 +316,38 @@
   <section id="news">
     <div class="wrap">
       <div class="kicker">what shipped this week</div>
-      <h2>Three things shipped on 2026-11-21.</h2>
+      <h2>Three things shipped on 2026-11-22.</h2>
       <p class="sub">Each is covered by tests in the repository.</p>
       <div class="grid-3">
         <div class="card">
-          <span class="num">2026-11-21 · STORE</span>
-          <h3>A row older than its field still reads right</h3>
-          <p>A row written before <code>done: bool = false</code> existed has no
-          <code>done</code> key on <code>kv</code>. <code>fetch</code> filled the declared
-          default, <code>find</code> answered <code>null</code> for the same row, and
-          <code>where { done: false }</code> did not match it at all. Both reads and the
-          filter now apply the declaration: <code>find</code>, <code>where</code>,
-          <code>order</code> and <code>sum(score)</code> see the defaulted field, and a
-          value a row did store is never overwritten by the default.</p>
+          <span class="num">2026-11-22 · CLI</span>
+          <h3>A refusal is data, on every command</h3>
+          <p>A command that takes <code>--json</code> now answers one object on stdout,
+          failure included. A spec that does not parse is
+          <code>{error: "parse failed", diagnostics}</code>; an unreadable path and an
+          artifact it cannot write are <code>{error}</code> with the reason.
+          <code>build</code>, <code>test</code>, <code>migrate</code>,
+          <code>prompts</code>, <code>impl</code> and <code>deploy</code> keep stdout to
+          one object, so a CI gate never parses a human line again.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-21 · FORMAT</span>
-          <h3><code>arcod fmt</code> keeps the comment where you wrote it</h3>
-          <p>A comment after the last field of a record, after the last clause of an
-          operation, at the tail of an <code>example</code> body, inside an
-          <code>environment</code> block or at the end of a <code>given</code>/
-          <code>when</code> section used to slide onto the next declaration or to the
-          end of the file. It now stays inside its own block, and a multi-line block
-          comment keeps its indentation, so a second <code>fmt</code> pass changes
-          nothing.</p>
+          <span class="num">2026-11-22 · RUN</span>
+          <h3><code>run --detach --json</code> is one object</h3>
+          <p><code>--json</code> was a global flag <code>run</code> did not accept: a
+          script that started a service in the background parsed
+          <code>url: http://…</code>. It now requires <code>--detach</code> and answers
+          mode, name, version, build, url, port and stop; the compose log goes to stderr,
+          so stdout holds one object. Six tests cover the success shape, the flag pair and
+          each refusal.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-21 · CHECK</span>
-          <h3>Two more mistakes stop before the build</h3>
-          <p><code>A091</code> refuses <code>unique</code> on a field no driver can
-          index — a <code>list</code>, <code>map</code> or <code>bytes</code> field —
-          instead of a rule that only holds on another store. <code>A092</code> refuses
-          an operation whose route the runtime already
-          answers (<code>/healthz</code>, <code>/metrics</code>), so a contract cannot
-          quietly shadow the probe. The checker now carries 112 codes, all listed in the
-          README.</p>
+          <span class="num">2026-11-22 · EDITOR</span>
+          <h3>A buffer cut mid-token still has a position</h3>
+          <p>The language server parses the editor buffer on every keystroke, so most
+          buffers stop inside a token, a string or a block. A test walks every third
+          prefix of all 17 examples — 7.4k parses — and asserts only
+          <code>ParseError</code>, with line, column and offset inside the text; a lone
+          surrogate and a NUL byte are pinned too.</p>
         </div>
       </div>
     </div>
@@ -393,7 +390,7 @@
       <h2>One file in. A running system out.</h2>
       <p class="sub"><code>arcod make</code> runs the same steps the standalone commands do, so the pipeline cannot drift from the CLI.</p>
       <div class="steps">
-        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, access, routes, examples. 112 diagnostics, errors stop the build.</p></div>
+        <div class="step"><h3>Check</h3><p>Types, bindings, effects, rules, access, routes, examples. 112 codes, errors stop the build.</p></div>
         <div class="step"><h3>Plan</h3><p>A deterministic task DAG: files, dependencies, acceptance criteria, <code>--json</code>.</p></div>
         <div class="step"><h3>Prompts</h3><p>One prompt per operation with a token budget and a hash for caching.</p></div>
         <div class="step"><h3>Build &amp; test</h3><p>Service, UI, compose, manifests — then the model's own examples run against it.</p></div>
@@ -607,6 +604,17 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           and migrations, prompts and SQL the contract no longer owns are pruned.</p>
         </div>
         <div class="card">
+          <h3>JSON on failure, not only on success</h3>
+          <p><code>--json</code> is not a promise only the happy path keeps:
+          <code>build</code>, <code>test</code>, <code>migrate</code>,
+          <code>prompts</code>, <code>impl</code>, <code>deploy</code> and
+          <code>run --detach</code> answer one object on stdout. A refusal names
+          <code>error</code> and the reason; a spec that does not check answers its
+          <code>diagnostics</code> in the same payload, and the exit code still says what
+          happened. Without the flag the human text is unchanged, so the machine never
+          gets prose.</p>
+        </div>
+        <div class="card">
           <h3>A filter refuses what cannot mean anything</h3>
           <p><code>contains</code> on a <code>bytes</code>, <code>datetime</code> or
           <code>decimal</code> field is an <code>Invalid</code> naming the operator, not a
@@ -642,8 +650,8 @@ deploy.dev.json          deploy manifest per environment</code></pre>
   <section id="examples">
     <div class="wrap">
       <div class="kicker">examples that run</div>
-      <h2>Sixteen services, all in the repository.</h2>
-      <p class="sub">Each one is a single <code>.arc</code> file plus bodies generated by a local 7B model and verified by tests.</p>
+      <h2>Seventeen services, all in the repository.</h2>
+      <p class="sub">Each one is a single <code>.arc</code> file with its bodies in <code>impl/</code>; <code>arcod check 'examples/**'</code> reads all seventeen.</p>
       <div class="examples">
         <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/onetimemessage">
           <span class="path">examples/onetimemessage</span>
@@ -692,6 +700,12 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <h3>Page served by the service</h3>
           <p>The notes are already in the HTML; the browser hydrates them.</p>
           <div class="tags"><span class="tag">ssr</span><span class="tag">kv</span></div>
+        </a>
+        <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/nightly">
+          <span class="path">examples/nightly</span>
+          <h3>A nightly workflow</h3>
+          <p>Three steps with typed ports and explicit <code>needs</code> edges on a cron; the graph is declarative in v0.1 (<code>W022</code>), and the operations it calls run over HTTP.</p>
+          <div class="tags"><span class="tag">workflow</span><span class="tag">cron</span></div>
         </a>
         <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/project1">
           <span class="path">examples/project1</span>
