@@ -44,6 +44,9 @@ const cases: Array<[string, string[]]> = [
   ['--service', ['openapi', join(examplesDir, 'chat'), '--service']],
   ['--model', ['impl', join(examplesDir, 'chat'), '--model']],
   ['--ingress-class', ['k8s', join(examplesDir, 'chat'), '--ingress-class']],
+  ['--port', ['build', join(examplesDir, 'chat'), '--port']],
+  ['--max-tokens', ['prompts', join(examplesDir, 'chat'), '--max-tokens']],
+  ['--replicas', ['k8s', join(examplesDir, 'chat'), '--replicas']],
 ];
 
 for (const [flag, argv] of cases) {

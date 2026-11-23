@@ -1574,10 +1574,10 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--scaffold') flags.scaffold = true;
     else if (arg === '--env') flags.env = valueFlag('--env', args, ++i);
     else if (arg === '--service') flags.service = valueFlag('--service', args, ++i);
-    else if (arg === '--port') flags.port = intFlag('--port', args[++i], 1, 65535);
+    else if (arg === '--port') flags.port = intFlag('--port', valueFlag('--port', args, ++i), 1, 65535);
     else if (arg === '--model') flags.model = valueFlag('--model', args, ++i);
     else if (arg === '--endpoint') flags.endpoint = valueFlag('--endpoint', args, ++i);
-    else if (arg === '--max-tokens') flags.maxTokens = intFlag('--max-tokens', args[++i] ?? '1600', 1, 1000000);
+    else if (arg === '--max-tokens') flags.maxTokens = intFlag('--max-tokens', valueFlag('--max-tokens', args, ++i), 1, 1000000);
     else if (arg === '--dry-run') flags.dryRun = true;
     else if (arg === '--no-cache') flags.noCache = true;
     else if (arg === '--full') flags.full = true;
@@ -1595,7 +1595,7 @@ function parseFlags(args: string[]): Flags {
     else if (arg === '--image') flags.image = valueFlag('--image', args, ++i);
     else if (arg === '--host') flags.host = valueFlag('--host', args, ++i);
     else if (arg === '--namespace') flags.namespace = valueFlag('--namespace', args, ++i);
-    else if (arg === '--replicas') flags.replicas = intFlag('--replicas', args[++i], 1, 1000);
+    else if (arg === '--replicas') flags.replicas = intFlag('--replicas', valueFlag('--replicas', args, ++i), 1, 1000);
     else if (arg === '--ingress-class') flags.ingressClass = valueFlag('--ingress-class', args, ++i);
     else if (arg === '--out') flags.out = valueFlag('--out', args, ++i);
     else if (!arg.startsWith('-')) flags.spec = arg;
