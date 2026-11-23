@@ -511,7 +511,9 @@ test('new validates the name and scaffolds into the current directory', async ()
     process.chdir(dir);
     const ok = await run(['new', 'demo-app']);
     assert.equal(ok.code, 0, JSON.stringify(ok.err));
-    assert.match(ok.out, /^created /m);
+    // The project the caller named relatively is reported relatively, not as
+    // the absolute path scaffold happened to resolve.
+    assert.match(ok.out, /^created demo-app$/m);
     assert.match(ok.out, /next: cd demo-app/);
     const entries = await readdir(join(dir, 'demo-app'));
     assert.ok(entries.includes('main.arc'), 'scaffold writes the spec');

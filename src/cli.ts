@@ -714,7 +714,9 @@ async function runNew(args: string[], flags: Flags): Promise<void> {
   }
   try {
     const result = await scaffold(name, process.cwd(), { force: flags.force });
-    console.log('created ' + result.dir);
+    // The project the caller just named relative to the shell is named the same
+    // way here, like every other path the CLI prints.
+    console.log('created ' + specLabel(result.dir));
     for (const f of result.files) console.log('  ' + f);
     console.log('');
     console.log('next: cd ' + name + ' && arcod check . && arcod make .');
