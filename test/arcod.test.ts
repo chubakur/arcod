@@ -90,7 +90,7 @@ test('build defaults to scaffold, reference is opt-in', async () => {
   const scaffoldCode = await readFile(join(scaffold.dir, 'service', 'index.mjs'), 'utf8');
   assert.ok(scaffoldCode.includes('Mode: scaffold'));
   assert.ok(scaffoldCode.includes('const HANDLERS = {};'));
-  assert.ok(!scaffoldCode.includes('async function handleCreate'));
+  assert.ok(!scaffoldCode.includes('async function arcodHandleCreate'));
   // request-id plumbing uses randomUUID in every generated service, including
   // scaffold, so the "no operation bodies" marker is the handler, not the uuid.
 
@@ -334,8 +334,8 @@ test('impl mode falls back to 501 for operations without a body', async () => {
   assert.deepEqual(built.impl, ['create']);
   const code = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
   assert.match(code, /const HANDLERS = \{/);
-  assert.match(code, /create: handleCreate/);
-  assert.ok(!code.includes('read: handleRead'), 'read has no body, so it is absent from the table');
+  assert.match(code, /create: arcodHandleCreate/);
+  assert.ok(!code.includes('read: arcodHandleRead'), 'read has no body, so it is absent from the table');
 });
 
 test('a list literal in an example parses, checks, formats and runs', async () => {
@@ -833,8 +833,8 @@ test('a multi-field payload is stored as a record and returned as JSON', async (
   await writeFile(join(dir, 'impl', 'create.mjs'), body);
   const withImpl = await buildExample(recAst, dir, {});
   const code = await readFile(join(withImpl.dir, 'service', 'index.mjs'), 'utf8');
-  assert.match(code, /create: handleCreate/);
-  assert.ok(!code.includes('read: handleRead'), 'no body, no handler');
+  assert.match(code, /create: arcodHandleCreate/);
+  assert.ok(!code.includes('read: arcodHandleRead'), 'no body, no handler');
   assert.ok(code.includes('function callImpl('), 'handlers are generic, not name-keyed');
 });
 
