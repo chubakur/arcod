@@ -20,6 +20,7 @@ type Note = { id: DocId, text: Text, vector: list<float> }
 type Hit = { id: DocId, text: Text, score: float }
 
 error Invalid
+
 // The embedding call leaves the process: a provider can be down or throttle,
 // and the route has to say so instead of answering 500 Internal.
 error Unavailable
