@@ -91,3 +91,22 @@ test('lsp refuses an argument before it starts serving', async () => {
   assert.equal(result.code, 2);
   assert.match(result.err, /^arcod: unexpected argument: extra$/m);
 });
+
+// The raw-argument commands had the same drop: adopt read the first document
+// and ignored the second, new scaffolded the first name and ignored the second.
+test('adopt refuses a second document', async () => {
+  const result = await run(['adopt', 'a.json', 'b.json']);
+  assert.equal(result.code, 2);
+  assert.match(result.err, /^arcod: unexpected argument: b\.json$/m);
+  assert.equal(result.out, '');
+});
+
+test('new refuses a second name before scaffolding anything', async () => {
+  const result = await run(['new', 'arcod-extra-one', 'arcod-extra-two']);
+  assert.equal(result.code, 2);
+  assert.match(result.err, /^arcod: unexpected argument: arcod-extra-two$/m);
+  assert.doesNotMatch(result.err, /created|scaffold/i, 'nothing was written');
+  const { existsSync } = await import('node:fs');
+  assert.equal(existsSync('arcod-extra-one'), false);
+  assert.equal(existsSync('arcod-extra-two'), false);
+});
