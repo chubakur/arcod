@@ -8,6 +8,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { main } from '../src/cli.ts';
 
 interface Result {
@@ -306,4 +307,24 @@ test('build in scaffold mode says the bodies are TODO', async () => {
   assert.equal(result.code, 0, result.out + result.err);
   assert.match(result.out, /arcod build \(scaffold\)/);
   assert.match(result.out, /operation bodies are TODO; use --reference or --impl for a runnable demo/);
+});
+
+// k8s rendered the base topology for an environment the module never declared
+// and exited 0, so a gate accepted manifests for "staging" that were really
+// the local ones. terraform and deploy already refused the same typo.
+test('k8s refuses an environment the module does not declare', async () => {
+  const spec = join(fileURLToPath(new URL('../examples/chat', import.meta.url)));
+  const typo = await run(['k8s', spec, '--env', 'nope']);
+  assert.equal(typo.code, 1);
+  assert.match(typo.err, /^no environment to render: nope — declared: dev, prod$/m);
+  assert.equal(typo.out, '', 'nothing is rendered for an environment that does not exist');
+
+  const helm = await run(['k8s', spec, '--helm', '--env', 'nope']);
+  assert.equal(helm.code, 1);
+  assert.match(helm.err, /no environment to render: nope/);
+  assert.equal(helm.out, '');
+
+  const ok = await run(['k8s', spec, '--env', 'dev']);
+  assert.equal(ok.code, 0, ok.err);
+  assert.match(ok.out, /# 00-namespace\.yaml/);
 });

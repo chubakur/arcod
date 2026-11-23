@@ -829,6 +829,15 @@ async function runK8s(flags: Flags): Promise<void> {
     refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
+  // terraform and deploy refuse an environment the module does not declare;
+  // k8s rendered the base topology for the same typo and exited 0, so a gate
+  // accepted manifests for an environment that does not exist.
+  if (flags.env && !loaded.mod.environments.some((item) => item.name === flags.env)) {
+    const declared = loaded.mod.environments.map((item) => item.name);
+    throw new Error('no environment to render: ' + flags.env + (declared.length
+      ? ' — declared: ' + declared.join(', ')
+      : ' — module ' + loaded.mod.name + ' declares none'));
+  }
   const options = {
     environment: flags.env,
     image: flags.image,
