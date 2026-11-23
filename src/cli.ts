@@ -143,6 +143,13 @@ export async function main(argv: string[]): Promise<void> {
         process.exitCode = 2;
         return;
       }
+      // help answers about one command; `arcod help build check` printed the
+      // build page and dropped check — the same silent drop a second path got.
+      if (rest.length > 1) {
+        console.error('arcod: unexpected argument: ' + rest[1]);
+        process.exitCode = 2;
+        return;
+      }
       console.log(usage);
       return;
     }

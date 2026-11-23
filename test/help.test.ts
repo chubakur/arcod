@@ -58,6 +58,13 @@ test('a flag after help still means the main page', async () => {
   assert.match(result.out, /^arcod \d+\.\d+\.\d+ /);
 });
 
+test('help takes one command, not two', async () => {
+  const result = await run(['help', 'build', 'check']);
+  assert.equal(result.code, 2);
+  assert.match(result.err, /^arcod: unexpected argument: check$/m);
+  assert.equal(result.out, '', 'no page is printed for a command line it does not follow');
+});
+
 test('version answers --help instead of calling itself unknown', async () => {
   const result = await run(['version', '--help']);
   assert.equal(result.code, 0, result.err);
