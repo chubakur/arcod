@@ -3,7 +3,7 @@ import type { Expr, Loc, ModuleNode, OpNode, Param, ServiceNode, TypeExpr, UiNod
 import { templateFor } from './templates.ts';
 import { BIND_ARGS, providerImplements } from './providers.ts';
 import { builtinRegistry, type ProviderRegistry } from './registry.ts';
-import { capabilityFor, storageUse } from './capabilities.ts';
+import { capabilityFor, storageKind, storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
 import { MANAGED_ENDPOINTS, MANAGED_PROVIDERS, managedResource } from './emit/terraform.ts';
 import { baseType, defaultValue } from './migrate.ts';
@@ -453,6 +453,22 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           diags.push(diag('A083', 'error', mod.file, bind.loc, subject,
             `provider ${bind.provider} cannot serve ${capability} at runtime`,
             spec.noRuntime + (usable.length > 0 ? '; bind one of: ' + usable.join(', ') : '')));
+          continue;
+        }
+        // A094 -- the runtime has one store. A kv alias next to a sql store
+        // lives in that store's arcod_kv table, so a redis binding for it
+        // starts a container and exports REDIS_URL that no emitted line reads:
+        // the cache stays empty while the table fills. Rejecting is honest
+        // until the runtime can run a second store.
+        const kvAlias = capability === 'kv';
+        const sqlUser = kvAlias
+          ? mod.services.find((item) => !item.external && storageKind(item) === 'sql'
+            && item.uses.some((use) => use.alias === bind.alias && (use.capability === 'kv' || use.capability.endsWith('.kv'))))
+          : undefined;
+        if (kvAlias && bind.provider === 'redis' && sqlUser) {
+          diags.push(diag('A094', 'error', mod.file, bind.loc, subject,
+            `alias ${bind.alias} is kv in ${sqlUser.name}, but that service stores in sql: the alias would live in the sql store's arcod_kv table, not in ${bind.provider}`,
+            `drop this bind (kv still works, through the sql store), or move ${sqlUser.name} to store: kv`));
           continue;
         }
         if (!providerImplements(spec, capability)) {

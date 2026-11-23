@@ -1667,6 +1667,10 @@ Errors:
   (`function subjectHash` in `impl/create.mjs` and `impl/seed.mjs`): the bodies
   are concatenated into one module, so the duplicate was a load-time
   `SyntaxError` that only `build` reported. The diagnostic names both files.
+- `A094` a `kv` alias is bound to `redis` in a service that stores in sql:
+  the runtime has one store, so the alias lives in the sql store's `arcod_kv`
+  table. The bind started a container and exported `REDIS_URL` that no
+  emitted line read — the cache stayed empty while the table filled.
 - `A089` a type or enum is declared with a builtin name (`type int = string`):
   OpenAPI listed the declaration under components while every use site resolved
   the builtin, so one module stated two contracts at once and the runtime, the
