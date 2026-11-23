@@ -1588,6 +1588,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkImplCollisions(mod, diags, options.impl);
   checkImplSignatures(mod, diags, options.impl);
   checkOrphanImplBodies(mod, diags, options.impl);
+  checkMissingImplBodies(mod, diags, options.impl);
 
   return sortDiagnostics(diags);
 }
@@ -1626,6 +1627,28 @@ export function checkOrphanImplBodies(mod: ModuleNode, diags: Diagnostic[], impl
           ? 'name the file after the operation it implements: ' + [...declared].sort().join(', ')
           : 'this module declares no operations, so no body file is bundled'),
     );
+  }
+}
+
+// The other half of W049: the typo file is refused as an orphan, and the
+// operation it was meant for used to say nothing at all. An operation with no
+// bundled body answers 501 NotImplemented at request time, which reads like a
+// server bug from the client's side. An external service describes someone
+// else's API and a saga job is orchestrated by its steps, so neither owns a
+// body here.
+export function checkMissingImplBodies(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined): void {
+  if (!impl) return;
+  for (const svc of mod.services) {
+    if (svc.external) continue;
+    for (const op of svc.contract) {
+      if (impl[op.name]) continue;
+      if (op.clauses.some((clause) => clause.kind === 'saga')) continue;
+      diags.push(
+        diag('W050', 'warning', mod.file, op.loc, 'services.' + svc.name + '.ops.' + op.name,
+          'operation ' + op.name + ' has no body in impl/',
+          'add impl/' + op.name + '.mjs, or the route answers 501 NotImplemented'),
+      );
+    }
   }
 }
 

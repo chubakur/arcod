@@ -1771,6 +1771,10 @@ Warnings:
   enforced (`A047` rejects a role the service never declared), so an unused
   entry reads like an access rule that works: drop it, or name it in an
   operation's `roles:` clause.
+- `W050` an operation has no body in `impl/` while other bodies exist: its
+  route answers `501 NotImplemented`, which looks like a server bug from the
+  client's side. An external service describes someone else's API and a saga job
+  is orchestrated by its steps, so neither is reported.
 - `W049` an `impl/*.mjs` body is named after no operation: only the bodies the
   service contract declares are bundled, so `impl/total.mjs` (a typo of
   `totals`) was loaded and then dropped — `totals` answered `501
