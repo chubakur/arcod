@@ -62,3 +62,10 @@ test('diff still reads two paths', async () => {
   assert.match(result.out, /^--- /);
   assert.match(result.out, /^\+\+\+ /m);
 });
+
+test('diff refuses a third path', async () => {
+  const result = await run(['diff', 'examples/chat', 'examples/tasks', 'examples/orders']);
+  assert.equal(result.code, 2);
+  assert.match(result.err, /^arcod: unexpected argument: examples\/orders$/m);
+  assert.equal(result.out, '');
+});

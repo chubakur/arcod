@@ -227,7 +227,7 @@ named the same way whether you pass one file or a pattern: `check` and `fmt`
 print it relative to the caller when it is inside the working directory, so a
 gate greps one shape. A command takes one path: a second one (`arcod check a b`) is
 `unexpected argument: b`, exit 2, instead of checking `b` and dropping `a`;
-`diff` is the one command that reads two. The numeric
+`diff` is the one command that reads two, and it refuses a third the same way. The numeric
 flags `--port`, `--max-tokens` and `--replicas` answer the same way when bare.
 
 ```bash

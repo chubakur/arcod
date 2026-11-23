@@ -575,9 +575,17 @@ async function runFmt(flags: Flags): Promise<void> {
 }
 
 async function runDiff(args: string[]): Promise<void> {
-  const [a, b] = args.filter((x) => !x.startsWith('-'));
+  const paths = args.filter((x) => !x.startsWith('-'));
+  const [a, b] = paths;
   if (!a || !b) {
     console.error('usage: arcod diff <a.arc|dir> <b.arc|dir>');
+    process.exitCode = 2;
+    return;
+  }
+  // diff reads exactly two paths; a third was dropped the way a second path
+  // was for every other command.
+  if (paths.length > 2) {
+    console.error('arcod: unexpected argument: ' + paths[2]);
     process.exitCode = 2;
     return;
   }
