@@ -5,6 +5,10 @@
 // file and lists the operations the contract declares.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { buildExample } from '../src/build.ts';
 import { check } from '../src/check.ts';
 import { parse } from '../src/parser.ts';
 
@@ -68,6 +72,27 @@ test('W049: a body file that matches no operation is a warning with the file', (
 
 test('W049: bodies named after the declared operations stay clean', () => {
   assert.deepEqual(warnings({ totals: BODY('totals'), audit: BODY('audit') }), []);
+});
+
+// The warning is not a refusal: build still succeeds (the body is simply not
+// bundled), and the generated service has no handler for the orphan name. What
+// the author loses is silence, not the build.
+test('W049: build still succeeds, and the orphan body reaches no handler', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-orphan-'));
+  try {
+    await writeFile(join(dir, 'main.arc'), SPEC);
+    await mkdir(join(dir, 'impl'));
+    await writeFile(join(dir, 'impl', 'total.mjs'), BODY('total'));
+    await writeFile(join(dir, 'impl', 'totals.mjs'), BODY('totals'));
+    const result = await buildExample(parse(SPEC, 'main.arc'), dir, { implDir: join(dir, 'impl') });
+    const svc = result.files.find((file) => file.endsWith('index.mjs'));
+    assert.ok(svc, 'the build wrote index.mjs');
+    const text = await readFile(svc, 'utf8');
+    assert.match(text, /function implTotals/, 'the declared body is bundled');
+    assert.doesNotMatch(text, /implTotal\b/, 'the orphan body is not');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('W049: a module with no operations says no body is bundled', () => {
