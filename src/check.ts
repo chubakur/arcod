@@ -9,7 +9,7 @@ import { MANAGED_ENDPOINTS, MANAGED_PROVIDERS, managedResource } from './emit/te
 import { baseType, defaultValue } from './migrate.ts';
 import { boundsOf, constraintOf, describeViolation, lengthBoundsOf, unknownFormatOf } from './constraints.ts';
 import { isIsoInstant } from './instant.ts';
-import { implCollisions } from './impl.ts';
+import { implCollisions, implSignatureProblems } from './impl.ts';
 
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
 // The HTTP methods a route may name. Anything else (or no method at all)
@@ -1586,6 +1586,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkEntityLiterals(mod, diags, options.impl);
   checkWhereOperators(mod, diags, options.impl);
   checkImplCollisions(mod, diags, options.impl);
+  checkImplSignatures(mod, diags, options.impl);
 
   return sortDiagnostics(diags);
 }
@@ -1601,6 +1602,21 @@ export function checkImplCollisions(mod: ModuleNode, diags: Diagnostic[], impl: 
       diag('A093', 'error', collision.file, { ...mod.loc, line: collision.line, endLine: collision.line }, 'impl.' + collision.op,
         'duplicate top-level name "' + collision.name + '" in ' + collision.firstFile + ' and ' + collision.file,
         'rename one of them, or keep the shared helper in one body and pass it in'),
+    );
+  }
+}
+
+// The emitter bundles a body as `async function impl<Op>(input, io)` and calls
+// it with (input, io). A body written as `function totals(io)` is valid JS and
+// passes build, then answers 500 `io.aggregate is not a function` at request
+// time because the single parameter is the input (issue #34). The build reads
+// the same bodies, so the check names the file before a container starts.
+export function checkImplSignatures(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined): void {
+  if (!impl) return;
+  for (const problem of implSignatureProblems(impl)) {
+    diags.push(
+      diag('A096', 'error', problem.file, { ...mod.loc, line: problem.line, col: 1, endLine: problem.line, endCol: 1 },
+        'impl.' + problem.op, problem.message, problem.hint),
     );
   }
 }

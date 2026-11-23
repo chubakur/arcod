@@ -342,3 +342,103 @@ export function implCollisions(impl: Record<string, string>): ImplCollision[] {
   }
   return out;
 }
+
+export interface ImplSignatureProblem {
+  op: string;
+  file: string;
+  line: number;
+  message: string;
+  hint: string;
+}
+
+// Every body is bundled as `async function impl<Op>(input, io)` and called as
+// `implFn(input, io)`. A body that names its single parameter `io` (the shape
+// the issue #34 report used) is valid JavaScript and passes build, then fails at
+// request time with `io.aggregate is not a function`, because the first
+// parameter is the input. The same happens when the export name differs from
+// the file name: the rename does not fire and the handler calls an undefined
+// function. Both are author errors a check can see, so it names the file.
+function functionHeader(source: string): { name: string; params: string[]; body: string; line: number } | null {
+  const exportAt = /export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/.exec(source);
+  const plainAt = /(?:^|\n)\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/.exec(source);
+  const match = exportAt ?? plainAt;
+  if (!match) return null;
+  const name = match[1];
+  const open = source.indexOf('(', match.index + match[0].length - 1);
+  let depth = 0;
+  let close = -1;
+  for (let i = open; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === '(') depth += 1;
+    else if (ch === ')') {
+      depth -= 1;
+      if (depth === 0) { close = i; break; }
+    }
+  }
+  if (close === -1) return null;
+  const raw = source.slice(open + 1, close);
+  const params: string[] = [];
+  let part = '';
+  let level = 0;
+  for (const ch of raw) {
+    if (ch === '(' || ch === '[' || ch === '{') level += 1;
+    if (ch === ')' || ch === ']' || ch === '}') level -= 1;
+    if (ch === ',' && level === 0) { params.push(part); part = ''; continue; }
+    part += ch;
+  }
+  params.push(part);
+  const names = params
+    .map((item) => /^\s*(?:\.\.\.)?([A-Za-z_$][\w$]*)/.exec(item)?.[1] ?? '')
+    .filter((item) => item.length > 0);
+  const line = source.slice(0, match.index).split('\n').length + (match[0].startsWith('\n') ? 1 : 0);
+  return { name, params: names, body: source.slice(close + 1), line };
+}
+
+export function implSignatureProblems(impl: Record<string, string>): ImplSignatureProblem[] {
+  const out: ImplSignatureProblem[] = [];
+  for (const op of Object.keys(impl).sort()) {
+    const file = 'impl/' + op + '.mjs';
+    const header = functionHeader(impl[op]);
+    if (!header) continue;
+    const problem = (message: string, hint: string): void => {
+      out.push({ op, file, line: header.line, message, hint });
+    };
+    if (header.name !== op) {
+      problem(
+        file + ' exports function "' + header.name + '", but the operation is "' + op + '"',
+        'the build bundles the body as ' + op + ' and calls that name; rename the function or the file',
+      );
+      continue;
+    }
+    const usesIo = /\bio\s*\.\s*[A-Za-z_$]/.test(header.body);
+    const usesInput = /\binput\s*\.\s*[A-Za-z_$]/.test(header.body);
+    if (header.params[0] === 'io' && header.params.length === 1) {
+      problem(
+        file + ' declares ' + op + '(io), but every operation body is called as (input, io)',
+        'declare ' + op + '(input, io): the first parameter is the input, the second is io',
+      );
+      continue;
+    }
+    if (usesIo && header.params.length < 2) {
+      problem(
+        file + ' reads io.* but declares no io parameter',
+        'declare ' + op + '(input, io) and use the second parameter for io.*',
+      );
+      continue;
+    }
+    if (usesIo && header.params[1] !== 'io') {
+      problem(
+        file + ' reads io.* but its second parameter is "' + header.params[1] + '"',
+        'the caller passes io as the second argument; name that parameter io',
+      );
+      continue;
+    }
+    if (header.params[0] === 'io' && header.params.length > 1 && usesInput) {
+      problem(
+        file + ' declares (' + header.params.join(', ') + '), but the caller passes (input, io)',
+        'swap the parameters: input first, io second',
+      );
+    }
+  }
+  return out;
+}

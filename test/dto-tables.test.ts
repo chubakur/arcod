@@ -50,9 +50,9 @@ environment dev {
 `;
 
 const bodies = {
-  record: "export async function record({ value }) { await io.insert('Sample', { id: await io.new(), value }); return { ok: true, id: 'x' }; }",
-  create: "export async function create({ value }) { return io.insert('Sample', { id: await io.new(), value }); }",
-  read: "export async function read() { const page = await io.find('Sample', { limit: 1 }); return page.items[0] ?? null; }",
+  record: "export async function record(input, io) { await io.insert('Sample', { id: await io.new(), value: input.value }); return { result: { ok: true, id: 'x' } }; }",
+  create: "export async function create(input, io) { return { result: io.insert('Sample', { id: await io.new(), value: input.value }) }; }",
+  read: "export async function read(input, io) { const page = await io.find('Sample', { limit: 1 }); return { result: page.items[0] ?? null }; }",
 };
 
 test('a DTO returned by an operation is not a table', () => {

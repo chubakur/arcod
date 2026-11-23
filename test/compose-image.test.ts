@@ -31,8 +31,11 @@ service Notes : http {
 }
 `;
 
-const body = `export async function add({ title }) {
-  return io.insert('Note', { id: io.ids.next(), title });
+// The body is never executed (the test reads the image tag), but it must
+// still satisfy the signature the emitter calls: a body that destructures the
+// input and reads an undefined io is exactly what A096 now refuses.
+const body = `export async function add(input, io) {
+  return { result: { id: 'note-1', title: input.title } };
 }
 `;
 
@@ -70,7 +73,7 @@ test('a build and a rebuild of the same bodies share one tag', async () => {
 
     // A single changed body is a new image, which is exactly what a plain
     // `docker compose up` needs to stop running the old one.
-    await writeFile(join(root, 'impl', 'add.mjs'), body.replace("io.ids.next()", "'fixed'"));
+    await writeFile(join(root, 'impl', 'add.mjs'), body.replace("'note-1'", "'note-2'"));
     const third = await buildExample(mod, root, { port: 8080 });
     assert.notDeepEqual(third.images, first.images, 'a changed body changes the tag');
     const rewritten = await readFile(join(root, '.arcod', 'build', 'docker-compose.yml'), 'utf8');

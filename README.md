@@ -1686,6 +1686,13 @@ Errors:
   (`function subjectHash` in `impl/create.mjs` and `impl/seed.mjs`): the bodies
   are concatenated into one module, so the duplicate was a load-time
   `SyntaxError` that only `build` reported. The diagnostic names both files.
+- `A096` an `impl/*.mjs` body does not match the call the emitter makes.
+  Every operation body is bundled as `async function impl<Op>(input, io)` and
+  called with `(input, io)`, so a body written as `function totals(io)` builds
+  clean and then answers 500 `io.aggregate is not a function` — the single
+  parameter was the input. The same diagnostic names an export whose name
+  differs from the file (the handler would call an undefined function) and a
+  second parameter that is not named `io` while the body reads `io.*`.
 - `A095` a `list` or `map` parameter sits on a route without a body
   (`GET`/`HEAD`/`DELETE`): a query string carries one value per name, so the
   service handed the body a string (`?tag=a&tag=b` arrived as `"a"`) while the

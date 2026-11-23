@@ -9,7 +9,7 @@ import { deployManifest, deployProvider, literalMap } from './deploy.ts';
 import { entitiesFromBodies, migrationPlan } from './migrate.ts';
 import { dialectNamed } from './dialects.ts';
 import { helmChart, k8sManifests, type K8sOptions } from './emit/k8s.ts';
-import { implCollisions, sandboxViolation, topLevelDeclarations } from './impl.ts';
+import { implCollisions, implSignatureProblems, sandboxViolation, topLevelDeclarations } from './impl.ts';
 
 export { topLevelDeclarations };
 import { providerFor } from './providers.ts';
@@ -131,8 +131,17 @@ export function resolveDialect(mod: ModuleNode, explicit?: 'mysql' | 'postgres')
 // before a build is ever started.
 function checkImplDeclarations(impl: Record<string, string>): void {
   const collision = implCollisions(impl)[0];
-  if (!collision) return;
-  throw new BuildError('duplicate top-level name "' + collision.name + '" in ' + collision.firstFile + ' and ' + collision.file);
+  if (collision) {
+    throw new BuildError('duplicate top-level name "' + collision.name + '" in ' + collision.firstFile + ' and ' + collision.file);
+  }
+  // The signature is the contract between the emitter and the body: the
+  // handler calls implFn(input, io). A body that exports another name, or that
+  // reads io.* from the first parameter, builds clean and answers 500 at
+  // request time (issue #34), so the build refuses it with the file and line.
+  const signature = implSignatureProblems(impl)[0];
+  if (signature) {
+    throw new BuildError(signature.message + ' (' + signature.file + ':' + signature.line + '); ' + signature.hint);
+  }
 }
 
 // A build must never publish a half-written tree, and a failed rebuild must
