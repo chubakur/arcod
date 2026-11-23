@@ -122,6 +122,29 @@ test('a broken spec is a failed entry, not a crash and not a clean file', async 
   }
 });
 
+test('a --to refusal is a failed entry, not prose on stderr with empty stdout', async () => {
+  const dir = await project(chat);
+  try {
+    const result = await run(['fmt', dir, '--to', '9.9.9', '--check', '--json']);
+    assert.equal(result.code, 1);
+    assert.equal(result.err, '', 'the reason is data, not a line to scrape');
+    const report = JSON.parse(result.out);
+    assert.equal(report.mode, 'check');
+    assert.equal(report.ok, false);
+    assert.equal(report.failed, 1);
+    assert.equal(report.files[0].status, 'failed');
+    assert.match(report.files[0].error, /unknown target version 9\.9\.9/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('the mode is refused before the path is read', async () => {
+  const result = await run(['fmt', join(tmpdir(), 'arcod-no-such-file', 'main.arc'), '--json']);
+  assert.equal(result.code, 2);
+  assert.equal(JSON.parse(result.out).error, '--json needs --check or --write');
+});
+
 test('--json without a mode is a refusal, not canonical text', async () => {
   const dir = await project(chat);
   try {

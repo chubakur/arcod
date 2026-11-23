@@ -568,33 +568,45 @@ async function runFmt(flags: Flags): Promise<void> {
     await runFmtPattern(flags, flags.spec);
     return;
   }
-  const loaded = await load(flags.spec);
-  let source = loaded.mod.source;
-  if (flags.to) {
-    try {
-      source = migrateSpec(source, declaredVersion(source, basename(loaded.specPath)), flags.to, basename(loaded.specPath));
-    } catch (err) {
-      console.error(err instanceof Error ? err.message : String(err));
-      process.exitCode = 1;
-      return;
-    }
+  // One file answers with the same object a pattern does, so a gate that calls
+  // fmt on a directory and on a single spec reads one shape. The canonical
+  // text is what stdout carries by default; --json is the verdict, so it needs
+  // a mode to be a verdict about something. Asked before the file is read, so
+  // the refusal does not depend on what the path contains.
+  if (flags.json && !flags.check && !flags.write) {
+    console.log(JSON.stringify({ error: '--json needs --check or --write' }, null, 2));
+    process.exitCode = 2;
+    return;
   }
-  const formatted = formatSource(source, basename(loaded.specPath));
+  const loaded = await load(flags.spec);
   // One file and a pattern must answer in the same shape: `arcod fmt
   // examples/x --check` used to print the absolute path here and a path
   // relative to the caller over a pattern, so a gate comparing the two saw two
   // formats for the same verdict.
   const label = specLabel(loaded.specPath);
-  // One file answers with the same object a pattern does, so a gate that
-  // calls fmt on a directory and on a single spec reads one shape. The
-  // canonical text is what stdout carries by default; --json is the verdict,
-  // so it needs a mode to be a verdict about something.
-  if (flags.json && !flags.check && !flags.write) {
-    const message = '--json needs --check or --write';
-    console.log(JSON.stringify({ error: message }, null, 2));
-    process.exitCode = 2;
-    return;
+  let source = loaded.mod.source;
+  if (flags.to) {
+    try {
+      source = migrateSpec(source, declaredVersion(source, basename(loaded.specPath)), flags.to, basename(loaded.specPath));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // A --json caller gets the same refusal a pattern gives per file: the
+      // migration failed for this file, and the reason is data. It used to be
+      // a prose line on stderr with empty stdout, the one shape the JSON
+      // contract says a caller never has to scrape.
+      if (flags.json) console.log(JSON.stringify({
+        mode: flags.write ? 'write' : 'check',
+        ok: false,
+        files: [{ file: label, status: 'failed', error: message }],
+        changed: 0,
+        failed: 1,
+      }, null, 2));
+      else console.error(message);
+      process.exitCode = 1;
+      return;
+    }
   }
+  const formatted = formatSource(source, basename(loaded.specPath));
   const report = (status: string, extra: Record<string, unknown> = {}) => {
     const changedFiles = status === 'not formatted' || status === 'formatted' ? 1 : 0;
     console.log(JSON.stringify({
