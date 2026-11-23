@@ -102,11 +102,19 @@ function headers() {
   if (HAS_AUTH) { var t = localStorage.getItem('arcod.token'); if (t) out.authorization = 'Bearer ' + t; }
   return out;
 }
+// A capture is substituted by name, and :id is a prefix of :id2: a plain
+// split would corrupt the longer capture, so the name must end at a boundary.
+function fillPath(path, name, value) {
+  return path.replace(new RegExp(':' + name + '(?![A-Za-z0-9_])', 'g'), function () {
+    return encodeURIComponent(String(value));
+  });
+}
+
 function build(op, values) {
   var url = op.path, query = new URLSearchParams(), body = {};
   op.params.forEach(function (p) {
     var v = values[p.name];
-    if (p.where === 'path') url = url.split(':' + p.name).join(encodeURIComponent(String(v == null ? '' : v)));
+    if (p.where === 'path') url = fillPath(url, p.name, v == null ? '' : v);
     else if (p.where === 'query') { if (v != null && v !== '') query.append(p.name, String(v)); }
     else if (v !== undefined) body[p.name] = v;
   });

@@ -177,3 +177,22 @@ test('the chat page calls routes the service serves and posts a declared field',
     'the message field is one of the declared parameters',
   );
 });
+
+// A capture is substituted by name, and :id is a prefix of :id2. The page
+// substitutes with a plain split, which turned :id2 into the id value plus
+// "2" — a path the router does not match, from a spec that is perfectly legal.
+// The helper ships inside the page, so it is evaluated as shipped.
+test('path captures are substituted by whole name and encoded', async () => {
+  for (const [example] of PAGES) {
+    const html = await renderExample(example);
+    const source = html.match(/function fillPath\([\s\S]*?\n\}/);
+    assert.ok(source, `${example} ships fillPath`);
+    const context = vm.createContext({});
+    vm.runInContext(source[0], context);
+    const fill = vm.runInContext('fillPath', context) as (path: string, name: string, value: unknown) => string;
+    assert.equal(fill('/v1/t/:to/:topic', 'to', 'a b'), '/v1/t/a%20b/:topic', 'the shorter name leaves the longer capture');
+    assert.equal(fill('/v1/t/:to/:topic', 'topic', 'x'), '/v1/t/:to/x');
+    assert.equal(fill('/v1/x/:id/:id2', 'id', '1'), '/v1/x/1/:id2');
+    assert.equal(fill('/v1/x/:id/:id2', 'id2', '2'), '/v1/x/:id/2');
+  }
+});

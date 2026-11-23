@@ -334,6 +334,14 @@ function renderResult(out, status, data, raw) {
   out.appendChild(single);
 }
 
+// A capture is substituted by name, and :id is a prefix of :id2: a plain
+// split would corrupt the longer capture, so the name must end at a boundary.
+function fillPath(path, name, value) {
+  return path.replace(new RegExp(':' + name + '(?![A-Za-z0-9_])', 'g'), function () {
+    return encodeURIComponent(String(value));
+  });
+}
+
 async function run(op, form, out, button) {
   var url = op.path;
   var query = new URLSearchParams();
@@ -358,7 +366,7 @@ async function run(op, form, out, button) {
       }
     }
     if (p.where === 'path') {
-      url = url.split(':' + p.name).join(encodeURIComponent(String(raw)));
+      url = fillPath(url, p.name, raw);
     } else if (p.where === 'query') {
       query.append(p.name, typeof value === 'object' ? JSON.stringify(value) : String(value));
     } else {
