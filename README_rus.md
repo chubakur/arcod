@@ -206,7 +206,9 @@ UTC, миллисекунды, `T`, `Z` — поэтому смещение в �
 | `arcod lsp` | языковой сервер (LSP) по stdio для редакторов (VS Code, Neovim, JetBrains) |
 
 У каждой подкоманды своя справка: `arcod <cmd> --help` печатает её и выходит 0;
-неизвестный флаг — одна строка плюс `hint: arcod <cmd> --help`, exit 2.
+`arcod help <cmd>` печатает ту же страницу, а `arcod help nosuch` называет
+команду, которой нет (exit 2), вместо главной страницы.
+Неизвестный флаг — одна строка плюс `hint: arcod <cmd> --help`, exit 2.
 
 Флаги: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`,
 `--remove-orphans`. У `make`: `--force` (перегенерировать тела), `--skip-impl`,

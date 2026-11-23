@@ -125,6 +125,23 @@ export async function main(argv: string[]): Promise<void> {
       return;
     }
 
+    // `arcod help build` printed the main page and silently dropped the
+    // command: the page already lists build at the top, so the argument looked
+    // answered. It now resolves to the same page `arcod build --help` prints,
+    // and a name the CLI does not have is refused instead of ignored. A flag
+    // (`arcod help --json`, `arcod help -h`) still means the main page.
+    if (command === 'help' && rest.length > 0 && !rest[0].startsWith('-')) {
+      const usage = COMMAND_USAGE[rest[0]];
+      if (!usage) {
+        console.error('unknown command: ' + rest[0]);
+        printHelp();
+        process.exitCode = 2;
+        return;
+      }
+      console.log(usage);
+      return;
+    }
+
     assertCommandFlags(command, rest);
     flags = parseFlags(rest, command);
     switch (command) {
@@ -1790,6 +1807,16 @@ Build and start the project with docker compose. --detach leaves it running,
 --down stops what this project started (no rebuild, no cleanup of the build).
 --json (with --detach) prints one object — mode, name, version, build, url,
 port, stop — and sends the compose log to stderr.`,
+  // The two built-ins answered `--help` with "unknown command: version":
+  // --help sends every word through COMMAND_USAGE, so a command without an
+  // entry was called unknown. They have one now.
+  help: `usage: arcod help [command]
+
+Print the main usage, or the usage of one subcommand — the same page
+\`arcod <command> --help\` prints.`,
+  version: `usage: arcod version
+
+Print the compiler version.`,
 };
 
 export const MAIN_USAGE = `arcod ${VERSION} — specification compiler for agent-built services

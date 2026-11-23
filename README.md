@@ -217,7 +217,9 @@ Flags: `--json`, `--env <name>`, `--port <n>`, `--detach`, `--down`,
 takes `--strict`. `fmt` takes `--check`/`--write` (alternatives — `--check` asks, `--write`
 answers, so passing both is a usage error, code 2); `upgrade` takes `--to <version>`/`--write`.
 Every subcommand answers `arcod <cmd> --help` with its own usage and exits 0;
-an unknown flag prints one line plus `hint: arcod <cmd> --help` and exits 2.
+`arcod help <cmd>` prints the same page, and `arcod help nosuch` names the
+command it does not have (exit 2) instead of answering with the main page.
+An unknown flag prints one line plus `hint: arcod <cmd> --help` and exits 2.
 A flag that names a value must get one: `--env`, `--service`, `--to`, `--out`,
 `--dialect`, `--model`, `--endpoint`, `--image`, `--host`, `--namespace`,
 `--ingress-class` print `--env needs a value` and exit 2 rather than quietly
