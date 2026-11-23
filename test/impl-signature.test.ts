@@ -122,6 +122,18 @@ test('A096: a function without export is never renamed, so it is refused', () =>
   assert.match(found[0].message, /declares function totals without export/);
 });
 
+// `export default async function totals` is a named function, so the message
+// must not claim there is no declaration: the build strips `export` and the
+// default keyword then leaves invalid syntax, and the handler has no name.
+test('A096: a default export is named as such, not as a missing function', () => {
+  const body = 'export default async function totals(input, io) {\n  return { result: 1 };\n}\n';
+  const found = check(parse(SPEC, 'main.arc'), { impl: { totals: body } })
+    .filter((item) => item.code === 'A096');
+  assert.equal(found.length, 1);
+  assert.match(found[0].message, /exports totals as default, but the build bundles a named export/);
+  assert.match(String(found[0].hint), /export async function totals\(input, io\)/);
+});
+
 test('the build refuses a body that declares no function, with the file', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'arcod-sig-'));
   try {

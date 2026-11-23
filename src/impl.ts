@@ -361,10 +361,23 @@ export interface ImplSignatureProblem {
 // The same holds when there is no declaration to rename at all: a body that only
 // declares a helper, or that exports the operation as a `const` arrow, builds
 // clean and leaves the handler calling an undefined impl<Op>.
-function functionHeader(source: string): { name: string; params: string[]; body: string; line: number; exported: boolean } | null {
+interface FunctionHeader {
+  name: string;
+  params: string[];
+  body: string;
+  line: number;
+  exported: boolean;
+  defaultExport: boolean;
+}
+
+function functionHeader(source: string): FunctionHeader | null {
   const exportAt = /export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/.exec(source);
+  // `export default async function totals` is a named function too, but the
+  // emitter's rename and its `^export\s+` strip both aim at the named-export
+  // form, so a default export is dropped from the bundle.
+  const defaultAt = /export\s+default\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/.exec(source);
   const plainAt = /(?:^|\n)\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/.exec(source);
-  const match = exportAt ?? plainAt;
+  const match = exportAt ?? defaultAt ?? plainAt;
   if (!match) return null;
   const name = match[1];
   const open = source.indexOf('(', match.index + match[0].length - 1);
@@ -394,7 +407,14 @@ function functionHeader(source: string): { name: string; params: string[]; body:
     .map((item) => /^\s*(?:\.\.\.)?([A-Za-z_$][\w$]*)/.exec(item)?.[1] ?? '')
     .filter((item) => item.length > 0);
   const line = source.slice(0, match.index).split('\n').length + (match[0].startsWith('\n') ? 1 : 0);
-  return { name, params: names, body: source.slice(close + 1), line, exported: exportAt !== null };
+  return {
+    name,
+    params: names,
+    body: source.slice(close + 1),
+    line,
+    exported: exportAt !== null,
+    defaultExport: exportAt === null && defaultAt !== null,
+  };
 }
 
 // The emitter's rename is textual: it rewrites `export [async] function <op>`,
@@ -435,6 +455,13 @@ export function implSignatureProblems(impl: Record<string, string>): ImplSignatu
       problem(
         file + ' exports function "' + header.name + '", but the operation is "' + op + '"',
         'the build bundles the body as ' + op + ' and calls that name; rename the function or the file',
+      );
+      continue;
+    }
+    if (header.defaultExport) {
+      problem(
+        file + ' exports ' + header.name + ' as default, but the build bundles a named export',
+        'write export async function ' + op + '(input, io) { ... }; the build strips the export keyword, so a default export is dropped',
       );
       continue;
     }

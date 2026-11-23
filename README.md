@@ -1694,9 +1694,10 @@ Errors:
   differs from the file (the handler would call an undefined function) and a
   second parameter that is not named `io` while the body reads `io.*`. The same
   diagnostic names a file with nothing to rename: a body that only declares a
-  helper, an operation exported as a `const` arrow, or a function without
-  `export` builds clean and leaves every request calling an undefined
-  `impl<Op>`.
+  helper, an operation exported as a `const` arrow, a function without
+  `export`, or an `export default` builds clean and leaves every request calling
+  an undefined `impl<Op>`; each case is named as itself, so a default export is
+  not reported as a missing function.
 - `A095` a `list` or `map` parameter sits on a route without a body
   (`GET`/`HEAD`/`DELETE`): a query string carries one value per name, so the
   service handed the body a string (`?tag=a&tag=b` arrived as `"a"`) while the
