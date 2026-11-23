@@ -9,7 +9,9 @@ import { deployManifest, deployProvider, literalMap } from './deploy.ts';
 import { entitiesFromBodies, migrationPlan } from './migrate.ts';
 import { dialectNamed } from './dialects.ts';
 import { helmChart, k8sManifests, type K8sOptions } from './emit/k8s.ts';
-import { sandboxViolation } from './impl.ts';
+import { implCollisions, sandboxViolation, topLevelDeclarations } from './impl.ts';
+
+export { topLevelDeclarations };
 import { providerFor } from './providers.ts';
 import type { ProviderRegistry } from './registry.ts';
 import { createHash } from 'node:crypto';
@@ -124,92 +126,13 @@ export function resolveDialect(mod: ModuleNode, explicit?: 'mysql' | 'postgres')
   return explicit ?? inferred ?? 'mysql';
 }
 
-// impl/*.mjs bodies are concatenated into one module. A top-level name declared
-// in two files is a SyntaxError only when the container starts, so buildExample
-// scans the bodies first. This is a declaration scanner, not a full parser:
-// comments and string/template literals are skipped, brackets track depth, and
-// only depth-zero const/let/var/function/class names are collected.
-export function topLevelDeclarations(source: string): string[] {
-  const names: string[] = [];
-  const text = String(source);
-  let depth = 0;
-  let index = 0;
-  while (index < text.length) {
-    const ch = text[index];
-    const next = text[index + 1];
-    if (ch === '/' && next === '/') {
-      const end = text.indexOf('\n', index);
-      index = end === -1 ? text.length : end;
-      continue;
-    }
-    if (ch === '/' && next === '*') {
-      const end = text.indexOf('*/', index + 2);
-      index = end === -1 ? text.length : end + 2;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === String.fromCharCode(96)) {
-      index = skipQuoted(text, index, ch);
-      continue;
-    }
-    if (ch === '{' || ch === '[' || ch === '(') {
-      depth += 1;
-      index += 1;
-      continue;
-    }
-    if (ch === '}' || ch === ']' || ch === ')') {
-      depth = Math.max(0, depth - 1);
-      index += 1;
-      continue;
-    }
-    if (depth === 0) {
-      const word = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(text.slice(index, index + 64));
-      if (word) {
-        const keyword = word[0];
-        if (keyword === 'const' || keyword === 'let' || keyword === 'var' || keyword === 'class' || keyword === 'function') {
-          const after = /^\s*\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)/.exec(text.slice(index + keyword.length));
-          if (after) names.push(after[1]);
-        }
-        index += keyword.length;
-        continue;
-      }
-    }
-    index += 1;
-  }
-  return names;
-}
-
-function skipQuoted(text: string, start: number, quote: string): number {
-  let index = start + 1;
-  while (index < text.length) {
-    const ch = text[index];
-    if (ch === '\\') {
-      index += 2;
-      continue;
-    }
-    if (ch === quote) return index + 1;
-    index += 1;
-  }
-  return text.length;
-}
-
+// A top-level name declared in two bodies is a SyntaxError in the bundled
+// module; the scanner lives in impl.ts so check reports the same collision
+// before a build is ever started.
 function checkImplDeclarations(impl: Record<string, string>): void {
-  const declared = new Map<string, { file: string; name: string }>();
-  for (const op of Object.keys(impl).sort()) {
-    const file = 'impl/' + op + '.mjs';
-    const inFile = new Set<string>();
-    for (const name of topLevelDeclarations(impl[op])) {
-      // The op's own exported function is renamed to impl<Op>, so that is the
-      // name that actually lands in the bundled module.
-      const effective = name === op ? 'impl' + op.charAt(0).toUpperCase() + op.slice(1) : name;
-      if (inFile.has(effective)) continue;
-      inFile.add(effective);
-      const previous = declared.get(effective);
-      if (previous) {
-        throw new BuildError('duplicate top-level name "' + name + '" in ' + previous.file + ' and ' + file);
-      }
-      declared.set(effective, { file, name });
-    }
-  }
+  const collision = implCollisions(impl)[0];
+  if (!collision) return;
+  throw new BuildError('duplicate top-level name "' + collision.name + '" in ' + collision.firstFile + ' and ' + collision.file);
 }
 
 // A build must never publish a half-written tree, and a failed rebuild must

@@ -1657,6 +1657,10 @@ Errors:
   the metrics scrape answer before the router, so the declared operation is
   never reached (`check` used to be silent and the build succeeded). The hint
   names a path that stays reachable.
+- `A093` two `impl/*.mjs` bodies declare the same top-level name
+  (`function subjectHash` in `impl/create.mjs` and `impl/seed.mjs`): the bodies
+  are concatenated into one module, so the duplicate was a load-time
+  `SyntaxError` that only `build` reported. The diagnostic names both files.
 - `A089` a type or enum is declared with a builtin name (`type int = string`):
   OpenAPI listed the declaration under components while every use site resolved
   the builtin, so one module stated two contracts at once and the runtime, the

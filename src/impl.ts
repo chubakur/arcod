@@ -236,3 +236,109 @@ export function formatImplReport(results: ImplResult[], options: ImplOptions): s
   }
   return lines.join('\n');
 }
+
+// impl/*.mjs bodies are concatenated into one module. A top-level name declared
+// in two files is a SyntaxError only when the container starts: check and build
+// scan the bodies first. This is a declaration scanner, not a full parser --
+// comments and string/template literals are skipped, brackets track depth, and
+// only depth-zero const/let/var/function/class names are collected.
+export function topLevelDeclarationSites(source: string): Array<{ name: string; line: number }> {
+  const sites: Array<{ name: string; line: number }> = [];
+  const text = String(source);
+  let depth = 0;
+  let index = 0;
+  while (index < text.length) {
+    const ch = text[index];
+    const next = text[index + 1];
+    if (ch === '/' && next === '/') {
+      const end = text.indexOf('\n', index);
+      index = end === -1 ? text.length : end;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      const end = text.indexOf('*/', index + 2);
+      index = end === -1 ? text.length : end + 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === String.fromCharCode(96)) {
+      index = skipQuoted(text, index, ch);
+      continue;
+    }
+    if (ch === '{' || ch === '[' || ch === '(') {
+      depth += 1;
+      index += 1;
+      continue;
+    }
+    if (ch === '}' || ch === ']' || ch === ')') {
+      depth = Math.max(0, depth - 1);
+      index += 1;
+      continue;
+    }
+    if (depth === 0) {
+      const word = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(text.slice(index, index + 64));
+      if (word) {
+        const keyword = word[0];
+        if (keyword === 'const' || keyword === 'let' || keyword === 'var' || keyword === 'class' || keyword === 'function') {
+          const after = /^\s*\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)/.exec(text.slice(index + keyword.length));
+          if (after) sites.push({ name: after[1], line: text.slice(0, index).split('\n').length });
+        }
+        index += keyword.length;
+        continue;
+      }
+    }
+    index += 1;
+  }
+  return sites;
+}
+
+export function topLevelDeclarations(source: string): string[] {
+  return topLevelDeclarationSites(source).map((site) => site.name);
+}
+
+function skipQuoted(text: string, start: number, quote: string): number {
+  let index = start + 1;
+  while (index < text.length) {
+    const ch = text[index];
+    if (ch === '\\') {
+      index += 2;
+      continue;
+    }
+    if (ch === quote) return index + 1;
+    index += 1;
+  }
+  return text.length;
+}
+
+export interface ImplCollision {
+  name: string;
+  op: string;
+  file: string;
+  line: number;
+  firstFile: string;
+  firstLine: number;
+}
+
+// Bodies are concatenated in op order, and a body's own exported function is
+// renamed to impl<Op> by the emitter -- so that is the name that actually lands
+// in the module. A collision is reported with both files, because a lone name
+// does not tell the author where the other copy is.
+export function implCollisions(impl: Record<string, string>): ImplCollision[] {
+  const declared = new Map<string, { file: string; line: number }>();
+  const out: ImplCollision[] = [];
+  for (const op of Object.keys(impl).sort()) {
+    const file = 'impl/' + op + '.mjs';
+    const inFile = new Set<string>();
+    for (const site of topLevelDeclarationSites(impl[op])) {
+      const effective = site.name === op ? 'impl' + op.charAt(0).toUpperCase() + op.slice(1) : site.name;
+      if (inFile.has(effective)) continue;
+      inFile.add(effective);
+      const previous = declared.get(effective);
+      if (previous) {
+        out.push({ name: site.name, op, file, line: site.line, firstFile: previous.file, firstLine: previous.line });
+      } else {
+        declared.set(effective, { file, line: site.line });
+      }
+    }
+  }
+  return out;
+}

@@ -9,6 +9,7 @@ import { MANAGED_ENDPOINTS, MANAGED_PROVIDERS, managedResource } from './emit/te
 import { baseType, defaultValue } from './migrate.ts';
 import { boundsOf, constraintOf, describeViolation, lengthBoundsOf, unknownFormatOf } from './constraints.ts';
 import { isIsoInstant } from './instant.ts';
+import { implCollisions } from './impl.ts';
 
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
 // The HTTP methods a route may name. Anything else (or no method at all)
@@ -1508,8 +1509,24 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkSagas(mod, diags);
   checkEntityLiterals(mod, diags, options.impl);
   checkWhereOperators(mod, diags, options.impl);
+  checkImplCollisions(mod, diags, options.impl);
 
   return sortDiagnostics(diags);
+}
+
+// Two impl/*.mjs bodies are concatenated into one module, so a helper declared
+// in both files is a SyntaxError that only the container sees. The build already
+// refused it; the check has the same bodies in hand, so it names both files
+// before anyone starts a build.
+export function checkImplCollisions(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined): void {
+  if (!impl) return;
+  for (const collision of implCollisions(impl)) {
+    diags.push(
+      diag('A093', 'error', collision.file, { ...mod.loc, line: collision.line, endLine: collision.line }, 'impl.' + collision.op,
+        'duplicate top-level name "' + collision.name + '" in ' + collision.firstFile + ' and ' + collision.file,
+        'rename one of them, or keep the shared helper in one body and pass it in'),
+    );
+  }
 }
 
 // A body names an entity by a string literal, and the runtime answers an
