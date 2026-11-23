@@ -1755,6 +1755,15 @@ Warnings:
   enforced (`A047` rejects a role the service never declared), so an unused
   entry reads like an access rule that works: drop it, or name it in an
   operation's `roles:` clause.
+- `W048` an operation names an effect that can be refused on the far side — a
+  model endpoint (`llm.chat`, `llm.embed`), a foreign service
+  (`Ledger.record`), or a `sql`/`blob` alias bound to an explicit host — and
+  declares no error covering the refusal. An undeclared throw becomes the
+  generic `500 {"error":"Internal"}`: the far side's status and message never
+  reach the client, and the contract never said the call could fail. Add
+  `Unavailable` (or `RateLimited`/`Forbidden`) to `errors:` with an
+  `on error` handler, or catch the failure in the body. A warning: a body may
+  answer a result instead.
 - `W046` a cloud environment binds a stateful provider the plan cannot
   provision (`mysql`, `mariadb` have no yandex resource): the plan would look
   complete and create nothing for that bind. Bind `postgres` for a managed

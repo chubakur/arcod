@@ -955,6 +955,33 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // W048 — an operation names an effect that fails on someone else's side
+    // and declares no error covering the refusal. The contract is the only
+    // place errors are announced: an undeclared failure leaves the route to
+    // the generic catch, where the caller reads 500 {error: Internal} with no
+    // status and no message from the far side. The effect list is the body in
+    // this language, so the warning anchors on that clause (B63). A warning,
+    // not an error: a body may catch the failure and answer a result instead.
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      const declared = new Set(errorNames(op));
+      if (FALLIBLE_ERRORS.some((name) => declared.has(name))) continue;
+      const reported = new Set<string>();
+      for (const clause of op.clauses) {
+        if (clause.kind !== 'effects') continue;
+        for (const entry of clause.names) {
+          const [alias, name] = entry.split('.');
+          if (!name || reported.has(entry)) continue;
+          const label = fallibleEffect(mod, svc, alias, name);
+          if (!label) continue;
+          reported.add(entry);
+          diags.push(diag('W048', 'warning', mod.file, clause.loc, 'services.' + svc.name + '.contract.' + op.name + '.effects',
+            op.name + ' calls ' + label + ', which can fail, and declares no error for it',
+            'add Unavailable to errors: ' + op.name + ' with an on error handler, or catch the failure in the body'));
+        }
+      }
+    }
+
     // A044 — an allow/deny entry names an effect the capability does not
     // have. A typo (store.gett) used to be accepted and let nothing through,
     // so the guard looked configured while the operation still failed A004.
@@ -2056,6 +2083,27 @@ function isAllowed(allow: string[], alias: string, op: string): boolean {
 
 function isDenied(deny: string[], alias: string, op: string): boolean {
   return deny.includes(alias + '.' + op) || deny.includes(alias + '.*') || deny.includes(alias);
+}
+
+// Errors that cover a failure on the far side of an effect: the service is
+// unavailable, the provider throttles, or the caller is not allowed there.
+const FALLIBLE_ERRORS = ['Unavailable', 'RateLimited', 'Forbidden'];
+
+// An effect that fails on someone else's side. llm.chat and llm.embed call a
+// model endpoint, and an external service is a call over the network; both can
+// refuse with a status the generated runtime would otherwise turn into 500.
+// Storage effects are included only when the alias is bound to an explicit
+// host: a local container dies with the service, a remote database outlives it.
+function fallibleEffect(mod: ModuleNode, svc: ServiceNode, alias: string, op: string): string | null {
+  if (mod.services.some((item) => item.external && item.name === alias)) return alias + '.' + op;
+  const use = svc.uses.find((item) => item.alias === alias);
+  if (!use) return null;
+  const capability = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
+  if (capability === 'llm' && (op === 'chat' || op === 'embed')) return alias + '.' + op;
+  if (capability !== 'sql' && capability !== 'blob') return null;
+  const remote = mod.environments.some((environment) =>
+    environment.binds.some((bind) => bind.alias === alias && bind.args.host !== undefined));
+  return remote ? alias + '.' + op : null;
 }
 
 function requiredEffects(svc: ServiceNode, op: OpNode): Array<{ alias: string; op: string }> {
