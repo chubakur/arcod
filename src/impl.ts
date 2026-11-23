@@ -358,7 +358,10 @@ export interface ImplSignatureProblem {
 // parameter is the input. The same happens when the export name differs from
 // the file name: the rename does not fire and the handler calls an undefined
 // function. Both are author errors a check can see, so it names the file.
-function functionHeader(source: string): { name: string; params: string[]; body: string; line: number } | null {
+// The same holds when there is no declaration to rename at all: a body that only
+// declares a helper, or that exports the operation as a `const` arrow, builds
+// clean and leaves the handler calling an undefined impl<Op>.
+function functionHeader(source: string): { name: string; params: string[]; body: string; line: number; exported: boolean } | null {
   const exportAt = /export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/.exec(source);
   const plainAt = /(?:^|\n)\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/.exec(source);
   const match = exportAt ?? plainAt;
@@ -391,7 +394,16 @@ function functionHeader(source: string): { name: string; params: string[]; body:
     .map((item) => /^\s*(?:\.\.\.)?([A-Za-z_$][\w$]*)/.exec(item)?.[1] ?? '')
     .filter((item) => item.length > 0);
   const line = source.slice(0, match.index).split('\n').length + (match[0].startsWith('\n') ? 1 : 0);
-  return { name, params: names, body: source.slice(close + 1), line };
+  return { name, params: names, body: source.slice(close + 1), line, exported: exportAt !== null };
+}
+
+// The emitter's rename is textual: it rewrites `export [async] function <op>`,
+// the declaration that lands in the bundle, so a top-level `const <op>` is never
+// touched. Its line is what the author needs to see.
+function valueDeclaredAt(source: string, op: string): number | null {
+  const match = new RegExp('(?:^|\\n)\\s*(?:export\\s+)?(?:const|let|var)\\s+' + op + '\\s*=').exec(source);
+  if (!match) return null;
+  return source.slice(0, match.index).split('\n').length + (match[0].startsWith('\n') ? 1 : 0);
 }
 
 export function implSignatureProblems(impl: Record<string, string>): ImplSignatureProblem[] {
@@ -399,7 +411,23 @@ export function implSignatureProblems(impl: Record<string, string>): ImplSignatu
   for (const op of Object.keys(impl).sort()) {
     const file = 'impl/' + op + '.mjs';
     const header = functionHeader(impl[op]);
-    if (!header) continue;
+    if (!header) {
+      const at = valueDeclaredAt(impl[op], op);
+      if (at !== null) {
+        out.push({
+          op, file, line: at,
+          message: file + ' defines ' + op + ' as a value, not a function declaration',
+          hint: 'write export async function ' + op + '(input, io) { ... }; the build renames that declaration and calls the result',
+        });
+      } else {
+        out.push({
+          op, file, line: 1,
+          message: file + ' declares no function ' + op,
+          hint: 'write export async function ' + op + '(input, io) { ... }; without that declaration the handler calls an undefined function',
+        });
+      }
+      continue;
+    }
     const problem = (message: string, hint: string): void => {
       out.push({ op, file, line: header.line, message, hint });
     };
@@ -407,6 +435,13 @@ export function implSignatureProblems(impl: Record<string, string>): ImplSignatu
       problem(
         file + ' exports function "' + header.name + '", but the operation is "' + op + '"',
         'the build bundles the body as ' + op + ' and calls that name; rename the function or the file',
+      );
+      continue;
+    }
+    if (!header.exported) {
+      problem(
+        file + ' declares function ' + header.name + ' without export',
+        'write export async function ' + op + '(input, io); the build only renames an exported declaration, so an unexported one is never called',
       );
       continue;
     }
