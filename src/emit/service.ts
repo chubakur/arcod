@@ -2851,7 +2851,11 @@ function implHandlers(
     // A HEAD answer mirrors GET: 200, and Node drops the body.
     const status = method === 'GET' || method === 'HEAD' ? 200 : 201;
     parts.push(
-      'async function handle' + cap + '(req, res, params) {',
+      // The runtime owns handleRequest, and a spec may name an operation
+      // anything: a bare 'handle' + Op would collide for `op request` and the
+      // module would not even parse. Handlers carry the arcod prefix so the
+      // generated names cannot meet a runtime name.
+      'async function arcodHandle' + cap + '(req, res, params) {',
       "  return callImpl(req, res, params, impl" + cap + ', [' + names.map((name) => "'" + name + "'").join(', ') + '], ' + status + ", '" + op.name + "');",
       '}',
       '',
@@ -2860,7 +2864,7 @@ function implHandlers(
 
   parts.push('const HANDLERS = {');
   for (const op of ops) {
-    parts.push('  ' + op.name + ': handle' + op.name.charAt(0).toUpperCase() + op.name.slice(1) + ',');
+    parts.push('  ' + op.name + ': arcodHandle' + op.name.charAt(0).toUpperCase() + op.name.slice(1) + ',');
   }
   parts.push('};', '');
 

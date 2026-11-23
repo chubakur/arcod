@@ -748,6 +748,11 @@ body runs:
   otherwise `403` (administrators bypass; a missing record is `404`, never a
   leak).
 
+The operation name is yours to choose. The generated module keeps its own
+dispatcher (`handleRequest`), so the per-operation wrappers carry the prefix —
+`arcodHandle<Op>` — and an operation called `request` builds and loads instead
+of declaring `handleRequest` twice.
+
 Standard checks (`401`/`403`/ownership) therefore never appear in bodies. The
 visibility matrix is not a standard guard, so it stays in one place —
 `canRead` in the operation bodies:
