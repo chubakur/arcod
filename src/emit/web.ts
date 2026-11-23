@@ -626,10 +626,11 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
   const locale = ui.locale ?? ui.locales?.[0] ?? 'en';
   const theme = ui.theme ?? 'auto';
   const catalogs = ui.locales ? Object.fromEntries(ui.locales.map((tag) => [tag, pageStrings(tag)])) : null;
-  const withLang = (html: string) => html
-    .replaceAll('__LANG_RUNTIME__', LANG_RUNTIME)
-    .replaceAll('__CATALOGS__', jsonForScript(catalogs))
-    .replaceAll('__LOCALES__', jsonForScript(ui.locales ?? null));
+  const withLang = (html: string) => fillAll(html, {
+    __LANG_RUNTIME__: LANG_RUNTIME,
+    __CATALOGS__: jsonForScript(catalogs),
+    __LOCALES__: jsonForScript(ui.locales ?? null),
+  });
 
   if (ui.layout === 'presentation') {
     const live = presentationOps(mod, svc, ui);
@@ -641,45 +642,59 @@ export function emitWeb(mod: ModuleNode, options: WebOptions): string {
         body: slide.body,
       })),
     };
-    return withLang(PRESENTATION_PAGE)
-      .replaceAll('__LANG__', escapeHtml(locale))
-      .replaceAll('__STRINGS__', jsonForScript(pageStrings(locale)))
-      .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
-      .replaceAll('__DECK__', jsonForScript(deck))
-      .replaceAll('__OPS__', jsonForScript(live))
-      .replaceAll('__HAS_AUTH__', hasAuth || guarded ? 'true' : 'false')
-      // The QR source is third-party generated code: never interpolate it as a
-      // replacement pattern, and insert it last so nothing rewrites it.
-      .replaceAll('__QR__', () => QR_SOURCE);
+    return fillAll(withLang(PRESENTATION_PAGE), {
+      __LANG__: escapeHtml(locale),
+      __STRINGS__: jsonForScript(pageStrings(locale)),
+      __TITLE__: escapeHtml(options.title ?? ui.title ?? mod.name),
+      __DECK__: jsonForScript(deck),
+      __OPS__: jsonForScript(live),
+      __HAS_AUTH__: hasAuth || guarded ? 'true' : 'false',
+      // Third-party generated code goes in last: a marker inside it must not
+      // be rewritten by a later insertion.
+      __QR__: QR_SOURCE,
+    });
   }
 
   if (ui.layout === 'chat') {
     const chat = chatOps(mod, svc, ui);
-    return withLang(CHAT_PAGE)
-      .replaceAll('__LANG__', escapeHtml(locale))
-      .replaceAll('__STRINGS__', jsonForScript(pageStrings(locale)))
-      .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
-      .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · chat with the model'))
-      .replaceAll('__CHAT_OPS__', JSON.stringify(chat))
-      .replaceAll('__HAS_AUTH__', hasAuth || guarded ? 'true' : 'false');
+    return fillAll(withLang(CHAT_PAGE), {
+      __LANG__: escapeHtml(locale),
+      __STRINGS__: jsonForScript(pageStrings(locale)),
+      __TITLE__: escapeHtml(options.title ?? ui.title ?? mod.name),
+      __LEAD__: escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · chat with the model'),
+      __CHAT_OPS__: JSON.stringify(chat),
+      __HAS_AUTH__: hasAuth || guarded ? 'true' : 'false',
+    });
   }
 
   const ssrOp = ui.render === 'ssr' ? ssrFirstScreenOp(mod) : null;
-  return withLang(PAGE)
-    .replaceAll('__LANG__', escapeHtml(locale))
-    .replaceAll('__THEME__', escapeHtml(theme))
-    .replaceAll('__STRINGS__', jsonForScript(pageStrings(locale)))
-    .replaceAll('__CATALOGS__', jsonForScript(catalogs))
-    .replaceAll('__LOCALES__', jsonForScript(ui.locales ?? null))
-    .replaceAll('__TITLE__', escapeHtml(options.title ?? ui.title ?? mod.name))
-    .replaceAll('__LEAD__', escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · operations: ' + ops.length))
-    .replaceAll('__OPS__', JSON.stringify(ops))
+  return fillAll(withLang(PAGE), {
+    __LANG__: escapeHtml(locale),
+    __THEME__: escapeHtml(theme),
+    __STRINGS__: jsonForScript(pageStrings(locale)),
+    __CATALOGS__: jsonForScript(catalogs),
+    __LOCALES__: jsonForScript(ui.locales ?? null),
+    __TITLE__: escapeHtml(options.title ?? ui.title ?? mod.name),
+    __LEAD__: escapeHtml(mod.name + '@' + mod.version + ' · ' + svc.name + ' · operations: ' + ops.length),
+    __OPS__: JSON.stringify(ops),
     // The service swaps this marker for the first-screen result; a static page
     // carries no marker at all, so nothing can be left unsubstituted.
-    .replaceAll('__SSR__', () => (ssrOp
+    __SSR__: ssrOp
       ? '{"op":' + JSON.stringify(ssrOp) + ',"data":__ARC_SSR_DATA__}'
-      : '{"op":null,"data":null}'))
-    .replaceAll('__HAS_AUTH__', hasAuth || guarded ? 'true' : 'false');
+      : '{"op":null,"data":null}',
+    __HAS_AUTH__: hasAuth || guarded ? 'true' : 'false',
+  });
+}
+
+// Insertions carry author text or JSON built from it, so they must land
+// literally: a replacement *string* reads `$&`, `$'` and ``$` `` as patterns,
+// which turned a slide body saying `Price $&` into a re-inserted `__DECK__`
+// and spliced the rest of the document in at ``$` ``. A marker inserted by an
+// earlier value is still substituted by a later one, so the order matters.
+function fillAll(html: string, values: Record<string, string>): string {
+  let out = html;
+  for (const [marker, value] of Object.entries(values)) out = out.split(marker).join(value);
+  return out;
 }
 
 // A slide title is author-written text, but it still lands inside a <script>:
