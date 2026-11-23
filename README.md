@@ -287,7 +287,10 @@ operation and the reason. Each body is hashed into
 never lost. All bodies land in one module, so a top-level name declared by two
 files (`const LINES` in both `impl/create.mjs` and `impl/list.mjs`) is refused
 at build time, naming both files, instead of surfacing as a `SyntaxError` when
-the container starts.
+the container starts. A body's file name is its operation: `impl/totals.mjs`
+declares `export async function totals(input, io)`, and `check` reports the two
+ways that contract breaks (`W049` a file no operation is named after, `W050` an
+operation with no file) so a typo does not turn into a silent `501`.
 
 ## Providers
 
