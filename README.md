@@ -1756,9 +1756,8 @@ Warnings:
   entry reads like an access rule that works: drop it, or name it in an
   operation's `roles:` clause.
 - `W048` an operation names an effect that can be refused on the far side — a
-  model endpoint (`llm.chat`, `llm.embed`), a foreign service
-  (`Ledger.record`), or a `sql`/`blob` alias bound to an explicit host — and
-  declares no error covering the refusal. An undeclared throw becomes the
+  model endpoint (`llm.chat`, `llm.embed`) or a foreign service
+  (`Ledger.record`) — and declares no error covering the refusal. An undeclared throw becomes the
   generic `500 {"error":"Internal"}`: the far side's status and message never
   reach the client, and the contract never said the call could fail. Add
   `Unavailable` (or `RateLimited`/`Forbidden`) to `errors:` with an

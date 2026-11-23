@@ -2092,18 +2092,16 @@ const FALLIBLE_ERRORS = ['Unavailable', 'RateLimited', 'Forbidden'];
 // An effect that fails on someone else's side. llm.chat and llm.embed call a
 // model endpoint, and an external service is a call over the network; both can
 // refuse with a status the generated runtime would otherwise turn into 500.
-// Storage effects are included only when the alias is bound to an explicit
-// host: a local container dies with the service, a remote database outlives it.
+// Storage is deliberately out: any bind may be remote (a host argument says
+// nothing about reachability), so warning on store.set would fire on nearly
+// every write and drown the cases a reader cannot predict.
 function fallibleEffect(mod: ModuleNode, svc: ServiceNode, alias: string, op: string): string | null {
   if (mod.services.some((item) => item.external && item.name === alias)) return alias + '.' + op;
   const use = svc.uses.find((item) => item.alias === alias);
   if (!use) return null;
   const capability = use.capability.includes('.') ? use.capability.split('.').pop()! : use.capability;
   if (capability === 'llm' && (op === 'chat' || op === 'embed')) return alias + '.' + op;
-  if (capability !== 'sql' && capability !== 'blob') return null;
-  const remote = mod.environments.some((environment) =>
-    environment.binds.some((bind) => bind.alias === alias && bind.args.host !== undefined));
-  return remote ? alias + '.' + op : null;
+  return null;
 }
 
 function requiredEffects(svc: ServiceNode, op: OpNode): Array<{ alias: string; op: string }> {

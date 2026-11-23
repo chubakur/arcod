@@ -36,7 +36,7 @@ const llmSpec = (opExtra: string[]) => lines(
 
 const externalSpec = (errors: string[]) => lines(
   'module m @0.1.0 {}',
-  'use capability arcod.std.sql @1',
+  'use capability arcod.std.kv @1',
   'error Unavailable',
   'external service Ledger : http {',
   '  contract {',
@@ -46,46 +46,19 @@ const externalSpec = (errors: string[]) => lines(
   '  }',
   '}',
   'service Orders : http {',
-  '  uses store: sql',
+  '  uses store: kv',
   '  effects {',
-  '    allow store.insert, Ledger.record',
+  '    allow store.set, Ledger.record',
   '  }',
   '  contract {',
   '    public op charge(entry: string) -> string {',
   '      route: "POST /v1/orders"',
-  '      effects: store.insert, Ledger.record',
+  '      effects: store.set, Ledger.record',
   ...errors.map((row) => '  ' + row),
   '      post: result != null',
   '    }',
   '  }',
   '}',
-);
-
-const sqlBind = (host: string) => lines(
-  '',
-  'environment dev {',
-  '  bind store -> postgres(' + host + ')',
-  '}',
-);
-
-const sqlSpec = (host: string | null) => lines(
-  'module m @0.1.0 {}',
-  'use capability arcod.std.sql @1',
-  'error Unavailable',
-  'service S : http {',
-  '  uses store: sql',
-  '  effects {',
-  '    allow store.insert',
-  '  }',
-  '  contract {',
-  '    public op save(entry: string) -> string {',
-  '      route: "POST /v1/entries"',
-  '      effects: store.insert',
-  '      post: result != null',
-  '    }',
-  '  }',
-  '}',
-  host === null ? '' : sqlBind(host),
 );
 
 const codes = (src: string) => check(parse(src, 'main.arc'));
@@ -110,23 +83,26 @@ test('RateLimited and Forbidden cover the failure too', () => {
   }
 });
 
+test('llm.embed is reported as well', () => {
+  const src = llmSpec([]).replace('effects: store.get, llm.chat', 'effects: store.get, llm.embed');
+  const diags = codes(src).filter((d) => d.code === 'W048');
+  assert.equal(diags.length, 1, JSON.stringify(diags));
+  assert.match(diags[0].message, /ask calls llm\.embed/);
+});
+
 test('an external service effect without a covering error is W048', () => {
   const diags = codes(externalSpec([])).filter((d) => d.code === 'W048');
   assert.equal(diags.length, 1, JSON.stringify(diags));
   assert.match(diags[0].message, /charge calls Ledger\.record/);
 });
 
-test('a named Unavailable silences the external call as well', () => {
+test('a declared Unavailable silences the external call as well', () => {
   const diags = codes(externalSpec(['errors: Unavailable', 'on error Unavailable: entry != null']))
     .filter((d) => d.code === 'W048');
   assert.deepEqual(diags, []);
 });
 
-test('a sql effect on a host-bound alias is W048; a local bind is not', () => {
-  const remote = codes(sqlSpec('host: "db.example.com", port: 5432')).filter((d) => d.code === 'W048');
-  assert.equal(remote.length, 1, JSON.stringify(remote));
-  assert.match(remote[0].message, /save calls store\.insert/);
-
-  assert.deepEqual(codes(sqlSpec(null)).filter((d) => d.code === 'W048'), []);
-  assert.deepEqual(codes(sqlSpec('')).filter((d) => d.code === 'W048'), []);
+test('a local store effect is not a W048: every bind can be remote', () => {
+  const diags = codes(llmSpec(['errors: Unavailable']).replace('llm.chat', 'store.set'));
+  assert.deepEqual(diags.filter((d) => d.code === 'W048'), []);
 });

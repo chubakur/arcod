@@ -20,6 +20,9 @@ type Note = { id: DocId, text: Text, vector: list<float> }
 type Hit = { id: DocId, text: Text, score: float }
 
 error Invalid
+// The embedding call leaves the process: a provider can be down or throttle,
+// and the route has to say so instead of answering 500 Internal.
+error Unavailable
 
 service Docs : http {
   uses store: kv
@@ -34,17 +37,19 @@ service Docs : http {
     public op add(text: Text) -> { id: DocId, dim: int } {
       route: "POST /v1/notes"
       effects: store.insert, uuid.new, model.embed
-      errors: Invalid
+      errors: Invalid, Unavailable
       post: result != null
       on error Invalid: text != null
+      on error Unavailable: text != null
     }
 
     public op search(q: Text, limit: int?) -> { items: list<Hit> } {
       route: "POST /v1/search"
       effects: store.find, model.embed
-      errors: Invalid
+      errors: Invalid, Unavailable
       post: result != null
       on error Invalid: q != null
+      on error Unavailable: q != null
     }
   }
 
