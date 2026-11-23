@@ -1771,6 +1771,11 @@ Warnings:
   enforced (`A047` rejects a role the service never declared), so an unused
   entry reads like an access rule that works: drop it, or name it in an
   operation's `roles:` clause.
+- `W049` an `impl/*.mjs` body is named after no operation: only the bodies the
+  service contract declares are bundled, so `impl/total.mjs` (a typo of
+  `totals`) was loaded and then dropped — `totals` answered `501
+  NotImplemented` while its body looked present. A warning that names the file
+  and lists the operations the contract declares.
 - `W048` an operation names an effect that can be refused on the far side — a
   model endpoint (`llm.chat`, `llm.embed`) or a foreign service
   (`Ledger.record`) — and declares no error covering the refusal. An undeclared throw becomes the

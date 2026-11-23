@@ -1587,6 +1587,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkWhereOperators(mod, diags, options.impl);
   checkImplCollisions(mod, diags, options.impl);
   checkImplSignatures(mod, diags, options.impl);
+  checkOrphanImplBodies(mod, diags, options.impl);
 
   return sortDiagnostics(diags);
 }
@@ -1602,6 +1603,28 @@ export function checkImplCollisions(mod: ModuleNode, diags: Diagnostic[], impl: 
       diag('A093', 'error', collision.file, { ...mod.loc, line: collision.line, endLine: collision.line }, 'impl.' + collision.op,
         'duplicate top-level name "' + collision.name + '" in ' + collision.firstFile + ' and ' + collision.file,
         'rename one of them, or keep the shared helper in one body and pass it in'),
+    );
+  }
+}
+
+// A body file is keyed by the operation it implements: impl/totals.mjs is the
+// body of totals. The emitter only bundles a body whose name is in the service
+// contract, so impl/total.mjs (a typo) was loaded, sandbox-checked and then
+// dropped, while totals answered 501 NotImplemented at request time and the
+// author believed the body was in use. A file that names nothing is dead
+// weight, so it is a warning that lists the names the contract declares.
+export function checkOrphanImplBodies(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined): void {
+  if (!impl) return;
+  const declared = new Set<string>();
+  for (const svc of mod.services) for (const op of svc.contract) declared.add(op.name);
+  for (const name of Object.keys(impl).sort()) {
+    if (declared.has(name)) continue;
+    diags.push(
+      diag('W049', 'warning', 'impl/' + name + '.mjs', { ...mod.loc, line: 1, col: 1, endLine: 1, endCol: 1 }, 'impl.' + name,
+        'impl/' + name + '.mjs matches no operation',
+        declared.size > 0
+          ? 'name the file after the operation it implements: ' + [...declared].sort().join(', ')
+          : 'this module declares no operations, so no body file is bundled'),
     );
   }
 }
