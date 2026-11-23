@@ -728,15 +728,20 @@ async function runUpgrade(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   const from = declaredVersion(loaded.mod.source, basename(loaded.specPath));
   const to = flags.to ?? LANG_VERSION;
+  // The file is named the way check and fmt name it: relative to the caller
+  // when it lives inside the working directory, absolute only outside. upgrade
+  // was the last command printing the absolute path of a file the caller had
+  // just named relatively.
+  const label = specLabel(loaded.specPath);
   if (from === to) {
-    console.log(loaded.specPath + ': already at ' + from);
+    console.log(label + ': already at ' + from);
     return;
   }
   try {
     const migrated = migrateSpec(loaded.mod.source, from, to, basename(loaded.specPath));
     if (flags.write) {
       await writeFile(loaded.specPath, migrated, 'utf8');
-      console.log('upgraded ' + loaded.specPath + ' ' + from + ' -> ' + to);
+      console.log('upgraded ' + label + ' ' + from + ' -> ' + to);
     } else {
       process.stdout.write(migrated);
     }

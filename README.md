@@ -225,9 +225,9 @@ A flag that names a value must get one: `--env`, `--service`, `--to`, `--out`,
 `--ingress-class` print `--env needs a value` and exit 2 rather than quietly
 meaning nothing, a following flag is never taken as the value, and an empty
 value (`--out ""` from an unset variable) counts as missing. A path is
-named the same way whether you pass one file or a pattern: `check` and `fmt`
-print it relative to the caller when it is inside the working directory, so a
-gate greps one shape. A command takes one path: a second one (`arcod check a b`) is
+named the same way whether you pass one file or a pattern: `check`, `fmt` and
+`upgrade` print it relative to the caller when it is inside the working
+directory (absolute only outside it), so a gate greps one shape. A command takes one path: a second one (`arcod check a b`) is
 `unexpected argument: b`, exit 2, instead of checking `b` and dropping `a`;
 `diff` is the one command that reads two, and it refuses a third the same way. A command that takes no path (`version`, `providers`, `lsp`) refuses one too: `arcod version extra` is `unexpected argument: extra`, exit 2, not the version with the word dropped. The numeric
 flags `--port`, `--max-tokens` and `--replicas` answer the same way when bare.
