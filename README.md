@@ -1686,6 +1686,11 @@ Errors:
   (`function subjectHash` in `impl/create.mjs` and `impl/seed.mjs`): the bodies
   are concatenated into one module, so the duplicate was a load-time
   `SyntaxError` that only `build` reported. The diagnostic names both files.
+- `A095` a `list` or `map` parameter sits on a route without a body
+  (`GET`/`HEAD`/`DELETE`): a query string carries one value per name, so the
+  service handed the body a string (`?tag=a&tag=b` arrived as `"a"`) while the
+  contract promised a list, and an alias of a list was accepted the same way.
+  The hint asks for a `POST` body or a scalar.
 - `A094` a `kv` alias is bound to `redis` in a service that stores in sql:
   the runtime has one store, so the alias lives in the sql store's `arcod_kv`
   table. The bind started a container and exported `REDIS_URL` that no

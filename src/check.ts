@@ -1199,6 +1199,30 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         'declare another path; the ' + (path === '/healthz' ? 'probe' : 'scrape') + ' stays at ' + path));
     }
 
+    // A095 — a query parameter is one string on the wire: the service reads
+    // searchParams.get(name), so a repeated name loses every value but the
+    // first, and the harness sends String(value). A list or a map in a route
+    // without a body therefore cannot round-trip, and the body receives a
+    // string where the contract promised a list.
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      const route = routeOf(op);
+      if (!route) continue;
+      const parts = route.trim().split(/\s+/);
+      if (parts.length !== 2) continue;
+      const method = parts[0].toUpperCase();
+      if (method !== 'GET' && method !== 'HEAD' && method !== 'DELETE') continue;
+      const captures = new Set(Array.from(parts[1].matchAll(/:([A-Za-z0-9_]+)/g)).map((match) => match[1]));
+      for (const param of op.params) {
+        if (captures.has(param.name)) continue;
+        const shape = containerShape(mod, param.type);
+        if (!shape) continue;
+        diags.push(diag('A095', 'error', mod.file, param.loc, 'services.' + svc.name + '.contract.' + op.name + '.' + param.name,
+          'query parameter ' + param.name + ' is a ' + shape + ', and ' + method + ' has no body',
+          'send it in a POST body, or narrow the parameter to one scalar'));
+      }
+    }
+
     // A071 — every :name in the route has to be an operation parameter. A
     // typo (:tid instead of id) captures a value nobody reads and leaves the
     // argument unbound, and the runtime has nothing to report.
@@ -1928,6 +1952,20 @@ function declaredParams(mod: ModuleNode): Param[] {
 
 function namedType(type: { kind: string; name?: string }): string | null {
   return type.kind === 'named' && typeof type.name === 'string' ? type.name : null;
+}
+
+// The container a type expression resolves to, following an alias: `list<T>` and
+// `map<K, V>` are one string in a query dict, and `type Tags = list<string>`
+// is the same shape under another name.
+const CONTAINER_TYPES = new Set(['list', 'map']);
+
+function containerShape(mod: ModuleNode, type: TypeExpr, depth = 0): string | null {
+  if (depth > 8) return null;
+  if (type.kind === 'optional') return containerShape(mod, type.inner, depth + 1);
+  if (type.kind !== 'named') return null;
+  if (CONTAINER_TYPES.has(type.name)) return type.name;
+  const decl = mod.types.find((entry) => entry.name === type.name);
+  return decl ? containerShape(mod, decl.type, depth + 1) : null;
 }
 
 function walkTypeExpr(type: TypeExpr, fn: (type: TypeExpr) => void): void {
