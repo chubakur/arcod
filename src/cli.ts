@@ -1528,7 +1528,7 @@ interface Flags {
 // value. Both are a typo the CLI can name instead of dropping.
 function valueFlag(name: string, args: string[], i: number): string {
   const value = args[i];
-  if (value === undefined || value.startsWith('-')) {
+  if (value === undefined || value === '' || value.startsWith('-')) {
     throw new UsageError(name + ' needs a value');
   }
   return value;

@@ -65,6 +65,20 @@ test('a following flag is not taken as the value', async () => {
   assert.equal(result.out, '');
 });
 
+test('an empty value is a missing value', async () => {
+  // `--out ""` used to fall through as falsy and print to stdout, and
+  // `--env ""` was skipped: both look like success to a script that passed an
+  // unset variable through.
+  const out = await run(['openapi', join(examplesDir, 'chat'), '--service', 'Chat', '--out', '']);
+  assert.equal(out.code, 2);
+  assert.match(out.err, /^arcod: --out needs a value$/m);
+  assert.equal(out.out, '', 'nothing is written or printed');
+  const env = await run(['check', join(examplesDir, 'chat'), '--env', '']);
+  assert.equal(env.code, 2);
+  assert.match(env.err, /^arcod: --env needs a value$/m);
+  assert.equal(env.out, '');
+});
+
 test('a value is still accepted and used', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'arcod-value-'));
   const result = await run(['openapi', join(examplesDir, 'chat'), '--service', 'Chat', '--out', join(dir, 'openapi.json')]);

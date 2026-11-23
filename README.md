@@ -221,7 +221,8 @@ an unknown flag prints one line plus `hint: arcod <cmd> --help` and exits 2.
 A flag that names a value must get one: `--env`, `--service`, `--to`, `--out`,
 `--dialect`, `--model`, `--endpoint`, `--image`, `--host`, `--namespace`,
 `--ingress-class` print `--env needs a value` and exit 2 rather than quietly
-meaning nothing, and a following flag is never taken as the value. The numeric
+meaning nothing, a following flag is never taken as the value, and an empty
+value (`--out ""` from an unset variable) counts as missing. The numeric
 flags `--port`, `--max-tokens` and `--replicas` answer the same way when bare.
 
 ```bash
