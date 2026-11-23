@@ -2000,8 +2000,11 @@ function cryptoImportFor(svc: ServiceNode, withBodies: boolean, dialect: 'mysql'
   if (storageKind(svc) === 'sql') names.push('constants', 'createHash', 'createPublicKey', 'publicEncrypt');
   if (hasStream(svc)) names.push('createHash');
   // SCRAM-SHA-256 needs HMAC and PBKDF2; the client only travels with a
-  // postgres build.
-  if (dialect === 'postgres') names.push('createHash', 'createHmac', 'pbkdf2Sync', 'randomBytes');
+  // postgres build. It also compares the server signature with
+  // timingSafeEqual on every handshake, whether or not the service hashes
+  // passwords itself: the name is a property of the wire client, not of the
+  // guarded bodies.
+  if (dialect === 'postgres') names.push('createHash', 'createHmac', 'pbkdf2Sync', 'randomBytes', 'timingSafeEqual');
   if (svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'))) {
     names.push('createPublicKey', 'verify');
   }

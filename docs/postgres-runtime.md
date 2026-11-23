@@ -17,7 +17,12 @@ next to the MySQL client:
   before the bare message (`n,,n=,r=<nonce>`): postgres reads the first
   character as the channel-binding flag and expects a comma next, so a bare
   `n=,r=...` is rejected as `08P01 malformed SCRAM message`. The auth message
-  that is signed stays the bare part only (`n=,r=...,<server-first>,c=biws,r=...`);
+  that is signed stays the bare part only (`n=,r=...,<server-first>,c=biws,r=...`).
+  The client compares the server signature with `timingSafeEqual` on every
+  handshake, so a postgres build imports that name whether or not the service
+  hashes passwords itself — the name belongs to the wire client, not to the
+  guarded bodies (issue #29: without it the container started and died on the
+  first connection with `ReferenceError: timingSafeEqual is not defined`);
 - **query**: simple-query protocol, `RowDescription`/`DataRow`, SQLSTATE errors;
 - **typing**: `pgLiteral(base, value)` renders bool/int/datetime/bytes/json as typed
   literals (bytea via `decode(..., 'hex')`, json via `::jsonb`), never by string
@@ -36,6 +41,10 @@ it with a fake backend:
   first SASL payload starts with `n,,` and carries the nonce the client-final
   later extends, and the server signature computed from the bare message is
   accepted (a missing gs2 header fails the handshake);
+- `test/crypto-import.test.ts` pairs the two sides of the import line: every
+  crypto name the emitted service calls must appear in its own `node:crypto`
+  import, across kv/sql/guarded/blob shapes and both dialects, and node is asked
+  whether each imported name actually exists;
 - startup carries `user`/`database` from the URL, a query returns fields and rows,
   and SQLSTATE 23505 surfaces as `pgIsUnique`;
 - literals/cells are typed on both directions.
