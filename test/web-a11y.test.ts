@@ -405,3 +405,30 @@ test('an ssr build needs no web container in compose', async () => {
     else assert.doesNotMatch(compose, /\n  web:\n/);
   }
 });
+
+// The chat layout is a page of controls with no visible labels, so the
+// accessible name has to come from the catalog: a placeholder disappears the
+// moment the field has a value, and the transcript is a live log.
+test('the chat page names its controls and announces new messages', async () => {
+  const mod = parse(await readFile(new URL('../examples/chat/main.arc', import.meta.url), 'utf8'), 'main.arc');
+  const html = emitWeb(mod, { maxBytes: 65536 });
+  assert.match(html, /id="msgs" role="log" aria-live="polite"/);
+  assert.match(html, /data-i18n-aria="chatPlaceholder"/);
+  assert.match(html, /data-i18n-aria="chatTokenPlaceholder"/);
+  assert.match(html, /querySelectorAll\('\[data-i18n-aria\]'\)/, 'the catalog fills every aria-label');
+  const base = pageStrings('en');
+  assert.ok(base.chatPlaceholder, 'the message label is a catalog key');
+  assert.ok(base.chatTokenPlaceholder, 'the token label is a catalog key');
+});
+
+// The presentation has the same shape: placeholders only, plus a toast that
+// reports the result of an async call after the page has loaded.
+test('the presentation page names its fields and announces results', async () => {
+  const mod = parse(await readFile(new URL('../examples/quiz/main.arc', import.meta.url), 'utf8'), 'main.arc');
+  const html = emitWeb(mod, { maxBytes: 65536 });
+  assert.match(html, /id="toast" role="status" aria-live="polite"/);
+  assert.match(html, /codeInput\.setAttribute\('aria-label', t\('presCode'\)\)/);
+  assert.match(html, /nameInput\.setAttribute\('aria-label', t\('presName'\)\)/);
+  const base = pageStrings('en');
+  assert.ok(base.presCode && base.presName, 'both labels are catalog keys');
+});

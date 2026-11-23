@@ -67,7 +67,7 @@ export const PRESENTATION_PAGE = String.raw`<!doctype html>
 <body>
 <div class="wrap" id="app"></div>
 <select id="lang" class="lang" hidden aria-label="Language"></select>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 __QR__
 </script>
@@ -206,10 +206,16 @@ function landing(note) {
   guest.appendChild(el('h2', null, t('presGuestTitle')));
   var codeInput = el('input');
   codeInput.placeholder = t('presCode');
+  // A placeholder is not an accessible name: it is gone once the field has a
+  // value, and a screen reader would announce an unnamed edit box.
+  codeInput.setAttribute('aria-label', t('presCode'));
+  codeInput.autocomplete = 'off';
   codeInput.autocapitalize = 'characters';
   codeInput.style.marginBottom = '10px';
   var nameInput = el('input');
   nameInput.placeholder = t('presName');
+  nameInput.setAttribute('aria-label', t('presName'));
+  nameInput.autocomplete = 'off';
   nameInput.style.marginBottom = '10px';
   var join = el('button', 'primary', t('presJoin'));
   join.onclick = function () { enterAsGuest(codeInput.value.trim().toUpperCase(), nameInput.value.trim()); };

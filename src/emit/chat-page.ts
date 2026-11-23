@@ -44,13 +44,13 @@ export const CHAT_PAGE = String.raw`<!doctype html>
   </header>
   <p class="lead">__LEAD__</p>
   <section class="auth" id="auth" hidden>
-    <input id="token" type="password" autocomplete="off" placeholder="Bearer token" data-i18n-ph="chatTokenPlaceholder">
+    <input id="token" type="password" autocomplete="off" placeholder="Bearer token" aria-label="Access token" data-i18n-ph="chatTokenPlaceholder" data-i18n-aria="chatTokenPlaceholder">
     <button type="button" id="save-token" data-i18n="chatSave">Save</button>
   </section>
   <div class="chat">
-    <div class="msgs" id="msgs"><div class="empty" id="empty" data-i18n="chatEmpty">Nothing here yet — send the first message.</div></div>
+    <div class="msgs" id="msgs" role="log" aria-live="polite"><div class="empty" id="empty" data-i18n="chatEmpty">Nothing here yet — send the first message.</div></div>
     <form class="composer" id="composer">
-      <textarea id="text" rows="2" placeholder="Message… (Enter — send, Shift+Enter — new line)" data-i18n-ph="chatPlaceholder"></textarea>
+      <textarea id="text" rows="2" placeholder="Message… (Enter — send, Shift+Enter — new line)" aria-label="Message" data-i18n-ph="chatPlaceholder" data-i18n-aria="chatPlaceholder"></textarea>
       <button class="primary" id="send" type="submit" data-i18n="chatSend">Send</button>
     </form>
   </div>
@@ -73,6 +73,12 @@ document.querySelectorAll('[data-i18n]').forEach(function (node) {
 document.querySelectorAll('[data-i18n-ph]').forEach(function (node) {
   var value = T[node.getAttribute('data-i18n-ph')];
   if (value) node.placeholder = value;
+});
+// A placeholder is not an accessible name: it disappears as soon as the field
+// has a value, so controls carry an aria-label translated from the same catalog.
+document.querySelectorAll('[data-i18n-aria]').forEach(function (node) {
+  var value = T[node.getAttribute('data-i18n-aria')];
+  if (value) node.setAttribute('aria-label', value);
 });
 var TOKEN_KEY = 'arcod.token';
 var CONV_KEY = 'arcod.chat.' + OPS.module;
