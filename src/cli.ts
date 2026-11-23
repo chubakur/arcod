@@ -429,7 +429,7 @@ async function runCheck(flags: Flags): Promise<void> {
   if (flags.json) {
     console.log(JSON.stringify(diags, null, 2));
   } else {
-    printDiagnostics(diags, loaded.specPath);
+    printDiagnostics(diags, loaded.specPath, specLabel(loaded.specPath));
   }
   const errors = diags.filter((d) => d.severity === 'error').length;
   process.exitCode = errors > 0 ? 1 : 0;
@@ -441,7 +441,7 @@ async function runAst(flags: Flags): Promise<void> {
     const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
     const errors = diags.filter((d) => d.severity === 'error');
     if (errors.length > 0) {
-      printDiagnostics(errors, loaded.specPath);
+      printDiagnostics(errors, loaded.specPath, specLabel(loaded.specPath));
       process.exitCode = 1;
       return;
     }
@@ -1458,13 +1458,17 @@ function refuseCheckErrors(flags: Flags, errors: Diagnostic[], specPath: string)
   if (flags.json) {
     console.log(JSON.stringify({ error: 'check failed', diagnostics: errors }, null, 2));
   } else {
-    printDiagnostics(errors, specPath);
+    printDiagnostics(errors, specPath, specLabel(specPath));
   }
   process.exitCode = 1;
 }
 
 function printDiagnostics(diags: Diagnostic[], specPath: string, label?: string): void {
-  const name = label ?? basename(specPath);
+  // The default is the bare file name, which is enough when one spec is on
+  // the line. Every caller now passes `specLabel`, so one file and a pattern
+  // name it the same way: a path relative to the caller when it is inside
+  // the working directory.
+  const name = label ?? specLabel(specPath);
   for (const d of diags) {
     // A diagnostic may live in a body, not in the spec: impl/*.mjs carries its
     // own name and lines, and printing the spec's name next to them pointed the

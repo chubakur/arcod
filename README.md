@@ -222,7 +222,10 @@ A flag that names a value must get one: `--env`, `--service`, `--to`, `--out`,
 `--dialect`, `--model`, `--endpoint`, `--image`, `--host`, `--namespace`,
 `--ingress-class` print `--env needs a value` and exit 2 rather than quietly
 meaning nothing, a following flag is never taken as the value, and an empty
-value (`--out ""` from an unset variable) counts as missing. The numeric
+value (`--out ""` from an unset variable) counts as missing. A path is
+named the same way whether you pass one file or a pattern: `check` and `fmt`
+print it relative to the caller when it is inside the working directory, so a
+gate greps one shape. The numeric
 flags `--port`, `--max-tokens` and `--replicas` answer the same way when bare.
 
 ```bash
