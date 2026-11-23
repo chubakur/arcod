@@ -156,3 +156,17 @@ test('Forbidden covers a foreign call', () => {
     .filter((d) => d.code === 'W048');
   assert.deepEqual(diags, []);
 });
+
+test('the same effect named twice is reported once', () => {
+  const src = llmSpec([]).replace('      effects: store.get, llm.chat', '      effects: llm.chat' + NL + '      effects: store.get, llm.chat');
+  const diags = codes(src).filter((d) => d.code === 'W048');
+  assert.equal(diags.length, 1, JSON.stringify(diags));
+});
+
+test('two different fallible effects are two warnings', () => {
+  const src = llmSpec([]).replace('effects: store.get, llm.chat', 'effects: llm.chat, llm.embed');
+  const diags = codes(src).filter((d) => d.code === 'W048').map((d) => d.message);
+  assert.equal(diags.length, 2, JSON.stringify(diags));
+  assert.match(diags.join(' '), /llm\.chat/);
+  assert.match(diags.join(' '), /llm\.embed/);
+});
