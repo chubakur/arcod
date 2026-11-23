@@ -1461,7 +1461,11 @@ function refuseCheckErrors(flags: Flags, errors: Diagnostic[], specPath: string)
 function printDiagnostics(diags: Diagnostic[], specPath: string, label?: string): void {
   const name = label ?? basename(specPath);
   for (const d of diags) {
-    console.log(name + ':' + d.range.line + ':' + d.range.col + '  ' + d.severity + '  ' + d.code + '  ' + d.message);
+    // A diagnostic may live in a body, not in the spec: impl/*.mjs carries its
+    // own name and lines, and printing the spec's name next to them pointed the
+    // reader at the wrong file with a line number that did not exist there.
+    const where = d.file && d.file !== specPath && d.file !== basename(specPath) ? d.file : name;
+    console.log(where + ':' + d.range.line + ':' + d.range.col + '  ' + d.severity + '  ' + d.code + '  ' + d.message);
     if (d.hint) console.log('    hint: ' + d.hint);
   }
   if (diags.length === 0) {

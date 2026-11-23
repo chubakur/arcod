@@ -111,7 +111,9 @@ test('arcod check refuses the duplicate before any build is started', async () =
     assert.equal(Number(process.exitCode ?? 0), 1, text);
     assert.match(text, /A093/);
     assert.match(text, /impl\/create\.mjs/);
-    assert.match(text, /impl\/seed\.mjs/);
+    // The location is printed against the body it lives in, not the spec: the
+    // line number belongs to impl/seed.mjs.
+    assert.match(text, /^impl\/seed\.mjs:4:1  error  A093/m);
     // check reads the spec and the bodies; it never writes a build tree.
     await assert.rejects(stat(join(dir, '.arcod')), 'check leaves no .arcod behind');
   } finally {
