@@ -1731,6 +1731,11 @@ Errors:
   body while every handler of this runtime builds one. The same code names a
   `status` on a job: a job is consumed from a queue, never requested. The hint
   asks for a 2xx on an operation.
+- `A098` the module header declares a language version this compiler does not
+  know (`@9.9.9`): the spec may use rules the emitters do not implement, so the
+  file was reported clean and then built with 0.1.0 semantics, while `arcod
+  upgrade` called the same file "unknown language version". The hint names the
+  versions this compiler knows. A header without `@version` is untouched.
 - `A094` a `kv` alias is bound to `redis` in a service that stores in sql:
   the runtime has one store, so the alias lives in the sql store's `arcod_kv`
   table. The bind started a container and exported `REDIS_URL` that no

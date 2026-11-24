@@ -55,7 +55,7 @@ test('the yandex target renders a network, its binds and outputs', async () => {
 
 test('a postgres bind renders a managed cluster and never a literal password', async () => {
   const source = [
-    'module shop @0.2.0 {}',
+    'module shop @0.1.0 {}',
     'use capability arcod.std.sql @1',
     'type Item = { id: uuid, name: string }',
     'service Shop : http {',

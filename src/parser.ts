@@ -66,7 +66,12 @@ class Parser {
     this.expect('module');
     const name = this.expectIdent('module name').value;
     let version = '0.0.0';
-    if (this.peek().kind === 'version') version = this.next().value;
+    let versionLoc: Loc | undefined;
+    if (this.peek().kind === 'version') {
+      const token = this.next();
+      version = token.value;
+      versionLoc = this.loc(token, token);
+    }
 
     const meta: Record<string, string> = {};
     let metaLoc: ModuleNode['metaLoc'];
@@ -97,7 +102,7 @@ class Parser {
     const end = this.expect('}');
 
     const mod: ModuleNode = {
-      kind: 'module', name, version, meta, metaLoc, metaEntryLocs, metaClose, uses: [], types: [], errors: [], enums: [],
+      kind: 'module', name, version, versionLoc, meta, metaLoc, metaEntryLocs, metaClose, uses: [], types: [], errors: [], enums: [],
       services: [], workflows: [], environments: [], uis: [], file: this.file, source: this.source,
       loc: this.loc(start, end),
     };

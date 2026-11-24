@@ -17,7 +17,7 @@ import { terraformFiles } from '../src/emit/terraform.ts';
 
 function spec(bind: string, deploy = 'deploy yandex(region: "ru-central1", folder: "f", service: "shop")') {
   return [
-    'module shop @0.2.0 {}',
+    'module shop @0.1.0 {}',
     'use capability arcod.std.sql @1',
     'type Item = { id: uuid, name: string }',
     'service Shop : http {',
@@ -81,7 +81,7 @@ test('W044 stays quiet when the endpoint is not managed or not asked for', () =>
 // `terraform init` accepts — and the second binding looked provisioned.
 
 const twoRedis = [
-  'module shop @0.2.0 {}',
+  'module shop @0.1.0 {}',
   'use capability arcod.std.kv @1',
   'service Shop : http {',
   '  uses store: kv',
@@ -119,7 +119,7 @@ test('W045 stays quiet where two containers are two containers', () => {
 
 test('two s3 binds share the one bucket resource', () => {
   const source = [
-    'module shop @0.2.0 {}',
+    'module shop @0.1.0 {}',
     'use capability arcod.std.objects @1',
     'service Shop : http {',
     '  uses files: objects',

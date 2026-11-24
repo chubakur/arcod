@@ -10,6 +10,7 @@ import { baseType, defaultValue } from './migrate.ts';
 import { boundsOf, constraintOf, describeViolation, lengthBoundsOf, unknownFormatOf } from './constraints.ts';
 import { isIsoInstant } from './instant.ts';
 import { implCollisions, implSignatureProblems } from './impl.ts';
+import { VERSIONS, isKnownVersion } from './versions.ts';
 
 const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update', 'write', 'delete']);
 // The HTTP methods a route may name. Anything else (or no method at all)
@@ -101,6 +102,20 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       mod.environments.length > 0
         ? 'declared: ' + mod.environments.map((item) => item.name).join(', ')
         : 'declare an environment, or drop --env')];
+  }
+
+  // A098 — the header names the language version and nothing read it: a spec
+  // declaring `@9.9.9` was reported clean, then built with 0.1.0 semantics,
+  // while `arcod upgrade` called the same file "unknown language version". A
+  // version this compiler does not know means the spec may use rules the
+  // emitters do not implement, so check refuses it instead of guessing. An
+  // undeclared version stays accepted: the parser defaults to 0.0.0 and there
+  // is no `@` token to contradict.
+  if (mod.versionLoc && !isKnownVersion(mod.version)) {
+    return [diag('A098', 'error', mod.file, mod.versionLoc, 'module.version',
+      'unknown language version ' + mod.version,
+      'this compiler knows ' + VERSIONS.join(', ') + '; write @' + VERSIONS[VERSIONS.length - 1] +
+        ', or upgrade with a tool that knows ' + mod.version)];
   }
 
   // A066 — two declarations of one name are ambiguous: every emitter keys by

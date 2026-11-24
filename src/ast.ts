@@ -14,6 +14,10 @@ export interface ModuleNode {
   kind: 'module';
   name: string;
   version: string;
+  // Where the `@0.1.0` token sits, when the header wrote one. check refuses a
+  // version this compiler does not know, and it points at that token; an
+  // undeclared version (parser default 0.0.0) has no loc and stays accepted.
+  versionLoc?: Loc;
   meta: Record<string, string>;
   // Offsets of the `meta { ... }` block and of each entry, so fmt can keep a
   // comment written inside the block where the author put it.
