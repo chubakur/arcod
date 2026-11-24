@@ -1250,6 +1250,17 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // A097 — the same clause on a job answers nobody: a job is consumed from a
+    // queue, never requested, so the status would be read by no client.
+    for (const op of svc.contract) {
+      if (op.kind !== 'job') continue;
+      const declared = op.clauses.find((clause) => clause.kind === 'status');
+      if (!declared || declared.kind !== 'status') continue;
+      diags.push(diag('A097', 'error', mod.file, declared.loc, 'services.' + svc.name + '.jobs.' + op.name,
+        'status ' + declared.value + ' on job ' + op.name + ' answers no HTTP call',
+        'drop it: a job is consumed from a queue, not requested; a status belongs to an operation'));
+    }
+
     // A071 — every :name in the route has to be an operation parameter. A
     // typo (:tid instead of id) captures a value nobody reads and leaves the
     // argument unbound, and the runtime has nothing to report.

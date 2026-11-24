@@ -1726,7 +1726,9 @@ Errors:
   The hint asks for a `POST` body or a scalar.
 - `A097` an operation declares a success `status` that is not a body-carrying
   2xx: a 4xx/5xx would turn a successful call into an error, and 204/205 has no
-  body while every handler of this runtime builds one. The hint asks for a 2xx.
+  body while every handler of this runtime builds one. The same code names a
+  `status` on a job: a job is consumed from a queue, never requested. The hint
+  asks for a 2xx on an operation.
 - `A094` a `kv` alias is bound to `redis` in a service that stores in sql:
   the runtime has one store, so the alias lives in the sql store's `arcod_kv`
   table. The bind started a container and exported `REDIS_URL` that no

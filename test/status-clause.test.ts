@@ -110,3 +110,25 @@ test('a status the parser cannot read is a parse error, not a silent 200', () =>
   const nl = String.fromCharCode(10);
   assert.throws(() => parse(moduleWith(['    public op a(id: string) -> { id: string } {', '      route: "POST /v1/a"', '      status: "ok"', '    }'].join(nl)), 'main.arc'));
 });
+
+test('A097 refuses a status on a job, which answers no HTTP call', () => {
+  const nl = String.fromCharCode(10);
+  const source = [
+    'module s @0.1.0 {}',
+    'use capability arcod.std.queue @1',
+    'service S : http {',
+    '  uses events: queue',
+    '  contract {',
+    '    public op ping() -> bool { route: "GET /v1/ping" }',
+    '    job work(x: string) {',
+    '      on: events.t',
+    '      status: 200',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join(nl);
+  const found = codes(source, 'A097');
+  assert.deepEqual(found.map((entry) => entry.path), ['services.S.jobs.work']);
+  assert.match(found[0].message, /answers no HTTP call/);
+});
