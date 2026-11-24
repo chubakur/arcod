@@ -1738,6 +1738,10 @@ Errors:
   file was reported clean and then built with 0.1.0 semantics, while `arcod
   upgrade` called the same file "unknown language version". The hint names the
   versions this compiler knows. A header without `@version` is untouched.
+- `A099` a bound carries a time unit (`bytes(max: 5s)`, `string(min: 2h)`): a
+  bound is a count or a size, so the number was read and the unit dropped —
+  `check` stayed clean, OpenAPI published five bytes and the runtime enforced
+  five bytes. The hint asks for a size (`bytes(max: 64kb)`) or a plain count.
 - `A094` a `kv` alias is bound to `redis` in a service that stores in sql:
   the runtime has one store, so the alias lives in the sql store's `arcod_kv`
   table. The bind started a container and exported `REDIS_URL` that no

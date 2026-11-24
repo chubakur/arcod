@@ -654,6 +654,16 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
             diags.push(diag('A087', 'error', mod.file, arg.loc, 'types.' + type.name,
               'int(' + arg.name + ':) needs a whole number',
               'the bound of an integer is an integer, e.g. int(max: 100)'));
+          } else if (arg.value.kind === 'duration' && TRIGGER_UNITS.includes((arg.value.unit ?? '').toLowerCase())) {
+            // A099 — a bound is a count, a size or nothing: bytes(max: 5s)
+            // read the 5 and dropped the unit, so check stayed clean, OpenAPI
+            // published five bytes and the runtime enforced five bytes. The
+            // time units only mean something to a trigger.
+            diags.push(diag('A099', 'error', mod.file, arg.loc, 'types.' + type.name,
+              'a ' + arg.name + ' bound is a size, not a time: ' + arg.value.value + (arg.value.unit ?? ''),
+              type.name === 'bytes'
+                ? 'write a size, e.g. bytes(max: 64kb), or a plain byte count, e.g. bytes(max: 512)'
+                : 'write a plain number, e.g. ' + type.name + '(max: 80)'));
           }
         }
       }

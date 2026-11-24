@@ -20,6 +20,10 @@ function a087(body: string): ReturnType<typeof check> {
   return check(moduleOf(body)).filter((item) => item.code === 'A087');
 }
 
+function a099(body: string): ReturnType<typeof check> {
+  return check(moduleOf(body)).filter((item) => item.code === 'A099');
+}
+
 const title = 'type Title = string(max: 80)\n';
 
 test('arguments on a declared type are A086, not silently dropped', () => {
@@ -107,4 +111,26 @@ test('a bound must be a number, not a string or an identifier', () => {
 test('the documented argument sets stay clean', () => {
   const diags = a087('type Item = { id: uuid }\ntype Account = { name: string(min: 1, max: 80, format: email), photo: bytes(max: 2mb), age: int(min: 0, max: 150) }\ntype Page = { items: list<Item>, byId: map<uuid, Item> }');
   assert.deepEqual(diags, []);
+});
+
+// A099 — a bound is a count or a size. bytes(max: 5s) read the 5 and dropped
+// the unit, so check stayed clean, OpenAPI published five bytes and the
+// runtime enforced five bytes: the author wrote a time and got a size.
+test('a time unit on a bound is A099, not a silent five bytes', () => {
+  const bytes = a099('type Body = bytes(max: 5s)');
+  assert.equal(bytes.length, 1);
+  assert.equal(bytes[0].severity, 'error');
+  assert.match(bytes[0].message, /max bound is a size, not a time: 5s/);
+  assert.match(bytes[0].hint ?? '', /\(max: 64kb\)/);
+  const text = a099('type Account = { name: string(min: 2h) }');
+  assert.equal(text.length, 1);
+  assert.match(text[0].message, /min bound is a size, not a time: 2h/);
+  assert.match(text[0].hint ?? '', /\(max: 80\)/);
+  // An integer bound is already A087 ("needs a whole number"): one code per
+  // mistake is enough.
+  assert.deepEqual(a099('type Age = int(max: 5s)'), []);
+});
+
+test('a size unit and a plain count stay clean', () => {
+  assert.deepEqual(a099('type Body = bytes(min: 1kb, max: 64kb)\ntype Small = bytes(max: 512)\ntype Name = string(max: 80)'), []);
 });
