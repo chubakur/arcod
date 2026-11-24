@@ -83,6 +83,25 @@ export async function implIgnoredFiles(exampleDir: string): Promise<string[]> {
     .sort();
 }
 
+// readImpl reads impl/ one level deep, so a body filed under impl/ops/totals.mjs
+// (or a helper library in impl/lib/) was dropped without a word -- the same
+// silence W051 closes for a wrong extension. An empty directory is harmless, so
+// only a directory that actually holds .mjs files is worth naming.
+export async function implIgnoredDirs(exampleDir: string): Promise<Array<{ name: string; bodies: number }>> {
+  const dir = await implDirFor(exampleDir);
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
+  if (!entries) return [];
+  const found: Array<{ name: string; bodies: number }> = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    const inner = await readdir(join(dir, entry.name), { withFileTypes: true }).catch(() => null);
+    if (!inner) continue;
+    const bodies = inner.filter((item) => item.isFile() && !item.name.startsWith('.') && item.name.endsWith('.mjs')).length;
+    if (bodies > 0) found.push({ name: entry.name, bodies });
+  }
+  return found.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 async function readImpl(dir: string): Promise<Record<string, string> | undefined> {
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
   if (!entries) return undefined;

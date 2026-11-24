@@ -327,10 +327,11 @@
           the operation answered <code>501</code>. <code>check</code> now says both
           halves: <code>W049</code> points at the file and lists the operations the
           contract declares, <code>W050</code> points at an operation that has no body.
-          A file the build does not read at all — anything but <code>.mjs</code> — is
-          <code>W051</code>. All three are warnings, so a partial build still builds; four
-          tests cover W051, four cover W049 and three cover W050, one of them pinning the
-          build to success.</p>
+          A file the build does not read at all — anything but <code>.mjs</code>, or a
+          <code>.mjs</code> filed under a subdirectory, since bodies are read one level
+          deep — is <code>W051</code>. All three are warnings, so a partial build still
+          builds; four tests cover W051, four cover W049 and three cover W050, one of them
+          pinning the build to success.</p>
         </div>
         <div class="card">
           <span class="num">2026-11-23 · CHECK</span>

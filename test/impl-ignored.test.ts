@@ -108,3 +108,61 @@ test('implIgnoredFiles: a project without impl/ has nothing to report', async ()
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+// readImpl reads impl/ one level deep, so a body filed under a subdirectory was
+// dropped without a word -- and with no top-level body the W050 pass stays quiet
+// too (the map is empty), so the project looked complete. W051 names the
+// directory and the number of bodies the build never reads.
+test('W051: a directory of bodies is named with the number inside it', async () => {
+  const { implIgnoredDirs } = await import('../src/build.ts');
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-ignored-dir-'));
+  try {
+    await mkdir(join(dir, 'impl', 'ops'), { recursive: true });
+    await writeFile(join(dir, 'impl', 'ops', 'a.mjs'), 'export async function a(input, io) { return 1; }\n');
+    await writeFile(join(dir, 'impl', 'ops', 'b.mjs'), 'export async function b(input, io) { return 2; }\n');
+    await mkdir(join(dir, 'impl', 'empty'));
+    await mkdir(join(dir, 'impl', '.cache'));
+    await writeFile(join(dir, 'impl', '.cache', 'x.mjs'), 'x\n');
+    assert.deepEqual(await implIgnoredDirs(dir), [{ name: 'ops', bodies: 2 }]);
+
+    const found = check(parse(SPEC, 'main.arc'), { implIgnoredDirs: [{ name: 'ops', bodies: 2 }] })
+      .filter((item) => item.code === 'W051');
+    assert.equal(found.length, 1);
+    assert.equal(found[0].severity, 'warning');
+    assert.equal(found[0].file, 'impl/ops/');
+    assert.match(found[0].message, /impl\/ops\/ holds 2 \.mjs bodies the build never reads/);
+    assert.match(String(found[0].hint), /move each body up to impl\//);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('W051: one body in a directory is singular, and a file list still works', () => {
+  const found = check(parse(SPEC, 'main.arc'), {
+    implIgnored: ['totals.js'],
+    implIgnoredDirs: [{ name: 'lib', bodies: 1 }],
+  }).filter((item) => item.code === 'W051');
+  assert.equal(found.length, 2);
+  assert.match(found.map((item) => item.message).join('\n'), /impl\/lib\/ holds 1 \.mjs body the build never reads/);
+});
+
+// The wiring matters as much as the wording: check knows only what the caller
+// asks the build for, so the CLI must pass both lists.
+test('arcod check reports W051 for a nested body directory', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-ignored-dir-cli-'));
+  const out: string[] = [];
+  const realLog = console.log;
+  try {
+    await writeFile(join(dir, 'main.arc'), SPEC);
+    await mkdir(join(dir, 'impl', 'ops'), { recursive: true });
+    await writeFile(join(dir, 'impl', 'ops', 'totals.mjs'), 'export async function totals(input, io) { return { result: 1 }; }\n');
+    console.log = (...args: unknown[]) => { out.push(args.map((a) => String(a)).join(' ')); };
+    await main(['check', dir]);
+  } finally {
+    console.log = realLog;
+    process.exitCode = 0;
+    await rm(dir, { recursive: true, force: true });
+  }
+  const text = out.join('\n');
+  assert.match(text, /impl\/ops\/:1:1 {2}warning {2}W051 {2}impl\/ops\/ holds 1 \.mjs body/);
+});

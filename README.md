@@ -1785,7 +1785,10 @@ Warnings:
 - `W051` a file in `impl/` is not a `.mjs` body: the build reads only
   `impl/<op>.mjs`, so `impl/totals.js` was never bundled and its operation
   looked bodiless. A warning that names the file and the extension the build
-  reads.
+  reads. The same code names a `subdirectory` of `impl/` that holds `.mjs`
+  files: bodies are read one level deep, so `impl/ops/totals.mjs` and a shared
+  `impl/lib/` are dead weight, and with no top-level body `W050` stays quiet.
+  An empty directory is not reported.
 - `W049` an `impl/*.mjs` body is named after no operation: only the bodies the
   service contract declares are bundled, so `impl/total.mjs` (a typo of
   `totals`) was loaded and then dropped — `totals` answered `501

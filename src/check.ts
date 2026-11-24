@@ -60,6 +60,9 @@ export interface CheckOptions {
   impl?: Record<string, string>;
   // Files in impl/ that the build will not bundle (anything but *.mjs).
   implIgnored?: string[];
+  // Directories in impl/ that hold bodies the build never reads: readImpl is
+  // one level deep, so impl/ops/totals.mjs is dead weight.
+  implIgnoredDirs?: Array<{ name: string; bodies: number }>;
 }
 
 // An ssr page is rendered from a parameterless GET: that is the only shape a
@@ -1591,6 +1594,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkImplSignatures(mod, diags, options.impl);
   checkOrphanImplBodies(mod, diags, options.impl);
   checkIgnoredImplBodies(mod, diags, options.implIgnored);
+  checkIgnoredImplDirs(mod, diags, options.implIgnoredDirs);
   checkMissingImplBodies(mod, diags, options.impl);
 
   return sortDiagnostics(diags);
@@ -1666,6 +1670,23 @@ export function checkIgnoredImplBodies(mod: ModuleNode, diags: Diagnostic[], ign
       diag('W051', 'warning', 'impl/' + file, { ...mod.loc, line: 1, col: 1, endLine: 1, endCol: 1 }, 'impl.' + file,
         'impl/' + file + ' is not a .mjs body and is not bundled',
         'rename it to impl/<operation>.mjs: the build reads only .mjs bodies'),
+    );
+  }
+}
+
+// The same silence one level down: readImpl lists impl/ and reads files, so a
+// body filed under a subdirectory (impl/ops/totals.mjs, or the shared helper
+// library issue #39 asked for) is never bundled and never named. W050 does not
+// cover it either: with no top-level body the map is empty and every operation
+// stays quiet. The directory is the evidence, so it is named with the number of
+// bodies inside it.
+export function checkIgnoredImplDirs(mod: ModuleNode, diags: Diagnostic[], dirs: Array<{ name: string; bodies: number }> | undefined): void {
+  if (!dirs) return;
+  for (const dir of dirs) {
+    diags.push(
+      diag('W051', 'warning', 'impl/' + dir.name + '/', { ...mod.loc, line: 1, col: 1, endLine: 1, endCol: 1 }, 'impl.' + dir.name,
+        'impl/' + dir.name + '/ holds ' + dir.bodies + (dir.bodies === 1 ? ' .mjs body' : ' .mjs bodies') + ' the build never reads',
+        'move each body up to impl/ and name it after its operation: impl/<operation>.mjs'),
     );
   }
 }
