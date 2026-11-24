@@ -4,6 +4,7 @@ import { CHAT_PAGE } from './chat-page.ts';
 import { PRESENTATION_PAGE } from './presentation-page.ts';
 import { hasStream } from './service.ts';
 import { QR_SOURCE } from './qr-code.ts';
+import { constraintOf } from '../constraints.ts';
 
 export interface WebOptions {
   maxBytes: number;
@@ -15,10 +16,11 @@ export interface WebOptions {
 // response is rendered by shape (object, list, error, scalar).
 interface UiParam {
   name: string;
-  kind: 'text' | 'textarea' | 'number' | 'bool' | 'json';
+  kind: 'text' | 'textarea' | 'number' | 'bool' | 'json' | 'select';
   where: 'path' | 'query' | 'body';
   optional: boolean;
   max: number | null;
+  options: string[];
 }
 
 interface UiOp {
@@ -409,7 +411,25 @@ async function run(op, form, out, button) {
 
 function fieldControl(p) {
   var input;
-  if (p.kind === 'textarea' || p.kind === 'json') {
+  if (p.kind === 'select') {
+    input = document.createElement('select');
+    // The contract names a closed set here: a free-text field would carry a
+    // typo all the way to a 400 "must be one of ...", so the field offers the
+    // values instead. An optional enum keeps an empty choice, and a required
+    // one starts on the first value, so the form cannot send an empty string.
+    if (p.optional) {
+      var blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = '—';
+      input.appendChild(blank);
+    }
+    p.options.forEach(function (value) {
+      var option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      input.appendChild(option);
+    });
+  } else if (p.kind === 'textarea' || p.kind === 'json') {
     input = document.createElement('textarea');
     input.rows = 3;
     // A bytes limit is a character ceiling on the field too, not only a size
@@ -526,8 +546,14 @@ function uiParam(mod: ModuleNode, param: Param, where: 'path' | 'query' | 'body'
   const optional = param.type.kind === 'optional' || resolved.kind === 'optional';
   let kind: UiParam['kind'] = 'text';
   let max: number | null = null;
+  // The constraint resolver is the same one OpenAPI and the service boundary
+  // read, so the dropdown cannot drift from what the API accepts.
+  const enumValues = constraintOf(mod, param.type).enumValues;
+  const options = enumValues ? enumValues.slice() : [];
 
-  if (resolved.kind === 'record') {
+  if (options.length > 0) {
+    kind = 'select';
+  } else if (resolved.kind === 'record') {
     kind = 'json';
   } else if (resolved.kind === 'named') {
     if (resolved.name === 'list' || resolved.name === 'map' || resolved.name === 'json') kind = 'json';
@@ -541,7 +567,7 @@ function uiParam(mod: ModuleNode, param: Param, where: 'path' | 'query' | 'body'
     }
   }
 
-  return { name: param.name, kind, where, optional, max };
+  return { name: param.name, kind, where, optional, max, options };
 }
 
 function routeOfOp(op: OpNode): { method: string; path: string } {

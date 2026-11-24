@@ -425,8 +425,11 @@ parameters, `autocomplete="off"` so a password manager does not fill API
 parameters, and results in a `role="status"` region with `aria-live="polite"`
 — an async answer is announced without stealing focus. Fields come from the
 contract, not from a template: a `bytes` limit above 512 bytes is a textarea,
-every `bytes`/`string` `max` becomes `maxlength` (the unit is converted), and a
-record parameter or a `list`/`map` becomes a JSON field.
+every `bytes`/`string` `max` becomes `maxlength` (the unit is converted), a
+record parameter or a `list`/`map` becomes a JSON field, and a declared `enum`
+becomes a `<select>` of exactly the values the contract accepts — the same list
+OpenAPI documents and the service boundary validates, so a form cannot send a
+value the API rejects.
 
 The language is a property of the `ui` block, not a build flag: `locale: "ru"`
 (or any BCP-47 tag) sets `<html lang>` and swaps the page's label catalog —

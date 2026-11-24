@@ -11,9 +11,11 @@ const source = `module fields @0.1.0 {}
 
 type Filter = { q: string, limit: int }
 
+enum Plan { free, pro, team }
+
 service S : http {
   contract {
-    public op search(filter: Filter, body: bytes(max: 2kb), small: string(max: 12)) -> string {
+    public op search(filter: Filter, plan: Plan, coupon: Plan?, body: bytes(max: 2kb), small: string(max: 12)) -> string {
       route: "POST /v1/search"
     }
     public op upload(a: bytes(max: 1mb), b: bytes(max: 1gb)) -> string {
@@ -34,7 +36,7 @@ environment dev {
 }
 `;
 
-function fields(html: string, name: string): { kind: string; where: string; optional: boolean; max: number | null } {
+function fields(html: string, name: string): { kind: string; where: string; optional: boolean; max: number | null; options?: string[] } {
   const match = html.match(new RegExp('\\{"name":"' + name + '"[^}]*\\}'));
   assert.ok(match, 'field ' + name + ' exists');
   return JSON.parse(match![0]);
@@ -77,4 +79,45 @@ test('a bytes limit is converted from its unit before it reaches maxlength', () 
   assert.equal(fields(html, 'small').kind, 'text');
   assert.equal(fields(html, 'a').max, 1024 * 1024);
   assert.equal(fields(html, 'b').max, 1024 * 1024 * 1024);
+});
+
+// An enum is a closed set in the contract: the service answers 400 "must be one
+// of ..." for anything else, so the form offers the values instead of a text
+// field. The same resolver feeds OpenAPI, so the list cannot drift.
+test('a declared enum becomes a dropdown of the accepted values', () => {
+  const html = emitWeb(parse(source, 'fields.arc'), { maxBytes: 65536 });
+  const plan = fields(html, 'plan');
+  assert.equal(plan.kind, 'select');
+  assert.deepEqual(plan.options, ['free', 'pro', 'team']);
+  const coupon = fields(html, 'coupon');
+  assert.equal(coupon.kind, 'select', 'an optional enum is still a closed set');
+  assert.equal(coupon.optional, true);
+  assert.deepEqual(coupon.options, ['free', 'pro', 'team']);
+  assert.equal(fields(html, 'small').kind, 'text', 'a plain string stays a text field');
+});
+
+test('the dropdown keeps an empty choice only when the parameter is optional', () => {
+  const html = emitWeb(parse(source, 'fields.arc'), { maxBytes: 65536 });
+  const body = html.match(/function fieldControl\(p\) \{[\s\S]*?\n\}/);
+  assert.ok(body, 'the page ships fieldControl');
+  type FakeEl = { tag: string; children: FakeEl[]; setAttribute(name: string, value: string): void; appendChild(child: FakeEl): void };
+  const fakeDoc = () => ({
+    createElement: (tag: string): FakeEl => ({
+      tag,
+      children: [],
+      setAttribute(name: string, value: string) {
+        (this as unknown as Record<string, string>)[name] = value;
+      },
+      appendChild(child: FakeEl) {
+        this.children.push(child);
+      },
+    }),
+  });
+  const build = new Function('document', body![0] + '; return fieldControl;') as (doc: unknown) => (p: unknown) => FakeEl;
+  const required = build(fakeDoc())({ name: 'plan', kind: 'select', options: ['free', 'pro', 'team'], optional: false });
+  assert.equal(required.tag, 'select');
+  assert.deepEqual(required.children.map((child) => (child as unknown as Record<string, string>).value), ['free', 'pro', 'team']);
+  const optional = build(fakeDoc())({ name: 'coupon', kind: 'select', options: ['free'], optional: true });
+  assert.deepEqual(optional.children.map((child) => (child as unknown as Record<string, string>).value), ['', 'free']);
+  assert.equal((optional as unknown as Record<string, string>)['aria-required'], undefined, 'an optional field is not marked required');
 });
