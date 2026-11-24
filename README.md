@@ -1787,7 +1787,8 @@ Warnings:
 - `W050` an operation has no body in `impl/` while other bodies exist: its
   route answers `501 NotImplemented`, which looks like a server bug from the
   client's side. An external service describes someone else's API and a saga job
-  is orchestrated by its steps, so neither is reported.
+  is orchestrated by its steps, so neither is reported. A file that exists but
+  declares no function is not "missing": `A096` names it with the line.
 - `W051` a file in `impl/` is not a `.mjs` body: the build reads only
   `impl/<op>.mjs`, so `impl/totals.js` was never bundled and its operation
   looked bodiless. A warning that names the file and the extension the build

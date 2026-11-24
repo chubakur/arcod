@@ -1653,7 +1653,10 @@ export function checkMissingImplBodies(mod: ModuleNode, diags: Diagnostic[], imp
   for (const svc of mod.services) {
     if (svc.external) continue;
     for (const op of svc.contract) {
-      if (impl[op.name]) continue;
+      // A file that exists but holds nothing is reported by A096 ("declares no
+      // function"), which already names that file. Saying "add impl/x.mjs"
+      // next to it sends the author to a file they are looking at.
+      if (op.name in impl) continue;
       if (op.clauses.some((clause) => clause.kind === 'saga')) continue;
       diags.push(
         diag('W050', 'warning', mod.file, op.loc, 'services.' + svc.name + '.ops.' + op.name,

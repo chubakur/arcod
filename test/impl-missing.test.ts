@@ -121,3 +121,26 @@ environment dev {
   const found = warnings(source, {});
   assert.deepEqual(found.map((item) => item.message), []);
 });
+
+// A body file that exists but holds only whitespace used to collect two
+// messages: A096 ("declares no function totals") and W050 ("add
+// impl/totals.mjs"). The second one points at the file the author is looking
+// at, so it is not emitted for a file that is present.
+test('W050: a blank body file is named by A096 only', () => {
+  const source = spec(
+    'service Lines : http {\n' +
+      '  uses store: sql\n\n' +
+      '  contract {\n' +
+      '    public op totals() -> int {\n' +
+      '      route: "GET /v1/totals"\n' +
+      '      post: result != null\n' +
+      '    }\n' +
+      '  }\n' +
+      '}\n',
+  );
+  const diags = check(parse(source, 'main.arc'), { impl: { totals: '' } });
+  assert.deepEqual(diags.filter((item) => item.code === 'W050'), []);
+  const named = diags.filter((item) => item.code === 'A096');
+  assert.equal(named.length, 1);
+  assert.equal(named[0].file, 'impl/totals.mjs');
+});
