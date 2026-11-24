@@ -378,14 +378,21 @@ function index(mod: ModuleNode): { defs: SymbolDef[]; refs: SymbolRef[] } {
   }
 
   // UI operation bindings: every op name a page wires up is a reference.
+  // Search each binding from its own keyword, not from the top of the page:
+  // `state: Live.state` and a `uses Live.state` entry are two positions, and
+  // a search from the page start reported both at the first one.
   for (const u of mod.uis) {
-    for (const use of u.uses) addCallRef(use, null, u.loc);
-    if (u.history) addCallRef(u.history, null, u.loc);
-    if (u.send) addCallRef(u.send, null, u.loc);
-    if (u.start) addCallRef(u.start, null, u.loc);
-    if (u.join) addCallRef(u.join, null, u.loc);
-    if (u.state) addCallRef(u.state, null, u.loc);
-    if (u.advance) addCallRef(u.advance, null, u.loc);
+    const from = (key: string): Loc => {
+      const at = u.clauseLocs?.[key];
+      return at ? { ...u.loc, offset: at.offset } : u.loc;
+    };
+    for (const use of u.uses) addCallRef(use, null, from('uses'));
+    if (u.history) addCallRef(u.history, null, from('history'));
+    if (u.send) addCallRef(u.send, null, from('send'));
+    if (u.start) addCallRef(u.start, null, from('start'));
+    if (u.join) addCallRef(u.join, null, from('join'));
+    if (u.state) addCallRef(u.state, null, from('state'));
+    if (u.advance) addCallRef(u.advance, null, from('advance'));
   }
 
   // Named-type references, everywhere a TypeExpr can appear.

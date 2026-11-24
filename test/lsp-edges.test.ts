@@ -55,8 +55,10 @@ test('a ui page binds state/join/advance to the operations it wires', () => {
   const at = lines[stateLine].indexOf('state');
   const opLine = lineWith(quiz, 'op state(');
   const spots = spotsOf(quiz, stateLine, at);
-  const afterDot = lines[stateLine].indexOf('Live.state') + 'Live.'.length;
-  assert.ok(spots.includes(stateLine + ':' + afterDot), 'the ui binding is a use of the op: ' + spots);
+  const usesLine = lineWith(quiz, 'uses Live.start, Live.join, Live.state');
+  const afterDot = (line: number) => lines[line].indexOf('Live.state') + 'Live.'.length;
+  assert.ok(spots.includes(stateLine + ':' + afterDot(stateLine)), 'the ui binding is a use of the op: ' + spots);
+  assert.ok(spots.includes(usesLine + ':' + afterDot(usesLine)), 'and the uses entry is its own position: ' + spots);
   assert.ok(spots.includes(opLine + ':' + lines[opLine].indexOf('state')), 'and the declaration: ' + spots);
   assert.equal(new Set(spots).size, spots.length, 'no position is listed twice: ' + spots);
 });
