@@ -18,6 +18,8 @@ const WRITE_OPS = new Set(['set', 'del', 'put', 'push', 'incr', 'decr', 'update'
 const ROUTE_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 // Delay units a trigger may use; a runner has to convert them to a timer.
 const TRIGGER_UNITS = ['ms', 's', 'm', 'h', 'd'];
+// The size units a byte bound may use; the multiplier lives in web/constraints.
+const BOUND_SIZE_UNITS = ['b', 'kb', 'mb', 'gb'];
 // Type arguments that change what a builtin means. Anything else written in
 // the parentheses has no reader in any emitter, so check names it instead of
 // letting the author believe a bound was applied (A087).
@@ -654,13 +656,20 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
             diags.push(diag('A087', 'error', mod.file, arg.loc, 'types.' + type.name,
               'int(' + arg.name + ':) needs a whole number',
               'the bound of an integer is an integer, e.g. int(max: 100)'));
-          } else if (arg.value.kind === 'duration' && TRIGGER_UNITS.includes((arg.value.unit ?? '').toLowerCase())) {
+          } else if (arg.value.kind === 'duration'
+            && (TRIGGER_UNITS.includes((arg.value.unit ?? '').toLowerCase())
+              || (type.name === 'bytes' && !BOUND_SIZE_UNITS.includes((arg.value.unit ?? '').toLowerCase())))) {
             // A099 — a bound is a count, a size or nothing: bytes(max: 5s)
             // read the 5 and dropped the unit, so check stayed clean, OpenAPI
-            // published five bytes and the runtime enforced five bytes. The
-            // time units only mean something to a trigger.
+            // published five bytes and the runtime enforced five bytes. A
+            // byte bound with no size unit (bytes(max: 5q)) loses the unit
+            // the same way. The time units only mean something to a trigger.
+            const unit = arg.value.unit ?? '';
+            const time = TRIGGER_UNITS.includes(unit.toLowerCase());
             diags.push(diag('A099', 'error', mod.file, arg.loc, 'types.' + type.name,
-              'a ' + arg.name + ' bound is a size, not a time: ' + arg.value.value + (arg.value.unit ?? ''),
+              time
+                ? 'a ' + arg.name + ' bound is a size, not a time: ' + arg.value.value + unit
+                : 'a ' + arg.name + ' bound has no size unit: ' + arg.value.value + unit,
               type.name === 'bytes'
                 ? 'write a size, e.g. bytes(max: 64kb), or a plain byte count, e.g. bytes(max: 512)'
                 : 'write a plain number, e.g. ' + type.name + '(max: 80)'));

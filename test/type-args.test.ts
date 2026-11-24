@@ -126,11 +126,14 @@ test('a time unit on a bound is A099, not a silent five bytes', () => {
   assert.equal(text.length, 1);
   assert.match(text[0].message, /min bound is a size, not a time: 2h/);
   assert.match(text[0].hint ?? '', /\(max: 80\)/);
+  const unknown = a099('type Body = bytes(max: 5q)');
+  assert.equal(unknown.length, 1);
+  assert.match(unknown[0].message, /max bound has no size unit: 5q/);
   // An integer bound is already A087 ("needs a whole number"): one code per
   // mistake is enough.
   assert.deepEqual(a099('type Age = int(max: 5s)'), []);
 });
 
 test('a size unit and a plain count stay clean', () => {
-  assert.deepEqual(a099('type Body = bytes(min: 1kb, max: 64kb)\ntype Small = bytes(max: 512)\ntype Name = string(max: 80)'), []);
+  assert.deepEqual(a099('type Body = bytes(min: 1kb, max: 64kb)\ntype Small = bytes(max: 512)\ntype One = bytes(max: 5b)\ntype Name = string(max: 80)'), []);
 });
