@@ -64,3 +64,40 @@ test('a dialect is selected by name and unknown ones are rejected', () => {
   assert.equal(dialectNamed('postgresql'), POSTGRES);
   assert.throws(() => dialectNamed('oracle'), /unknown sql dialect oracle/);
 });
+
+// A sql store with a queue writes an outbox table: the fact write and the
+// event commit together. MySQL spells the pending index inside the table,
+// Postgres as a separate statement — so the Postgres table must not keep the
+// comma that precedes MySQL's KEY line. It did, and `published_at BIGINT
+// NULL,\n\n);` made every postgres boot fail with `syntax error at or near ")"`
+// (issue #43).
+const outboxUrl = new URL('../examples/orders/main.arc', import.meta.url);
+
+test('the postgres outbox table closes right after its last column', async () => {
+  const mod = parse(await readFile(outboxUrl, 'utf8'), 'main.arc');
+  const plan = migrationPlan(mod, specOf(mod), { dialect: POSTGRES });
+  const outbox = plan.migrations.find((m) => m.name === 'arcod_outbox')!;
+  assert.match(outbox.up, /^ {2}published_at BIGINT NULL\n\);$/m);
+  assert.doesNotMatch(outbox.up, /,\n\n\);/);
+  assert.doesNotMatch(outbox.up, /^$/m);
+  assert.match(outbox.up, /CREATE INDEX IF NOT EXISTS arcod_outbox_pending ON "arcod_outbox" \(published_at\);$/m);
+});
+
+test('the mysql outbox table is byte-identical to the applied checksum', async () => {
+  const mod = parse(await readFile(outboxUrl, 'utf8'), 'main.arc');
+  const plan = migrationPlan(mod, specOf(mod));
+  const outbox = plan.migrations.find((m) => m.name === 'arcod_outbox')!;
+  assert.equal(
+    outbox.up,
+    [
+      'CREATE TABLE IF NOT EXISTS arcod_outbox (',
+      '  id CHAR(36) NOT NULL PRIMARY KEY,',
+      '  topic TEXT NOT NULL,',
+      '  payload TEXT NOT NULL,',
+      '  created_at BIGINT NOT NULL,',
+      '  published_at BIGINT NULL,',
+      '  KEY arcod_outbox_pending (published_at)',
+      ') ENGINE=InnoDB',
+    ].join('\n'),
+  );
+});

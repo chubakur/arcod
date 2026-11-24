@@ -313,19 +313,28 @@ export function migrationPlan(
   // the two commit in one transaction, and a dispatcher relays the row to the
   // real queue. Only exists on the sql driver with a queue capability.
   if (usesSql(svc) && usesQueue(svc)) {
-    const up = [
-      dialect.name === 'mysql'
+    // MySQL spells the pending index inside the table, so the table closes
+    // with a comma-terminated last column plus the KEY line. Postgres spells it
+    // as its own statement and must not keep a trailing comma: joining an empty
+    // placeholder produced `published_at BIGINT NULL,\n\n);`, which postgres
+    // rejects (issue #43).
+    const mysql = dialect.name === 'mysql';
+    const lines = [
+      mysql
         ? 'CREATE TABLE IF NOT EXISTS arcod_outbox ('
         : 'CREATE TABLE IF NOT EXISTS ' + dialect.quote('arcod_outbox') + ' (',
       '  id CHAR(36) NOT NULL PRIMARY KEY,',
       '  topic TEXT NOT NULL,',
       '  payload TEXT NOT NULL,',
       '  created_at BIGINT NOT NULL,',
-      '  published_at BIGINT NULL,',
-      dialect.name === 'mysql' ? '  KEY arcod_outbox_pending (published_at)' : '',
-      dialect.name === 'mysql' ? ') ENGINE=InnoDB' : ');',
-      dialect.name === 'mysql' ? '' : 'CREATE INDEX IF NOT EXISTS arcod_outbox_pending ON ' + dialect.quote('arcod_outbox') + ' (published_at);',
-    ].join('\n');
+    ];
+    if (mysql) {
+      lines.push('  published_at BIGINT NULL,', '  KEY arcod_outbox_pending (published_at)', ') ENGINE=InnoDB');
+    } else {
+      lines.push('  published_at BIGINT NULL', ');',
+        'CREATE INDEX IF NOT EXISTS arcod_outbox_pending ON ' + dialect.quote('arcod_outbox') + ' (published_at);');
+    }
+    const up = lines.join('\n');
     migrations.push({
       version: String(migrations.length + 1).padStart(4, '0'),
       name: 'arcod_outbox',
