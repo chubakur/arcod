@@ -1304,6 +1304,8 @@ io: new() -> id; hash(password); set(id, value)
 value: {b: string, h: string|null}; h = password hash or null
 ```
 
+A call into an `external service` is spelled in the same io list: `remote("Ledger", "record", input) -> { status, body }`. The alias has no capability signature, so without that line a body would have to guess how the other service is reached.
+
 115 tokens for `create`, 197 for `read` in the password example; `--full` pays
 353 and 395 for the header, contract, io list and storage shape. No routes, no
 other operations, no infrastructure: everything constant ("one file, no

@@ -394,8 +394,17 @@ function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boo
     lines.push(text);
   }
 
+  // A call into somebody else's service has no capability signature: the alias
+  // names an `external service`, and the body reaches it through io.remote.
+  // Looking the alias up in the capability table answered null, so the line
+  // vanished and the model never saw the call the contract requires.
+  const externals = new Set(mod.services.filter((item) => item.external).map((item) => item.name));
   const io = opEffects(mod, svc, op, guarded)
-    .map(([alias, name]) => shortFor(capabilityOf.get(alias) ?? alias, name))
+    .map(([alias, name]) =>
+      externals.has(alias)
+        ? 'remote(' + JSON.stringify(alias) + ', ' + JSON.stringify(name) + ', input) -> { status, body }'
+        : shortFor(capabilityOf.get(alias) ?? alias, name),
+    )
     .filter((item): item is string => Boolean(item));
   if (io.length > 0) lines.push('io (all methods are async: await them): ' + io.join('; '));
 
