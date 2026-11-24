@@ -1168,7 +1168,7 @@ A unique rule may name a tuple: `unique Fence.(name, fence)` (also written
 another `fence` is fine while the same pair is `Conflict`. The kv claim is keyed
 by the tuple and SQL emits one composite `UNIQUE KEY (name, fence)`.
 
-A successful call answers what the method implies: `GET`/`HEAD` 200, a write 201. An operation that is a `POST` but creates nothing (`cancel`, `replay`) declares `status: 200`, and both the runtime and OpenAPI answer it; the clause takes any body-carrying 2xx — 204/205 has no body while every handler builds one, and a 4xx/5xx is an error, not a success answer (`A097`).
+A successful call answers what the method implies: `GET`/`HEAD` 200, a write 201. An operation that is a `POST` but creates nothing (`cancel`, `replay`) declares `status: 200`, and both the runtime and OpenAPI answer it; the clause takes any body-carrying 2xx — 204/205 has no body while every handler builds one, and a 4xx/5xx is an error, not a success answer (`A097`). The clause also decides the shape of a string result: a `POST` that returns `-> string` without `status` answers the one-time-message envelope `{ id, expiresIn }`, so a client generated from the schema would parse an object where the contract says string; declaring `status: 200` gives the declared string back as a `text/plain` body, which is what OpenAPI promises.
 
 An error may declare payload fields: `error Conflict { fence: int }`. A body
 that returns `{ error: 'Conflict', fence: lease.fence }` gets a 409 carrying
