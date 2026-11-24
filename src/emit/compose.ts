@@ -383,14 +383,17 @@ export function composeYaml(mod: ModuleNode, port: number, hasUi = true, registr
     lines.push('    ports:', '      - "' + port + ':3000"');
   }
 
-  // Docker Desktop already resolves host.docker.internal to the host. On Linux
-  // it has to be declared, so the bind asks for it explicitly: gateway: true.
+  // Docker Desktop resolves host.docker.internal on its own; a Linux engine
+  // does not, and the URL the provider rewrote cannot be reached without the
+  // declaration. A host-local URL therefore implies extra_hosts: the line is
+  // harmless where the name already resolves and required where it does not.
+  // gateway: true stays an accepted argument so older specs keep checking
+  // clean, but it no longer decides anything (issue #42).
   const endpoints = bound.filter((item) => item.spec.capability === 'endpoint');
-  const gateway = endpoints.some((item) => item.args.gateway === true)
-    && endpoints.some((item) => {
-      const url = String(item.args.url ?? '');
-      return url.includes('host.docker.internal') || url.includes('localhost') || url.includes('127.0.0.1');
-    });
+  const gateway = endpoints.some((item) => {
+    const url = String(item.args.url ?? '');
+    return url.includes('host.docker.internal') || url.includes('localhost') || url.includes('127.0.0.1');
+  });
   if (gateway) {
     lines.push('    extra_hosts:');
     lines.push('      - "host.docker.internal:host-gateway"');

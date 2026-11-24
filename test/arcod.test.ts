@@ -1428,7 +1428,9 @@ test('a payment service outsources nothing it cannot check', () => {
 test('an external call is typed by the contract and addressed by the environment', async () => {
   const compose = composeYaml(paymentsAst, 8080, false);
   assert.ok(compose.includes('LEDGER_URL: "http://host.docker.internal:9009"'), 'localhost is rewritten');
-  assert.ok(!compose.includes('extra_hosts'), 'Docker Desktop needs no gateway override');
+  // The declaration is implied by the rewritten URL: harmless on Docker
+  // Desktop, required by a Linux engine (issue #42).
+  assert.ok(compose.includes('host.docker.internal:host-gateway'), 'a host-local URL asks for the gateway');
 
   const withWiring = composeYaml(parse(
     (await readFile(paymentsUrl, 'utf8'))

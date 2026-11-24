@@ -150,9 +150,9 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
   endpoint: {
     name: 'endpoint',
     capability: 'endpoint',
-    // gateway: true asks compose for host-gateway (Linux), and the emitter
-    // reads it — an undeclared argument made W035 advise against the one
-    // switch the README documents.
+    // gateway: true is accepted for the specs written before #42 made the
+    // declaration follow the URL; it stays declared so W035 does not advise
+    // against an argument the README used to document.
     options: ['gateway', 'network', 'url'],
     external: true,
     appEnv: ({ alias, args }) => {

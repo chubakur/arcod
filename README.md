@@ -541,9 +541,11 @@ first 200 characters of the response body.
 
 The emitter takes the method and path from the contract, the base URL from the
 environment (`LEDGER_URL`), so the body never knows an address. In compose,
-`localhost` is rewritten to `host.docker.internal`; `network: "shared"`
-attaches the container to an existing network (`external: true`), and
-`gateway: true` adds `host-gateway` for Linux. A build that names the host this
+`localhost` is rewritten to `host.docker.internal`, and the service declares
+`extra_hosts: host.docker.internal:host-gateway` for it, so the name resolves on
+a Linux engine as well as on Docker Desktop; `gateway: true` is still accepted
+but no longer decides anything. `network: "shared"` attaches the container to
+an existing network (`external: true`). A build that names the host this
 way also sets `dns.setDefaultResultOrder('ipv4first')`: Docker Desktop answers
 `host.docker.internal` with both families, and Node would otherwise pick the
 AAAA record while the host listener is IPv4-only. An external service never
