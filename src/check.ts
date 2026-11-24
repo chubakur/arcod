@@ -63,6 +63,9 @@ export interface CheckOptions {
   // Directories in impl/ that hold bodies the build never reads: readImpl is
   // one level deep, so impl/ops/totals.mjs is dead weight.
   implIgnoredDirs?: Array<{ name: string; bodies: number }>;
+  // impl/lib.mjs: shared helpers bundled once before the bodies, so its names
+  // share the top-level namespace with every body.
+  implLib?: string;
 }
 
 // An ssr page is rendered from a parameterless GET: that is the only shape a
@@ -1590,7 +1593,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkSagas(mod, diags);
   checkEntityLiterals(mod, diags, options.impl);
   checkWhereOperators(mod, diags, options.impl);
-  checkImplCollisions(mod, diags, options.impl);
+  checkImplCollisions(mod, diags, options.impl, options.implLib);
   checkImplSignatures(mod, diags, options.impl);
   checkOrphanImplBodies(mod, diags, options.impl);
   checkIgnoredImplBodies(mod, diags, options.implIgnored);
@@ -1604,9 +1607,11 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
 // in both files is a SyntaxError that only the container sees. The build already
 // refused it; the check has the same bodies in hand, so it names both files
 // before anyone starts a build.
-export function checkImplCollisions(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined): void {
-  if (!impl) return;
-  for (const collision of implCollisions(impl)) {
+export function checkImplCollisions(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined, lib?: string): void {
+  if (!impl && !lib) return;
+  const files: Record<string, string> = { ...(impl ?? {}) };
+  if (lib) files.lib = lib;
+  for (const collision of implCollisions(files)) {
     diags.push(
       diag('A093', 'error', collision.file, { ...mod.loc, line: collision.line, endLine: collision.line }, 'impl.' + collision.op,
         'duplicate top-level name "' + collision.name + '" in ' + collision.firstFile + ' and ' + collision.file,

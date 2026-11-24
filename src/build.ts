@@ -23,6 +23,9 @@ export interface BuildOptions {
   // targets postgres.
   dialect?: 'mysql' | 'postgres';
   implDir?: string | null;
+  // impl/lib.mjs, when the caller already read it; null means the project has
+  // none and the build should not look.
+  implLib?: string | null;
   // Same registry check() uses: a plugin provider's runtime adapter travels
   // with the build instead of being imported from the package at runtime.
   registry?: ProviderRegistry;
@@ -102,6 +105,11 @@ export async function implIgnoredDirs(exampleDir: string): Promise<Array<{ name:
   return found.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// impl/lib.mjs is not the body of an operation called "lib": it is the shared
+// module every body sees, bundled once before the bodies (issue #39). It is
+// read separately, so it never looks like an orphan body to W049.
+const LIB_BODY = 'lib';
+
 async function readImpl(dir: string): Promise<Record<string, string> | undefined> {
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
   if (!entries) return undefined;
@@ -109,9 +117,15 @@ async function readImpl(dir: string): Promise<Record<string, string> | undefined
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith('.mjs')) continue;
     const op = entry.name.slice(0, -'.mjs'.length);
+    if (op === LIB_BODY) continue;
     impl[op] = await readFile(join(dir, entry.name), 'utf8');
   }
   return Object.keys(impl).length > 0 ? impl : undefined;
+}
+
+export async function implLibFor(exampleDir: string): Promise<string | undefined> {
+  const dir = await implDirFor(exampleDir);
+  return readFile(join(dir, LIB_BODY + '.mjs'), 'utf8').catch(() => undefined);
 }
 
 
@@ -162,8 +176,8 @@ export function resolveDialect(mod: ModuleNode, explicit?: 'mysql' | 'postgres')
 // A top-level name declared in two bodies is a SyntaxError in the bundled
 // module; the scanner lives in impl.ts so check reports the same collision
 // before a build is ever started.
-function checkImplDeclarations(impl: Record<string, string>): void {
-  const collision = implCollisions(impl)[0];
+function checkImplDeclarations(impl: Record<string, string>, lib?: string): void {
+  const collision = implCollisions(lib ? { ...impl, [LIB_BODY]: lib } : impl)[0];
   if (collision) {
     throw new BuildError('duplicate top-level name "' + collision.name + '" in ' + collision.firstFile + ' and ' + collision.file);
   }
@@ -263,13 +277,27 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
   const dialect = resolveDialect(mod, options.dialect);
   const impl =
     options.implDir === null ? undefined : await readImpl(options.implDir ?? (await implDirFor(exampleDir)));
+  const implLib = options.implLib === null
+    ? undefined
+    : options.implLib ?? (options.implDir === null ? undefined : await implLibFor(options.implDir ?? exampleDir));
 
   // Bodies are part of the model, not an anonymous blob: every impl/ body is
   // checked against the sandbox (no raw network/fs/exec/process, only io) and
   // hashed into a provenance manifest next to the build output.
   const implManifest: Record<string, { sha256: string; bytes: number; source: string }> = {};
+  // The lib is bundled too, so it is held to the same sandbox and shares the
+  // top-level namespace the collision scan guards.
+  if (implLib) {
+    const violation = sandboxViolation(implLib);
+    if (violation) throw new Error('impl/lib.mjs violates the sandbox: ' + violation);
+    implManifest[LIB_BODY] = {
+      sha256: createHash('sha256').update(implLib).digest('hex'),
+      bytes: Buffer.byteLength(implLib),
+      source: 'impl',
+    };
+  }
   if (impl) {
-    checkImplDeclarations(impl);
+    checkImplDeclarations(impl, implLib);
     for (const op of Object.keys(impl).sort()) {
       const violation = sandboxViolation(impl[op]);
       if (violation) throw new Error('impl body ' + op + '.mjs violates the sandbox: ' + violation);
@@ -288,7 +316,7 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
   const pages = webHtml && firstUi && firstUi.render === 'ssr'
     ? [{ route: firstUi.route, html: webHtml, dataOp: ssrFirstScreenOp(mod) }]
     : [];
-  const service = emitService(mod, { reference, impl, registry: options.registry, dialect, pages });
+  const service = emitService(mod, { reference, impl, implLib, registry: options.registry, dialect, pages });
 
   const files: Array<[string, string]> = [
     [join(serviceDir, 'index.mjs'), service],

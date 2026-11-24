@@ -330,8 +330,8 @@
           A file the build does not read at all — anything but <code>.mjs</code>, or a
           <code>.mjs</code> filed under a subdirectory, since bodies are read one level
           deep — is <code>W051</code>. All three are warnings, so a partial build still
-          builds; four tests cover W051, four cover W049 and three cover W050, one of them
-          pinning the build to success.</p>
+          builds; tests cover each code, and one pins the build to success for a spec
+          whose only problems are warnings.</p>
         </div>
         <div class="card">
           <span class="num">2026-11-23 · CHECK</span>
@@ -643,7 +643,10 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <code>A096</code> — an error, so <code>build</code> refuses with the file and
           line — while a file that matches no operation is <code>W049</code> and an
           operation left without a body is <code>W050</code>: warnings that name the
-          file and the operation.</p>
+          file and the operation. Bodies share one module, so a helper goes in
+          <code>impl/lib.mjs</code> — bundled once before the bodies, called as a
+          top-level name by every body, and refused as <code>A093</code> when a body
+          redeclares it.</p>
         </div>
       </div>
 

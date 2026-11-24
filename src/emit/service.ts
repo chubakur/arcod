@@ -22,6 +22,9 @@ export interface EmitOptions {
   dialect?: 'mysql' | 'postgres';
   reference?: boolean;
   impl?: Record<string, string>;
+  // Shared helpers from impl/lib.mjs, bundled once before the bodies so every
+  // body sees them as top-level functions (issue #39).
+  implLib?: string;
   // Providers a plugin declares carry a runtime adapter; the registry is what
   // says which bindings need one and which methods it answers.
   registry?: ProviderRegistry;
@@ -2087,7 +2090,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
 
   const externals = mod.services.filter((item) => item.external);
   const plugins = pluginBindings(mod, options.registry);
-  const template = withHandlers(serviceTemplate(svc, options.dialect), reference, svc, options.impl, externals, mod, plugins)
+  const template = withHandlers(serviceTemplate(svc, options.dialect), reference, svc, options.impl, externals, mod, plugins, options.implLib)
     .replace(CRYPTO_IMPORT, () => cryptoImportFor(svc, reference || Boolean(options.impl), options.dialect))
     .replace('__QUEUE_SOURCE__\n', () => queueSourceFor(svc, options.impl) + (outboxActive(svc) && options.impl ? outboxSource(options.dialect) + '\n' : ''))
     .replace('__QUEUE_WIRE__', () => (hasQueue(svc) && options.impl ? (outboxActive(svc) ? 'startOutboxDispatcher();\n' : '') + 'startConsumers();\n' : ''))
@@ -2123,7 +2126,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
     .replace('__PLUGIN_WIRE__', () => pluginWireSource(plugins));
 }
 
-function withHandlers(template: string, reference: boolean, svc: ServiceNode, impl: Record<string, string> | undefined, externals: ServiceNode[], mod: ModuleNode, plugins: PluginBinding[] = []): string {
+function withHandlers(template: string, reference: boolean, svc: ServiceNode, impl: Record<string, string> | undefined, externals: ServiceNode[], mod: ModuleNode, plugins: PluginBinding[] = [], implLib?: string): string {
   const startMarker = '// __HANDLERS_START__';
   const endMarker = '// __HANDLERS_END__';
   const start = template.indexOf(startMarker);
@@ -2137,7 +2140,7 @@ function withHandlers(template: string, reference: boolean, svc: ServiceNode, im
   const hashing = isGuarded(svc);
 
   if (impl) {
-    const handlers = implHandlers(svc, impl, hashing, externals, mod, plugins);
+    const handlers = implHandlers(svc, impl, hashing, externals, mod, plugins, implLib);
     return before + handlers + after;
   }
 
@@ -2518,6 +2521,7 @@ function implHandlers(
   externals: ServiceNode[],
   mod: ModuleNode,
   plugins: PluginBinding[],
+  implLib?: string,
 ): string {
   const bodies = svc.contract.filter((op) => impl[op.name]);
   const ops = bodies.filter((op) => op.kind === 'op');
@@ -2569,6 +2573,14 @@ function implHandlers(
     '}',
     '',
   );
+
+  if (implLib) {
+    // One copy for every body: a helper declared here is a top-level function
+    // the bodies call, and the shared namespace is what A093 guards.
+    parts.push('// impl/lib.mjs');
+    parts.push(implLib.trim().replace(/^export\s+/gm, ''));
+    parts.push('');
+  }
 
   for (const name of names) {
     const source = impl[name];
