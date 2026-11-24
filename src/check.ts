@@ -7,7 +7,7 @@ import { capabilityFor, storageKind, storageUse } from './capabilities.ts';
 import { deployNames, deployProvider } from './deploy.ts';
 import { MANAGED_ENDPOINTS, MANAGED_PROVIDERS, managedResource } from './emit/terraform.ts';
 import { baseType, defaultValue } from './migrate.ts';
-import { boundsOf, constraintOf, describeViolation, lengthBoundsOf, unknownFormatOf } from './constraints.ts';
+import { boundsOf, constraintOf, describeViolation, lengthArg, lengthBoundsOf, unknownFormatOf } from './constraints.ts';
 import { isIsoInstant } from './instant.ts';
 import { implCollisions, implSignatureProblems } from './impl.ts';
 import { VERSIONS, isKnownVersion } from './versions.ts';
@@ -766,16 +766,28 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     walkTypeExpr(root, (type) => {
       if (type.kind !== 'named') return;
       if (type.name !== 'int' && type.name !== 'number' && type.name !== 'float' && type.name !== 'string' && type.name !== 'bytes') return;
+      // A size unit is part of the bound: `bytes(min: 2kb, max: 1kb)` is
+      // 2048 > 1024 and admits nothing, while the old literal-only read saw
+      // neither number and stayed silent. lengthArg() is the same conversion
+      // the schema and the boundary use.
+      const sizeBound = type.name === 'string' || type.name === 'bytes';
       let min: number | null = null;
       let max: number | null = null;
       for (const arg of type.args) {
-        if (arg.value.kind !== 'literal' || typeof arg.value.value !== 'number') continue;
-        if (arg.name === 'min') min = arg.value.value;
-        if (arg.name === 'max') max = arg.value.value;
+        const bound = sizeBound
+          ? lengthArg(arg.value as { kind: string; value?: unknown; unit?: string })
+          : arg.value.kind === 'literal' && typeof arg.value.value === 'number' ? arg.value.value : null;
+        if (bound === null) continue;
+        if (arg.name === 'min') min = bound;
+        if (arg.name === 'max') max = bound;
       }
       if (min === null || max === null || min <= max) return;
+      // Quote what the author wrote when the source is there: converted bytes
+      // in the message would not match the line the diagnostic points at.
+      const written = mod.source.slice(type.loc.offset, type.loc.end).replace(/\s+/g, ' ');
+      const label = written.includes('min:') ? written : type.name + '(min: ' + min + ', max: ' + max + ')';
       diags.push(diag('A090', 'error', mod.file, type.loc, 'types.' + type.name,
-        type.name + '(min: ' + min + ', max: ' + max + ') admits no value',
+        label + ' admits no value',
         'write min no greater than max'));
     });
   }

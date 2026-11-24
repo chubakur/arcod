@@ -150,7 +150,7 @@ export const NONE_LENGTHS: { min: number | null; max: number | null } = { min: n
 // publishes (`bytes(max: 8kb)`) mean the same number there: OpenAPI reads
 // `8kb` as maxLength 8192, so a runtime that ignored the unit enforced nothing
 // on a field the contract promised to bound.
-function lengthArg(value: { kind: string; value?: unknown; unit?: string }): number | null {
+export function lengthArg(value: { kind: string; value?: unknown; unit?: string }): number | null {
   if (value.kind === 'literal' && typeof value.value === 'number') return value.value;
   if (value.kind === 'duration' && typeof value.value === 'number' && typeof value.unit === 'string') {
     const table: Record<string, number> = { b: 1, kb: 1024, mb: 1024 * 1024, gb: 1024 * 1024 * 1024 };

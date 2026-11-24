@@ -1704,7 +1704,9 @@ Errors:
   hint names the declaration that would fix it.
 - `A090` a lower bound is above its upper bound (`int(min: 10, max: 5)`): the
   type admits no value, so every caller gets a 400 and every default is A060
-  while the schema promises the type as usable.
+  while the schema promises the type as usable. A size unit is part of the
+  bound — `bytes(min: 2kb, max: 1kb)` is 2048 against 1024 — and the message
+  quotes the bound as it was written.
 - `A091` a `unique` rule names a field with no index: `bytes`, `list`, `map` or
   `json` (MySQL cannot index a JSON column or an unprefixed BLOB, Postgres has
   no `json` equality), so the migration failed only when it reached the server.
