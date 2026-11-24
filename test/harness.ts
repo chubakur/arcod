@@ -22,6 +22,8 @@ export interface ServiceInstance {
 
 export interface StartOptions {
   impl?: Record<string, string>;
+  // impl/lib.mjs: shared helpers the bodies call as top-level names.
+  implLib?: string;
   env?: Record<string, string>;
   reference?: boolean;
   // Plugin providers reach the build the same way check sees them.
@@ -47,7 +49,14 @@ export async function startService(source: string, options: StartOptions = {}): 
     }
     implDir = implRoot;
   }
-  const built = await buildExample(mod, dir, { implDir, reference: options.reference, registry: options.registry });
+  const built = await buildExample(mod, dir, {
+    implDir,
+    // An explicit lib wins; with body files written here there is no
+    // impl/lib.mjs to find on disk.
+    implLib: options.implLib ?? null,
+    reference: options.reference,
+    registry: options.registry,
+  });
 
   // A hardcoded port range races other test files: a losing child dies on
   // EADDRINUSE while the winner answers /healthz, and the suite then drives the

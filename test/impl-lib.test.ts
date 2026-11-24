@@ -13,6 +13,7 @@ import { promisify } from 'node:util';
 import { buildExample, implBodiesFor, implLibFor } from '../src/build.ts';
 import { check } from '../src/check.ts';
 import { parse } from '../src/parser.ts';
+import { startService } from './harness.ts';
 
 const run = promisify(execFile);
 
@@ -146,5 +147,39 @@ test('build --impl reads lib.mjs from the named impl directory', async () => {
     assert.equal((js.match(/function double\(/g) ?? []).length, 1, 'the helper comes from the named directory');
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// The build test above proves the emitter; this one proves the route: a helper
+// from the lib is in scope when the generated service answers a request, so a
+// lost lib can never look like a green build again (that was 61df9d8).
+test('a service runs a body that calls a lib helper', async () => {
+  const source = `module mathdemo @0.1.0 {
+  meta {
+    owner: "@test"
+    status: "draft"
+    since: "2026-11-24"
+  }
+}
+
+service Math : http {
+  contract {
+    public op twice() -> int {
+      route: "GET /v1/twice"
+      post: result == 4
+    }
+  }
+}
+`;
+  const svc = await startService(source, {
+    impl: { twice: 'export async function twice(input, io) { return { result: double(2) }; }\n' },
+    implLib: LIB,
+  });
+  try {
+    const response = await fetch(svc.base + '/v1/twice');
+    assert.equal(response.status, 200);
+    assert.equal(await response.json(), 4);
+  } finally {
+    await svc.stop();
   }
 });
