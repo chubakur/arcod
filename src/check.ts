@@ -1694,7 +1694,7 @@ export function checkIgnoredImplDirs(mod: ModuleNode, diags: Diagnostic[], dirs:
     diags.push(
       diag('W051', 'warning', 'impl/' + dir.name + '/', { ...mod.loc, line: 1, col: 1, endLine: 1, endCol: 1 }, 'impl.' + dir.name,
         'impl/' + dir.name + '/ holds ' + dir.bodies + (dir.bodies === 1 ? ' .mjs body' : ' .mjs bodies') + ' the build never reads',
-        'move each body up to impl/ and name it after its operation: impl/<operation>.mjs'),
+        'move each body up to impl/ and name it after its operation: impl/<operation>.mjs (shared code goes in impl/lib.mjs)'),
     );
   }
 }
