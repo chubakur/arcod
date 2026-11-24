@@ -2575,8 +2575,49 @@ function implHandlers(
     const table = constraintTable(mod, op.params);
     if (Object.keys(table).length > 0) constraints[op.name] = table;
   }
+  // A query string carries no types: '?limit=3&done=true' reached the body as
+  // the strings "3" and "true", while the same parameter in a JSON body arrived
+  // typed, and OpenAPI published the declared type either way. The boundary
+  // maps the query form back to the declared scalar, so one contract has one
+  // shape regardless of where the parameter travelled.
+  const inputKinds: Record<string, Record<string, string>> = {};
+  for (const op of svc.contract) {
+    if (op.kind !== 'op') continue;
+    const table: Record<string, string> = {};
+    for (const param of op.params) {
+      const base = baseType(mod, param.type);
+      if (base === 'int' || base === 'number' || base === 'decimal' || base === 'float' || base === 'bool' || base === 'boolean') {
+        table[param.name] = base === 'boolean' ? 'bool' : base;
+      }
+    }
+    if (Object.keys(table).length > 0) inputKinds[op.name] = table;
+  }
   parts.push(
     'const CONSTRAINTS = ' + JSON.stringify(constraints, null, 2) + ';',
+    '',
+    'const INPUT_KINDS = ' + JSON.stringify(inputKinds, null, 2) + ';',
+    '',
+    'function coerceQuery(op, input, viaQuery) {',
+    '  const spec = INPUT_KINDS[op];',
+    '  if (!spec) return null;',
+    '  for (const name of Object.keys(spec)) {',
+    '    if (!viaQuery.has(name)) continue;',
+    '    const raw = input[name];',
+    '    if (raw === null || raw === undefined) continue;',
+    '    if (spec[name] === "bool") {',
+    '      if (raw === "true") { input[name] = true; continue; }',
+    '      if (raw === "false") { input[name] = false; continue; }',
+    '      return name + " must be true or false";',
+    '    }',
+    '    const text = String(raw).trim();',
+    '    const number = typeof raw === "number" ? raw : (text === "" ? NaN : Number(text));',
+    '    if (spec[name] === "int") {',
+    '      if (!Number.isInteger(number)) return name + " must be an integer";',
+    '    } else if (!Number.isFinite(number)) return name + " must be a number";',
+    '    input[name] = number;',
+    '  }',
+    '  return null;',
+    '}',
     '',
     'function validateInput(op, input) {',
     '  const spec = CONSTRAINTS[op];',
@@ -2839,10 +2880,11 @@ function implHandlers(
     'async function readInput(req, params, names) {',
     "  const url = new URL(req.url || '/', 'http://localhost');",
     '  const input = {};',
+    '  const viaQuery = new Set();',
     '  for (const name of names) {',
     '    if (params && Object.prototype.hasOwnProperty.call(params, name)) { input[name] = params[name]; continue; }',
     '    const fromQuery = url.searchParams.get(name);',
-    '    if (fromQuery !== null) input[name] = fromQuery;',
+    '    if (fromQuery !== null) { input[name] = fromQuery; viaQuery.add(name); }',
     '  }',
     '  const missing = names.filter((name) => !(name in input));',
     "  if (missing.length > 0 && (req.method || 'GET') !== 'GET') {",
@@ -2860,12 +2902,15 @@ function implHandlers(
     '    }',
     '  }',
     '  for (const name of names) if (!(name in input)) input[name] = null;',
-    '  return input;',
+    '  return { input, viaQuery };',
     '}',
     '',
     'async function callImpl(req, res, params, implFn, names, status, opName) {',
-    '  const input = await readInput(req, params, names);',
-    '  if (input && input.error) return sendError(res, input.error);',
+    '  const read = await readInput(req, params, names);',
+    '  if (read.error) return sendError(res, read.error);',
+    '  const input = read.input;',
+    '  const coerced = coerceQuery(opName, input, read.viaQuery);',
+    '  if (coerced) return send(res, 400, JSON.stringify({ error: \'Invalid\', message: coerced }));',
     '  const invalid = validateInput(opName, input);',
     '  if (invalid) return send(res, 400, JSON.stringify({ error: \'Invalid\', message: invalid }));',
     '  const io = makeIo(req);',
