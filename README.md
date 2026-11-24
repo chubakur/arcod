@@ -567,13 +567,14 @@ rest in the query string, every other method sends a JSON body with
 the call is body-less on both sides and the answer is still `{ status, body }`
 with `body: null`.
 
-A query string is text, so the boundary maps it back to the declared parameter
-type before the body runs: `int`, `number`, `float` and `decimal` arrive as
-numbers (a value that is not one is a 400 naming the parameter — `must be a
-number`, or `must be an integer` for `int`), and `bool` accepts exactly
-`true`/`false` and arrives as a boolean. Without that, one contract had two
-shapes: `?limit=3` reached the body as the string `"3"` while the same
-parameter in a JSON body arrived as `3`, so `limit + 1` answered `"31"`.
+A URL is text — a query string and a `:path` capture alike — so the boundary
+maps both back to the declared parameter type before the body runs: `int`,
+`number`, `float` and `decimal` arrive as numbers (a value that is not one is
+a 400 naming the parameter — `must be a number`, or `must be an integer` for
+`int`), and `bool` accepts exactly `true`/`false` and arrives as a boolean.
+Without that, one contract had two shapes: `?limit=3` reached the body as the
+string `"3"` while the same parameter in a JSON body arrived as `3`, so
+`limit + 1` answered `"31"`.
 
 Checks: `A037` no `route`; `A038` `uses` or effects declared for a foreign
 service; `A039` bound to something other than `endpoint`; `W026` called but no

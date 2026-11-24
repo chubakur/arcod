@@ -15,6 +15,9 @@ const spec = [
   '    public op find(flag: bool, limit: int(min: 1, max: 5), ratio: decimal(min: 0.1, max: 0.9)) -> string {',
   '      route: "GET /v1/find"',
   '    }',
+  '    public op item(id: int, ratio: decimal) -> string {',
+  '      route: "GET /v1/item/:id"',
+  '    }',
   '  }',
   '}',
   '',
@@ -26,6 +29,11 @@ const spec = [
 // The body echoes what the impl actually received: the value and its runtime
 // type, so a string that only looks like a number cannot pass.
 const impl = {
+  item: [
+    'export async function item(input) {',
+    '  return { result: JSON.stringify({ id: input.id, idType: typeof input.id, ratio: input.ratio, ratioType: typeof input.ratio }) };',
+    '}',
+  ].join('\n'),
   find: [
     'export async function find(input) {',
     '  return { result: JSON.stringify({',
@@ -84,6 +92,18 @@ test('an undeclared query parameter is ignored', async () => {
   const extra = await get('flag=true&limit=3&ratio=0.5&extra=1');
   assert.equal(extra.status, 200);
   assert.deepEqual(Object.keys(JSON.parse(extra.body) as object).sort(), ['flag', 'flagType', 'limit', 'limitType', 'ratio', 'ratioType']);
+});
+
+// A ':id' capture is a URL string too: an int path parameter is a number in
+// the impl, and a segment that is not one is refused before the body runs.
+test('a path parameter arrives with its declared type', async () => {
+  const ok = await fetch(svc.base + '/v1/item/7?ratio=0.25');
+  assert.equal(ok.status, 200);
+  assert.deepEqual(JSON.parse(await ok.text()), { id: 7, idType: 'number', ratio: 0.25, ratioType: 'number' });
+
+  const bad = await fetch(svc.base + '/v1/item/seven?ratio=0.25');
+  assert.equal(bad.status, 400, 'an int path segment is not text the impl has to parse');
+  assert.match(await bad.text(), /id must be an integer/);
 });
 
 // Runs last: the process under test is shared by the assertions above.

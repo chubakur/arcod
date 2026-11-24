@@ -2575,11 +2575,11 @@ function implHandlers(
     const table = constraintTable(mod, op.params);
     if (Object.keys(table).length > 0) constraints[op.name] = table;
   }
-  // A query string carries no types: '?limit=3&done=true' reached the body as
-  // the strings "3" and "true", while the same parameter in a JSON body arrived
-  // typed, and OpenAPI published the declared type either way. The boundary
-  // maps the query form back to the declared scalar, so one contract has one
-  // shape regardless of where the parameter travelled.
+  // A URL carries no types: '?limit=3&done=true' and a ':id' capture reached
+  // the body as strings, while the same parameter in a JSON body arrived typed,
+  // and OpenAPI published the declared type either way. The boundary maps the
+  // URL form back to the declared scalar, so one contract has one shape
+  // regardless of where the parameter travelled.
   const inputKinds: Record<string, Record<string, string>> = {};
   for (const op of svc.contract) {
     if (op.kind !== 'op') continue;
@@ -2597,11 +2597,11 @@ function implHandlers(
     '',
     'const INPUT_KINDS = ' + JSON.stringify(inputKinds, null, 2) + ';',
     '',
-    'function coerceQuery(op, input, viaQuery) {',
+    'function coerceUrl(op, input, fromUrl) {',
     '  const spec = INPUT_KINDS[op];',
     '  if (!spec) return null;',
     '  for (const name of Object.keys(spec)) {',
-    '    if (!viaQuery.has(name)) continue;',
+    '    if (!fromUrl.has(name)) continue;',
     '    const raw = input[name];',
     '    if (raw === null || raw === undefined) continue;',
     '    if (spec[name] === "bool") {',
@@ -2880,11 +2880,11 @@ function implHandlers(
     'async function readInput(req, params, names) {',
     "  const url = new URL(req.url || '/', 'http://localhost');",
     '  const input = {};',
-    '  const viaQuery = new Set();',
+    '  const fromUrl = new Set();',
     '  for (const name of names) {',
-    '    if (params && Object.prototype.hasOwnProperty.call(params, name)) { input[name] = params[name]; continue; }',
+    '    if (params && Object.prototype.hasOwnProperty.call(params, name)) { input[name] = params[name]; fromUrl.add(name); continue; }',
     '    const fromQuery = url.searchParams.get(name);',
-    '    if (fromQuery !== null) { input[name] = fromQuery; viaQuery.add(name); }',
+    '    if (fromQuery !== null) { input[name] = fromQuery; fromUrl.add(name); }',
     '  }',
     '  const missing = names.filter((name) => !(name in input));',
     "  if (missing.length > 0 && (req.method || 'GET') !== 'GET') {",
@@ -2902,14 +2902,14 @@ function implHandlers(
     '    }',
     '  }',
     '  for (const name of names) if (!(name in input)) input[name] = null;',
-    '  return { input, viaQuery };',
+    '  return { input, fromUrl };',
     '}',
     '',
     'async function callImpl(req, res, params, implFn, names, status, opName) {',
     '  const read = await readInput(req, params, names);',
     '  if (read.error) return sendError(res, read.error);',
     '  const input = read.input;',
-    '  const coerced = coerceQuery(opName, input, read.viaQuery);',
+    '  const coerced = coerceUrl(opName, input, read.fromUrl);',
     '  if (coerced) return send(res, 400, JSON.stringify({ error: \'Invalid\', message: coerced }));',
     '  const invalid = validateInput(opName, input);',
     '  if (invalid) return send(res, 400, JSON.stringify({ error: \'Invalid\', message: invalid }));',
