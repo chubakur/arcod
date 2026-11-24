@@ -133,3 +133,18 @@ test('the lib is held to the body sandbox', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+// A caller may name the impl directory itself (build --impl, the test harness,
+// a body map written elsewhere), and the lib lives inside it. Reading lib from
+// <exampleDir>/impl/lib.mjs regardless made such a build emit a body that calls
+// an undefined helper -- the service started and answered 500.
+test('build --impl reads lib.mjs from the named impl directory', async () => {
+  const dir = await project({ 'lib.mjs': LIB, 'totals.mjs': TOTALS, 'count.mjs': COUNT });
+  try {
+    const built = await buildExample(parse(SPEC, 'main.arc'), join(dir, 'elsewhere'), { implDir: join(dir, 'impl') });
+    const js = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
+    assert.equal((js.match(/function double\(/g) ?? []).length, 1, 'the helper comes from the named directory');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

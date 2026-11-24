@@ -123,9 +123,15 @@ async function readImpl(dir: string): Promise<Record<string, string> | undefined
   return Object.keys(impl).length > 0 ? impl : undefined;
 }
 
-export async function implLibFor(exampleDir: string): Promise<string | undefined> {
-  const dir = await implDirFor(exampleDir);
+// The lib sits in the impl directory itself, so a caller that names that
+// directory (build --impl, tests) reads the same file as one that names the
+// project.
+async function readImplLibIn(dir: string): Promise<string | undefined> {
   return readFile(join(dir, LIB_BODY + '.mjs'), 'utf8').catch(() => undefined);
+}
+
+export async function implLibFor(exampleDir: string): Promise<string | undefined> {
+  return readImplLibIn(await implDirFor(exampleDir));
 }
 
 
@@ -277,9 +283,12 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
   const dialect = resolveDialect(mod, options.dialect);
   const impl =
     options.implDir === null ? undefined : await readImpl(options.implDir ?? (await implDirFor(exampleDir)));
+  // options.implDir names the impl directory itself, not the project.
   const implLib = options.implLib === null
     ? undefined
-    : options.implLib ?? (options.implDir === null ? undefined : await implLibFor(options.implDir ?? exampleDir));
+    : options.implLib ?? (options.implDir === null
+      ? undefined
+      : await readImplLibIn(options.implDir ?? (await implDirFor(exampleDir))));
 
   // Bodies are part of the model, not an anonymous blob: every impl/ body is
   // checked against the sandbox (no raw network/fs/exec/process, only io) and
