@@ -1588,21 +1588,31 @@ function findRoute(method, pathname) {
   return null;
 }
 
+// A request that crosses the ceiling is a client mistake, and the answer used
+// to be a reset socket: the reader destroyed the request the moment it saw the
+// limit, so the 400 the handler sends had nowhere to go and the caller saw
+// only "other side closed"/ECONNRESET. The promise still rejects at once (the
+// handler answers 400), but the remaining bytes are read and dropped so the
+// response can travel on a socket that is still open. Nothing of the rejected
+// body is kept, so the memory ceiling holds.
 function readBody(req, limit) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let over = false;
     req.on('data', (chunk) => {
+      if (over) return;
       size += chunk.length;
       if (size > limit) {
+        over = true;
+        chunks.length = 0;
         reject(new Error('payload too large'));
-        req.destroy();
         return;
       }
       chunks.push(chunk);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
+    req.on('end', () => { if (!over) resolve(Buffer.concat(chunks).toString('utf8')); });
+    req.on('error', (error) => { if (!over) reject(error); });
   });
 }
 
