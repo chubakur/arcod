@@ -1999,7 +1999,10 @@ function dropRedis(template: string): string {
 
 function cryptoImportFor(svc: ServiceNode, withBodies: boolean, dialect: 'mysql' | 'postgres' = 'mysql'): string {
   const names = ['randomUUID'];
-  if (withBodies && isGuarded(svc)) names.push('randomBytes', 'scryptSync', 'timingSafeEqual');
+  // `hash` is a capability, not a property of a password body: a service that
+  // declares `uses sig: hash` gets io.hash/io.verify whether or not any op
+  // takes a password (issue #44).
+  if (withBodies && (isGuarded(svc) || usesHashCapability(svc))) names.push('randomBytes', 'scryptSync', 'timingSafeEqual');
   if (storageKind(svc) === 'sql') names.push('constants', 'createHash', 'createPublicKey', 'publicEncrypt');
   if (hasStream(svc)) names.push('createHash');
   // SCRAM-SHA-256 needs HMAC and PBKDF2; the client only travels with a
@@ -2140,7 +2143,7 @@ function withHandlers(template: string, reference: boolean, svc: ServiceNode, im
   const hashing = isGuarded(svc);
 
   if (impl) {
-    const handlers = implHandlers(svc, impl, hashing, externals, mod, plugins, implLib);
+    const handlers = implHandlers(svc, impl, hashing || usesHashCapability(svc), externals, mod, plugins, implLib);
     return before + handlers + after;
   }
 
@@ -2165,6 +2168,13 @@ function withHandlers(template: string, reference: boolean, svc: ServiceNode, im
 // A guarded service is one that accepts a password and verifies it before
 // revealing the payload. Reference mode ships this body; it is still a
 // template, flagged by W018 in the same way as the plain one.
+// The `hash` capability is served by the compiler itself under the `local`
+// binding: scrypt with a per-call salt. check (A068) already allows it, so the
+// runtime has to answer it too, guarded body or not.
+export function usesHashCapability(svc: ServiceNode): boolean {
+  return svc.uses.some((use) => use.capability === 'hash' || use.capability.endsWith('.hash'));
+}
+
 export function isGuarded(svc: ServiceNode): boolean {
   return svc.contract.some(
     (op) =>

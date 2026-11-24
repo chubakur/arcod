@@ -331,7 +331,9 @@ arcod deploy . --env prod  # deployment target and manifest
 `llm` (ollama, openai), `stream` (websocket, redis), `queue` (redis — publish,
 consume, retry, dead letter) and `ids`/`hash`, which bind to
 `local` — the compiler's own runtime. `local` provisions nothing and serves
-only those two: binding `kv`, `sql` or `queue` to it is `A068`.
+only those two: binding `kv`, `sql` or `queue` to it is `A068`. `hash` answers
+`io.hash`/`io.verify` (scrypt, a fresh salt per call) as soon as it is used,
+not only when an operation takes a `password`.
 
 `rabbitmq` and `kafka` also declare `queue` and are provisioned, but the
 emitted adapter speaks only the Redis list protocol. Binding a service's
