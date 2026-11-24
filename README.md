@@ -429,7 +429,9 @@ every `bytes`/`string` `max` becomes `maxlength` (the unit is converted), a
 record parameter or a `list`/`map` becomes a JSON field, and a declared `enum`
 becomes a `<select>` of exactly the values the contract accepts — the same list
 OpenAPI documents and the service boundary validates, so a form cannot send a
-value the API rejects.
+value the API rejects. An `email`/`url` parameter becomes a native `email`/`url`
+input, and `int`/`number` bounds become the field's `min`/`max` attributes, so
+format and range are checked by the browser before the request leaves.
 
 The language is a property of the `ui` block, not a build flag: `locale: "ru"`
 (or any BCP-47 tag) sets `<html lang>` and swaps the page's label catalog —

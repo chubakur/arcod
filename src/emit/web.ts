@@ -4,7 +4,7 @@ import { CHAT_PAGE } from './chat-page.ts';
 import { PRESENTATION_PAGE } from './presentation-page.ts';
 import { hasStream } from './service.ts';
 import { QR_SOURCE } from './qr-code.ts';
-import { constraintOf } from '../constraints.ts';
+import { boundsOf, constraintOf } from '../constraints.ts';
 
 export interface WebOptions {
   maxBytes: number;
@@ -20,7 +20,9 @@ interface UiParam {
   where: 'path' | 'query' | 'body';
   optional: boolean;
   max: number | null;
+  min: number | null;
   options: string[];
+  format: 'email' | 'uri' | null;
 }
 
 interface UiOp {
@@ -440,7 +442,13 @@ function fieldControl(p) {
     input.type = 'checkbox';
   } else {
     input = document.createElement('input');
-    input.type = p.kind === 'number' ? 'number' : 'text';
+    input.type = p.kind === 'number' ? 'number' : p.format === 'email' ? 'email' : p.format === 'uri' ? 'url' : 'text';
+    if (p.kind === 'number') {
+      // Bounds are contract facts: the boundary rejects a value outside them,
+      // so the browser can say so before the request is sent.
+      if (p.min !== null && p.min !== undefined) input.min = String(p.min);
+      if (p.max !== null && p.max !== undefined) input.max = String(p.max);
+    }
     if (p.max && p.kind !== 'number') input.maxLength = p.max;
   }
   input.name = p.name;
@@ -548,8 +556,12 @@ function uiParam(mod: ModuleNode, param: Param, where: 'path' | 'query' | 'body'
   let max: number | null = null;
   // The constraint resolver is the same one OpenAPI and the service boundary
   // read, so the dropdown cannot drift from what the API accepts.
-  const enumValues = constraintOf(mod, param.type).enumValues;
+  const constraint = constraintOf(mod, param.type);
+  const enumValues = constraint.enumValues;
   const options = enumValues ? enumValues.slice() : [];
+  const format = constraint.format;
+  const bounds = boundsOf(mod, param.type);
+  let min: number | null = null;
 
   if (options.length > 0) {
     kind = 'select';
@@ -558,7 +570,11 @@ function uiParam(mod: ModuleNode, param: Param, where: 'path' | 'query' | 'body'
   } else if (resolved.kind === 'named') {
     if (resolved.name === 'list' || resolved.name === 'map' || resolved.name === 'json') kind = 'json';
     else if (resolved.name === 'bool') kind = 'bool';
-    else if (resolved.name === 'int' || resolved.name === 'float' || resolved.name === 'number') kind = 'number';
+    else if (resolved.name === 'int' || resolved.name === 'float' || resolved.name === 'number') {
+      kind = 'number';
+      min = bounds.min;
+      max = bounds.max;
+    }
     else if (resolved.name === 'bytes' || resolved.name === 'string') {
       // Both refinements carry a character limit; only bytes is large enough
       // to need a textarea, a string limit is a plain maxlength attribute.
@@ -567,7 +583,7 @@ function uiParam(mod: ModuleNode, param: Param, where: 'path' | 'query' | 'body'
     }
   }
 
-  return { name: param.name, kind, where, optional, max, options };
+  return { name: param.name, kind, where, optional, max, min, options, format };
 }
 
 function routeOfOp(op: OpNode): { method: string; path: string } {

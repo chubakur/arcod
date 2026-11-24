@@ -18,7 +18,7 @@ service S : http {
     public op search(filter: Filter, plan: Plan, coupon: Plan?, body: bytes(max: 2kb), small: string(max: 12)) -> string {
       route: "POST /v1/search"
     }
-    public op upload(a: bytes(max: 1mb), b: bytes(max: 1gb)) -> string {
+    public op upload(a: bytes(max: 1mb), b: bytes(max: 1gb), mail: email, n: int(min: 2, max: 7)) -> string {
       route: "POST /v1/upload"
     }
   }
@@ -36,7 +36,7 @@ environment dev {
 }
 `;
 
-function fields(html: string, name: string): { kind: string; where: string; optional: boolean; max: number | null; options?: string[] } {
+function fields(html: string, name: string): { kind: string; where: string; optional: boolean; max: number | null; min?: number | null; options?: string[]; format?: string | null } {
   const match = html.match(new RegExp('\\{"name":"' + name + '"[^}]*\\}'));
   assert.ok(match, 'field ' + name + ' exists');
   return JSON.parse(match![0]);
@@ -96,28 +96,54 @@ test('a declared enum becomes a dropdown of the accepted values', () => {
   assert.equal(fields(html, 'small').kind, 'text', 'a plain string stays a text field');
 });
 
-test('the dropdown keeps an empty choice only when the parameter is optional', () => {
-  const html = emitWeb(parse(source, 'fields.arc'), { maxBytes: 65536 });
-  const body = html.match(/function fieldControl\(p\) \{[\s\S]*?\n\}/);
-  assert.ok(body, 'the page ships fieldControl');
-  type FakeEl = { tag: string; children: FakeEl[]; setAttribute(name: string, value: string): void; appendChild(child: FakeEl): void };
-  const fakeDoc = () => ({
+type FakeEl = { tag: string; children: FakeEl[]; [key: string]: unknown; setAttribute(name: string, value: string): void; appendChild(child: FakeEl): void };
+
+function fakeDoc() {
+  return {
     createElement: (tag: string): FakeEl => ({
       tag,
       children: [],
       setAttribute(name: string, value: string) {
-        (this as unknown as Record<string, string>)[name] = value;
+        this[name] = value;
       },
       appendChild(child: FakeEl) {
         this.children.push(child);
       },
     }),
-  });
-  const build = new Function('document', body![0] + '; return fieldControl;') as (doc: unknown) => (p: unknown) => FakeEl;
-  const required = build(fakeDoc())({ name: 'plan', kind: 'select', options: ['free', 'pro', 'team'], optional: false });
+  };
+}
+
+// The page is plain DOM, so the emitted control builder runs against a minimal
+// document instead of a browser.
+function controlBuilder(html: string): (p: Record<string, unknown>) => FakeEl {
+  const body = html.match(/function fieldControl\(p\) \{[\s\S]*?\n\}/);
+  assert.ok(body, 'the page ships fieldControl');
+  const build = new Function('document', body![0] + '; return fieldControl;') as (doc: unknown) => (p: Record<string, unknown>) => FakeEl;
+  return (p) => build(fakeDoc())(p);
+}
+
+test('the dropdown keeps an empty choice only when the parameter is optional', () => {
+  const control = controlBuilder(emitWeb(parse(source, 'fields.arc'), { maxBytes: 65536 }));
+  const required = control({ name: 'plan', kind: 'select', options: ['free', 'pro', 'team'], optional: false });
   assert.equal(required.tag, 'select');
-  assert.deepEqual(required.children.map((child) => (child as unknown as Record<string, string>).value), ['free', 'pro', 'team']);
-  const optional = build(fakeDoc())({ name: 'coupon', kind: 'select', options: ['free'], optional: true });
-  assert.deepEqual(optional.children.map((child) => (child as unknown as Record<string, string>).value), ['', 'free']);
-  assert.equal((optional as unknown as Record<string, string>)['aria-required'], undefined, 'an optional field is not marked required');
+  assert.deepEqual(required.children.map((child) => child.value), ['free', 'pro', 'team']);
+  const optional = control({ name: 'coupon', kind: 'select', options: ['free'], optional: true });
+  assert.deepEqual(optional.children.map((child) => child.value), ['', 'free']);
+  assert.equal(optional['aria-required'], undefined, 'an optional field is not marked required');
+});
+
+test('an email parameter is an email field and a bounded int carries its bounds', () => {
+  const html = emitWeb(parse(source, 'fields.arc'), { maxBytes: 65536 });
+  assert.equal(fields(html, 'mail').format, 'email');
+  assert.equal(fields(html, 'n').min, 2);
+  assert.equal(fields(html, 'n').max, 7);
+  const control = controlBuilder(html);
+  const mail = control({ name: 'mail', kind: 'text', format: 'email' });
+  assert.equal(mail.type, 'email', 'the browser checks the format the API enforces');
+  const bounded = control({ name: 'n', kind: 'number', min: 2, max: 7 });
+  assert.equal(bounded.type, 'number');
+  assert.equal(bounded.min, '2');
+  assert.equal(bounded.max, '7');
+  const unbounded = control({ name: 'limit', kind: 'number', min: null, max: null });
+  assert.equal(unbounded.min, undefined, 'no invented bound when the contract has none');
 });
