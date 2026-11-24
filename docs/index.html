@@ -316,38 +316,40 @@
   <section id="news">
     <div class="wrap">
       <div class="kicker">what shipped this week</div>
-      <h2>Three things shipped on 2026-11-22.</h2>
+      <h2>Three things shipped on 2026-11-23.</h2>
       <p class="sub">Each is covered by tests in the repository.</p>
       <div class="grid-3">
         <div class="card">
-          <span class="num">2026-11-22 · CLI</span>
-          <h3>A refusal is data, on every command</h3>
-          <p>A command that takes <code>--json</code> now answers one object on stdout,
-          failure included. A spec that does not parse is
-          <code>{error: "parse failed", diagnostics}</code>; an unreadable path and an
-          artifact it cannot write are <code>{error}</code> with the reason.
-          <code>build</code>, <code>test</code>, <code>migrate</code>,
-          <code>prompts</code>, <code>impl</code> and <code>deploy</code> keep stdout to
-          one object, so a CI gate never parses a human line again.</p>
+          <span class="num">2026-11-23 · CHECK</span>
+          <h3>A body file is named by the operation it implements</h3>
+          <p><code>impl/total.mjs</code> next to an operation called <code>totals</code>
+          was loaded, checked and then dropped without a word — the build "succeeded" and
+          the operation answered <code>501</code>. <code>check</code> now says both
+          halves: <code>W049</code> points at the file and lists the operations the
+          contract declares, <code>W050</code> points at an operation that has no body.
+          Both are warnings, so a partial build still builds; four tests cover W049 and
+          three cover W050, one of them pinning the build to success.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-22 · RUN</span>
-          <h3><code>run --detach --json</code> is one object</h3>
-          <p><code>--json</code> was a global flag <code>run</code> did not accept: a
-          script that started a service in the background parsed
-          <code>url: http://…</code>. It now requires <code>--detach</code> and answers
-          mode, name, version, build, url, port and stop; the compose log goes to stderr,
-          so stdout holds one object. Six tests cover the success shape, the flag pair and
-          each refusal.</p>
+          <span class="num">2026-11-23 · CHECK</span>
+          <h3>A body that cannot be called is refused, not called anyway</h3>
+          <p>The emitter calls <code>implFn(input, io)</code>, so a body written
+          <code>(io)</code>, or one that uses <code>io.*</code> without the second
+          parameter, compiled to a call to an undefined function. <code>A096</code> now
+          names the file and line for each shape: wrong arity, reversed
+          <code>(io, input)</code>, a <code>const</code> arrow instead of
+          <code>export async function</code>, no <code>export</code>, or
+          <code>export default</code> — and <code>build</code> refuses with
+          <code>impl/&lt;op&gt;.mjs:N</code>.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-22 · EDITOR</span>
-          <h3>A buffer cut mid-token still has a position</h3>
-          <p>The language server parses the editor buffer on every keystroke, so most
-          buffers stop inside a token, a string or a block. A test walks every third
-          prefix of all 17 examples — 7.4k parses — and asserts only
-          <code>ParseError</code>, with line, column and offset inside the text; a lone
-          surrogate and a NUL byte are pinned too.</p>
+          <span class="num">2026-11-23 · QUERY</span>
+          <h3>Two values in a query string stop being one</h3>
+          <p>A <code>list</code> or <code>map</code> parameter in a <code>query</code>
+          string reached the operation as a single string:
+          <code>GET /v1/tags?tag=a&amp;tag=b</code> arrived as <code>"a"</code>, the second
+          value gone with no error and no log line. <code>A095</code> refuses the
+          declaration — aliases included — instead of half-reading it at runtime.</p>
         </div>
       </div>
     </div>
@@ -630,6 +632,16 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           block it was written in, including the last one in a body. A second pass over
           its own output changes nothing, so <code>fmt --check</code> is safe in CI.</p>
         </div>
+        <div class="card">
+          <h3>Bodies held to the same contract</h3>
+          <p>An operation body is <code>impl/&lt;op&gt;.mjs</code>, and <code>check</code>
+          reads it as strictly as the spec: it has to export
+          <code>async function &lt;op&gt;(input, io)</code>. A body with nothing to rename is
+          <code>A096</code> — an error, so <code>build</code> refuses with the file and
+          line — while a file that matches no operation is <code>W049</code> and an
+          operation left without a body is <code>W050</code>: warnings that name the
+          file and the operation.</p>
+        </div>
       </div>
 
       <div class="chips">
@@ -769,6 +781,7 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <h3>What does not work yet</h3>
           <ul>
             <li><b>Scaffold without bodies</b> answers <code>501 NotImplemented</code> for every operation; a build is contracts, routes and adapters until bodies come from <code>--impl</code> or your own code.</li>
+            <li><b>Bodies are loaded from <code>impl/&lt;op&gt;.mjs</code> only.</b> A body written in a <code>.js</code> or <code>.ts</code> file next to the <code>.mjs</code> ones is not read, so that operation reports <code>W050</code> instead of being compiled from your file.</li>
             <li><b>The Postgres runtime is proven against a fake wire backend and an end-to-end example</b>, not yet against a live managed server in CI. MySQL remains the default build.</li>
             <li><b>OLAP, metrics, secrets</b> and friends are provisioned in compose but have no effect signatures; <b>Kafka and RabbitMQ</b> provision a queue the adapter cannot speak — bind <code>queue</code> to Redis.</li>
             <li><b><code>find</code> on <code>kv</code> is a scan with a filter</b>, not a query planner: one entity namespace matched in memory. On <code>sql</code> the same <code>find</code> is pushed into <code>WHERE</code>/<code>ORDER BY</code>/<code>LIMIT</code>. Indexes are single-field (<code>index Task.dueAt</code>); composite and partial indexes are not generated.</li>
