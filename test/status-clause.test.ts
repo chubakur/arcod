@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { formatSource } from '../src/fmt.ts';
+import { emitOpenapi } from '../src/emit/openapi.ts';
 import { startService } from './harness.ts';
 
 const spec = [
@@ -131,4 +132,18 @@ test('A097 refuses a status on a job, which answers no HTTP call', () => {
   const found = codes(source, 'A097');
   assert.deepEqual(found.map((entry) => entry.path), ['services.S.jobs.work']);
   assert.match(found[0].message, /answers no HTTP call/);
+});
+
+test('openapi answers the declared status, not the method default', () => {
+  const mod = parse(spec, 'main.arc');
+  const doc = emitOpenapi(mod) as any;
+  const cancel = doc.paths['/v1/runs/{id}/cancel'].post.responses;
+  assert.ok(Object.prototype.hasOwnProperty.call(cancel, '200'), 'the cancel answers 200: ' + Object.keys(cancel).join(','));
+  assert.equal(Object.prototype.hasOwnProperty.call(cancel, '201'), false, 'no 201 was invented');
+
+  const create = doc.paths['/v1/runs'].post.responses;
+  assert.ok(Object.prototype.hasOwnProperty.call(create, '201'), 'a POST with no status stays 201');
+
+  const read = doc.paths['/v1/runs/{id}'].get.responses;
+  assert.ok(Object.prototype.hasOwnProperty.call(read, '202'), 'a GET may declare 202');
 });
