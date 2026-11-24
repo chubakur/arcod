@@ -65,6 +65,27 @@ test('a kv-store service keeps its redis binding', () => {
   assert.deepEqual(diags.filter((item) => item.code === 'A094'), [], 'the kv store is the redis adapter');
 });
 
+// A094 sends the author of a sql-storing service away from a redis bind for a
+// kv alias, so the alias must be expressible without one: the store serves it.
+test('a kv alias next to a sql store needs no bind', () => {
+  const source = spec('sql', 'kv', 'memory').replace('  bind cache -> memory\n', '');
+  assert.equal(source.includes('bind cache'), false, 'the bind is gone');
+  const diags = check(parse(source, 'main.arc'), {});
+  assert.deepEqual(
+    diags.filter((item) => item.code === 'A002'),
+    [],
+    diags.map((item) => item.code + ':' + item.message).join(' | '),
+  );
+});
+
+test('a kv-store service still needs its bind', () => {
+  const source = spec('kv', 'kv', 'redis').replace('  bind cache -> redis\n', '');
+  const diags = check(parse(source, 'main.arc'), {})
+    .filter((item) => item.code === 'A002');
+  assert.equal(diags.length, 1, 'nothing serves kv but the binding');
+  assert.match(diags[0].message, /capability kv is not bound/);
+});
+
 test('a memory-backed kv alias next to sql is legal', () => {
   const diags = check(parse(spec('sql', 'kv', 'memory'), 'main.arc'), {});
   assert.deepEqual(diags.filter((item) => item.code === 'A094'), [], 'no container is promised, so nothing is dead');

@@ -718,11 +718,18 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
-    // A002 — capability is not bound
+    // A002 — capability is not bound. The exception is a kv alias inside a
+    // service that stores in sql: that store serves the alias through its
+    // arcod_kv table, and A094 refuses the only kv provider (redis) there, so
+    // demanding a bind left the alias unexpressible — the author either bound
+    // redis and was told to drop it, or bound memory and silently lost the
+    // shared store (013-billing-dunning hit exactly this).
+    const servedByStore = (use: { capability: string }) =>
+      use.capability === 'kv' && storageKind(svc) === 'sql';
     for (const use of svc.uses) {
       if (!env) {
         diags.push(diag('A002', 'error', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`, `capability ${use.capability} is not bound: no environment`, 'add an environment with bind ' + use.alias));
-      } else if (!bound.has(use.alias)) {
+      } else if (!bound.has(use.alias) && !servedByStore(use)) {
         diags.push(diag('A002', 'error', mod.file, use.loc, `services.${svc.name}.uses.${use.alias}`, `capability ${use.capability} is not bound in environment ${env.name}`, `add bind ${use.alias} -> <provider>`));
       }
     }
