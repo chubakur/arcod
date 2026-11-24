@@ -116,3 +116,81 @@ test('the body reaches io.queueDeadDrop and an absent payload answers false', as
     await svc.stop();
   }
 });
+
+const liveSpec = [
+  'module dlq2 @0.1.0 {}',
+  '',
+  'use capability arcod.std.queue @1',
+  '',
+  'error Invalid',
+  '',
+  'service Dlq2 : http {',
+  '  uses events: queue',
+  '',
+  '  effects {',
+  '    allow events.publish, events.dead, events.drop',
+  '  }',
+  '',
+  '  contract {',
+  '    public op publishIt(id: string) -> bool {',
+  '      route: "POST /v1/publish"',
+  '      effects: events.publish',
+  '      errors: Invalid',
+  '    }',
+  '',
+  '    public op deadCount() -> { items: list<any> } {',
+  '      route: "GET /v1/dead"',
+  '      effects: events.dead',
+  '      errors: Invalid',
+  '    }',
+  '',
+  '    public op dropIt(id: string) -> { dropped: bool } {',
+  '      route: "POST /v1/drop-it"',
+  '      effects: events.drop',
+  '      errors: Invalid',
+  '    }',
+  '',
+  '    job work(id: string) {',
+  '      on: events.jobs',
+  '      retry: 0',
+  '    }',
+  '  }',
+  '}',
+  '',
+].join(String.fromCharCode(10));
+
+const liveImpl = {
+  publishIt: 'export async function publishIt(input, io) { return { result: await io.queuePublish("jobs", { id: String(input.id) }) }; }',
+  deadCount: 'export async function deadCount(input, io) { return { result: { items: await io.queueDead("jobs") } }; }',
+  dropIt: 'export async function dropIt(input, io) { return { result: { dropped: await io.queueDeadDrop("jobs", { id: String(input.id) }) } }; }',
+  work: 'export async function work(input, io) { throw new Error("sink is down"); }',
+};
+
+test('a replayed message leaves the dead letter, and a second drop answers false', async () => {
+  const svc = await startService(liveSpec, { impl: liveImpl });
+  try {
+    const sent = await fetch(svc.base + '/v1/publish', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'a' }) });
+    assert.equal(sent.status, 201);
+
+    let dead: any = null;
+    for (let i = 0; i < 60; i += 1) {
+      const res = await fetch(svc.base + '/v1/dead');
+      dead = await res.json();
+      if (Array.isArray(dead.items) && dead.items.length === 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(dead.items.length, 1, 'the failing job lands in the dead letter');
+    assert.deepEqual(dead.items[0].payload, { id: 'a' });
+
+    const dropped = await fetch(svc.base + '/v1/drop-it', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'a' }) });
+    assert.deepEqual(await dropped.json(), { dropped: true });
+
+    const after = await (await fetch(svc.base + '/v1/dead')).json();
+    assert.deepEqual(after.items, [], 'the handled message is gone');
+
+    const again = await fetch(svc.base + '/v1/drop-it', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'a' }) });
+    assert.deepEqual(await again.json(), { dropped: false });
+  } finally {
+    await svc.stop();
+  }
+});
