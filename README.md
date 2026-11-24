@@ -1753,6 +1753,12 @@ Errors:
   (the keyword needs at least one element), and the boundary rejected every
   value with an empty "must be one of " list — neither answer named the
   declaration. The hint asks for a value or a plain `string`.
+- `A101` a chain of aliases never reaches a shape (`type A = B` with
+  `type B = A`, or `type A = A`). OpenAPI published `A: {"$ref": "B"}` and
+  `B: {"$ref": "A"}`, a model no tool can dereference, and an operation
+  returning A had nothing the service could build. The hint names the chain
+  and asks for a record, a builtin or an enum; a cycle through a record is a
+  recursive shape and stays legal.
 - `A094` a `kv` alias is bound to `redis` in a service that stores in sql:
   the runtime has one store, so the alias lives in the sql store's `arcod_kv`
   table. The bind started a container and exported `REDIS_URL` that no

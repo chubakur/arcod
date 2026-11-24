@@ -207,6 +207,39 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     });
   }
 
+  // A101 — a chain of bare aliases that never reaches a shape: with
+  // `type A = B` and `type B = A`, OpenAPI published `"$ref": "B"` for A and
+  // `"$ref": "A"` for B — a model no tool can dereference — and an operation
+  // returning A had nothing the service could build. A cycle through a record
+  // is a recursive shape, not this: the walk only follows type names, so a
+  // record ends it.
+  const aliases = new Map(mod.types.map((decl) => [decl.name, decl.type]));
+  const reportedCycles = new Set<string>();
+  for (const decl of mod.types) {
+    const chain: string[] = [decl.name];
+    let current: TypeExpr = decl.type;
+    while (current.kind === 'named' && aliases.has(current.name)) {
+      if (current.name === decl.name) {
+        const members = chain.slice().sort();
+        const key = members.join(',');
+        if (!reportedCycles.has(key)) {
+          reportedCycles.add(key);
+          const path = chain.join(' -> ') + ' -> ' + decl.name;
+          const subject = members.length === 1
+            ? 'type ' + members[0] + ' refers to itself'
+            : 'types ' + members.join(', ') + ' refer to each other';
+          diags.push(diag('A101', 'error', mod.file, decl.loc, 'types.' + decl.name,
+            subject + ' and to no shape (' + path + ')',
+            'give one of them a record, a builtin or an enum; a cycle of aliases publishes $ref ' + path));
+        }
+        break;
+      }
+      if (chain.includes(current.name)) break;
+      chain.push(current.name);
+      current = aliases.get(current.name) as TypeExpr;
+    }
+  }
+
   // A066 — two examples of one service with the same name: the run reports
   // them by name, so one result would shadow the other.
   for (const svc of mod.services) {
