@@ -187,6 +187,16 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   // ...and inside an enum: `enum E { a, b, a }` generated a switch with two
   // arms for the same name, and fmt printed both.
   for (const decl of mod.enums) {
+    // A100 — an enum with no values is not a narrow type, it is a type that
+    // admits nothing: OpenAPI publishes `"enum": []` (invalid JSON Schema,
+    // since the keyword needs at least one element) and the boundary rejects
+    // every value with an empty "must be one of " list. Neither failure names
+    // the declaration, so the file has to stop at check time.
+    if (decl.values.length === 0) {
+      diags.push(diag('A100', 'error', mod.file, decl.loc, 'enums.' + decl.name,
+        'enum ' + decl.name + ' declares no values',
+        'declare at least one value; an empty enum publishes "enum": [] and rejects every value'));
+    }
     const seenValues = new Set<string>();
     decl.values.forEach((value, index) => {
       if (seenValues.has(value)) {

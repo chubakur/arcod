@@ -1748,6 +1748,11 @@ Errors:
   `check` stayed clean, OpenAPI published five bytes and the runtime enforced
   five bytes; a unit that is not a size (`bytes(max: 5q)`) lost the same way.
   The hint asks for a size (`bytes(max: 64kb)`) or a plain count.
+- `A100` an `enum` declares no values. That is not a narrow type but one that
+  admits nothing: OpenAPI published `"enum": []`, which JSON Schema forbids
+  (the keyword needs at least one element), and the boundary rejected every
+  value with an empty "must be one of " list — neither answer named the
+  declaration. The hint asks for a value or a plain `string`.
 - `A094` a `kv` alias is bound to `redis` in a service that stores in sql:
   the runtime has one store, so the alias lives in the sql store's `arcod_kv`
   table. The bind started a container and exported `REDIS_URL` that no
