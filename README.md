@@ -925,7 +925,9 @@ Semantics, enforced by the generated runtime rather than written in bodies:
   finishing the message in flight (ack by completion, nack by requeue);
 - a failing body — an exception or `{ error: ... }` — is retried up to
   `retry` times (default 3), then moved to the dead letter queue, readable
-  with `io.queueDead(topic)`;
+  with `io.queueDead(topic)`; `io.queueDeadDrop(topic, payload)` takes the
+  first entry carrying that payload out of the list (`false` when there is
+  none), so a replayed message does not sit there forever;
 - the body receives named parameters: one parameter is the value of that field
   (a bare scalar is the value itself), several are the fields by name;
 - a body that returns nothing while the job declares input is a failed attempt

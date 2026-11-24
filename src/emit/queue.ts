@@ -20,6 +20,12 @@ async function queueDeadDriver(topic) {
   return queueDriver.dead(topic);
 }
 
+// The body names a payload, not a stored line: the io layer finds the line that
+// carries it and hands the text here, so both drivers agree on what a drop is.
+async function queueDeadDropDriver(topic, text) {
+  return queueDriver.removeDead(topic, text);
+}
+
 // Memory driver: one process owns both ends. The dead letter is a plain list
 // per topic, which is also what the redis driver provides.
 const MEM_QUEUES = new Map();
@@ -45,6 +51,13 @@ const memoryQueueDriver = {
   },
   async dead(topic) {
     return MEM_DEAD.get(topic) || [];
+  },
+  async removeDead(topic, text) {
+    const list = MEM_DEAD.get(topic) || [];
+    const index = list.indexOf(text);
+    if (index < 0) return false;
+    list.splice(index, 1);
+    return true;
   },
   async toDead(topic, text) {
     const list = MEM_DEAD.get(topic) || [];
@@ -189,6 +202,12 @@ function createRedisQueueDriver(url) {
     async toDead(topic, text) {
       await command('RPUSH', QUEUE_PREFIX + topic + ':dead', text);
       return true;
+    },
+    async removeDead(topic, text) {
+      // LREM counts from the head and stops after one match: the same payload
+      // published twice keeps its second dead entry.
+      const removed = Number(await command('LREM', QUEUE_PREFIX + topic + ':dead', '1', text));
+      return removed > 0;
     },
   };
 }

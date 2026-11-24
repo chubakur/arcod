@@ -75,7 +75,7 @@ function pluginCapabilityName(capability: string): string {
 // build refuses it instead of emitting an object with a duplicate key.
 const RESERVED_IO_METHODS = new Set([
   'load', 'save', 'scan', 'del', 'seen', 'takeIf', 'new', 'actor', 'users', 'chat', 'model',
-  'publish', 'queuePublish', 'queueDead', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify', 'count', 'aggregate', 'embed',
+  'publish', 'queuePublish', 'queueDead', 'queueDeadDrop', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify', 'count', 'aggregate', 'embed',
 ]);
 
 export function pluginBindings(mod: ModuleNode, registry?: ProviderRegistry): PluginBinding[] {
@@ -2717,6 +2717,7 @@ function implHandlers(
     parts.push(
       outboxPublish,
       '    async queueDead(topic) { const items = await queueDeadDriver(String(topic)); return items.map((item) => { try { return JSON.parse(item); } catch { return item; } }); },',
+      '    async queueDeadDrop(topic, payload) { const wanted = JSON.stringify(payload === undefined ? null : payload); const items = await queueDeadDriver(String(topic)); for (const item of items) { let envelope; try { envelope = JSON.parse(item); } catch { envelope = undefined; } const carried = envelope && typeof envelope === "object" && envelope !== null && Object.prototype.hasOwnProperty.call(envelope, "payload") ? envelope.payload : envelope; if (JSON.stringify(carried) === wanted) return queueDeadDropDriver(String(topic), item); } return false; },',
     );
   }
 

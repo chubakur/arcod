@@ -143,12 +143,14 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
     effects: {
       publish: 'publish(topic: string, message: any) -> boolean',
       dead: 'dead(topic: string) -> list<{ payload: any, attempts: number, lastError: string }>',
+      drop: 'drop(topic: string, payload: any) -> boolean',
     },
     short: {
       publish: 'publish(topic, msg) -> bool',
       dead: 'dead(topic) -> list',
+      drop: 'drop(topic, payload) -> bool',
     },
-    notes: 'Returns true when the broker accepted the message. Delivery to the consumer is at-least-once: a failed body (exception or { error }) is retried up to the job retry count, then moved to the dead letter queue, where dead(topic) reads it.',
+    notes: 'Returns true when the broker accepted the message. Delivery to the consumer is at-least-once: a failed body (exception or { error }) is retried up to the job retry count, then moved to the dead letter queue, where dead(topic) reads it; drop(topic, payload) takes the first entry carrying that payload out of the list (false when there is none), so a replayed message does not stay there forever.',
   },
   ids: {
     effects: {
