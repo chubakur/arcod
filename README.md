@@ -543,7 +543,10 @@ The emitter takes the method and path from the contract, the base URL from the
 environment (`LEDGER_URL`), so the body never knows an address. In compose,
 `localhost` is rewritten to `host.docker.internal`; `network: "shared"`
 attaches the container to an existing network (`external: true`), and
-`gateway: true` adds `host-gateway` for Linux. An external service never
+`gateway: true` adds `host-gateway` for Linux. A build that names the host this
+way also sets `dns.setDefaultResultOrder('ipv4first')`: Docker Desktop answers
+`host.docker.internal` with both families, and Node would otherwise pick the
+AAAA record while the host listener is IPv4-only. An external service never
 appears in the manifest's `services` and gets no scheduler tasks.
 
 The method decides where a parameter goes: a name that matches a `:path`

@@ -1802,6 +1802,23 @@ function postgresSources(): string {
   return 'const pgConnect = net.connect;\n' + body + '\n' + PG_SQL_STORE_SOURCE;
 }
 
+// A bind that points at the host by name (`endpoint(url: "http://localhost:9096")`)
+// is rewritten to `host.docker.internal`, which Docker Desktop resolves in both
+// families. Node picks the AAAA record, the host listener is IPv4-only, and
+// `fetch` fails with `fetch failed` while `wget` inside the same container
+// answers (issue #42). The build asks for IPv4 first whenever it reaches the
+// host by name; every other name keeps the runtime default.
+function ipv4FirstPreamble(mod: ModuleNode): string {
+  const byHost = mod.environments.some((env) => env.binds.some((bind) => {
+    if (bind.provider !== 'endpoint') return false;
+    const url = bind.args.url;
+    if (!url || url.kind !== 'literal' || typeof url.value !== 'string') return false;
+    return url.value.includes('localhost') || url.value.includes('127.0.0.1');
+  }));
+  if (!byHost) return '';
+  return "import dns from 'node:dns';\ndns.setDefaultResultOrder('ipv4first');\n";
+}
+
 // The model names a capability; the generated adapter is whatever the
 // environment can provision. kv gets a Redis client, sql a MySQL client.
 function serviceTemplate(svc: ServiceNode, dialect: 'mysql' | 'postgres' = 'mysql'): string {
@@ -2095,6 +2112,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
   const plugins = pluginBindings(mod, options.registry);
   const template = withHandlers(serviceTemplate(svc, options.dialect), reference, svc, options.impl, externals, mod, plugins, options.implLib)
     .replace(CRYPTO_IMPORT, () => cryptoImportFor(svc, reference || Boolean(options.impl), options.dialect))
+    .replace('const CONFIG = __CONFIG__;', () => ipv4FirstPreamble(mod) + 'const CONFIG = __CONFIG__;')
     .replace('__QUEUE_SOURCE__\n', () => queueSourceFor(svc, options.impl) + (outboxActive(svc) && options.impl ? outboxSource(options.dialect) + '\n' : ''))
     .replace('__QUEUE_WIRE__', () => (hasQueue(svc) && options.impl ? (outboxActive(svc) ? 'startOutboxDispatcher();\n' : '') + 'startConsumers();\n' : ''))
     .replace('__SHUTDOWN__', () => (outboxActive(svc) && options.impl ? OUTBOX_SHUTDOWN : hasQueue(svc) && options.impl ? QUEUE_SHUTDOWN : DEFAULT_SHUTDOWN));
