@@ -507,9 +507,11 @@ if (out.body.accepted) { ... }
 
 Эмиттер берёт метод и путь из контракта, базовый URL — из окружения
 (`LEDGER_URL`), поэтому тело операции не знает адреса. В compose
-`localhost` переписывается в `host.docker.internal`; `network: "shared"`
-подключает контейнер к уже существующей сети (`external: true`), а
-`gateway: true` добавляет `host-gateway` для Linux. Сборка, которая так
+`localhost` переписывается в `host.docker.internal`, и сервис объявляет
+`extra_hosts: host.docker.internal:host-gateway`, поэтому имя резолвится и на
+Linux-движке, не только на Docker Desktop; `gateway: true` всё ещё принимается,
+но больше ничего не решает. `network: "shared"` подключает контейнер к уже
+существующей сети (`external: true`). Сборка, которая так
 называет хост, ещё и ставит `dns.setDefaultResultOrder('ipv4first')`: Docker
 Desktop отвечает на `host.docker.internal` в обоих семействах, и Node иначе
 выбирал бы AAAA-запись, а слушатель на хосте — только IPv4. Чужой сервис не

@@ -119,6 +119,27 @@ environment dev {
   assert.equal(/QUEUE_REDIS_URL/.test(yaml), false);
 });
 
+const paymentsUrl = new URL('../examples/payments/main.arc', import.meta.url);
+
+// A URL rewritten to host.docker.internal is a promise the app can reach the
+// developer machine. Docker Desktop resolves the name by itself; a Linux engine
+// needs the host gateway declared, and the bind cannot know which one it will
+// meet, so the declaration follows the URL (issue #42).
+test('a host-local endpoint declares the host gateway on its own', async () => {
+  const spec = await readFile(paymentsUrl, 'utf8');
+  const yaml = composeYaml(parse(spec, 'main.arc'), 8080, false);
+  assert.match(yaml, /LEDGER_URL: "http:\/\/host\.docker\.internal:9009"/);
+  assert.ok(yaml.includes('    extra_hosts:\n      - "host.docker.internal:host-gateway"'), yaml);
+});
+
+test('an endpoint on the compose network asks for no host gateway', async () => {
+  const spec = (await readFile(paymentsUrl, 'utf8'))
+    .replace('bind Ledger -> endpoint(url: "http://localhost:9009")', 'bind Ledger -> endpoint(url: "http://ledger:9009")');
+  const yaml = composeYaml(parse(spec, 'main.arc'), 8080, false);
+  assert.equal(/extra_hosts/.test(yaml), false, 'nothing points at the host');
+  assert.match(yaml, /LEDGER_URL: "http:\/\/ledger:9009"/);
+});
+
 test('the queue URL follows the queue alias when the binds point at different hosts', () => {
   const yaml = composeYaml(parse(twoBinds.replace('bind events -> redis(host: "kv", port: 6379)', 'bind events -> redis(host: "bus", port: 6379)'), 'main.arc'), 8080, false);
   assert.match(yaml, /QUEUE_REDIS_URL: "redis:\/\/bus:6379"/);
