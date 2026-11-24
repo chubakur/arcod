@@ -664,7 +664,17 @@ export function references(text: string, line: number, character: number, uri: s
     return true;
   };
 
-  for (const r of refs) if (sameScope(r)) out.push({ uri, range: toLspRange(r.loc) });
+  // One location per position: a ui page names its op in both a binding and
+  // its uses list, and locForCall resolves both to the same place. Listing
+  // that place twice in a find-references panel is noise, not information.
+  const seen = new Set<string>();
+  for (const r of refs) {
+    if (!sameScope(r)) continue;
+    const key = r.loc.line + ':' + r.loc.col;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ uri, range: toLspRange(r.loc) });
+  }
   return out;
 }
 
