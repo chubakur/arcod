@@ -215,29 +215,47 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   // record ends it.
   const aliases = new Map(mod.types.map((decl) => [decl.name, decl.type]));
   const reportedCycles = new Set<string>();
+  // A name once walked to a shape never needs walking again: without this,
+  // a long alias chain (`type A0 = A1` … `type A9999 = int`) cost one full
+  // walk per declaration, which turned a 20k-line header into minutes of
+  // checking. Every walk now ends at a shape a name already knows, or at a
+  // cycle.
+  const reachesShape = new Set<string>();
   for (const decl of mod.types) {
+    if (reachesShape.has(decl.name)) continue;
     const chain: string[] = [decl.name];
+    const onPath = new Map<string, number>([[decl.name, 0]]);
     let current: TypeExpr = decl.type;
+    let cycleAt: number | null = null;
     while (current.kind === 'named' && aliases.has(current.name)) {
-      if (current.name === decl.name) {
-        const members = chain.slice().sort();
-        const key = members.join(',');
-        if (!reportedCycles.has(key)) {
-          reportedCycles.add(key);
-          const path = chain.join(' -> ') + ' -> ' + decl.name;
-          const subject = members.length === 1
-            ? 'type ' + members[0] + ' refers to itself'
-            : 'types ' + members.join(', ') + ' refer to each other';
-          diags.push(diag('A101', 'error', mod.file, decl.loc, 'types.' + decl.name,
-            subject + ' and to no shape (' + path + ')',
-            'give one of them a record, a builtin or an enum; a cycle of aliases publishes $ref ' + path));
-        }
+      const seenAt = onPath.get(current.name);
+      if (seenAt !== undefined) {
+        cycleAt = seenAt;
         break;
       }
-      if (chain.includes(current.name)) break;
+      onPath.set(current.name, chain.length);
       chain.push(current.name);
       current = aliases.get(current.name) as TypeExpr;
     }
+    if (cycleAt !== null) {
+      const cycle = chain.slice(cycleAt);
+      const members = cycle.slice().sort();
+      const key = members.join(',');
+      if (!reportedCycles.has(key)) {
+        reportedCycles.add(key);
+        const head = cycle[0];
+        const loc = mod.types.find((item) => item.name === head)?.loc ?? decl.loc;
+        const path = cycle.join(' -> ') + ' -> ' + head;
+        const subject = members.length === 1
+          ? 'type ' + members[0] + ' refers to itself'
+          : 'types ' + members.join(', ') + ' refer to each other';
+        diags.push(diag('A101', 'error', mod.file, loc, 'types.' + head,
+          subject + ' and to no shape (' + path + ')',
+          'give one of them a record, a builtin or an enum; a cycle of aliases publishes $ref ' + path));
+      }
+      continue;
+    }
+    for (const name of chain) reachesShape.add(name);
   }
 
   // A066 — two examples of one service with the same name: the run reports

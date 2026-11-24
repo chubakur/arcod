@@ -28,6 +28,17 @@ test('an alias of itself is the same cycle with one member', () => {
   assert.match(a101[0].message, /type A refers to itself/);
 });
 
+test('a long alias chain is walked once per name, not once per declaration', () => {
+  // The first version walked the whole chain from every declaration, so a
+  // 5k-link chain cost ~25M steps before check returned. Reaching a shape is
+  // remembered per name, so this has to finish like any other spec.
+  const links = 5000;
+  const types = Array.from({ length: links }, (_, index) => 'type A' + index + ' = A' + (index + 1)).join('\n');
+  const mod = parse(wrap(types + '\ntype A' + links + ' = int'), 'm.arc');
+  const diags = check(mod).filter((diag) => diag.code === 'A101');
+  assert.deepEqual(diags, [], 'a chain that ends at a builtin is not a cycle');
+});
+
 test('an alias that reaches a shape stays clean, including a recursive record', () => {
   const reached = parse(wrap('type A = B\ntype B = { id: uuid, name: string }'), 'm.arc');
   assert.deepEqual(check(reached).filter((diag) => diag.code === 'A101'), []);
