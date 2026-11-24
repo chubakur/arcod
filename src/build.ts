@@ -69,6 +69,20 @@ export async function implBodiesFor(exampleDir: string): Promise<Record<string, 
   return readImpl(await implDirFor(exampleDir));
 }
 
+// readImpl bundles only *.mjs, so a body saved as impl/totals.js was invisible:
+// nothing named it, nothing warned, and the route answered 501 NotImplemented.
+// The check can only warn about files the caller lists, so the CLI asks for the
+// names the build skipped.
+export async function implIgnoredFiles(exampleDir: string): Promise<string[]> {
+  const dir = await implDirFor(exampleDir);
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
+  if (!entries) return [];
+  return entries
+    .filter((entry) => entry.isFile() && !entry.name.startsWith('.') && !entry.name.endsWith('.mjs'))
+    .map((entry) => entry.name)
+    .sort();
+}
+
 async function readImpl(dir: string): Promise<Record<string, string> | undefined> {
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
   if (!entries) return undefined;

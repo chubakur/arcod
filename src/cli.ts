@@ -5,7 +5,7 @@ import { probeDocker } from './docker.ts';
 import { parse, ParseError } from './parser.ts';
 import { check } from './check.ts';
 import { buildPlan, formatPlan } from './plan.ts';
-import { BuildError, buildExample, implBodiesFor, resolveDialect } from './build.ts';
+import { BuildError, buildExample, implBodiesFor, implIgnoredFiles, resolveDialect } from './build.ts';
 import { runExamples } from './test.ts';
 import type { Diagnostic } from './diagnostics.ts';
 import type { ModuleNode } from './ast.ts';
@@ -431,7 +431,7 @@ async function runCheckPattern(flags: Flags, pattern: string): Promise<void> {
       }
       continue;
     }
-    const diags = check(mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(dir), impl: await implBodiesFor(dir) });
+    const diags = check(mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(dir), impl: await implBodiesFor(dir), implIgnored: await implIgnoredFiles(dir) });
     if (diags.some((item) => item.severity === 'error')) failed++;
     if (flags.json) {
       reports.push({ file: specPath, diagnostics: diags });
@@ -454,7 +454,7 @@ async function runCheck(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   // The bodies are where an entity is named, so a typo there is checkable only
   // when check reads them; a project without impl simply has no such warning.
-  const diags = check(loaded.mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(loaded.dir), impl: await implBodiesFor(loaded.dir) });
+  const diags = check(loaded.mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(loaded.dir), impl: await implBodiesFor(loaded.dir), implIgnored: await implIgnoredFiles(loaded.dir) });
   if (flags.json) {
     console.log(JSON.stringify(diags, null, 2));
   } else {

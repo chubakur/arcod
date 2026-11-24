@@ -58,6 +58,8 @@ export interface CheckOptions {
   // Operation bodies, when the caller has them. They are the only place a body
   // names an entity, so a typo there is checkable only with this evidence.
   impl?: Record<string, string>;
+  // Files in impl/ that the build will not bundle (anything but *.mjs).
+  implIgnored?: string[];
 }
 
 // An ssr page is rendered from a parameterless GET: that is the only shape a
@@ -1588,6 +1590,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkImplCollisions(mod, diags, options.impl);
   checkImplSignatures(mod, diags, options.impl);
   checkOrphanImplBodies(mod, diags, options.impl);
+  checkIgnoredImplBodies(mod, diags, options.implIgnored);
   checkMissingImplBodies(mod, diags, options.impl);
 
   return sortDiagnostics(diags);
@@ -1649,6 +1652,21 @@ export function checkMissingImplBodies(mod: ModuleNode, diags: Diagnostic[], imp
           'add impl/' + op.name + '.mjs, or the route answers 501 NotImplemented'),
       );
     }
+  }
+}
+
+// readImpl lists impl/ but bundles only *.mjs, so a body saved as impl/totals.js
+// was dropped without a word: check saw no body for totals, and the only hint was
+// a 501 at request time. The file is not the body the build reads, so this is a
+// warning that names it and the extension the build accepts.
+export function checkIgnoredImplBodies(mod: ModuleNode, diags: Diagnostic[], ignored: string[] | undefined): void {
+  if (!ignored) return;
+  for (const file of ignored) {
+    diags.push(
+      diag('W051', 'warning', 'impl/' + file, { ...mod.loc, line: 1, col: 1, endLine: 1, endCol: 1 }, 'impl.' + file,
+        'impl/' + file + ' is not a .mjs body and is not bundled',
+        'rename it to impl/<operation>.mjs: the build reads only .mjs bodies'),
+    );
   }
 }
 
