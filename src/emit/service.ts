@@ -2891,8 +2891,13 @@ function implHandlers(
     const names = op.params.map((param) => param.name);
     const route = op.clauses.find((clause) => clause.kind === 'route');
     const method = route && route.kind === 'route' ? route.value.split(' ')[0].toUpperCase() : 'GET';
-    // A HEAD answer mirrors GET: 200, and Node drops the body.
-    const status = method === 'GET' || method === 'HEAD' ? 200 : 201;
+    // A HEAD answer mirrors GET: 200, and Node drops the body. A declared
+    // `status` wins: an idempotent POST action creates nothing and the 201
+    // write code made the client read a new resource.
+    const declaredStatus = op.clauses.find((clause) => clause.kind === 'status');
+    const status = declaredStatus && declaredStatus.kind === 'status'
+      ? declaredStatus.value
+      : method === 'GET' || method === 'HEAD' ? 200 : 201;
     parts.push(
       // The runtime owns handleRequest, and a spec may name an operation
       // anything: a bare 'handle' + Op would collide for `op request` and the

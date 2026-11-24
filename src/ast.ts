@@ -232,6 +232,10 @@ export type Clause =
   | { kind: 'pre' | 'post'; expr: Expr; loc: Loc }
   | { kind: 'onerror'; error: string; expr: Expr; loc: Loc }
   | { kind: 'route'; value: string; loc: Loc }
+  // The success status of the operation: POST answers 201 because a write
+  // usually creates something, but an idempotent action (cancel, replay)
+  // creates nothing and has to say 200. Only a 2xx code belongs here.
+  | { kind: 'status'; value: number; loc: Loc }
   | { kind: 'schedule'; value: string; loc: Loc }
   // A job consumes a queue topic: the runtime starts a consumer before the
   // http server and routes each message to the job body. Retry counts the

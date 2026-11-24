@@ -1231,6 +1231,25 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       }
     }
 
+    // A097 — a declared success status has to be a body-carrying 2xx. A
+    // 4xx/5xx written as `status` would turn a successful call into an error,
+    // and 204/205 has no body while every handler of this runtime builds one.
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      const declared = op.clauses.find((clause) => clause.kind === 'status');
+      if (!declared || declared.kind !== 'status') continue;
+      const where = 'services.' + svc.name + '.contract.' + op.name;
+      if (declared.value < 200 || declared.value > 299) {
+        diags.push(diag('A097', 'error', mod.file, declared.loc, where,
+          'status ' + declared.value + ' is not a success code',
+          'a declared status names the answer of a successful call: write a 2xx, e.g. status: 200'));
+      } else if (declared.value === 204 || declared.value === 205) {
+        diags.push(diag('A097', 'error', mod.file, declared.loc, where,
+          'status ' + declared.value + ' has no body, and this runtime always answers with one',
+          'use status: 200 for an action that returns a result'));
+      }
+    }
+
     // A071 — every :name in the route has to be an operation parameter. A
     // typo (:tid instead of id) captures a value nobody reads and leaves the
     // argument unbound, and the runtime has nothing to report.

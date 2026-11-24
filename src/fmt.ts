@@ -712,6 +712,7 @@ class Printer {
       case 'consume': this.raw(indent, 'on: ' + c.source); break;
       case 'saga': this.raw(indent, 'saga: ' + c.name); break;
       case 'retry': this.raw(indent, 'retry: ' + c.value); break;
+      case 'status': this.raw(indent, 'status: ' + c.value); break;
       case 'schedule': this.raw(indent, 'schedule: ' + quoteStr(c.value)); break;
       case 'idempotent': this.raw(indent, 'idempotent'); break;
       case 'since': this.raw(indent, 'since: ' + quoteStr(c.value)); break;
