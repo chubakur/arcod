@@ -21,6 +21,8 @@ interface UiParam {
   optional: boolean;
   max: number | null;
   min: number | null;
+  // A decimal is a number the API accepts; only int refuses a fraction.
+  integer: boolean;
   options: string[];
   format: 'email' | 'uri' | null;
 }
@@ -448,6 +450,10 @@ function fieldControl(p) {
       // so the browser can say so before the request is sent.
       if (p.min !== null && p.min !== undefined) input.min = String(p.min);
       if (p.max !== null && p.max !== undefined) input.max = String(p.max);
+      // A number input defaults to step 1, so 1.5 was a step mismatch and the
+      // browser refused to submit a float the API accepts. Only int is a
+      // whole number; everything else accepts any step the contract allows.
+      input.step = p.integer ? '1' : 'any';
     }
     if (p.max && p.kind !== 'number') input.maxLength = p.max;
   }
@@ -562,6 +568,7 @@ function uiParam(mod: ModuleNode, param: Param, where: 'path' | 'query' | 'body'
   const format = constraint.format;
   const bounds = boundsOf(mod, param.type);
   let min: number | null = null;
+  let integer = false;
 
   if (options.length > 0) {
     kind = 'select';
@@ -570,10 +577,15 @@ function uiParam(mod: ModuleNode, param: Param, where: 'path' | 'query' | 'body'
   } else if (resolved.kind === 'named') {
     if (resolved.name === 'list' || resolved.name === 'map' || resolved.name === 'json') kind = 'json';
     else if (resolved.name === 'bool') kind = 'bool';
-    else if (resolved.name === 'int' || resolved.name === 'float' || resolved.name === 'number') {
+    // decimal is a JSON number with a fractional part: OpenAPI publishes it as
+    // type: number, and the runtime parses it as a number. Leaving it out of
+    // this branch made it a text field that sent a quoted string where the
+    // contract says number.
+    else if (resolved.name === 'int' || resolved.name === 'float' || resolved.name === 'number' || resolved.name === 'decimal') {
       kind = 'number';
       min = bounds.min;
       max = bounds.max;
+      integer = bounds.integer;
     }
     else if (resolved.name === 'bytes' || resolved.name === 'string') {
       // Both refinements carry a character limit; only bytes is large enough
@@ -583,7 +595,7 @@ function uiParam(mod: ModuleNode, param: Param, where: 'path' | 'query' | 'body'
     }
   }
 
-  return { name: param.name, kind, where, optional, max, min, options, format };
+  return { name: param.name, kind, where, optional, max, min, integer, options, format };
 }
 
 function routeOfOp(op: OpNode): { method: string; path: string } {
