@@ -39,6 +39,20 @@ function literal(value) {
   return "UNHEX('" + value + "')";
 }
 
+// LIKE reads % and _ as wildcards and a backslash as its escape, so a search
+// for "100%" matched every row that starts with "100" and a row whose text
+// really holds a percent sign did not have to match. The needle is escaped
+// with '!' -- the character the ESCAPE clause names -- so a pattern only ever
+// means the text the caller asked for.
+function likeNeedle(value) {
+  let out = '';
+  for (const ch of String(value)) {
+    if (ch === '!' || ch === '%' || ch === '_') out += '!';
+    out += ch;
+  }
+  return out;
+}
+
 // JSON columns reject a binary-charset string (mysql 3144). A hex literal with
 // a utf8mb4 introducer is still byte-exact, but arrives as text.
 function utf8Literal(value) {
@@ -638,7 +652,7 @@ class SqlStore {
       else if (op === 'lte') clauses.push(colSql + ' <= ' + sqlLiteral(col.base, value));
       // LIKE needs text: an int/date column used to be cast by mysql and
       // rejected by the driver elsewhere. Cast on both sides of the dialect.
-      else if (op === 'contains') clauses.push('CAST(' + colSql + ' AS CHAR) LIKE ' + literal(hexOf('%' + String(value) + '%')));
+      else if (op === 'contains') clauses.push('CAST(' + colSql + ' AS CHAR) LIKE ' + literal(hexOf('%' + likeNeedle(value) + '%')) + " ESCAPE '!'");
     }
     return clauses;
   }

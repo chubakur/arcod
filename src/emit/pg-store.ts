@@ -387,6 +387,20 @@ async function applyMigrations(connection) {
   }
 }
 
+// LIKE reads % and _ as wildcards and a backslash as its escape, so a search
+// for "100%" matched every row that starts with "100" and a row whose text
+// really holds a percent sign did not have to match. The needle is escaped
+// with '!' -- the character the ESCAPE clause names -- so a pattern only ever
+// means the text the caller asked for.
+function likeNeedle(value) {
+  let out = '';
+  for (const ch of String(value)) {
+    if (ch === '!' || ch === '%' || ch === '_') out += '!';
+    out += ch;
+  }
+  return out;
+}
+
 // Identifiers are model names, but they can still be reserved words or mixed
 // case; double quotes stop Postgres folding them to lower case.
 function pq(name) {
@@ -674,7 +688,7 @@ class PgStore {
       else if (op === 'lte') clauses.push(colSql + ' <= ' + pgLiteral(col.base, value));
       // postgres has no integer ~~ unknown: a LIKE on a non-text column was a
       // 42883 error. The cast keeps contains working for any declared field.
-      else if (op === 'contains') clauses.push('CAST(' + colSql + ' AS text) LIKE ' + pgLiteral('string', '%' + String(value) + '%'));
+      else if (op === 'contains') clauses.push('CAST(' + colSql + ' AS text) LIKE ' + pgLiteral('string', '%' + likeNeedle(value) + '%') + " ESCAPE '!'");
     }
     return clauses;
   }
