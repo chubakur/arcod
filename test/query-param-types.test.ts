@@ -10,6 +10,10 @@ import { startService } from './harness.ts';
 const spec = [
   'module querytypes @0.1.0 {}',
   '',
+  '// An alias is the declared type: the table resolves it, not the spelling.',
+  'type Qty = int(min: 1)',
+  'type On = bool',
+  '',
   'service Shop : http {',
   '  contract {',
   '    public op find(flag: bool, limit: int(min: 1, max: 5), ratio: decimal(min: 0.1, max: 0.9)) -> string {',
@@ -17,6 +21,9 @@ const spec = [
   '    }',
   '    public op item(id: int, ratio: decimal) -> string {',
   '      route: "GET /v1/item/:id"',
+  '    }',
+  '    public op count(n: Qty, on: On) -> string {',
+  '      route: "GET /v1/count"',
   '    }',
   '  }',
   '}',
@@ -29,6 +36,11 @@ const spec = [
 // The body echoes what the impl actually received: the value and its runtime
 // type, so a string that only looks like a number cannot pass.
 const impl = {
+  count: [
+    'export async function count(input) {',
+    '  return { result: JSON.stringify({ n: input.n, nType: typeof input.n, on: input.on, onType: typeof input.on }) };',
+    '}',
+  ].join('\n'),
   item: [
     'export async function item(input) {',
     '  return { result: JSON.stringify({ id: input.id, idType: typeof input.id, ratio: input.ratio, ratioType: typeof input.ratio }) };',
@@ -104,6 +116,16 @@ test('a path parameter arrives with its declared type', async () => {
   const bad = await fetch(svc.base + '/v1/item/seven?ratio=0.25');
   assert.equal(bad.status, 400, 'an int path segment is not text the impl has to parse');
   assert.match(await bad.text(), /id must be an integer/);
+});
+
+test('an alias of a scalar is coerced like the scalar itself', async () => {
+  const ok = await fetch(svc.base + '/v1/count?n=4&on=false');
+  assert.equal(ok.status, 200);
+  assert.deepEqual(JSON.parse(await ok.text()), { n: 4, nType: 'number', on: false, onType: 'boolean' });
+
+  const bad = await fetch(svc.base + '/v1/count?n=4.5&on=true');
+  assert.equal(bad.status, 400, 'Qty is an int(min: 1), so a fraction is refused by the alias bounds');
+  assert.match(await bad.text(), /n must be an integer/);
 });
 
 // Runs last: the process under test is shared by the assertions above.
