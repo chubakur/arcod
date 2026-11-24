@@ -1954,7 +1954,8 @@ VS Code (`editors/vscode`):
 - Live diagnostics while you type, plus a status-bar counter.
 - Completion: keywords, types, services, operations, errors, enums and `uses`
   aliases. Dead v0.1 keywords are never offered.
-- Outline, go-to-definition, find-references, hover and formatting (`arcod fmt`).
+- Outline (a page nested by its slides, an environment by its binds),
+  go-to-definition, find-references, hover and formatting (`arcod fmt`).
 
 ```bash
 cd editors/vscode && npm install && npm run package

@@ -180,3 +180,24 @@ test('completions label jobs, sagas, steps, ui pages and environment binds', () 
   assert.equal(quizItems.find((i) => i.label === 'store')?.kind, SymbolKind.Variable, 'a bind completes as a variable');
 });
 
+test('the outline lists a page by its slides and an environment by its binds', () => {
+  const symbols = documentSymbols(quiz)[0].children!;
+  const stage = symbols.find((s) => s.name === 'Stage')!;
+  assert.deepEqual(
+    stage.children?.map((s) => s.name),
+    ['Who are you?', 'Join', 'Agenda', 'Questions'],
+    'slides are the page children, in source order',
+  );
+  assert.ok(stage.children!.every((s) => s.kind === SymbolKind.Object));
+  const first = stage.children![0];
+  assert.ok(first.range.end.line > first.range.start.line, 'a slide spans its body lines');
+
+  const dev = symbols.find((s) => s.name === 'dev')!;
+  assert.deepEqual(
+    dev.children?.map((s) => s.name),
+    ['store', 'uuid', 'stream'],
+    'the binds are the environment children',
+  );
+  assert.ok(dev.children!.every((s) => s.kind === SymbolKind.Variable));
+});
+

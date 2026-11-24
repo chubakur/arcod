@@ -605,8 +605,36 @@ export function documentSymbols(text: string): LspDocumentSymbol[] {
       module.children!.push(s);
     }
   }
-  for (const u of mod.uis) { const s = leaf(u.name, 'ui', SymbolKind.Interface); if (s) module.children!.push(s); }
-  for (const env of mod.environments) { const s = leaf(env.name, 'environment', SymbolKind.Constant); if (s) module.children!.push(s); }
+  // A presentation page is navigated by its slides, and an environment by the
+  // aliases it binds: the outline lists both, one level down, instead of
+  // leaving a page as an opaque leaf.
+  for (const u of mod.uis) {
+    const s = leaf(u.name, 'ui', SymbolKind.Interface);
+    if (!s) continue;
+    if (u.slides.length > 0) {
+      s.children = u.slides.map((slide) => ({
+        name: slide.title,
+        kind: SymbolKind.Object,
+        range: toLspRange(slide.loc),
+        selectionRange: toLspRange(slide.loc),
+      }));
+    }
+    module.children!.push(s);
+  }
+  for (const env of mod.environments) {
+    const s = leaf(env.name, 'environment', SymbolKind.Constant);
+    if (!s) continue;
+    if (env.binds.length > 0) {
+      s.children = env.binds.map((b) => ({
+        name: b.alias,
+        kind: SymbolKind.Variable,
+        range: toLspRange(b.loc),
+        selectionRange: toLspRange(b.loc),
+        detail: sourceLine(mod, b.loc),
+      }));
+    }
+    module.children!.push(s);
+  }
   return [module];
 }
 
