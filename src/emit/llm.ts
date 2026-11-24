@@ -28,7 +28,7 @@ function llmMemoryVector(text) {
   return vector;
 }
 
-function llmError(kind, message, status, body) {
+// One question decides the kind: did the endpoint run anything? A 4xx other\n// than 429 means no - fix the config, then repeat. 429 means no - repeat later\n// is safe. Timeout, a dropped connection, 5xx and a 2xx body we cannot read\n// might have run: a repeat is allowed but may create a second run.\nfunction llmErrorKind(status) {\n  if (status === 429) return 'limited';\n  if (status >= 400 && status < 500) return 'rejected';\n  return 'unknown';\n}\nfunction llmError(kind, message, status, body) {
   const error = new Error(message);
   error.kind = kind;
   error.status = status === undefined ? null : status;
@@ -68,14 +68,14 @@ async function llmEmbed(texts) {
       signal: controller.signal,
     });
     const text = await response.text();
-    if (!response.ok) throw llmError('refused', 'llm: ' + response.status + ' ' + text.slice(0, 300), response.status, text);
+    if (!response.ok) throw llmError(llmErrorKind(response.status), 'llm: ' + response.status + ' ' + text.slice(0, 300), response.status, text);
     let data;
     try {
       data = JSON.parse(text);
     } catch (error) {
-      throw llmError('failed', 'llm: invalid json: ' + text.slice(0, 200));
+      throw llmError('unknown', 'llm: invalid json: ' + text.slice(0, 200));
     }
-    if (!data || !Array.isArray(data.data)) throw llmError('failed', 'llm: no embeddings in response');
+    if (!data || !Array.isArray(data.data)) throw llmError('unknown', 'llm: no embeddings in response');
     const vectors = data.data
       .slice()
       .sort((left, right) => Number(left.index) - Number(right.index))
@@ -86,7 +86,7 @@ async function llmEmbed(texts) {
     for (const vector of vectors) {
       if (vector.length !== expected) {
         throw llmError(
-          'failed',
+          'unknown',
           'llm: embedding dim ' + vector.length + ' does not match declared dim ' + expected +
           (LLM_EMBED_DIM ? '' : ' of the first vector'),
         );
@@ -94,8 +94,8 @@ async function llmEmbed(texts) {
     }
     return vectors;
   } catch (error) {
-    if (error && error.name === 'AbortError') throw llmError('timeout', 'llm: timeout after ' + LLM_TIMEOUT_MS + 'ms');
-    if (error && !error.kind) throw llmError('failed', String(error && error.message ? error.message : error));
+    if (error && error.name === 'AbortError') throw llmError('unknown', 'llm: timeout after ' + LLM_TIMEOUT_MS + 'ms');
+    if (error && !error.kind) throw llmError('unknown', String(error && error.message ? error.message : error));
     throw error;
   } finally {
     clearTimeout(timer);
@@ -129,21 +129,21 @@ async function llmChat(messages, system) {
       signal: controller.signal,
     });
     const text = await response.text();
-    if (!response.ok) throw llmError('refused', 'llm: ' + response.status + ' ' + text.slice(0, 300), response.status, text);
+    if (!response.ok) throw llmError(llmErrorKind(response.status), 'llm: ' + response.status + ' ' + text.slice(0, 300), response.status, text);
     let data;
     try {
       data = JSON.parse(text);
     } catch (error) {
-      throw llmError('failed', 'llm: invalid json: ' + text.slice(0, 200));
+      throw llmError('unknown', 'llm: invalid json: ' + text.slice(0, 200));
     }
     const content = data && data.choices && data.choices[0] && data.choices[0].message
       ? data.choices[0].message.content
       : null;
-    if (typeof content !== 'string') throw llmError('failed', 'llm: no content in response');
+    if (typeof content !== 'string') throw llmError('unknown', 'llm: no content in response');
     return { content, model: data.model || LLM_MODEL };
   } catch (error) {
-    if (error && error.name === 'AbortError') throw llmError('timeout', 'llm: timeout after ' + LLM_TIMEOUT_MS + 'ms');
-    if (error && !error.kind) throw llmError('failed', String(error && error.message ? error.message : error));
+    if (error && error.name === 'AbortError') throw llmError('unknown', 'llm: timeout after ' + LLM_TIMEOUT_MS + 'ms');
+    if (error && !error.kind) throw llmError('unknown', String(error && error.message ? error.message : error));
     throw error;
   } finally {
     clearTimeout(timer);

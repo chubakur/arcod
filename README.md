@@ -391,12 +391,15 @@ instead of being stored next to the rest. Without `dim` the runtime still
 rejects a response whose vectors disagree with each other; `check` reports
 `A077` when `dim` is not a positive integer. An empty batch returns `[]`
 without a request: endpoints reject `input: []`, and an indexer with nothing
-to embed has nothing to ask. A failed model call carries a `kind`: `refused` (the
-endpoint answered, e.g. `403`), `timeout` (it took the request and missed the
-deadline) or `failed` (garbage, a socket error, a width mismatch). The body
-branches on `error.kind` instead of parsing our message, which we may rewrite:
-`if (error.kind === 'timeout') return { error: 'Unavailable' }` reserves `503`
-for "try again" and answers `500` for a refusal. `error.status` and
+to embed has nothing to ask. A failed model call carries a `kind` that answers one question: did the
+endpoint run anything? `rejected` (4xx other than 429) and `limited` (429) mean
+no: the first repeats only after the configuration is fixed, the second later
+is safe. `unknown` (timeout, a dropped connection, 5xx, a 2xx body we cannot
+read) means it might have run - a repeat is allowed but may create a second
+run, because `io.chat` has no deduplication. The body branches on `error.kind`
+instead of parsing our message, which we may rewrite:
+`if (error.kind === 'limited') return { error: 'RateLimited' }`; `rejected`
+answers `500` in our words, and `unknown` keeps `503` meaning "try again". `error.status` and
 `error.body` (truncated) are for the log; neither reaches the client. Full example: `examples/chat` — dialogue history, model answers and a
 page with `layout: chat`; `examples/vector` — notes indexed by `io.embed`
 and searched by cosine in the body, with `dim: 768` on the binding.
