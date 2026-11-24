@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { implIgnoredFiles } from '../src/build.ts';
 import { check } from '../src/check.ts';
 import { parse } from '../src/parser.ts';
+import { main } from '../src/cli.ts';
 
 const SPEC = `module ignored @0.1.0 {
   meta {
@@ -74,6 +75,29 @@ test('implIgnoredFiles lists only files the build will not read', async () => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// The wiring is part of the fix: check knows only the names the caller passes,
+// so the CLI has to ask the build which files it skipped. A check-level test
+// alone would pass while `arcod check` stayed silent.
+test('arcod check reports W051 for a body the build cannot read', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-ignored-cli-'));
+  const out: string[] = [];
+  const realLog = console.log;
+  try {
+    await writeFile(join(dir, 'main.arc'), SPEC);
+    await mkdir(join(dir, 'impl'));
+    await writeFile(join(dir, 'impl', 'totals.js'), 'export async function totals(input, io) { return { result: 1 }; }\n');
+    console.log = (...args: unknown[]) => { out.push(args.map((a) => String(a)).join(' ')); };
+    await main(['check', dir]);
+  } finally {
+    console.log = realLog;
+    process.exitCode = 0;
+    await rm(dir, { recursive: true, force: true });
+  }
+  const text = out.join('\n');
+  assert.match(text, /impl\/totals\.js:1:1 {2}warning {2}W051/);
+  assert.match(text, /rename it to impl\/<operation>\.mjs/);
 });
 
 test('implIgnoredFiles: a project without impl/ has nothing to report', async () => {
