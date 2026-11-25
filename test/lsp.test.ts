@@ -274,3 +274,35 @@ test('formatting keeps a comment inside a ui block, not at the end of the file',
   assert.deepEqual(formatting(out, 'demo.arc'), [], 'a second format is a no-op');
 });
 
+// A Windows editor saves CRLF. The server reads the same document the compiler
+// reads, so diagnostics must land on the same lines, and a whole-document edit
+// must end where the client says the document ends: a range past the last line
+// is rejected by the editor, which turns format-on-save into an error.
+test('a CRLF document gets the same diagnostics and a valid full-range edit', () => {
+  const lf = [
+    'module demo @0.1.0 {',
+    '}',
+    '',
+    'service X : http {',
+    '  contract {',
+    '    public op f() -> Nope {',
+    '      route: "GET /x"',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const crlf = lf.replace(/\n/g, '\r\n');
+  const pick = (text: string) => diagnostics(text, 'x.arc').map((d) => ({ code: d.code, range: d.range }));
+  assert.deepEqual(pick(crlf), pick(lf), 'CRLF is the same document to the checker');
+
+  const edits = formatting(crlf, 'x.arc');
+  assert.equal(edits.length, 1, 'CRLF is not the formatted form');
+  const lines = crlf.split('\n');
+  assert.deepEqual(edits[0].range.start, { line: 0, character: 0 });
+  assert.equal(edits[0].range.end.line, lines.length - 1);
+  assert.equal(edits[0].range.end.character, 0, 'the trailing CRLF leaves an empty last line');
+  assert.equal(edits[0].newText.includes('\r'), false, 'formatting writes LF');
+  assert.deepEqual(formatting(edits[0].newText, 'x.arc'), [], 'a second pass is a no-op');
+});
+

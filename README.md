@@ -2101,7 +2101,10 @@ This is a vertical slice, not a finished language.
   `arcod test`.
 - A UTF-8 BOM at the start of a spec is ignored (a Windows editor adds one),
   and the canonical form never carries it: a file saved with a BOM is clean to
-  `check` and "not formatted" to `fmt --check` until `--write` drops it.
+  `check` and "not formatted" to `fmt --check` until `--write` drops it. A CRLF
+  file is the same document to `check` and to the language server — every
+  diagnostic keeps its line — and `fmt` writes LF, so a Windows-saved file is
+  "not formatted" once, until `--write`.
 - `arcod fmt` is canonical and idempotent, but it re-lays out record types on one
   line. Empty braces are always tight (`type T = {}`, `enum C {}`, `let r = {}`),
   never `{  }`. Comments above declarations, fields, enum values, example statements,
