@@ -151,6 +151,66 @@ test('a field named constructor keeps its bound at insert time', async () => {
   assert.match(res.text, /insert Item: constructor must be at most 3 characters/);
 });
 
+// The request boundary has the same trap: readInput asked the in operator
+// whether a parameter arrived, and for a parameter named toString that is true
+// even when the client sent nothing, so the body received the inherited
+// function instead of null.
+const inputSource = [
+  'module probe @0.1.0 {}',
+  '',
+  'use capability arcod.std.kv @1',
+  '',
+  'service Probe : http {',
+  '  uses store: kv',
+  '',
+  '  effects {',
+  '    allow store.get',
+  '  }',
+  '',
+  '  contract {',
+  '    public op probe(toString: string?) -> string {',
+  '      route: "POST /v1/probe"',
+  '      status: 200',
+  '    }',
+  '  }',
+  '}',
+  '',
+].join(String.fromCharCode(10));
+
+const inputImpl = {
+  probe: [
+    'export async function probe(input, io) {',
+    "  return { result: input.toString === null ? 'none' : 'value:' + String(input.toString) };",
+    '}',
+  ].join(String.fromCharCode(10)),
+};
+
+async function probeInput(body: string) {
+  const svc = await startService(inputSource, { impl: inputImpl });
+  try {
+    const res = await fetch(svc.base + '/v1/probe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+    });
+    return { status: res.status, text: await res.text() };
+  } finally {
+    await svc.stop();
+  }
+}
+
+test('an absent parameter named toString arrives as null, not the inherited function', async () => {
+  const res = await probeInput('{}');
+  assert.equal(res.status, 200, res.text);
+  assert.equal(res.text, 'none');
+});
+
+test('a parameter named toString arrives with the value the client sent', async () => {
+  const res = await probeInput(JSON.stringify({ toString: 'sent' }));
+  assert.equal(res.status, 200, res.text);
+  assert.equal(res.text, 'value:sent');
+});
+
 test('a field named constructor is stored and read back under its own key', async () => {
   const res = await putLive({ name: 'abc' });
   assert.equal(res.status, 201, res.text);

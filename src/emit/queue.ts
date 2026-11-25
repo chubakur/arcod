@@ -264,7 +264,10 @@ function consumerInput(spec, payload) {
   }
   const values = payload && typeof payload === 'object' ? payload : { [spec.params[0]]: payload };
   const input = {};
-  for (const name of spec.params) input[name] = name in values ? values[name] : null;
+  // Own keys only: a parameter named toString is absent from a payload that
+  // never carried it, while the in operator answers with the inherited
+  // function and hands the body a value the publisher never sent.
+  for (const name of spec.params) input[name] = Object.hasOwn(values, name) ? values[name] : null;
   return input;
 }
 
