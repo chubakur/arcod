@@ -355,7 +355,11 @@ async function run(op, form, out, button) {
   var problem = null;
 
   op.params.forEach(function (p) {
-    var input = form.elements[p.name];
+    // By name attribute, not a named read of the collection: a parameter
+    // called toString would otherwise find Object.prototype.toString on
+    // form.elements and read a function instead of the control.
+    var input = form.querySelector('[name="' + p.name + '"]');
+    if (!input) { problem = p.name; return; }
     var raw = p.kind === 'bool' ? input.checked : input.value;
     if (p.kind !== 'bool' && String(raw).trim() === '') {
       if (!p.optional) problem = p.name;
