@@ -1974,7 +1974,9 @@ forever looks like a hung editor. A method the server does not implement is
 `-32601` with the method name in the message (it used to be `result: null`,
 which a client reads as an empty answer), a body that is valid JSON but not a
 request is `-32600`, and a body that is not JSON is `-32700`; the server keeps
-serving after all three.
+serving after all three. `shutdown` is a promise: afterwards only `exit` is
+served (anything else is `-32600`), and the process exits 0 only when
+`shutdown` came first, 1 when a client tears it down without one.
 
 VS Code (`editors/vscode`):
 

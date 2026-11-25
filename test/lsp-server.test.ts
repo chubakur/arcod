@@ -211,3 +211,18 @@ test('a malformed frame is answered, and a URI with a bad escape still maps', as
     await client.stop();
   }
 });
+
+// LSP: `exit` is 0 when `shutdown` came first and 1 when the client tears the
+// server down without asking. The clean 0 was asserted; the 1 was never
+// observed, so a crashed/killed host and a closed window looked the same to
+// whatever supervises the editor process.
+test('exit without shutdown is a non-zero exit code', async () => {
+  const client = new Client();
+  try {
+    await client.request(1, 'initialize', { processId: process.pid, rootUri: null, capabilities: {} });
+    client.send({ method: 'exit' });
+    assert.equal(await client.exit, 1, 'no shutdown, so the exit is abnormal');
+  } finally {
+    await client.stop();
+  }
+});

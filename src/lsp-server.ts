@@ -12,6 +12,13 @@ interface Message { jsonrpc: string; id?: number | string | null; method?: strin
 
 const documents = new Map<string, string>();
 
+// LSP: `shutdown` is a promise that nothing else is served, and `exit`
+// chooses its code from whether that promise was kept — 0 after a shutdown,
+// 1 when the client tears the server down without asking. An editor that sees
+// a non-zero exit knows the session ended abnormally (a killed process, a
+// crashing plugin host), not because the user closed the window.
+let shuttingDown = false;
+
 function uriToFile(uri: string): string {
   const clean = uri.replace(/^file:\/\//, '');
   try {
@@ -68,6 +75,14 @@ function publishDiagnostics(uri: string): void {
 }
 
 function handle(msg: Message): void {
+  if (shuttingDown && msg.method !== 'exit') {
+    // After `shutdown` the protocol allows only `exit`; anything else is refused
+    // so a client cannot keep a doomed session alive with requests.
+    if (msg.id !== undefined && msg.id !== null) {
+      respondError(msg.id, -32600, 'server is shutting down');
+    }
+    return;
+  }
   switch (msg.method) {
     case 'initialize': {
       respond(msg.id!, {
@@ -79,10 +94,11 @@ function handle(msg: Message): void {
     case 'initialized':
       return;
     case 'shutdown':
+      shuttingDown = true;
       respond(msg.id!, null);
       return;
     case 'exit':
-      process.exit(0);
+      process.exit(shuttingDown ? 0 : 1);
       return;
     case 'textDocument/didOpen': {
       const { textDocument } = msg.params ?? {};
@@ -162,6 +178,7 @@ function write(payload: object): void {
 // streams are a parameter now, so the same code runs in-process.
 function serve(io: { input?: NodeJS.ReadableStream; output?: NodeJS.WritableStream } = {}): void {
   out = io.output ?? process.stdout;
+  shuttingDown = false;
   const input: NodeJS.ReadableStream = io.input ?? process.stdin;
   let buffer = Buffer.alloc(0);
   input.on('data', (chunk: Buffer) => {

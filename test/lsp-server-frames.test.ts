@@ -151,6 +151,38 @@ test('an unknown notification is silent, an unknown request answers -32601', asy
   assert.equal(s.frames[0].result, undefined, 'a refusal must not look like an empty result');
 });
 
+// `shutdown` is a promise: after it the server serves only `exit`. Without
+// this, a client that keeps talking after shutdown gets answers from a session
+// it has already declared over, and the exit code cannot say whether the
+// shutdown ever happened.
+test('after shutdown only exit is served; other messages are refused', async () => {
+  const s = await session();
+  await s.send(frame({ jsonrpc: '2.0', id: 20, method: 'initialize', params: {} }));
+  assert.equal(s.frames.length, 1);
+
+  await s.send(frame({ jsonrpc: '2.0', id: 21, method: 'shutdown' }));
+  assert.equal(s.frames.length, 2);
+  assert.equal(s.frames[1].result, null);
+
+  await s.send(frame({
+    jsonrpc: '2.0',
+    method: 'textDocument/didOpen',
+    params: { textDocument: { uri: 'file:///tmp/arcod-after-shutdown.arc', languageId: 'arcod', version: 1, text: GOOD } },
+  }));
+  assert.equal(s.frames.length, 2, 'a notification after shutdown is not processed');
+
+  await s.send(frame({
+    jsonrpc: '2.0',
+    id: 22,
+    method: 'textDocument/hover',
+    params: { textDocument: { uri: 'file:///tmp/arcod-after-shutdown.arc' }, position: { line: 0, character: 0 } },
+  }));
+  assert.equal(s.frames.length, 3);
+  assert.equal(s.frames[2].id, 22);
+  assert.equal(s.frames[2].error.code, -32600);
+  assert.match(s.frames[2].error.message, /shutting down/);
+});
+
 test('a percent-encoded uri names the document for diagnostics and formatting', async () => {
   const s = await session();
   const uri = 'file:///tmp/arcod%20lsp/demo.arc';
