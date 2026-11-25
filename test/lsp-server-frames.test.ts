@@ -151,6 +151,27 @@ test('an unknown notification is silent, an unknown request answers -32601', asy
   assert.equal(s.frames[0].result, undefined, 'a refusal must not look like an empty result');
 });
 
+// A notification has no id, so JSON-RPC forbids answering it. Every request
+// handler passes `msg.id`, so a request method sent as a notification used to
+// write an id-less result: a frame the client cannot match to anything.
+test('a request method sent as a notification is not answered', async () => {
+  const s = await session();
+  await s.send(frame({ jsonrpc: '2.0', method: 'initialize', params: {} }));
+  await s.send(frame({
+    jsonrpc: '2.0',
+    method: 'textDocument/hover',
+    params: { textDocument: { uri: 'file:///tmp/arcod-no-id.arc' }, position: { line: 0, character: 0 } },
+  }));
+  await s.send(frame({ jsonrpc: '2.0', method: 'shutdown' }));
+  assert.equal(s.frames.length, 0, 'a notification has no id, so it has no answer');
+
+  // The id-less shutdown did not start shutdown mode either.
+  await s.send(frame({ jsonrpc: '2.0', id: 30, method: 'initialize', params: {} }));
+  assert.equal(s.frames.length, 1);
+  assert.equal(s.frames[0].id, 30);
+  assert.equal(s.frames[0].result.serverInfo.name, 'arcod');
+});
+
 // `shutdown` is a promise: after it the server serves only `exit`. Without
 // this, a client that keeps talking after shutdown gets answers from a session
 // it has already declared over, and the exit code cannot say whether the

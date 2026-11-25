@@ -38,7 +38,12 @@ const capabilities = {
   documentFormattingProvider: true,
 };
 
-function respond(id: number | string, result: unknown): void {
+// A notification carries no id, and JSON-RPC forbids answering one. The
+// request handlers all pass `msg.id`, so a notification for `hover` or
+// `initialize` used to write a result with no id — a message a client cannot
+// match to anything.
+function respond(id: number | string | null | undefined, result: unknown): void {
+  if (id === undefined || id === null) return;
   write({ jsonrpc: '2.0', id, result });
 }
 
@@ -94,8 +99,11 @@ function handle(msg: Message): void {
     case 'initialized':
       return;
     case 'shutdown':
+      // A shutdown without an id is a notification and is not a request to
+      // stop: only the answer-to-be starts the shutdown.
+      if (msg.id === undefined || msg.id === null) return;
       shuttingDown = true;
-      respond(msg.id!, null);
+      respond(msg.id, null);
       return;
     case 'exit':
       process.exit(shuttingDown ? 0 : 1);
