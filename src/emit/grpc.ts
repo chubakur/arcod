@@ -111,7 +111,11 @@ class Registry {
       if (decl.type.kind !== 'named') return decl.type;
       if (decl.type.name === name2) return decl.type;
       // Stop at a builtin, an enum or a record: that is the real shape.
-      if (SCALARS[decl.type.name] || isEnumDecl(this.mod, decl.type.name) || isRecordDecl(this.mod, decl.type.name)) {
+      // Own key: the table is keyed by scalar name, and `SCALARS['toString']`
+      // is Object.prototype.toString — a type alias with that name stopped at
+      // the alias instead of resolving, and the field's type came out as a
+      // function ("scalar.startsWith is not a function").
+      if (Object.hasOwn(SCALARS, decl.type.name) || isEnumDecl(this.mod, decl.type.name) || isRecordDecl(this.mod, decl.type.name)) {
         return decl.type;
       }
       name2 = decl.type.name;
@@ -154,7 +158,7 @@ class Registry {
       this.imports.add('google/protobuf/struct.proto');
       return { type: 'google.protobuf.Struct', labels: [] };
     }
-    const scalar = SCALARS[name];
+    const scalar = Object.hasOwn(SCALARS, name) ? SCALARS[name] : undefined;
     if (scalar) {
       if (scalar.startsWith('google.protobuf.')) {
         const file = scalar === 'google.protobuf.Timestamp' ? 'google/protobuf/timestamp.proto' : 'google/protobuf/struct.proto';
