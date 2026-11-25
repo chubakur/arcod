@@ -154,6 +154,25 @@ test('an unknown notification is silent, an unknown request answers -32601', asy
 // A notification has no id, so JSON-RPC forbids answering it. Every request
 // handler passes `msg.id`, so a request method sent as a notification used to
 // write an id-less result: a frame the client cannot match to anything.
+// Params a handler cannot read are a refusal, not a crash. A request gets
+// -32602 with its id; a notification has no id, so it stays silent; the server
+// keeps serving either way.
+test('unreadable params are -32602 for a request and silence for a notification', async () => {
+  const s = await session();
+
+  await s.send(frame({ jsonrpc: '2.0', method: 'textDocument/didOpen' }));
+  assert.equal(s.frames.length, 0, 'a broken notification gets no answer');
+
+  await s.send(frame({ jsonrpc: '2.0', id: 40, method: 'textDocument/hover' }));
+  assert.equal(s.frames.length, 1);
+  assert.equal(s.frames[0].id, 40);
+  assert.equal(s.frames[0].error.code, -32602);
+
+  await s.send(frame({ jsonrpc: '2.0', id: 41, method: 'initialize', params: {} }));
+  assert.equal(s.frames.length, 2, 'the server is still serving');
+  assert.equal(s.frames[1].result.serverInfo.name, 'arcod');
+});
+
 test('a request method sent as a notification is not answered', async () => {
   const s = await session();
   await s.send(frame({ jsonrpc: '2.0', method: 'initialize', params: {} }));
