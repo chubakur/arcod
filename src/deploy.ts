@@ -90,7 +90,9 @@ export const DEPLOY_PROVIDERS: Record<string, DeploySpec> = {
 };
 
 export function deployProvider(name: string): DeploySpec | null {
-  return DEPLOY_PROVIDERS[name] ?? null;
+  // hasOwn first: an unknown name like `toString` would otherwise answer a
+  // prototype member, which every caller reads as a real provider.
+  return Object.hasOwn(DEPLOY_PROVIDERS, name) ? DEPLOY_PROVIDERS[name] : null;
 }
 
 export function deployNames(): string[] {

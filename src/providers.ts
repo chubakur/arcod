@@ -349,7 +349,9 @@ for (const spec of Object.values(PROVIDERS)) {
 }
 
 export function providerFor(name: string): ProviderSpec | null {
-  return PROVIDERS[name] ?? null;
+  // hasOwn first: the name comes from a service's `uses` clause, and a
+  // prototype member would read as a real provider.
+  return Object.hasOwn(PROVIDERS, name) ? PROVIDERS[name] : null;
 }
 
 export function providerNames(): string[] {
