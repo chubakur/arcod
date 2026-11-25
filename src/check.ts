@@ -1175,7 +1175,9 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
           }
           const spec = capabilityFor(capability);
           if (!spec) continue; // a plugin capability declares its own methods
-          if (!(name in spec.effects)) {
+          // Own key, not `in`: a typo like store.toString used to pass on the
+          // inherited Object.prototype member and name no effect at all.
+          if (!Object.hasOwn(spec.effects, name)) {
             diags.push(diag('A044', 'error', mod.file, svc.effects.loc, 'services.' + svc.name + '.effects.' + listName,
               'effect ' + entry + ' does not exist in ' + capability,
               'known: ' + Object.keys(spec.effects).join(', ')));
@@ -1840,7 +1842,9 @@ export function checkMissingImplBodies(mod: ModuleNode, diags: Diagnostic[], imp
       // A file that exists but holds nothing is reported by A096 ("declares no
       // function"), which already names that file. Saying "add impl/x.mjs"
       // next to it sends the author to a file they are looking at.
-      if (op.name in impl) continue;
+      // Own key, not `in`: an operation named toString has a body only when
+      // impl/toString.mjs exists, not because Object.prototype has one.
+      if (Object.hasOwn(impl, op.name)) continue;
       if (op.clauses.some((clause) => clause.kind === 'saga')) continue;
       diags.push(
         diag('W050', 'warning', mod.file, op.loc, 'services.' + svc.name + '.ops.' + op.name,
