@@ -143,7 +143,10 @@ export function wireType(type: TypeExpr, named: Map<string, TypeExpr>): string {
     if (type.name === 'map') return 'map<string, string>';
     const base = named.get(type.name);
     if (base) return wireType(base, named);
-    return WIRE[type.name] ?? 'string';
+    // hasOwn first: an undeclared type named `toString` would otherwise answer
+    // Object.prototype.toString, and the prompt would describe the field with
+    // that function's source text.
+    return Object.hasOwn(WIRE, type.name) ? WIRE[type.name] : 'string';
   }
   return 'unknown';
 }
