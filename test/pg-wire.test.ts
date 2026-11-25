@@ -249,7 +249,7 @@ function storeBackend(seen: string[], sockets: Set<any> = new Set()) {
           continue;
         }
         if (tag !== 'Q') continue;
-        const sql = packet.toString('utf8').replace(/ $/, '');
+        const sql = packet.toString('utf8').replace(/\x00$/, '');
         seen.push(sql);
         if (/^SELECT checksum FROM arcod_migrations/.test(sql)) {
           socket.write(Buffer.concat([rowDescription(['checksum']), message('C', cstr('SELECT 0')), message('Z', Buffer.from('I'))]));
@@ -515,6 +515,7 @@ test('PgStore reconnects after the server closes the socket (B90)', async () => 
     await assert.rejects(() => store.ping(), /postgres connection closed/);
     assert.equal(await store.ping(), 'PONG');
     assert.equal(backend.connections(), 2);
+    assert.equal(backend.seen.filter((sql) => /^CREATE TABLE IF NOT EXISTS arcod_migrations/.test(sql)).length, 1, 'migrations are not re-run');
   } finally {
     try { if (store) await store.connection.end(); } catch (ignored) {}
     backend.server.close();
@@ -537,6 +538,7 @@ test('PgStore reconnects after the server closes an idle socket (B90)', async ()
     assert.equal(store.connection.alive(), false);
     assert.equal(await store.ping(), 'PONG');
     assert.equal(backend.connections(), 2);
+    assert.equal(backend.seen.filter((sql) => /^CREATE TABLE IF NOT EXISTS arcod_migrations/.test(sql)).length, 1, 'migrations are not re-run');
   } finally {
     try { if (store) await store.connection.end(); } catch (ignored) {}
     backend.server.close();
