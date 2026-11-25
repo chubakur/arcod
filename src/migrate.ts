@@ -259,8 +259,11 @@ export function migrationPlan(
   // keeps .arcod/build/migrations from pretending otherwise.
   if (storageUse(svc) === null) return { service: svc.name, migrations };
 
-  const uniquesByEntity: Record<string, string[][]> = {};
-  const indexesByEntity: Record<string, string[]> = {};
+  // A null prototype: the key is a record name, and one called `toString` or
+  // `constructor` would otherwise answer a function where an array of rules is
+  // expected. With no prototype an unknown name is simply undefined.
+  const uniquesByEntity: Record<string, string[][]> = Object.create(null);
+  const indexesByEntity: Record<string, string[]> = Object.create(null);
   for (const rule of svc.rules) {
     if (rule.kind === 'unique') {
       const entity = rule.path.split('.')[0];
