@@ -6,7 +6,7 @@
 // or a gateway queue can answer 429 after the run started.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -218,5 +218,18 @@ test('io.embed shares the kinds: a 429 is limited, a bad 2xx body is unknown', a
     });
   } finally {
     restore();
+  }
+});
+
+// The docs are the promise a body author reads. Both used to say a repeat of
+// limited was safe, which the wire cannot support; the deadline is the only
+// thing the endpoint actually says.
+test('the READMEs describe limited by its deadline, not as a safe kind', async () => {
+  const en = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+  const ru = await readFile(new URL('../README_rus.md', import.meta.url), 'utf8');
+  assert.equal(/repeating later is safe/.test(en), false, 'a 429 does not prove the first try was clean');
+  assert.equal(/второй — позже и безопасно/.test(ru), false);
+  for (const text of [en, ru]) {
+    assert.equal(text.includes('retryAfterMs'), true, 'the reader is told where the deadline lands');
   }
 });
