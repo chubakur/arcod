@@ -637,3 +637,81 @@ test('PgStore reconnects after the server closes an idle socket (B90)', async ()
     backend.server.close();
   }
 });
+
+// take() wraps its work in BEGIN..COMMIT and rolls back on any error. The
+// connection-level test covers the wire; this one covers the store: an error
+// inside the transaction must leave the store connected and usable, not stuck
+// in an aborted transaction on a destroyed socket.
+function takeErrorBackend() {
+  const seen: string[] = [];
+  let connections = 0;
+  const server = createServer((socket) => {
+    connections += 1;
+    let buffer = Buffer.alloc(0);
+    let started = false;
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+      while (buffer.length >= 5) {
+        const tag = String.fromCharCode(buffer[0]);
+        const typed = tag === 'p' || tag === 'Q' || tag === 'X';
+        const length = buffer.readInt32BE(typed ? 1 : 0);
+        const total = typed ? length + 1 : length;
+        if (buffer.length < total) return;
+        const packet = buffer.subarray(typed ? 5 : 4, total);
+        buffer = buffer.subarray(total);
+        if (!started) {
+          started = true;
+          socket.write(Buffer.concat([message('R', int32(0)), message('Z', Buffer.from('I'))]));
+          continue;
+        }
+        if (tag !== 'Q') continue;
+        const sql = packet.toString('utf8').replace(String.fromCharCode(0), '');
+        seen.push(sql);
+        if (/^SELECT checksum FROM arcod_migrations/.test(sql)) {
+          socket.write(Buffer.concat([rowDescription(['checksum']), message('C', cstr('SELECT 0')), message('Z', Buffer.from('I'))]));
+          continue;
+        }
+        if (/^BEGIN/.test(sql)) {
+          socket.write(Buffer.concat([message('C', cstr('BEGIN')), message('Z', Buffer.from('T'))]));
+          continue;
+        }
+        if (/^ROLLBACK/.test(sql)) {
+          socket.write(Buffer.concat([message('C', cstr('ROLLBACK')), message('Z', Buffer.from('I'))]));
+          continue;
+        }
+        if (/^SELECT v FROM arcod_kv/.test(sql)) {
+          socket.write(Buffer.concat([
+            errorResponse('42P01', 'relation "arcod_kv" does not exist'),
+            message('Z', Buffer.from('E')),
+          ]));
+          continue;
+        }
+        if (/^SELECT 1/.test(sql)) {
+          socket.write(Buffer.concat([rowDescription(['?column?']), dataRow(['1']), message('C', cstr('SELECT 1')), message('Z', Buffer.from('I'))]));
+          continue;
+        }
+        socket.write(Buffer.concat([message('C', cstr('OK')), message('Z', Buffer.from('I'))]));
+      }
+    });
+  });
+  return { server, seen, connections: () => connections };
+}
+
+test('take() rolls back a failed transaction and the store keeps serving it', async () => {
+  const mod = await pgStore();
+  const backend = takeErrorBackend();
+  await new Promise<void>((resolve) => backend.server.listen(0, '127.0.0.1', resolve));
+  const port = (backend.server.address() as { port: number }).port;
+  let store: any = null;
+  try {
+    store = new mod.PgStore('postgres://arcod:arcod@127.0.0.1:' + port + '/arcod');
+    await store.prepare();
+    await assert.rejects(() => store.take('queue:k', 'queue:gone', 1000, false), /arcod_kv/);
+    assert.equal(backend.seen.includes('ROLLBACK'), true, 'the aborted transaction is rolled back');
+    assert.equal(await store.ping(), 'PONG');
+    assert.equal(backend.connections(), 1, 'one socket served the failure and the recovery');
+  } finally {
+    try { if (store) await store.connection.end(); } catch (ignored) {}
+    backend.server.close();
+  }
+});
