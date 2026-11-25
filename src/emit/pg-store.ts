@@ -458,7 +458,14 @@ function pgTextOf(cell) {
 function pgRowObject(columns, row) {
   const obj = {};
   for (let index = 0; index < columns.length; index += 1) {
-    obj[columns[index].name] = readPgCell(columns[index].base, row[index]);
+    // defineProperty, not an index: a column named __proto__ would otherwise
+    // set the prototype of the returned record and vanish from the object.
+    Object.defineProperty(obj, columns[index].name, {
+      value: readPgCell(columns[index].base, row[index]),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return obj;
 }
@@ -553,7 +560,9 @@ class PgStore {
 
   async entityInsert(table, columns, record) {
     const names = columns.map((c) => pq(c.name)).join(', ');
-    const values = columns.map((c) => pgLiteral(c.base, record[c.name])).join(', ');
+    // hasOwn first: a column named toString that the record omits would
+    // otherwise bind the source text of Object.prototype.toString.
+    const values = columns.map((c) => pgLiteral(c.base, Object.hasOwn(record, c.name) ? record[c.name] : null)).join(', ');
     try {
       await this.query('INSERT INTO ' + pq(table) + ' (' + names + ') VALUES (' + values + ')');
     } catch (error) {
@@ -566,7 +575,7 @@ class PgStore {
     const current = await this.entityFetch(table, columns, id);
     if (current == null) throw new ArcodError('NotFound');
     const next = Object.assign({}, current, patch || {});
-    const set = columns.map((c) => pq(c.name) + ' = ' + pgLiteral(c.base, next[c.name])).join(', ');
+    const set = columns.map((c) => pq(c.name) + ' = ' + pgLiteral(c.base, Object.hasOwn(next, c.name) ? next[c.name] : null)).join(', ');
     try {
       await this.query('UPDATE ' + pq(table) + ' SET ' + set + ' WHERE ' + pq('id') + ' = ' + pgLiteral('string', String(id)));
     } catch (error) {
