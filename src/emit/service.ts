@@ -1920,7 +1920,12 @@ function outboxOps(svc: ServiceNode): Set<string> {
 function sagaSource(svc: ServiceNode, impl: Record<string, string>): string {
   if (svc.sagas.length === 0) return '';
   const ownOps = svc.contract
-    .filter((op) => op.kind === 'op' && impl[op.name])
+    // A body map is keyed by operation name, so a lookup by contract name
+    // must ask for an own key: impl['toString'] is the inherited function for
+    // an operation with no impl/toString.mjs, and the old truthy check
+    // bundled that function as source (arcod build threw "source.trim is not
+    // a function").
+    .filter((op) => op.kind === 'op' && Object.hasOwn(impl, op.name))
     .map((op) => {
       const fn = 'impl' + op.name.charAt(0).toUpperCase() + op.name.slice(1);
       return '    ' + JSON.stringify(op.name) + ': ' + fn + ',';
@@ -2016,7 +2021,7 @@ function queueSourceFor(svc: ServiceNode, impl?: Record<string, string>): string
       const retry = op.clauses.find((clause) => clause.kind === 'retry');
       const sagaClause = op.clauses.find((clause) => clause.kind === 'saga');
       const isSaga = sagaClause && sagaClause.kind === 'saga';
-      if (!isSaga && !impl[op.name]) return [];
+      if (!isSaga && !Object.hasOwn(impl, op.name)) return [];
       return [{
         topic: consume.source.split('.').slice(1).join('.'),
         handler: isSaga
@@ -2573,7 +2578,7 @@ function implHandlers(
   plugins: PluginBinding[],
   implLib?: string,
 ): string {
-  const bodies = svc.contract.filter((op) => impl[op.name]);
+  const bodies = svc.contract.filter((op) => Object.hasOwn(impl, op.name));
   const ops = bodies.filter((op) => op.kind === 'op');
   const names = bodies.map((op) => op.name);
   const parts: string[] = [];
@@ -2674,7 +2679,7 @@ function implHandlers(
   }
 
   for (const name of names) {
-    const source = impl[name];
+    const source = Object.hasOwn(impl, name) ? impl[name] : undefined;
     if (!source) continue;
     const fn = 'impl' + name.charAt(0).toUpperCase() + name.slice(1);
     const renamed = source
@@ -2842,7 +2847,7 @@ function implHandlers(
     );
   }
 
-  const missing = names.filter((name) => !impl[name]);
+  const missing = names.filter((name) => !Object.hasOwn(impl, name));
   if (missing.length > 0) {
     parts.push(
       'function notImplemented(res, op) {',
