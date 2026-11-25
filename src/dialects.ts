@@ -70,7 +70,10 @@ export const MYSQL: SqlDialect = {
   quote: quoteWith('`', '`'),
   type(base, unique) {
     if (base === 'string' || base === 'email' || base === 'url' || base === 'uri') return unique ? 'VARCHAR(191)' : 'TEXT';
-    return MYSQL_TYPES[base] ?? 'JSON';
+    // hasOwn first: a field whose type is an undeclared name like `toString`
+    // would otherwise answer a function, and that source text would become the
+    // column type in the DDL.
+    return Object.hasOwn(MYSQL_TYPES, base) ? MYSQL_TYPES[base] : 'JSON';
   },
   defaultLiteral(value, base) {
     if (value === null) return 'NULL';
@@ -98,7 +101,7 @@ export const POSTGRES: SqlDialect = {
   quote: quoteWith('"', '"'),
   type(base, unique) {
     if (base === 'string' || base === 'email' || base === 'url' || base === 'uri') return unique ? 'VARCHAR(191)' : 'TEXT';
-    return POSTGRES_TYPES[base] ?? 'JSONB';
+    return Object.hasOwn(POSTGRES_TYPES, base) ? POSTGRES_TYPES[base] : 'JSONB';
   },
   defaultLiteral(value, base) {
     if (value === null) return 'NULL';
