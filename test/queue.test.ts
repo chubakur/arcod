@@ -62,6 +62,14 @@ test('a single job parameter takes its field out of an object payload', () => {
   assert.deepEqual(input({ label: 'x', extra: true }), { label: 'x' });
 });
 
+test('a job parameter named toString is null when the payload omits it', () => {
+  // The in operator answers true for toString on any plain object, so the
+  // absent parameter used to arrive as the inherited function.
+  const input = consumerInputOf(['toString', 'id']);
+  assert.deepEqual(input({ id: 'x' }), { toString: null, id: 'x' });
+  assert.deepEqual(input({ toString: 'sent', id: 'x' }), { toString: 'sent', id: 'x' });
+});
+
 test('a scalar and an object without the key stay whole', () => {
   const input = consumerInputOf(['label']);
   assert.deepEqual(input('one-time'), { label: 'one-time' });
