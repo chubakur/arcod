@@ -119,7 +119,11 @@ export async function main(argv: string[]): Promise<void> {
         printHelp();
         return;
       }
-      const usage = COMMAND_USAGE[command];
+      // Own key: the table is keyed by command name, and a named read on a
+      // plain object answers for 'toString' with Object.prototype.toString.
+      // `arcod toString --help` printed that function and exited 0 instead of
+      // refusing an unknown command.
+      const usage = Object.hasOwn(COMMAND_USAGE, command) ? COMMAND_USAGE[command] : undefined;
       if (!usage) {
         console.error('unknown command: ' + command);
         printHelp();
@@ -136,7 +140,7 @@ export async function main(argv: string[]): Promise<void> {
     // and a name the CLI does not have is refused instead of ignored. A flag
     // (`arcod help --json`, `arcod help -h`) still means the main page.
     if (command === 'help' && rest.length > 0 && !rest[0].startsWith('-')) {
-      const usage = COMMAND_USAGE[rest[0]];
+      const usage = Object.hasOwn(COMMAND_USAGE, rest[0]) ? COMMAND_USAGE[rest[0]] : undefined;
       if (!usage) {
         console.error('unknown command: ' + rest[0]);
         printHelp();
