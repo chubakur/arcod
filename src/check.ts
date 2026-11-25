@@ -522,7 +522,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
             'deploy yandex provisions no ' + bind.provider + ' resource: ' + bind.alias + ' would be wired to nothing',
             'bind postgres for a managed database, or keep ' + bind.provider + ' for docker and give the cloud environment an external host'));
         }
-        const endpoint = MANAGED_ENDPOINTS[bind.provider];
+        const endpoint = Object.hasOwn(MANAGED_ENDPOINTS, bind.provider) ? MANAGED_ENDPOINTS[bind.provider] : undefined;
         if (endpoint) {
           const dropped = ['host', 'port', 'expose'].filter((key) => bind.args[key]?.kind === 'literal');
           if (dropped.length > 0) {

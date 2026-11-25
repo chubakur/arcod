@@ -324,7 +324,7 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
       else if (kind === 'redis') resources.push(redisBlock(bind, name));
       else resources.push(bucketBlock(bind, name));
     }
-    const endpoint = MANAGED_ENDPOINTS[bind.provider];
+    const endpoint = Object.hasOwn(MANAGED_ENDPOINTS, bind.provider) ? MANAGED_ENDPOINTS[bind.provider] : undefined;
     if (endpoint) {
       endpoints.push(endpoint);
       const dropped = ['host', 'port', 'expose'].filter((key) => key in bind.args);

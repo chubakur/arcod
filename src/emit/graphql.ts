@@ -96,7 +96,7 @@ class Registry {
       current = decl.type;
       if (decl.type.kind !== 'named') return current;
       if (decl.type.name === name2) return current;
-      if (SCALARS[decl.type.name] || isEnumDecl(this.mod, decl.type.name) || isRecordDecl(this.mod, decl.type.name)) {
+      if (Object.hasOwn(SCALARS, decl.type.name) || isEnumDecl(this.mod, decl.type.name) || isRecordDecl(this.mod, decl.type.name)) {
         return decl.type;
       }
       name2 = decl.type.name;

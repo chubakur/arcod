@@ -439,7 +439,7 @@ function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
   // A managed service is one the plan creates. Drawing a Deployment for it
   // would start a second database in the cluster that the app never addresses.
   const managedHosts = deployEnv?.deploy?.provider === 'yandex'
-    ? model.providers.filter((item) => MANAGED_ENDPOINTS[item.spec.name]).map((item) => item.host)
+    ? model.providers.filter((item) => Object.hasOwn(MANAGED_ENDPOINTS, item.spec.name)).map((item) => item.host)
     : [];
   const endpoints = managedHosts.length > 0
     ? endpointContract(name, model.providers, env)
@@ -502,7 +502,7 @@ function endpointContract(
 ): Ctx['endpoints'] {
   const refs: Array<{ name: string; key: string; hint: string }> = [];
   for (const item of providers) {
-    const endpoint = MANAGED_ENDPOINTS[item.spec.name];
+    const endpoint = Object.hasOwn(MANAGED_ENDPOINTS, item.spec.name) ? MANAGED_ENDPOINTS[item.spec.name] : undefined;
     if (!endpoint) continue;
     // The provider's own env is the exact list of entries that address it:
     // a URL contains `host:port`, but the kv driver reads KV_HOST and KV_PORT

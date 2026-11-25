@@ -171,7 +171,9 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
 
 export function capabilityFor(name: string): CapabilitySpec | null {
   const key = name.includes('.') ? name.split('.').pop()! : name;
-  return CAPABILITIES[key] ?? null;
+  // hasOwn first: the key comes from a `use capability` clause, and a name
+  // like toString would otherwise answer a prototype member.
+  return Object.hasOwn(CAPABILITIES, key) ? CAPABILITIES[key] : null;
 }
 
 // The model names a capability, never a provider. kv and sql expose the same
