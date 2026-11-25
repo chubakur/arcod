@@ -316,43 +316,45 @@
   <section id="news">
     <div class="wrap">
       <div class="kicker">what shipped this week</div>
-      <h2>Three things shipped on 2026-11-23.</h2>
+      <h2>Three things shipped on 2026-11-24.</h2>
       <p class="sub">Each is covered by tests in the repository.</p>
       <div class="grid-3">
         <div class="card">
-          <span class="num">2026-11-23 · CHECK</span>
-          <h3>A body file is named by the operation it implements</h3>
-          <p><code>impl/total.mjs</code> next to an operation called <code>totals</code>
-          was loaded, checked and then dropped without a word — the build "succeeded" and
-          the operation answered <code>501</code>. <code>check</code> now says both
-          halves: <code>W049</code> points at the file and lists the operations the
-          contract declares, <code>W050</code> points at an operation that has no body.
-          A file the build does not read at all — anything but <code>.mjs</code>, or a
-          <code>.mjs</code> filed under a subdirectory, since bodies are read one level
-          deep — is <code>W051</code>. All three are warnings, so a partial build still
-          builds; tests cover each code, and one pins the build to success for a spec
-          whose only problems are warnings.</p>
+          <span class="num">2026-11-24 · UI</span>
+          <h3>A form that cannot send a value the API rejects</h3>
+          <p>The generated page made a text input of every scalar, so an enum
+          accepted a typo and the service answered <code>400</code>
+          <code>must be one of free, pro, team</code>. The form now reads the same
+          resolver as OpenAPI and the boundary: an enum is a
+          <code>&lt;select&gt;</code> of exactly the accepted values,
+          <code>email</code>/<code>url</code> are native inputs, and
+          <code>int</code>/<code>number</code>/<code>decimal</code> carry the
+          declared <code>min</code>/<code>max</code>. Only <code>int</code> keeps
+          <code>step="1"</code>, so the <code>1.5</code> the API accepts is no
+          longer a step mismatch in the browser.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-23 · CHECK</span>
-          <h3>A body that cannot be called is refused, not called anyway</h3>
-          <p>The emitter calls <code>implFn(input, io)</code>, so a body written
-          <code>(io)</code>, or one that uses <code>io.*</code> without the second
-          parameter, compiled to a call to an undefined function. <code>A096</code> now
-          names the file and line for each shape: wrong arity, reversed
-          <code>(io, input)</code>, a <code>const</code> arrow instead of
-          <code>export async function</code>, no <code>export</code>, or
-          <code>export default</code> — and <code>build</code> refuses with
-          <code>impl/&lt;op&gt;.mjs:N</code>.</p>
+          <span class="num">2026-11-24 · RUNTIME</span>
+          <h3>URL parameters arrive with their declared type</h3>
+          <p><code>GET /v1/tasks?limit=3&amp;done=true</code> used to reach the body
+          as the strings <code>"3"</code> and <code>"true"</code>, while the same
+          fields in a JSON body arrived as <code>3</code> and <code>true</code>:
+          <code>limit + 1</code> answered <code>"31"</code>. The boundary now maps
+          both URL sources — query string and <code>:path</code> capture — to the
+          declared type before the body runs: numbers are numbers,
+          <code>bool</code> accepts exactly <code>true</code>/<code>false</code>,
+          and anything else is a <code>400</code> naming the parameter. Declared
+          bounds see the same number the body gets.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-23 · QUERY</span>
-          <h3>Two values in a query string stop being one</h3>
-          <p>A <code>list</code> or <code>map</code> parameter in a <code>query</code>
-          string reached the operation as a single string:
-          <code>GET /v1/tags?tag=a&amp;tag=b</code> arrived as <code>"a"</code>, the second
-          value gone with no error and no log line. <code>A095</code> refuses the
-          declaration — aliases included — instead of half-reading it at runtime.</p>
+          <span class="num">2026-11-24 · BODIES</span>
+          <h3>One helper module for every operation body</h3>
+          <p>Bodies are separate files, so sharing a check meant copy-paste or a
+          package. <code>impl/lib.mjs</code> is bundled once ahead of the bodies and
+          every body calls its exports as top-level names — no import line, no
+          relative path. A body that redeclares one of those names is
+          <code>A093</code>, an error naming the file, so the shared helper cannot
+          be shadowed without a word.</p>
         </div>
       </div>
     </div>
@@ -570,7 +572,10 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <h3>UIs without a frontend decision</h3>
           <p>Forms from public operations, <code>layout: chat</code> for dialogue,
           <code>layout: presentation</code> for decks: a join code, a QR encoder vendored
-          into the page, and slide changes pushed to every phone.</p>
+          into the page, and slide changes pushed to every phone. A field follows its
+          declaration: an enum is a select of the accepted values,
+          <code>email</code>/<code>url</code> are native inputs, numeric bounds become
+          <code>min</code>/<code>max</code>.</p>
         </div>
         <div class="card">
           <h3>Pages the service can serve itself</h3>
