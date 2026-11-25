@@ -331,7 +331,11 @@ async function evalExpr(expr: Expr, env: Map<string, Value>, ctx: Context): Prom
       if (failed) throw new Error('.' + expr.property + ' read from an error value: ' + failed);
       if (!base || typeof base !== 'object') return null;
       const record = base as Record<string, unknown>;
-      return expr.property in record ? (record[expr.property] as Value) : null;
+      // Own key, not `in`: a field the body omitted is absent from the JSON,
+      // and `'toString' in record` used to answer true for the inherited
+      // function. The assertion in `then` then read a truthy function instead
+      // of null and passed on a field the service never sent.
+      return Object.hasOwn(record, expr.property) ? (record[expr.property] as Value) : null;
     }
 
     default:
