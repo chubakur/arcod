@@ -55,28 +55,43 @@ export async function runExamples(mod: ModuleNode, buildDir: string): Promise<Te
     return { examples: [], rules: [] };
   }
 
-  const port = await freePort();
   // A bind that declares dim is a promise about every vector the model
   // returns. arcod run gets that env from the provider table; a test process
   // spawns the service directly, so without it the promise was never enforced.
   const dim = declaredEmbedDim(mod);
-  const child = spawn(process.execPath, [join(buildDir, 'service', 'index.mjs')], {
-    env: {
-      ...process.env,
-      PORT: String(port),
-      KV_DRIVER: 'memory',
-      SQL_DRIVER: 'memory',
-      AUTH_DRIVER: 'memory',
-      BLOB_DRIVER: 'memory',
-      LLM_DRIVER: 'memory',
-      ...(dim === null ? {} : { LLM_EMBED_DIM: String(dim) }),
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  const stderr: string[] = [];
-  child.stderr?.on('data', (chunk) => stderr.push(String(chunk)));
-
+  // Another test file's child can take the port between freePort() and the
+  // listen, and the loser exits on EADDRINUSE before answering /healthz. Ask
+  // the OS again and retry instead of failing an unrelated test.
+  let port = 0;
+  let child: ChildProcess | null = null;
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 3 && child === null; attempt++) {
+    const candidatePort = await freePort();
+    const attemptErrors: string[] = [];
+    const candidate = spawn(process.execPath, [join(buildDir, 'service', 'index.mjs')], {
+      env: {
+        ...process.env,
+        PORT: String(candidatePort),
+        KV_DRIVER: 'memory',
+        SQL_DRIVER: 'memory',
+        AUTH_DRIVER: 'memory',
+        BLOB_DRIVER: 'memory',
+        LLM_DRIVER: 'memory',
+        ...(dim === null ? {} : { LLM_EMBED_DIM: String(dim) }),
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    candidate.stderr?.on('data', (chunk) => attemptErrors.push(String(chunk)));
+    try {
+      await waitForHealth('http://127.0.0.1:' + candidatePort, candidate, attemptErrors);
+      port = candidatePort;
+      child = candidate;
+    } catch (error) {
+      candidate.kill('SIGKILL');
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  if (!child) throw lastError ?? new Error('service did not start');
   const baseUrl = 'http://127.0.0.1:' + port;
   const recordTypes = new Set<string>();
   for (const decl of mod.types) if (decl.type.kind === 'record') recordTypes.add(decl.name);
@@ -89,7 +104,6 @@ export async function runExamples(mod: ModuleNode, buildDir: string): Promise<Te
   };
 
   try {
-    await waitForHealth(baseUrl, child, stderr);
     const examples: ExampleResult[] = [];
     for (const example of service.examples) {
       try {
@@ -466,7 +480,7 @@ function buildStatusMap(service: ServiceNode): Map<number, string> {
 
 async function freePort(): Promise<number> {
   const server = net.createServer();
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  await new Promise<void>((resolve) => server.listen(0, '0.0.0.0', () => resolve()));
   const address = server.address() as { port: number };
   const port = address.port;
   await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -478,6 +492,9 @@ async function waitForHealth(baseUrl: string, child: ChildProcess, stderr: strin
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       throw new Error('service exited before start: ' + stderr.join('').trim());
+    }
+    if (stderr.join('').includes('EADDRINUSE')) {
+      throw new Error('port already in use: ' + stderr.join('').trim().slice(-500));
     }
     try {
       const response = await fetch(baseUrl + '/healthz');
