@@ -1310,6 +1310,13 @@ function checkRecordFields(meta, record, place) {
   if (!record || typeof record !== 'object' || Array.isArray(record)) {
     throw new ArcodError('Invalid', { message: place + ': the record must be an object' });
   }
+  // A record is data, not an object with a prototype: the in operator and
+  // record[name] both walk the prototype chain, so an *omitted* optional
+  // field named toString (or constructor, valueOf, …) read as an inherited
+  // function and the insert answered "toString must be a number" for a field
+  // the body never sent. Every read below uses this own-key snapshot.
+  const own = Object.create(null);
+  for (const key of Object.keys(record)) own[key] = record[key];
   for (const field of Object.keys(record)) {
     if (!meta.columns.some((column) => column.name === field)) {
       throw new ArcodError('Invalid', {
@@ -1323,13 +1330,13 @@ function checkRecordFields(meta, record, place) {
   // column failed inside the driver as a 500, so the same call answered two
   // things. The column list already says which fields are optional.
   for (const column of meta.columns) {
-    if (!(column.name in record)) {
+    if (!(column.name in own)) {
       if (place.indexOf('insert ') === 0 && column.name !== 'id' && !column.nullable && column.default == null) {
         throw new ArcodError('Invalid', { message: place + ': missing ' + column.name });
       }
       continue;
     }
-    if (record[column.name] == null && !column.nullable) {
+    if (own[column.name] == null && !column.nullable) {
       throw new ArcodError('Invalid', { message: place + ': ' + column.name + ' is not nullable' });
     }
   }
@@ -1338,7 +1345,7 @@ function checkRecordFields(meta, record, place) {
   // name comes from the column list both facades already ship.
   for (const column of meta.columns) {
     if (column.base !== 'string' && column.base !== 'email' && column.base !== 'url' && column.base !== 'uri' && column.base !== 'uuid' && column.base !== 'bytes') continue;
-    const value = record[column.name];
+    const value = own[column.name];
     if (value === null || value === undefined) continue;
     if (typeof value !== 'string') {
       throw new ArcodError('Invalid', { message: place + ': ' + column.name + ' must be a string' });
@@ -1348,7 +1355,7 @@ function checkRecordFields(meta, record, place) {
   // became a number in sql, so the same row read differently per driver.
   for (const column of meta.columns) {
     if (column.base !== 'int' && column.base !== 'number' && column.base !== 'float' && column.base !== 'decimal') continue;
-    const value = record[column.name];
+    const value = own[column.name];
     if (value === null || value === undefined) continue;
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw new ArcodError('Invalid', { message: place + ': ' + column.name + ' must be a number' });
@@ -1364,7 +1371,7 @@ function checkRecordFields(meta, record, place) {
   // "false" became TRUE while kv kept "false" — one insert, two answers.
   for (const column of meta.columns) {
     if (column.base !== 'bool' && column.base !== 'boolean') continue;
-    const value = record[column.name];
+    const value = own[column.name];
     if (value === null || value === undefined) continue;
     if (typeof value !== 'boolean') {
       throw new ArcodError('Invalid', { message: place + ': ' + column.name + ' must be a boolean' });
@@ -1376,7 +1383,7 @@ function checkRecordFields(meta, record, place) {
   // an accepted offset or a space would read back differently than mysql's.
   for (const column of meta.columns) {
     if (column.base !== 'datetime') continue;
-    const value = record[column.name];
+    const value = own[column.name];
     if (value === null || value === undefined) continue;
     const canonical = canonicalDateTime(value);
     if (canonical === null) {
@@ -1388,7 +1395,7 @@ function checkRecordFields(meta, record, place) {
   // does not read back differently depending on how the caller wrote it.
   const instantFields = meta.instants || {};
   for (const field of Object.keys(instantFields)) {
-    const value = record[field];
+    const value = own[field];
     if (value === null || value === undefined) continue;
     record[field] = canonicalInstants(value, instantFields[field], place, field);
   }
@@ -1401,7 +1408,7 @@ function checkRecordFields(meta, record, place) {
   const shapes = meta.shapes || {};
   for (const field of Object.keys(shapes)) {
     if (instantFields[field]) continue;
-    const value = record[field];
+    const value = own[field];
     if (value === null || value === undefined) continue;
     const shape = shapes[field];
     if (shape === 'list') {
@@ -1421,7 +1428,7 @@ function checkRecordFields(meta, record, place) {
   // both stores kept a non-member in a status column as if the enum allowed it.
   const enums = meta.enums || {};
   for (const field of Object.keys(enums)) {
-    const value = record[field];
+    const value = own[field];
     if (value === null || value === undefined) continue;
     if (!enums[field].includes(String(value))) {
       throw new ArcodError('Invalid', {
@@ -1434,7 +1441,7 @@ function checkRecordFields(meta, record, place) {
   // in, and both stores kept "not-an-email" in an email column.
   const formats = meta.formats || {};
   for (const field of Object.keys(formats)) {
-    const value = record[field];
+    const value = own[field];
     if (value === null || value === undefined) continue;
     const text = String(value);
     if (formats[field] === "email" && !looksLikeEmail(text)) {
@@ -1449,7 +1456,7 @@ function checkRecordFields(meta, record, place) {
   // with the field and the bound instead of keeping it.
   const bounds = meta.bounds || {};
   for (const field of Object.keys(bounds)) {
-    const value = record[field];
+    const value = own[field];
     if (value === null || value === undefined) continue;
     const rule = bounds[field];
     if (rule.minLength !== undefined || rule.maxLength !== undefined) {
@@ -1490,7 +1497,9 @@ function withDefaults(meta, record) {
   const value = Object.assign({}, record);
   const declared = meta.defaults || {};
   for (const field of Object.keys(declared)) {
-    if (value[field] === undefined) value[field] = declared[field];
+    // hasOwn first: for an omitted field named toString the prototype still
+    // answers with a function, so a default would never fill it.
+    if (!Object.hasOwn(value, field) || value[field] === undefined) value[field] = declared[field];
   }
   return value;
 }
@@ -1506,7 +1515,10 @@ function fillDeclared(meta, record) {
   if (!record || typeof record !== 'object' || Array.isArray(record)) return record;
   const value = Object.assign({}, record);
   for (const column of meta.columns) {
-    if (value[column.name] === undefined) value[column.name] = null;
+    // hasOwn first, for the same reason as in withDefaults: an omitted field
+    // named toString would read the inherited function and stay absent from
+    // the row instead of being named with null like every other column.
+    if (!Object.hasOwn(value, column.name) || value[column.name] === undefined) value[column.name] = null;
   }
   return value;
 }
