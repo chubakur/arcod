@@ -1968,8 +1968,13 @@ The `*.arc` extension lives in `editors/vscode`, and `arcod lsp` is a
 standard Language Server Protocol server over stdio — built from the same
 lexer/parser/check as the compiler, so the editor sees exactly what
 `arcod check` sees. Opening or editing a document republishes diagnostics,
-closing it forgets the buffer, and an unknown request is answered with `null`
-rather than silence — a client that waits forever looks like a hung editor.
+closing it forgets the buffer, and a message the server cannot serve is
+answered with a JSON-RPC error rather than silence — a client that waits
+forever looks like a hung editor. A method the server does not implement is
+`-32601` with the method name in the message (it used to be `result: null`,
+which a client reads as an empty answer), a body that is valid JSON but not a
+request is `-32600`, and a body that is not JSON is `-32700`; the server keeps
+serving after all three.
 
 VS Code (`editors/vscode`):
 

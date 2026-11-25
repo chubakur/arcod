@@ -146,10 +146,19 @@ test('the LSP server answers initialize, edits and shutdown over stdio', async (
     const edits = await client.request(7, 'textDocument/formatting', { textDocument: { uri: URI }, options: { tabSize: 2, insertSpaces: true } });
     assert.equal(edits.error, undefined);
 
-    // An unknown request is answered with null, not silence: a client that
-    // waits forever looks like a hung editor.
+    // An unknown request is answered with JSON-RPC's -32601, not silence: a
+    // client that waits forever looks like a hung editor. It used to answer
+    // `result: null`, which looks exactly like a real empty answer, so a
+    // version skew was invisible in the client's log.
     const unknown = await client.request(8, 'workspace/unknownThing', {});
-    assert.equal(unknown.result, null);
+    assert.equal(unknown.result, undefined, 'a refusal is not a result');
+    assert.equal(unknown.error.code, -32601);
+    assert.match(unknown.error.message, /workspace\/unknownThing/);
+
+    // The error does not close the loop: the next request is answered normally.
+    const afterUnknown = await client.request(11, 'textDocument/documentSymbol', { textDocument: { uri: URI } });
+    assert.equal(afterUnknown.error, undefined);
+    assert.ok(Array.isArray(afterUnknown.result));
 
     // Editing to a broken spec republishes diagnostics with an error code.
     client.send({ method: 'textDocument/didChange', params: { textDocument: { uri: URI, version: 2 }, contentChanges: [{ text: BROKEN }] } });

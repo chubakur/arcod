@@ -111,6 +111,46 @@ test('malformed JSON answers -32700 and the server keeps going', async () => {
   assert.equal(s.frames[1].id, 3);
 });
 
+// Valid JSON that is not a request used to be indistinguishable from a parse
+// error (-32700) or, without a method, from an unsupported one (null). The
+// three JSON-RPC refusals are separate promises and a client cannot tell them
+// apart if the server collapses them.
+test('a body that is not a request answers -32600, not -32700 and not silence', async () => {
+  const s = await session();
+
+  await s.send(frame(null));
+  assert.equal(s.frames.length, 1);
+  assert.equal(s.frames[0].id, null, 'no id can be read, so the error carries null');
+  assert.equal(s.frames[0].error.code, -32600);
+
+  await s.send(frame({ jsonrpc: '2.0', id: 9 }));
+  assert.equal(s.frames.length, 2);
+  assert.equal(s.frames[1].id, 9, 'the id is readable even though the method is not');
+  assert.equal(s.frames[1].error.code, -32600);
+
+  await s.send(frame([{ jsonrpc: '2.0', method: 'shutdown' }]));
+  assert.equal(s.frames.length, 3);
+  assert.equal(s.frames[2].error.code, -32600, 'a batch is not a request this server accepts');
+
+  await s.send(frame({ jsonrpc: '2.0', id: 10, method: 'shutdown' }));
+  assert.equal(s.frames.length, 4, 'the server is still serving');
+  assert.equal(s.frames[3].id, 10);
+});
+
+test('an unknown notification is silent, an unknown request answers -32601', async () => {
+  const s = await session();
+
+  await s.send(frame({ jsonrpc: '2.0', method: 'workspace/unknownThing' }));
+  assert.equal(s.frames.length, 0, 'a notification has no id to answer to');
+
+  await s.send(frame({ jsonrpc: '2.0', id: 12, method: 'workspace/unknownThing' }));
+  assert.equal(s.frames.length, 1);
+  assert.equal(s.frames[0].id, 12);
+  assert.equal(s.frames[0].error.code, -32601);
+  assert.match(s.frames[0].error.message, /workspace\/unknownThing/);
+  assert.equal(s.frames[0].result, undefined, 'a refusal must not look like an empty result');
+});
+
 test('a percent-encoded uri names the document for diagnostics and formatting', async () => {
   const s = await session();
   const uri = 'file:///tmp/arcod%20lsp/demo.arc';

@@ -35,6 +35,28 @@ function respond(id: number | string, result: unknown): void {
   write({ jsonrpc: '2.0', id, result });
 }
 
+function respondError(id: number | string | null, code: number, message: string): void {
+  write({ jsonrpc: '2.0', id, error: { code, message } });
+}
+
+// JSON-RPC 2.0 names three refusals: -32700 for a body that is not JSON, -32600
+// for a body that is not a request, -32601 for a method this server does not
+// implement. The last one used to be answered with `result: null`, which a
+// client reads as "done, nothing to say" — exactly the shape of a real answer,
+// so a version skew looked like an empty result instead of a missing method.
+function isRequest(msg: unknown): msg is Message {
+  if (msg === null || typeof msg !== 'object' || Array.isArray(msg)) return false;
+  const candidate = msg as Message;
+  return candidate.jsonrpc === '2.0' && typeof candidate.method === 'string';
+}
+
+// The id of a message that may not be a valid request; `null` when it cannot be
+// read, which is what the error response must carry then.
+function idOf(msg: unknown): number | string | null {
+  const id = (msg as Message | null)?.id;
+  return typeof id === 'number' || typeof id === 'string' ? id : null;
+}
+
 function notify(method: string, params: unknown): void {
   write({ jsonrpc: '2.0', method, params });
 }
@@ -116,9 +138,11 @@ function handle(msg: Message): void {
       return;
     }
     default:
-      // Unknown notification: ignore. Unknown request: error.
+      // Unknown notification: ignore (there is nothing to answer to). Unknown
+      // request: -32601 with the method name, so the client's log says which
+      // method it asked for and which server answered.
       if (msg.id !== undefined && msg.id !== null) {
-        respond(msg.id, null);
+        respondError(msg.id, -32601, 'method not found: ' + msg.method);
       }
   }
 }
@@ -154,11 +178,27 @@ function serve(io: { input?: NodeJS.ReadableStream; output?: NodeJS.WritableStre
       if (buffer.length < bodyStart + length) break;
       const body = buffer.subarray(bodyStart, bodyStart + length).toString('utf8');
       buffer = buffer.subarray(bodyStart + length);
+      let parsed: unknown;
       try {
-        handle(JSON.parse(body));
+        parsed = JSON.parse(body);
       } catch (error) {
-        // A malformed message must not kill the server.
+        // A malformed body must not kill the server.
         write({ jsonrpc: '2.0', id: null, error: { code: -32700, message: String(error) } });
+        continue;
+      }
+      if (!isRequest(parsed)) {
+        // Valid JSON that is not a request (`null`, an array, `{"id":1}`).
+        respondError(idOf(parsed), -32600, 'invalid request: expected a JSON-RPC 2.0 request with a method');
+        continue;
+      }
+      try {
+        handle(parsed);
+      } catch (error) {
+        // Params the handler could not read are -32602; a notification has no
+        // id to answer to, and the server keeps serving either way.
+        if (parsed.id !== undefined && parsed.id !== null) {
+          respondError(parsed.id, -32602, 'invalid params: ' + String(error));
+        }
       }
     }
   });
