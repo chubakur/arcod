@@ -1,8 +1,9 @@
 // A body that calls io.chat must be able to branch on why the model failed
-// without parsing our prose. The kind answers one question: did the endpoint
-// run anything? rejected (4xx but 429) and limited (429) mean no; unknown
-// (timeout, dropped connection, 5xx, unreadable 2xx body) means it might have,
-// so a repeat is allowed but may create a second run.
+// without parsing our prose. The kind names what to do next: rejected means a
+// repeat will not help until the configuration changes; limited means repeat
+// later and honour retryAfterMs; unknown means there is no hint and the service
+// decides. No kind claims the first attempt left no trace -- a proxy, a quota
+// or a gateway queue can answer 429 after the run started.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile } from 'node:fs/promises';
@@ -25,6 +26,11 @@ function stubFetch(impl: (url: any, init: any) => Promise<any>): () => void {
 }
 
 const ASK = [{ role: 'user', content: 'hi' }];
+
+// A header bag shaped like fetch's Headers: only Retry-After answers.
+function headers(value: string) {
+  return { get: (name: string) => name.toLowerCase() === 'retry-after' ? value : null };
+}
 
 test('a 403 from the endpoint is kind rejected, with the status and body', async () => {
   const { llmChat } = await llm();
@@ -55,17 +61,73 @@ test('a 400 is rejected too: the request never started a run', async () => {
   }
 });
 
-test('a 429 is kind limited, not rejected: repeating later is safe', async () => {
+test('a 429 is kind limited and carries Retry-After seconds as the moment to repeat', async () => {
   const { llmChat } = await llm();
-  const restore = stubFetch(async () => ({ ok: false, status: 429, text: async () => '{"error":"slow down"}' }));
+  const restore = stubFetch(async () => ({ ok: false, status: 429, headers: headers('7'), text: async () => '{"error":"slow down"}' }));
   try {
     await assert.rejects(llmChat(ASK), (error: any) => {
       assert.equal(error.kind, 'limited');
       assert.equal(error.status, 429);
+      assert.equal(error.retryAfterMs, 7000, 'the header is the only deadline the caller gets');
       return true;
     });
   } finally {
     restore();
+  }
+});
+
+test('an HTTP-date Retry-After in the past says now, not never', async () => {
+  const { llmChat } = await llm();
+  const past = new Date(Date.now() - 3000).toUTCString();
+  const restore = stubFetch(async () => ({ ok: false, status: 429, headers: headers(past), text: async () => 'slow down' }));
+  try {
+    await assert.rejects(llmChat(ASK), (error: any) => {
+      assert.equal(error.retryAfterMs, 0);
+      return true;
+    });
+  } finally {
+    restore();
+  }
+});
+
+test('a Retry-After without a usable value leaves the field absent, not zero', async () => {
+  const { llmChat } = await llm();
+  const restore = stubFetch(async () => ({ ok: false, status: 429, headers: headers('soon'), text: async () => 'slow down' }));
+  try {
+    await assert.rejects(llmChat(ASK), (error: any) => {
+      assert.equal(error.kind, 'limited');
+      assert.equal('retryAfterMs' in error, false, 'a guess would be worse than a missing field');
+      return true;
+    });
+  } finally {
+    restore();
+  }
+});
+
+// The pair from the thread that opened this: the same 429 and the same
+// Retry-After, once refused before the gateway forwarded anything and once
+// refused after the run completed. The two errors must look identical -- the
+// header says when to ask again, never whether the first attempt left a trace
+// -- and the adapter must make exactly one request upstream per call.
+test('a 429 after a completed run looks like a 429 before it, and neither is retried', async () => {
+  const { llmChat } = await llm();
+  for (const phase of ['before', 'after']) {
+    let calls = 0;
+    const restore = stubFetch(async () => {
+      calls += 1;
+      return { ok: false, status: 429, headers: headers('3'), text: async () => '{\"error\":\"quota\",\"phase\":\"' + phase + '\"}' };
+    });
+    try {
+      await assert.rejects(llmChat(ASK), (error: any) => {
+        assert.equal(error.kind, 'limited');
+        assert.equal(error.retryAfterMs, 3000);
+        assert.equal(error.body.includes(phase), true, 'the body still tells the operator what happened');
+        return true;
+      });
+      assert.equal(calls, 1, 'the adapter asks once; repeating is the service decision');
+    } finally {
+      restore();
+    }
   }
 });
 

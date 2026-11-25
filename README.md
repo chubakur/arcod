@@ -393,12 +393,16 @@ instead of being stored next to the rest. Without `dim` the runtime still
 rejects a response whose vectors disagree with each other; `check` reports
 `A077` when `dim` is not a positive integer. An empty batch returns `[]`
 without a request: endpoints reject `input: []`, and an indexer with nothing
-to embed has nothing to ask. A failed model call carries a `kind` that answers one question: did the
-endpoint run anything? `rejected` (4xx other than 429) and `limited` (429) mean
-no: the first repeats only after the configuration is fixed, the second later
-is safe. `unknown` (timeout, a dropped connection, 5xx, a 2xx body we cannot
-read) means it might have run - a repeat is allowed but may create a second
-run, because `io.chat` has no deduplication. The body branches on `error.kind`
+to embed has nothing to ask. A failed model call carries a `kind` that says what to do next, not what happened. `rejected` (4xx other
+than 429) means a repeat will not help until the configuration changes.
+`limited` (429) means repeat later: the endpoint's `Retry-After` header
+arrives as `error.retryAfterMs` (seconds or an HTTP date), and without the
+header the field is absent rather than `0`. `unknown` (timeout, a dropped
+connection, 5xx, a 2xx body we cannot read) means there is no hint and the
+service decides whether to repeat. No `kind` promises that the first attempt
+left no trace: a proxy, a quota or a gateway queue can answer 429 after the
+run started, so a repeat may create a second run - `io.chat` has no
+deduplication. The body branches on `error.kind`
 instead of parsing our message, which we may rewrite:
 `if (error.kind === 'limited') return { error: 'RateLimited' }`; `rejected`
 answers `500` in our words, and `unknown` keeps `503` meaning "try again". `error.status` and

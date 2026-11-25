@@ -28,11 +28,25 @@ function llmMemoryVector(text) {
   return vector;
 }
 
-// One question decides the kind: did the endpoint run anything? A 4xx other\n// than 429 means no - fix the config, then repeat. 429 means no - repeat later\n// is safe. Timeout, a dropped connection, 5xx and a 2xx body we cannot read\n// might have run: a repeat is allowed but may create a second run.\nfunction llmErrorKind(status) {\n  if (status === 429) return 'limited';\n  if (status >= 400 && status < 500) return 'rejected';\n  return 'unknown';\n}\nfunction llmError(kind, message, status, body) {
+// The kind names what to do next, not what happened. rejected: a repeat will\n// not help until the configuration changes. limited: repeat later, honouring\n// retryAfterMs when the endpoint sent Retry-After. unknown: no hint, the\n// service decides. No kind claims the first attempt left no trace: a proxy, a\n// quota or a gateway queue can answer 429 after the run started, so a repeat\n// may create a second run.\nfunction llmErrorKind(status) {\n  if (status === 429) return 'limited';\n  if (status >= 400 && status < 500) return 'rejected';\n  return 'unknown';\n}\n// Retry-After is seconds or an HTTP date; anything else carries no hint and
+// the field stays absent (0 would read as repeat-now).
+function llmRetryAfterMs(response) {
+  const raw = response && response.headers && typeof response.headers.get === 'function'
+    ? response.headers.get('retry-after')
+    : null;
+  if (raw === null || raw === undefined) return null;
+  const text = String(raw).trim();
+  if (/^[0-9]+$/.test(text)) return Number(text) * 1000;
+  const when = Date.parse(text);
+  if (!Number.isNaN(when)) return Math.max(0, when - Date.now());
+  return null;
+}
+function llmError(kind, message, status, body, retryAfterMs) {
   const error = new Error(message);
   error.kind = kind;
   error.status = status === undefined ? null : status;
   error.body = body === undefined || body === null ? '' : String(body).slice(0, 300);
+  if (retryAfterMs !== null && retryAfterMs !== undefined) error.retryAfterMs = retryAfterMs;
   return error;
 }
 
@@ -68,7 +82,7 @@ async function llmEmbed(texts) {
       signal: controller.signal,
     });
     const text = await response.text();
-    if (!response.ok) throw llmError(llmErrorKind(response.status), 'llm: ' + response.status + ' ' + text.slice(0, 300), response.status, text);
+    if (!response.ok) throw llmError(llmErrorKind(response.status), 'llm: ' + response.status + ' ' + text.slice(0, 300), response.status, text, llmRetryAfterMs(response));
     let data;
     try {
       data = JSON.parse(text);
@@ -129,7 +143,7 @@ async function llmChat(messages, system) {
       signal: controller.signal,
     });
     const text = await response.text();
-    if (!response.ok) throw llmError(llmErrorKind(response.status), 'llm: ' + response.status + ' ' + text.slice(0, 300), response.status, text);
+    if (!response.ok) throw llmError(llmErrorKind(response.status), 'llm: ' + response.status + ' ' + text.slice(0, 300), response.status, text, llmRetryAfterMs(response));
     let data;
     try {
       data = JSON.parse(text);
