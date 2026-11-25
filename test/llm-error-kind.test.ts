@@ -233,3 +233,19 @@ test('the READMEs describe limited by its deadline, not as a safe kind', async (
     assert.equal(text.includes('retryAfterMs'), true, 'the reader is told where the deadline lands');
   }
 });
+
+test('an HTTP-date Retry-After in the future becomes the wait until it', async () => {
+  const { llmChat } = await llm();
+  const soon = new Date(Date.now() + 5000).toUTCString();
+  const restore = stubFetch(async () => ({ ok: false, status: 429, headers: headers(soon), text: async () => 'slow down' }));
+  try {
+    await assert.rejects(llmChat(ASK), (error: any) => {
+      // The header has one-second resolution, so the wait lands just under or
+      // just over five seconds; anything outside that is a parsing bug.
+      assert.ok(error.retryAfterMs > 3000 && error.retryAfterMs <= 6000, 'got ' + error.retryAfterMs);
+      return true;
+    });
+  } finally {
+    restore();
+  }
+});
