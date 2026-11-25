@@ -412,7 +412,7 @@ test('a statement error rejects only its own query and the socket keeps serving'
   }
 });
 
-function errorBackend(options: { dropFirstSelect?: boolean } = {}) {
+function errorBackend(options: { dropFirstSelect?: boolean; closeAfterFirstSelect?: boolean } = {}) {
   const seen: string[] = [];
   let connections = 0;
   let dropped = false;
@@ -458,6 +458,12 @@ function errorBackend(options: { dropFirstSelect?: boolean } = {}) {
           socket.write(Buffer.concat([
             rowDescription(['?column?']), dataRow(['1']), message('C', cstr('SELECT 1')), message('Z', Buffer.from('I')),
           ]));
+          // A graceful close after the answer: the service was idle, not
+          // mid-statement, when the server went away.
+          if (options.closeAfterFirstSelect && !dropped) {
+            dropped = true;
+            socket.end();
+          }
           continue;
         }
         const command = /^INSERT/.test(sql) ? 'INSERT 0 1'
@@ -507,6 +513,28 @@ test('PgStore reconnects after the server closes the socket (B90)', async () => 
     store = new mod.PgStore('postgres://arcod:arcod@127.0.0.1:' + port + '/arcod');
     await store.prepare();
     await assert.rejects(() => store.ping(), /postgres connection closed/);
+    assert.equal(await store.ping(), 'PONG');
+    assert.equal(backend.connections(), 2);
+  } finally {
+    try { if (store) await store.connection.end(); } catch (ignored) {}
+    backend.server.close();
+  }
+});
+
+test('PgStore reconnects after the server closes an idle socket (B90)', async () => {
+  const mod = await pgStore();
+  const backend = errorBackend({ closeAfterFirstSelect: true });
+  await new Promise<void>((resolve) => backend.server.listen(0, '127.0.0.1', resolve));
+  const port = (backend.server.address() as { port: number }).port;
+  let store: any = null;
+  try {
+    store = new mod.PgStore('postgres://arcod:arcod@127.0.0.1:' + port + '/arcod');
+    await store.prepare();
+    assert.equal(await store.ping(), 'PONG');
+    // Nothing is in flight when the close arrives; the connection turns dead
+    // and the next statement connects again instead of writing into it.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(store.connection.alive(), false);
     assert.equal(await store.ping(), 'PONG');
     assert.equal(backend.connections(), 2);
   } finally {
