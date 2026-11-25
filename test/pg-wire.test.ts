@@ -350,3 +350,167 @@ test('PgStore issues postgres SQL and reads the command tag for affected rows', 
     for (const socket of sockets) socket.destroy();
   }
 });
+
+// ---------- statement errors keep the connection (B90) ----------
+// Postgres answers a failed statement with ErrorResponse followed by
+// ReadyForQuery: the error belongs to one statement, not to the socket. The
+// client used to destroy the only connection there, so every later query --
+// including /healthz -> ping -- queued behind a dead socket forever.
+test('a statement error rejects only its own query and the socket keeps serving', async () => {
+  const mod = await pg();
+  const seen: string[] = [];
+  const server = createServer((socket) => {
+    let buffer = Buffer.alloc(0);
+    let started = false;
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+      while (buffer.length >= 5) {
+        const tag = String.fromCharCode(buffer[0]);
+        const typed = tag === 'p' || tag === 'Q' || tag === 'X';
+        const length = buffer.readInt32BE(typed ? 1 : 0);
+        const total = typed ? length + 1 : length;
+        if (buffer.length < total) return;
+        const packet = buffer.subarray(typed ? 5 : 4, total);
+        buffer = buffer.subarray(total);
+        if (!started) {
+          started = true;
+          socket.write(Buffer.concat([message('R', int32(0)), message('Z', Buffer.from('I'))]));
+          continue;
+        }
+        if (tag !== 'Q') continue;
+        const sql = packet.toString('utf8').replace(String.fromCharCode(0), '');
+        seen.push(sql);
+        if (sql.includes('boom')) {
+          socket.write(Buffer.concat([
+            errorResponse('23505', 'duplicate key value violates unique constraint'),
+            message('Z', Buffer.from('I')),
+          ]));
+          continue;
+        }
+        socket.write(Buffer.concat([
+          rowDescription(['n']), dataRow(['1']), message('C', cstr('SELECT 1')), message('Z', Buffer.from('I')),
+        ]));
+      }
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as { port: number }).port;
+  try {
+    const db = new mod.PgConnection('postgres://arcod:s3cret@127.0.0.1:' + port + '/arcod');
+    await db.connect(2000);
+    await assert.rejects(() => db.query('INSERT boom'), (error: any) => {
+      assert.equal(error.code, '23505');
+      return true;
+    });
+    assert.equal(db.alive(), true);
+    const found = await db.query('SELECT 1');
+    assert.deepEqual(found.rows, [['1']]);
+    assert.equal(seen.length, 2);
+    await db.end();
+  } finally {
+    server.close();
+  }
+});
+
+function errorBackend(options: { dropFirstSelect?: boolean } = {}) {
+  const seen: string[] = [];
+  let connections = 0;
+  let dropped = false;
+  const server = createServer((socket) => {
+    connections += 1;
+    let buffer = Buffer.alloc(0);
+    let started = false;
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+      while (buffer.length >= 5) {
+        const tag = String.fromCharCode(buffer[0]);
+        const typed = tag === 'p' || tag === 'Q' || tag === 'X';
+        const length = buffer.readInt32BE(typed ? 1 : 0);
+        const total = typed ? length + 1 : length;
+        if (buffer.length < total) return;
+        const packet = buffer.subarray(typed ? 5 : 4, total);
+        buffer = buffer.subarray(total);
+        if (!started) {
+          started = true;
+          socket.write(Buffer.concat([message('R', int32(0)), message('Z', Buffer.from('I'))]));
+          continue;
+        }
+        if (tag !== 'Q') continue;
+        const sql = packet.toString('utf8').replace(String.fromCharCode(0), '');
+        seen.push(sql);
+        if (/^SELECT checksum FROM arcod_migrations/.test(sql)) {
+          socket.write(Buffer.concat([rowDescription(['checksum']), message('C', cstr('SELECT 0')), message('Z', Buffer.from('I'))]));
+          continue;
+        }
+        if (/^INSERT INTO "task"/.test(sql) && sql.includes("'dup'")) {
+          socket.write(Buffer.concat([
+            errorResponse('23505', 'duplicate key value violates unique constraint'),
+            message('Z', Buffer.from('I')),
+          ]));
+          continue;
+        }
+        if (/^SELECT 1/.test(sql)) {
+          if (options.dropFirstSelect && !dropped) {
+            dropped = true;
+            socket.destroy();
+            continue;
+          }
+          socket.write(Buffer.concat([
+            rowDescription(['?column?']), dataRow(['1']), message('C', cstr('SELECT 1')), message('Z', Buffer.from('I')),
+          ]));
+          continue;
+        }
+        const command = /^INSERT/.test(sql) ? 'INSERT 0 1'
+          : /^UPDATE/.test(sql) ? 'UPDATE 1'
+          : /^DELETE/.test(sql) ? 'DELETE 1'
+          : /^SELECT/.test(sql) ? 'SELECT 0'
+          : 'OK';
+        socket.write(Buffer.concat([message('C', cstr(command)), message('Z', Buffer.from('I'))]));
+      }
+    });
+  });
+  return { server, seen, connections: () => connections };
+}
+
+test('a duplicate insert answers Conflict and leaves the store usable (B90)', async () => {
+  const mod = await pgStore();
+  const backend = errorBackend();
+  await new Promise<void>((resolve) => backend.server.listen(0, '127.0.0.1', resolve));
+  const port = (backend.server.address() as { port: number }).port;
+  let store: any = null;
+  try {
+    store = new mod.PgStore('postgres://arcod:arcod@127.0.0.1:' + port + '/arcod');
+    await store.prepare();
+    const columns = [{ name: 'id', base: 'string' }];
+    await assert.rejects(
+      () => store.entityInsert('task', columns, { id: 'dup' }),
+      (error: any) => { assert.equal(error.name, 'Conflict'); return true; }
+    );
+    // The error arrived with ReadyForQuery: the same socket answers the next
+    // statements instead of queueing behind a destroyed connection.
+    assert.equal(await store.ping(), 'PONG');
+    await store.entityInsert('task', columns, { id: 'other' });
+    assert.equal(backend.connections(), 1);
+  } finally {
+    try { if (store) await store.connection.end(); } catch (ignored) {}
+    backend.server.close();
+  }
+});
+
+test('PgStore reconnects after the server closes the socket (B90)', async () => {
+  const mod = await pgStore();
+  const backend = errorBackend({ dropFirstSelect: true });
+  await new Promise<void>((resolve) => backend.server.listen(0, '127.0.0.1', resolve));
+  const port = (backend.server.address() as { port: number }).port;
+  let store: any = null;
+  try {
+    store = new mod.PgStore('postgres://arcod:arcod@127.0.0.1:' + port + '/arcod');
+    await store.prepare();
+    await assert.rejects(() => store.ping(), /postgres connection closed/);
+    assert.equal(await store.ping(), 'PONG');
+    assert.equal(backend.connections(), 2);
+  } finally {
+    try { if (store) await store.connection.end(); } catch (ignored) {}
+    backend.server.close();
+  }
+});

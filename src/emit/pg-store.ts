@@ -125,6 +125,7 @@ export class PgConnection {
   constructor(url) {
     this.options = pgParseUrl(url);
     this.socket = null;
+    this.dead = false;
     this.buffer = Buffer.alloc(0);
     this.pending = null;
     this.ready = null;
@@ -142,20 +143,28 @@ export class PgConnection {
     return await new Promise((resolve, reject) => {
       const socket = pgConnect({ host: options.host, port: options.port });
       this.socket = socket;
+      this.dead = false;
+      this.buffer = Buffer.alloc(0);
       const timer = setTimeout(() => {
+        if (this.socket === socket) { this.socket = null; this.dead = true; }
         socket.destroy();
         reject(new Error('postgres: connect timeout'));
       }, timeoutMs || 5000);
       const fail = (error) => { clearTimeout(timer); reject(error); };
       this.ready = { resolve, reject: fail, timer };
+      // A dropped socket fails everything in flight and every queued
+      // statement; PgStore reconnects before the next query. The handlers
+      // ignore a socket that has already been replaced by a newer one.
       socket.on('error', (error) => {
+        if (this.socket !== socket) return;
         clearTimeout(timer);
-        if (this.pending) this.pending.reject(error); else fail(error);
+        this.failConnection(error);
+        socket.destroy();
       });
       socket.on('close', () => {
+        if (this.socket !== socket) return;
         clearTimeout(timer);
-        const error = new Error('postgres connection closed');
-        if (this.pending) this.pending.reject(error); else fail(error);
+        this.failConnection(new Error('postgres connection closed'));
       });
       socket.on('connect', () => {
         this.clientNonce = randomBytes(18).toString('base64');
@@ -190,12 +199,28 @@ export class PgConnection {
     }
   }
 
-  failAll(error) {
-    if (this.pending) { this.pending.reject(error); this.pending = null; }
-    if (this.ready) { this.ready.reject(error); this.ready = null; }
+  alive() {
+    return Boolean(this.socket && !this.dead);
+  }
+
+  failConnection(error) {
+    this.dead = true;
+    if (this.socket) { this.socket.destroy(); this.socket = null; }
+    if (this.pending) { const pending = this.pending; this.pending = null; pending.reject(error); }
+    if (this.ready) {
+      const ready = this.ready;
+      this.ready = null;
+      clearTimeout(ready.timer);
+      ready.reject(error);
+    }
     const queued = this.queue.splice(0, this.queue.length);
     for (const item of queued) item.reject(error);
-    if (this.socket) this.socket.destroy();
+  }
+
+  // Transport or startup failures end the connection; a statement error does
+  // not (see onMessage).
+  failAll(error) {
+    this.failConnection(error);
   }
 
   send(type, payload) {
@@ -207,7 +232,16 @@ export class PgConnection {
 
   onMessage(type, payload) {
     if (type === 'R') { this.onAuth(payload); return; }
-    if (type === 'E') { const error = pgError(payload); this.failAll(error); return; }
+    if (type === 'E') {
+      const error = pgError(payload);
+      // A statement error is a normal answer: postgres still finishes the
+      // message stream with ReadyForQuery and the socket stays usable. The
+      // error is held for the statement in flight and rejected on 'Z'.
+      // Startup errors (no statement in flight) stay fatal.
+      if (!this.pending) { this.failAll(error); return; }
+      if (!this.pending.error) this.pending.error = error;
+      return;
+    }
     if (type === 'Z') {
       if (this.ready) {
         const ready = this.ready;
@@ -218,7 +252,8 @@ export class PgConnection {
       if (this.pending) {
         const pending = this.pending;
         this.pending = null;
-        pending.resolve({ fields: pending.fields, rows: pending.rows, affected: pending.affected || 0 });
+        if (pending.error) pending.reject(pending.error);
+        else pending.resolve({ fields: pending.fields, rows: pending.rows, affected: pending.affected || 0 });
         this.flushQueue();
       }
       return;
@@ -304,10 +339,11 @@ export class PgConnection {
   }
 
   async end() {
-    if (!this.socket) return;
+    if (!this.socket) { this.dead = true; return; }
     this.send('X', Buffer.alloc(0));
     this.socket.end();
     this.socket = null;
+    this.dead = true;
   }
 }
 
@@ -432,10 +468,17 @@ class PgStore {
     this.url = url;
     this.connection = new PgConnection(url);
     this.schema = null;
+    this.reconnecting = null;
   }
 
   async prepare() {
-    if (this.schema) return this.schema;
+    if (this.schema) {
+      // Migrations are applied once; a socket that dropped afterwards only
+      // needs a new connection, not another migration pass.
+      await this.schema;
+      if (!this.connection.alive()) await this.reconnect();
+      return this.schema;
+    }
     this.schema = (async () => {
       let lastError = null;
       for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -456,6 +499,20 @@ class PgStore {
       throw error;
     });
     return this.schema;
+  }
+
+  // One attempt per caller, shared by concurrent queries: a server that is
+  // still away fails this request cleanly and the next one tries again.
+  async reconnect() {
+    if (this.reconnecting) return await this.reconnecting;
+    this.reconnecting = (async () => {
+      try {
+        await this.connection.connect();
+      } finally {
+        this.reconnecting = null;
+      }
+    })();
+    return await this.reconnecting;
   }
 
   async query(sql) {

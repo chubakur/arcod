@@ -77,6 +77,21 @@ Compose follows the dialect: a sql service with no explicit bind gets the
 database its build speaks (mysql:8.4 or postgres:16-alpine) with the matching
 `DATABASE_URL`; an explicit bind still wins.
 
+## Errors and reconnects (B90)
+
+The client keeps one socket for the whole service and pipelines statements
+through it. A failed statement is not a broken connection: Postgres sends
+`ErrorResponse` and then `ReadyForQuery`, so the error rejects only the
+statement that caused it and the next queued statement is written normally.
+Unique violations therefore reach `entityInsert`/`entityUpdate` as `Conflict`
+(409), and `/healthz` keeps answering after a duplicate insert instead of
+waiting on a destroyed socket.
+
+Only transport failures and startup/auth errors end the connection. A dropped
+socket rejects everything in flight and queued, and the store reconnects before
+the next query without re-running migrations; if the server is still away, that
+request fails cleanly and the following one tries again.
+
 Still open (B5.3): one example on both dialects end to end with a live server
 (the host has neither postgres nor docker — see DECISIONS), and k8s picking the
 postgres image when the build dialect is postgres.
