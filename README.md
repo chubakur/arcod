@@ -576,6 +576,13 @@ Without that, one contract had two shapes: `?limit=3` reached the body as the
 string `"3"` while the same parameter in a JSON body arrived as `3`, so
 `limit + 1` answered `"31"`.
 
+A JSON body keeps the JSON kind the caller wrote, it is not re-read: `true` and
+`3` are the declared type, while a quoted `"true"` or `"3"` stays a string. A
+quoted value that reaches a stored field is refused by the store with the field
+named (`done must be a boolean`); one the body only branches on keeps its
+string, so send JSON types in a body. Where the check belongs is an open
+question (DECISIONS, 2026-11-25).
+
 Checks: `A037` no `route`; `A038` `uses` or effects declared for a foreign
 service; `A039` bound to something other than `endpoint`; `W026` called but no
 address configured.
