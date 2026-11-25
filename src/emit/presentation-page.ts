@@ -113,7 +113,10 @@ function fillPath(path, name, value) {
 function build(op, values) {
   var url = op.path, query = new URLSearchParams(), body = {};
   op.params.forEach(function (p) {
-    var v = values[p.name];
+    // Own key: a parameter named toString has no value until the page fills
+    // one, and a plain named read answered with the inherited function — it
+    // reached the query string as "function toString() { [native code] }".
+    var v = Object.hasOwn(values, p.name) ? values[p.name] : undefined;
     if (p.where === 'path') url = fillPath(url, p.name, v == null ? '' : v);
     else if (p.where === 'query') { if (v != null && v !== '') query.append(p.name, String(v)); }
     else if (v !== undefined) body[p.name] = v;

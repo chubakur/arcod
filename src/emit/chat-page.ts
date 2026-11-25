@@ -111,7 +111,10 @@ async function request(op, values) {
   var query = new URLSearchParams();
   var body = {};
   op.params.forEach(function (p) {
-    var value = values[p.name];
+    // Own key, for the same reason as the presentation page: a parameter
+    // named toString would otherwise carry the inherited function into the
+    // query string when the page sends no value for it.
+    var value = Object.hasOwn(values, p.name) ? values[p.name] : undefined;
     if (p.where === 'path') {
       url = fillPath(url, p.name, value == null ? '' : value);
     } else if (p.where === 'query') {
