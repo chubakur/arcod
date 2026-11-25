@@ -138,6 +138,46 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   for (const decl of mod.workflows) declareOnce('workflow', decl.name, decl.loc);
   for (const decl of mod.environments) declareOnce('environment', decl.name, decl.loc);
 
+  // A102 — one name is not merely odd: every generated metadata map is an
+  // object literal keyed by name, and a `__proto__` key sets the prototype
+  // instead of a property. A field of this name vanished from the published
+  // OpenAPI (`properties` lost it, `required` too) while the DDL kept the
+  // column and the runtime wrote it, and a *type* of this name crashed
+  // `arcod build` with "uniques.some is not a function" after check had said
+  // the file was clean. The toolchain cannot carry the name at all, so the
+  // file has to stop at check time instead of drifting or crashing later.
+  const RESERVED_NAMES = new Set(['__proto__']);
+  const reservedName = (kind: string, name: string, loc: Loc, path: string): void => {
+    if (!RESERVED_NAMES.has(name)) return;
+    diags.push(diag('A102', 'error', mod.file, loc, path,
+      kind + ' name ' + name + ' is reserved',
+      'generated metadata is keyed by name, so this key disappears from the published schema; rename it (proto, metadata)'));
+  };
+  for (const decl of mod.types) {
+    reservedName('type', decl.name, decl.loc, 'types.' + decl.name);
+    if (decl.type.kind !== 'record') continue;
+    for (const field of decl.type.fields) {
+      reservedName('field', field.name, field.loc, 'types.' + decl.name + '.fields.' + field.name);
+    }
+  }
+  for (const decl of mod.enums) reservedName('enum', decl.name, decl.loc, 'enums.' + decl.name);
+  for (const decl of mod.errors) {
+    reservedName('error', decl.name, decl.loc, 'errors.' + decl.name);
+    for (const field of decl.fields) {
+      reservedName('field', field.name, field.loc, 'errors.' + decl.name + '.fields.' + field.name);
+    }
+  }
+  for (const svc of mod.services) {
+    reservedName('service', svc.name, svc.loc, 'services.' + svc.name);
+    for (const op of svc.contract) {
+      reservedName('operation', op.name, op.loc, 'services.' + svc.name + '.contract.' + op.name);
+      for (const param of op.params) {
+        reservedName('parameter', param.name, param.loc, 'services.' + svc.name + '.contract.' + op.name + '.params.' + param.name);
+      }
+    }
+  }
+  for (const ui of mod.uis) reservedName('ui', ui.name, ui.loc, 'uis.' + ui.name);
+
   for (const svc of mod.services) {
     const opNames = new Set<string>();
     for (const op of svc.contract) {

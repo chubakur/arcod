@@ -1785,6 +1785,14 @@ Errors:
   returning A had nothing the service could build. The hint names the chain
   and asks for a record, a builtin or an enum; a cycle through a record is a
   recursive shape and stays legal.
+- `A102` a declared name is `__proto__` (a type, an enum, an error, a service,
+  an operation, a parameter, a field or a ui). Every generated metadata map is
+  an object literal keyed by name, and this key sets the prototype instead of a
+  property: a field of this name was stored and migrated but silently missing
+  from OpenAPI (`properties` and `required`), and a *type* of this name crashed
+  `arcod build` with `uniques.some is not a function` after `check` had called
+  the file clean. The hint suggests `proto` or `metadata`; `constructor` and
+  `toString` are ordinary keys and stay legal.
 - `A094` a `kv` alias is bound to `redis` in a service that stores in sql:
   the runtime has one store, so the alias lives in the sql store's `arcod_kv`
   table. The bind started a container and exported `REDIS_URL` that no
