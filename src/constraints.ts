@@ -55,11 +55,14 @@ export function constraintOf(mod: ModuleNode, type: TypeExpr, depth = 0): Constr
     case 'record':
       return EMPTY_CONSTRAINT;
     case 'named': {
-      const shorthand = FORMAT_BUILTINS[type.name];
+      // Own key: the table maps three builtin names, and a plain read answers
+      // for a type called toString with the inherited function — it became
+      // this type's format.
+      const shorthand = isFormatBuiltin(type.name) ? FORMAT_BUILTINS[type.name] : undefined;
       if (shorthand) return { format: shorthand, enumValues: null };
       if (type.name === 'string') {
         const format = formatArgOf(type.args as { name?: string; value: { kind: string; name?: string } }[]);
-        if (format && FORMAT_BUILTINS[format]) return { format: FORMAT_BUILTINS[format], enumValues: null };
+        if (format && isFormatBuiltin(format)) return { format: FORMAT_BUILTINS[format], enumValues: null };
         return EMPTY_CONSTRAINT;
       }
       const decl = mod.types.find((item) => item.name === type.name);
