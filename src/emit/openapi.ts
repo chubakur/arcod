@@ -157,12 +157,20 @@ function withDefault(schema: Schema, field: Param, mod: ModuleNode | null): Sche
   return { ...schema, default: value };
 }
 
+// A model name may be __proto__; assigning it through an index would set the
+// prototype of the schema map, and the field would vanish from the published
+// contract while the runtime still accepts and requires it. Define an own,
+// enumerable property instead.
+function putKey(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
 function objectSchema(mod: ModuleNode | null, fields: Param[]): Schema {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
   for (const field of fields) {
     const optional = field.type.kind === 'optional' || field.default !== undefined;
-    properties[field.name] = withDefault(schemaFor(mod, field.type), field, mod);
+    putKey(properties, field.name, withDefault(schemaFor(mod, field.type), field, mod));
     if (!optional) required.push(field.name);
   }
   const schema: Schema = { type: 'object', properties };
@@ -207,7 +215,7 @@ function errorSchema(mod: ModuleNode | null, name: string): Schema {
     error: { type: 'string', const: known.name },
     message: { type: 'string' },
   };
-  for (const field of known.fields) properties[field.name] = schemaFor(mod, field.type);
+  for (const field of known.fields) putKey(properties, field.name, schemaFor(mod, field.type));
   return { type: 'object', properties, required: ['error', 'message'] };
 }
 
@@ -216,10 +224,10 @@ function components(mod: ModuleNode): Record<string, unknown> {
   for (const decl of mod.types) {
     // A record resolves its names to $refs either way; the module is needed
     // only so a datetime default is published in its stored spelling.
-    schemas[decl.name] = schemaFor(mod, decl.type);
+    putKey(schemas, decl.name, schemaFor(mod, decl.type));
   }
   for (const en of mod.enums) {
-    schemas[en.name] = { type: 'string', enum: en.values };
+    putKey(schemas, en.name, { type: 'string', enum: en.values });
   }
   for (const err of mod.errors) {
     schemas['Error' + err.name] = errorSchema(null, err.name);
@@ -308,7 +316,7 @@ function interpretExamples(svc: ServiceNode): { calls: ExampleCall[]; errors: Ex
           return;
         }
         const name = arg.name ?? target.params[index]?.name ?? 'arg' + index;
-        value[name] = converted;
+        putKey(value, name, converted);
       });
       if (complete) calls.push({ target: target.name, example: example.name, value });
     }
@@ -376,7 +384,7 @@ function operationFor(mod: ModuleNode, svc: ServiceNode, op: OpNode): Record<str
         content: { 'application/json': { schema: { type: 'object', properties: {} as Record<string, unknown> } } },
       };
       const bodySchema = (requestBody.content as Record<string, Record<string, unknown>>)['application/json'].schema as Record<string, unknown>;
-      (bodySchema.properties as Record<string, unknown>)[param.name] = schema;
+      putKey(bodySchema.properties as Record<string, unknown>, param.name, schema);
       if (!optional) {
         requestBody.required = true;
         ((bodySchema.required ??= []) as string[]).push(param.name);
