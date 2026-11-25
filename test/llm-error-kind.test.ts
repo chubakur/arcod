@@ -201,10 +201,13 @@ test('a socket error is kind unknown, not an untagged throw', async () => {
 
 test('io.embed shares the kinds: a 429 is limited, a bad 2xx body is unknown', async () => {
   const { llmEmbed } = await llm();
-  let restore = stubFetch(async () => ({ ok: false, status: 429, text: async () => '{"error":"slow down"}' }));
+  // Both call sites read the header, not just chat: an embed batch behind the
+  // same gateway needs the same deadline.
+  let restore = stubFetch(async () => ({ ok: false, status: 429, headers: headers('2'), text: async () => '{"error":"slow down"}' }));
   try {
     await assert.rejects(llmEmbed(['a']), (error: any) => {
       assert.equal(error.kind, 'limited');
+      assert.equal(error.retryAfterMs, 2000);
       return true;
     });
   } finally {
