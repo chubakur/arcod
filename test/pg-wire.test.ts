@@ -503,6 +503,99 @@ test('a duplicate insert answers Conflict and leaves the store usable (B90)', as
   }
 });
 
+// Postgres marks a transaction aborted after its first failing statement:
+// every later statement fails 25P02 until ROLLBACK. The client has to treat
+// that error like any other statement error, so a rolled-back transaction
+// leaves the one socket usable -- that is the path PgStore.take()/takeIf()
+// take in their catch, and it used to be the same socket a duplicate killed.
+function transactionBackend() {
+  const seen: string[] = [];
+  const server = createServer((socket) => {
+    let buffer = Buffer.alloc(0);
+    let started = false;
+    let aborted = false;
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+      while (buffer.length >= 5) {
+        const tag = String.fromCharCode(buffer[0]);
+        const typed = tag === 'p' || tag === 'Q' || tag === 'X';
+        const length = buffer.readInt32BE(typed ? 1 : 0);
+        const total = typed ? length + 1 : length;
+        if (buffer.length < total) return;
+        const packet = buffer.subarray(typed ? 5 : 4, total);
+        buffer = buffer.subarray(total);
+        if (!started) {
+          started = true;
+          socket.write(Buffer.concat([message('R', int32(0)), message('Z', Buffer.from('I'))]));
+          continue;
+        }
+        if (tag !== 'Q') continue;
+        const sql = packet.toString('utf8').replace(String.fromCharCode(0), '');
+        seen.push(sql);
+        if (sql === 'BEGIN') {
+          aborted = false;
+          socket.write(Buffer.concat([message('C', cstr('BEGIN')), message('Z', Buffer.from('T'))]));
+          continue;
+        }
+        if (sql === 'ROLLBACK') {
+          aborted = false;
+          socket.write(Buffer.concat([message('C', cstr('ROLLBACK')), message('Z', Buffer.from('I'))]));
+          continue;
+        }
+        if (aborted) {
+          socket.write(Buffer.concat([
+            errorResponse('25P02', 'current transaction is aborted, commands ignored until end of transaction block'),
+            message('Z', Buffer.from('E')),
+          ]));
+          continue;
+        }
+        if (sql.startsWith('INSERT')) {
+          aborted = true;
+          socket.write(Buffer.concat([
+            errorResponse('23505', 'duplicate key value violates unique constraint'),
+            message('Z', Buffer.from('E')),
+          ]));
+          continue;
+        }
+        socket.write(Buffer.concat([
+          rowDescription(['?column?']), dataRow(['1']), message('C', cstr('SELECT 1')), message('Z', Buffer.from('I')),
+        ]));
+      }
+    });
+  });
+  return { server, seen };
+}
+
+test('an aborted transaction fails loudly and ROLLBACK leaves the socket usable', async () => {
+  const mod = await pg();
+  const backend = transactionBackend();
+  await new Promise<void>((resolve) => backend.server.listen(0, '127.0.0.1', resolve));
+  const port = (backend.server.address() as { port: number }).port;
+  try {
+    const db = new mod.PgConnection('postgres://arcod:s3cret@127.0.0.1:' + port + '/arcod');
+    await db.connect(2000);
+    await db.query('BEGIN');
+    await assert.rejects(
+      () => db.query("INSERT INTO task (id) VALUES ('dup')"),
+      (error: any) => { assert.equal(error.code, '23505'); return true; }
+    );
+    // The transaction stays aborted on the server: the next statement fails
+    // with 25P02 and that error must not close the connection either.
+    await assert.rejects(
+      () => db.query('SELECT 1'),
+      (error: any) => { assert.equal(error.code, '25P02'); return true; }
+    );
+    assert.equal(db.alive(), true);
+    await db.query('ROLLBACK');
+    const found = await db.query('SELECT 1');
+    assert.deepEqual(found.rows, [['1']]);
+    assert.deepEqual(backend.seen.slice(-2), ['ROLLBACK', 'SELECT 1']);
+    await db.end();
+  } finally {
+    backend.server.close();
+  }
+});
+
 test('PgStore reconnects after the server closes the socket (B90)', async () => {
   const mod = await pgStore();
   const backend = errorBackend({ dropFirstSelect: true });

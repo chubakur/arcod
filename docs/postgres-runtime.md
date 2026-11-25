@@ -87,6 +87,12 @@ Unique violations therefore reach `entityInsert`/`entityUpdate` as `Conflict`
 (409), and `/healthz` keeps answering after a duplicate insert instead of
 waiting on a destroyed socket.
 
+Inside an explicit transaction the first failed statement aborts it on the
+server: every later statement fails with `25P02` ("current transaction is
+aborted") until `ROLLBACK`. Both errors are ordinary statement errors, so the
+socket stays usable and a rollback puts the connection back in service — that
+is how `PgStore.take()`/`takeIf()` recover in their `catch`.
+
 Only transport failures and startup/auth errors end the connection. A dropped
 socket rejects everything in flight and queued, and the store reconnects before
 the next query without re-running migrations; if the server is still away, that
