@@ -122,7 +122,10 @@ class Registry {
       const element = this.ref(arg.value as TypeExpr, hint + 'Item', mode);
       return { ref: '[' + element.ref + (element.nonNull ? '!' : '') + ']', nonNull: true };
     }
-    if (SCALARS[name]) {
+    // hasOwn first: an undeclared type named `toString` would otherwise answer
+    // Object.prototype.toString and that function would become the field's
+    // GraphQL type (and a registered custom scalar).
+    if (Object.hasOwn(SCALARS, name)) {
       const scalar = SCALARS[name]!;
       this.scalars.add(scalar);
       return { ref: scalar, nonNull: true };
