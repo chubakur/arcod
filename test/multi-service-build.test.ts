@@ -115,3 +115,16 @@ test('compose: a single-service module keeps one service block', async () => {
   assert.match(yaml, /context: \.\/service$/m);
   assert.equal(yaml.includes('service-'), false);
 });
+
+test('compose: a second service gets only the binds it names', async () => {
+  const mod = parse(twoServices, 'main.arc');
+  const yaml = composeYaml(mod, 8080, false);
+  const cache = yaml.slice(yaml.indexOf('  service-cache:'));
+  assert.match(cache, /context: \.\/service-cache/);
+  // Store names db: kv, Cache names nothing: the cache container must not
+  // receive the store's database.
+  assert.equal(cache.includes('KV_HOST'), false, cache);
+  assert.equal(cache.includes('REDIS_URL'), false, cache);
+  const store = yaml.slice(yaml.indexOf('  service:'), yaml.indexOf('  service-cache:'));
+  assert.match(store, /KV_HOST: "kv"/);
+});

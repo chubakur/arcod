@@ -224,6 +224,8 @@ export interface ComposeModel {
   providers: RenderedProvider[];
   appEnv: Record<string, string>;
   hasUi: boolean;
+  // One entry per internal service: the env that container gets.
+  envByService?: Record<string, Record<string, string>>;
 }
 
 // One shared description of the topology: compose renders it as yaml and the
@@ -300,24 +302,37 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
   const streamAliases = capabilityAliases('stream');
   const queueAliases = capabilityAliases('queue');
 
-  const appEnv: Record<string, string> = {};
-  for (const item of all) {
-    for (const [key, value] of Object.entries(item.appEnv)) {
-      // Two binds of the same capability would otherwise clash on DATABASE_URL.
-      const name = key in appEnv ? key + '_' + item.alias.toUpperCase() : key;
-      appEnv[name] = value;
-    }
-    if (item.spec.name === 'redis' && item.port > 0) {
-      const url = 'redis://' + item.host + ':' + item.port;
-      if (streamAliases.has(item.alias) && providerImplements(item.spec, 'stream') && !appEnv.STREAM_REDIS_URL) {
-        appEnv.STREAM_REDIS_URL = url;
+  // The env of one container. A set of aliases limits it to the binds the
+  // service actually declares, so a second service does not inherit its
+  // neighbour's database or broker; null means the whole environment.
+  const envFor = (used: Set<string> | null): Record<string, string> => {
+    const env: Record<string, string> = {};
+    for (const item of all) {
+      if (used && !used.has(item.alias)) continue;
+      for (const [key, value] of Object.entries(item.appEnv)) {
+        // Two binds of the same capability would otherwise clash on DATABASE_URL.
+        const name = key in env ? key + '_' + item.alias.toUpperCase() : key;
+        env[name] = value;
       }
-      if (queueAliases.has(item.alias) && providerImplements(item.spec, 'queue') && !appEnv.QUEUE_REDIS_URL) {
-        appEnv.QUEUE_REDIS_URL = url;
+      if (item.spec.name === 'redis' && item.port > 0) {
+        const url = 'redis://' + item.host + ':' + item.port;
+        if (streamAliases.has(item.alias) && providerImplements(item.spec, 'stream') && !env.STREAM_REDIS_URL) {
+          env.STREAM_REDIS_URL = url;
+        }
+        if (queueAliases.has(item.alias) && providerImplements(item.spec, 'queue') && !env.QUEUE_REDIS_URL) {
+          env.QUEUE_REDIS_URL = url;
+        }
       }
     }
-  }
+    return env;
+  };
 
+  const appEnv = envFor(null);
+  // A service sees only the binds it names: env - its own uses (B75).
+  const envByService: Record<string, Record<string, string>> = {};
+  for (const context of serviceContexts(mod)) {
+    envByService[context.key] = envFor(new Set(context.svc.uses.map((use) => use.alias)));
+  }
   // Two binds may name the same container — a saga that keeps its store and
   // its broker in one redis sends `redis(host: "kv")` twice. Compose has one
   // key per service, so collapse the duplicates by host and port; every bind
@@ -334,7 +349,7 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
     providers.push(item);
   }
 
-  return { name, providers, appEnv, hasUi };
+  return { name, providers, appEnv, hasUi, envByService };
 }
 
 export function localImage(mod: ModuleNode, kind: string, revision: string): string {
@@ -364,7 +379,7 @@ export function serviceContexts(mod: ModuleNode): ServiceContext[] {
 }
 
 export function composeYaml(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry(), dialect: 'mysql' | 'postgres' = 'mysql', revision?: string): string {
-  const { name, providers: bound, appEnv } = composeModel(mod, port, hasUi, registry, dialect);
+  const { name, providers: bound, appEnv, envByService } = composeModel(mod, port, hasUi, registry, dialect);
   const lines = ['name: ' + name, 'services:'];
   for (const item of bound) lines.push(...providerLines(item));
 
@@ -390,9 +405,13 @@ export function composeYaml(mod: ModuleNode, port: number, hasUi = true, registr
     if (revision) lines.push('    image: ' + localImage(mod, context.key, revision));
     lines.push('    build:', '      context: ./' + context.dirName);
 
-    if (Object.keys(appEnv).length > 0) {
+    // The front service keeps the module environment it always had (a bind may
+    // be there for the deployment, not for a named use); a later service gets
+    // only the binds it names, so it cannot inherit its neighbour's database.
+    const env = index === 0 ? appEnv : envByService?.[context.key] ?? {};
+    if (Object.keys(env).length > 0) {
       lines.push('    environment:');
-      for (const key of Object.keys(appEnv).sort()) lines.push('      ' + key + ': ' + quote(appEnv[key]));
+      for (const key of Object.keys(env).sort()) lines.push('      ' + key + ': ' + quote(env[key]));
     }
 
     if (depends.length > 0) {
