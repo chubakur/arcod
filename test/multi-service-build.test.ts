@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { parse } from '../src/parser.ts';
 import { buildExample } from '../src/build.ts';
+import { composeYaml } from '../src/emit/compose.ts';
 
 // A module may declare more than one service. The emitters used to take the
 // first internal service only, so half of the spec disappeared without a word;
@@ -85,4 +86,32 @@ test('build: one service keeps the single service directory', async () => {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('compose: both services get a container, a context and a port', async () => {
+  const mod = parse(twoServices, 'main.arc');
+  const yaml = composeYaml(mod, 8080, false);
+  const lines = yaml.split('\n');
+  const keys = lines.filter((line) => /^  [a-z][a-z0-9-]*:$/.test(line)).map((line) => line.trim().replace(':', ''));
+  assert.ok(keys.includes('service'), 'the front service stays: ' + keys.join(','));
+  assert.ok(keys.includes('service-cache'), 'the second service is not dropped: ' + keys.join(','));
+  assert.match(yaml, /context: \.\/service-cache/);
+  // The front service keeps the requested port; the second is reachable on the
+  // next one, because only the front service sits behind the web proxy.
+  assert.match(yaml, /- "8080:3000"/);
+  assert.match(yaml, /- "8081:3000"/);
+});
+
+test('compose: a single-service module keeps one service block', async () => {
+  const mod = parse(oneService, 'main.arc');
+  const yaml = composeYaml(mod, 8080, true);
+  const lines = yaml.split('\n');
+  const keys = lines.filter((line) => /^  [a-z][a-z0-9-]*:$/.test(line)).map((line) => line.trim().replace(':', ''));
+  assert.ok(keys.includes('service'));
+  assert.ok(keys.includes('web'));
+  // A provider block (kv,, a database) is not a service: only the app's own
+  // services carry the service- prefix.
+  assert.deepEqual(keys.filter((key) => key.startsWith('service-')), []);
+  assert.match(yaml, /context: \.\/service$/m);
+  assert.equal(yaml.includes('service-'), false);
 });

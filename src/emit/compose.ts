@@ -1,5 +1,5 @@
 import { kebab } from '../plan.ts';
-import type { BindNode, EnvironmentNode, ModuleNode } from '../ast.ts';
+import type { BindNode, EnvironmentNode, ModuleNode, ServiceNode } from '../ast.ts';
 import { providerFor, providerImplements, type ProviderSpec } from '../providers.ts';
 import { storageKind } from '../capabilities.ts';
 import { loadRegistry, type ProviderRegistry } from '../registry.ts';
@@ -337,7 +337,7 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
   return { name, providers, appEnv, hasUi };
 }
 
-export function localImage(mod: ModuleNode, kind: 'service' | 'web', revision: string): string {
+export function localImage(mod: ModuleNode, kind: string, revision: string): string {
   return 'arcod/' + kebab(mod.name) + '-' + kind + ':' + revision;
 }
 
@@ -345,29 +345,83 @@ export function localImage(mod: ModuleNode, kind: 'service' | 'web', revision: s
 // changes whenever a body or a page changes, so `docker compose up` without
 // --build builds the missing image instead of reusing a stale container, while
 // an unchanged build keeps its tag and nothing is rebuilt.
+export interface ServiceContext {
+  key: string;
+  dirName: string;
+  svc: ServiceNode;
+}
+
+// Compose is the local view of the topology the build writes: one container
+// per internal service. The first keeps the historical "service" key and
+// "service/" context; every later service is "service-<name>", exactly the
+// directory buildExample writes for it.
+export function serviceContexts(mod: ModuleNode): ServiceContext[] {
+  const own = mod.services.filter((svc) => !svc.external);
+  return own.map((svc, index) => {
+    const key = index === 0 ? 'service' : 'service-' + kebab(svc.name);
+    return { key, dirName: key, svc };
+  });
+}
+
 export function composeYaml(mod: ModuleNode, port: number, hasUi = true, registry: ProviderRegistry = loadRegistry(), dialect: 'mysql' | 'postgres' = 'mysql', revision?: string): string {
   const { name, providers: bound, appEnv } = composeModel(mod, port, hasUi, registry, dialect);
   const lines = ['name: ' + name, 'services:'];
   for (const item of bound) lines.push(...providerLines(item));
 
-  lines.push('  service:');
-  if (revision) lines.push('    image: ' + localImage(mod, 'service', revision));
-  lines.push('    build:', '      context: ./service');
-
-  if (Object.keys(appEnv).length > 0) {
-    lines.push('    environment:');
-    for (const key of Object.keys(appEnv).sort()) lines.push('      ' + key + ': ' + quote(appEnv[key]));
-  }
+  // Docker Desktop resolves host.docker.internal on its own; a Linux engine
+  // does not, and the URL the provider rewrote cannot be reached without the
+  // declaration. A host-local URL therefore implies extra_hosts: the line is
+  // harmless where the name already resolves and required where it does not.
+  const endpoints = bound.filter((item) => item.spec.capability === 'endpoint');
+  const gateway = endpoints.some((item) => {
+    const url = String(item.args.url ?? '');
+    return url.includes('host.docker.internal') || url.includes('localhost') || url.includes('127.0.0.1');
+  });
+  // An external docker network is how a separately deployed service is joined.
+  const networks = Array.from(new Set(
+    endpoints.map((item) => item.args.network).filter((value): value is string => typeof value === 'string' && value.length > 0),
+  )).sort();
 
   const depends = bound.filter((item) => item.spec.healthcheck && !item.spec.oneShot);
-  if (depends.length > 0) {
-    lines.push('    depends_on:');
-    for (const item of depends) {
-      lines.push('      ' + item.host + ':');
-      lines.push('        condition: service_healthy');
+  // One container per internal service: the module may declare more than one,
+  // and a compose file that renders only the first loses half the spec.
+  for (const [index, context] of serviceContexts(mod).entries()) {
+    lines.push('  ' + context.key + ':');
+    if (revision) lines.push('    image: ' + localImage(mod, context.key, revision));
+    lines.push('    build:', '      context: ./' + context.dirName);
+
+    if (Object.keys(appEnv).length > 0) {
+      lines.push('    environment:');
+      for (const key of Object.keys(appEnv).sort()) lines.push('      ' + key + ': ' + quote(appEnv[key]));
+    }
+
+    if (depends.length > 0) {
+      lines.push('    depends_on:');
+      for (const item of depends) {
+        lines.push('      ' + item.host + ':');
+        lines.push('        condition: service_healthy');
+      }
+    }
+
+    if (gateway) {
+      lines.push('    extra_hosts:');
+      lines.push('      - "host.docker.internal:host-gateway"');
+    }
+
+    if (networks.length > 0) {
+      lines.push('    networks:');
+      for (const network of networks) lines.push('      - ' + quote(network));
+    }
+
+    // The front service keeps the published port it always had. A web
+    // container proxies only that service, so a second one is published on
+    // the next port instead of disappearing behind the front door.
+    if (index > 0) {
+      lines.push('    ports:', '      - "' + (port + index) + ':3000"');
+    } else if (!hasUi) {
+      lines.push('    ports:', '      - "' + port + ':3000"');
     }
   }
-
   if (hasUi) {
     lines.push('  web:');
     if (revision) lines.push('    image: ' + localImage(mod, 'web', revision));
@@ -379,33 +433,6 @@ export function composeYaml(mod: ModuleNode, port: number, hasUi = true, registr
       '    depends_on:',
       '      - service',
     );
-  } else {
-    lines.push('    ports:', '      - "' + port + ':3000"');
-  }
-
-  // Docker Desktop resolves host.docker.internal on its own; a Linux engine
-  // does not, and the URL the provider rewrote cannot be reached without the
-  // declaration. A host-local URL therefore implies extra_hosts: the line is
-  // harmless where the name already resolves and required where it does not.
-  // gateway: true stays an accepted argument so older specs keep checking
-  // clean, but it no longer decides anything (issue #42).
-  const endpoints = bound.filter((item) => item.spec.capability === 'endpoint');
-  const gateway = endpoints.some((item) => {
-    const url = String(item.args.url ?? '');
-    return url.includes('host.docker.internal') || url.includes('localhost') || url.includes('127.0.0.1');
-  });
-  if (gateway) {
-    lines.push('    extra_hosts:');
-    lines.push('      - "host.docker.internal:host-gateway"');
-  }
-
-  // An external docker network is how a separately deployed service is joined.
-  const networks = Array.from(new Set(
-    endpoints.map((item) => item.args.network).filter((value): value is string => typeof value === 'string' && value.length > 0),
-  )).sort();
-  if (networks.length > 0) {
-    lines.push('    networks:');
-    for (const network of networks) lines.push('      - ' + quote(network));
   }
 
   const volumes = Array.from(new Set(bound.map((item) => item.volume).filter((item): item is string => Boolean(item)))).sort();
