@@ -95,6 +95,12 @@ test('test --url: an already running service passes the examples and leaves no b
       assert.equal(parsed.target, 'url');
       assert.equal(parsed.url, service.url);
       assert.equal(parsed.examples.length, 3);
+      // A report can name the service it measured, so a multi-service caller
+      // reads whose examples ran; without --service the field is absent.
+      assert.equal(parsed.service, undefined);
+      const named = await run(['test', specDir, '--url', service.url, '--json', '--service', 'OneTimeMessage']);
+      assert.equal(named.code, 0);
+      assert.equal(JSON.parse(named.out).service, 'OneTimeMessage');
     } finally {
       service.stop();
     }

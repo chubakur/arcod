@@ -1449,7 +1449,9 @@ async function runUrlTest(flags: Flags, mod: ModuleNode, own: ModuleNode['servic
     return;
   }
   const report = await runExamples(mod, '', { baseUrl: url, service: flags.service });
-  printReport(report, flags, { target: 'url', url });
+  // One address answers one service: a report that names it says whose
+  // examples ran, which a multi-service module needs to read its own output.
+  printReport(report, flags, flags.service ? { target: 'url', url, service: flags.service } : { target: 'url', url });
 }
 
 function printReport(report: TestReport, flags: Flags, meta: Record<string, string>): void {
