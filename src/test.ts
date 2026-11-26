@@ -2,7 +2,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 import net from 'node:net';
 import type { Expr, ModuleNode, OpNode, ServiceNode, TypeExpr } from './ast.ts';
-import { pickService, routeOf, statusForError } from './emit/service.ts';
+import { routeOf, statusForError } from './emit/service.ts';
+import { serviceContexts, type ServiceContext } from './emit/compose.ts';
 
 export interface ExampleResult {
   example: string;
@@ -49,15 +50,38 @@ function declaredEmbedDim(mod: ModuleNode): number | null {
   return null;
 }
 
+// A module may declare several services, each with its own build context and
+// its own examples. Running only the first one reported a green suite for half
+// the spec, so every service that declares something is started and asked: the
+// report is the union, and a service with nothing declared starts no child.
 export async function runExamples(mod: ModuleNode, buildDir: string): Promise<TestReport> {
-  const service = pickService(mod);
-  if (!service || (service.examples.length === 0 && service.rules.length === 0)) {
-    return { examples: [], rules: [] };
+  const contexts = serviceContexts(mod);
+  const examples: ExampleResult[] = [];
+  const rules: RuleResult[] = [];
+  for (const context of contexts) {
+    const service = context.svc;
+    if (service.examples.length === 0 && service.rules.length === 0) continue;
+    const report = await runServiceExamples(mod, buildDir, context, contexts.length > 1);
+    examples.push(...report.examples);
+    rules.push(...report.rules);
   }
+  return { examples, rules };
+}
+
+async function runServiceExamples(
+  mod: ModuleNode,
+  buildDir: string,
+  context: ServiceContext,
+  named: boolean,
+): Promise<TestReport> {
+  const service = context.svc;
 
   // A bind that declares dim is a promise about every vector the model
   // returns. arcod run gets that env from the provider table; a test process
   // spawns the service directly, so without it the promise was never enforced.
+  // A shared report needs to say whose example failed; a one-service module
+  // keeps the names it always printed.
+  const label = (name: string): string => (named ? service.name + ' / ' + name : name);
   const dim = declaredEmbedDim(mod);
   // Another test file's child can take the port between freePort() and the
   // listen, and the loser exits on EADDRINUSE before answering /healthz. Ask
@@ -68,7 +92,7 @@ export async function runExamples(mod: ModuleNode, buildDir: string): Promise<Te
   for (let attempt = 0; attempt < 3 && child === null; attempt++) {
     const candidatePort = await freePort();
     const attemptErrors: string[] = [];
-    const candidate = spawn(process.execPath, [join(buildDir, 'service', 'index.mjs')], {
+    const candidate = spawn(process.execPath, [join(buildDir, context.dirName, 'index.mjs')], {
       env: {
         ...process.env,
         PORT: String(candidatePort),
@@ -108,10 +132,10 @@ export async function runExamples(mod: ModuleNode, buildDir: string): Promise<Te
     for (const example of service.examples) {
       try {
         const steps = await runExample(example.given, example.when, example.then, ctx);
-        examples.push({ example: example.name, ok: true, steps });
+        examples.push({ example: label(example.name), ok: true, steps });
       } catch (error) {
         examples.push({
-          example: example.name,
+          example: label(example.name),
           ok: false,
           steps: 0,
           error: error instanceof Error ? error.message : String(error),
@@ -120,7 +144,7 @@ export async function runExamples(mod: ModuleNode, buildDir: string): Promise<Te
     }
 
     const rules = await runRules(ctx);
-    return { examples, rules };
+    return { examples, rules: named ? rules.map((rule) => ({ ...rule, rule: service.name + ' / ' + rule.rule })) : rules };
   } finally {
     child.kill('SIGTERM');
   }

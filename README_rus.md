@@ -185,7 +185,7 @@ UTC, миллисекунды, `T`, `Z` — поэтому смещение в �
 | `arcod build --dialect postgres` | та же сборка с postgres-клиентом, `PgStore` (entity/kv/outbox/транзакции) и postgres-миграциями; mysql по умолчанию |
 | `arcod build --impl` | тела из `impl/*.mjs`, адаптер `io`, ничего не додумывает |
 | `arcod build --reference` | то же плюс встроенные демо-тела `create`/`read` |
-| `arcod test [dir]` | поднимает сгенерированный сервис с in-memory kv и прогоняет `examples`; `--json` печатает отчёт (`{examples, rules}`, а при ошибке check — ещё и `diagnostics`) и никогда не прозу |
+| `arcod test [dir]` | поднимает каждый внутренний сервис с объявленными `examples` (в мультисервисном модуле имя примера получает префикс сервиса) и прогоняет их; `--json` печатает отчёт (`{examples, rules}`, а при ошибке check — ещё и `diagnostics`) и никогда не прозу |
 | `arcod make [dir]` | весь цикл одной командой: check → prompts → тела → build → test |
 | `arcod run [dir]` | build + `docker compose up --build`; проба `docker info` сдаётся через 15 с и говорит, что демон не отвечает, а не висит |
 | `arcod run --down` | останавливает то, что поднял этот проект (`docker compose down --remove-orphans`); без пересборки, артефакты `.arcod/build` остаются |

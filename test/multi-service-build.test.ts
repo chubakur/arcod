@@ -11,6 +11,7 @@ import { emitOpenapi } from '../src/emit/openapi.ts';
 import { grpcProto } from '../src/emit/grpc.ts';
 import { graphqlSchema } from '../src/emit/graphql.ts';
 import { helmChart, k8sManifests } from '../src/emit/k8s.ts';
+import { runExamples } from '../src/test.ts';
 
 // A module may declare more than one service. The emitters used to take the
 // first internal service only, so half of the spec disappeared without a word;
@@ -288,6 +289,70 @@ test('build: a second service without a store writes no migration directory', as
     const entries = await readdir(result.dir);
     assert.ok(entries.includes('migrations'));
     assert.ok(!entries.includes('migrations-cache'), entries.join(','));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+// Two services with examples: the runner used to start only the first context
+// and print a green report for half the module. Both are asked now, and the
+// shared report names whose example it is.
+const twoAlive = `
+module shop @0.1.0 {}
+
+type Item = { id: string, title: string }
+
+environment dev {
+  bind db -> redis
+}
+
+service Store : http {
+  uses db: kv
+
+  effects { allow db.set, db.get, db.del }
+
+  contract {
+    public op create(title: string) -> Item { route: "POST /v1/items" }
+    public op read(id: string) -> Item { route: "GET /v1/items/:id" }
+  }
+
+  examples {
+    example store_alive {
+      when { let item = create("a") }
+      then { item.title == "a" }
+    }
+  }
+}
+
+service Cache : http {
+  uses db: kv
+
+  effects { allow db.set, db.get, db.del }
+
+  contract {
+    public op create(title: string) -> Item { route: "POST /v1/cache" }
+    public op read(id: string) -> Item { route: "GET /v1/cache/:id" }
+  }
+
+  examples {
+    example cache_alive {
+      when { let item = create("b") }
+      then { item.title == "b" }
+    }
+  }
+}
+`;
+
+test('test: every service with examples is started and reported', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'arcod-multi-'));
+  try {
+    const mod = parse(twoAlive, 'main.arc');
+    const result = await buildExample(mod, root, { port: 8080, reference: true });
+    const report = await runExamples(mod, result.dir);
+    const names = report.examples.map((entry) => entry.example);
+    assert.ok(names.includes('Store / store_alive'), names.join(','));
+    assert.ok(names.includes('Cache / cache_alive'), names.join(','));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
