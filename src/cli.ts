@@ -1994,6 +1994,7 @@ usage:
   arcod build [dir|spec.arc] [--reference | --impl] [--port 8080] [--dialect mysql|postgres]
                               [--json]
   arcod test  [dir|spec.arc] [--impl] [--reference] [--port 8080] [--json]
+                              [--url URL [--service name]]
   arcod run   [dir|spec.arc] [--impl] [--scaffold] [--port 8080] [--detach] [--down]
                               [--json]
 
