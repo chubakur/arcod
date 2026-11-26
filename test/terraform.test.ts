@@ -308,3 +308,28 @@ test('a missing environment says what the module declares, not just no', () => {
     /no environment to render: staging — declared: dev, prod/,
   );
 });
+
+// Two internal services are two images. An output list that names only the
+// first one tells a pipeline to build half the module (B75).
+test('a multi-service module outputs an image per service', () => {
+  const source = [
+    'module shop @0.1.0 {}',
+    'type Item = { id: string, name: string }',
+    'service Store : http {',
+    '  uses db: kv',
+    '  contract { public op read(id: string) -> Item { route: "GET /v1/items/:id" } }',
+    '}',
+    'service Cache : http {',
+    '  contract { public op get(key: string) -> string { route: "GET /v1/cache/:key" } }',
+    '}',
+    'environment prod {',
+    '  bind db -> redis(version: "7")',
+    '  deploy yandex(region: "ru-central1", folder: "f", service: "shop")',
+    '}',
+  ].join('\n');
+  const main = terraformFiles(parse(source, 'main.arc'), { environment: 'prod' })
+    .find((file) => file.path === 'main.tf')!.content;
+  assert.match(main, /output "image" {\n  value = "arcod\/shop-Store:0\.1\.0"\n}/);
+  assert.match(main, /output "image_cache" {\n  value = "arcod\/shop-Cache:0\.1\.0"\n}/);
+});
+

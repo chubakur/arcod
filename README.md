@@ -661,7 +661,9 @@ refuses) and `W045` names the second alias instead of pretending it was
 provisioned.
 
 The outputs are the wiring contract: `network_id`, `subnet_id`, `image`, and
-one endpoint pair per managed bind. A cloud runtime reads the address from
+one endpoint pair per managed bind. A module with several internal services
+adds `image_<service>` for each one after the first, so the pipeline builds
+every container and not just the front one. A cloud runtime reads the address from
 `terraform output`, never from the bind's `host`/`port` — those are container
 instructions (`W044`).
 

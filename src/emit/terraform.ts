@@ -282,8 +282,15 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
     if (expr.kind === 'literal' && expr.value != null) args[key] = String(expr.value);
   }
   const name = mod.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-  const service = mod.services.find((item) => !item.external);
-  const image = service ? imageContract(mod, env, service.name) : null;
+  // Every internal service is a separate image: outputting only the first one
+  // would tell a deploy pipeline to build one of two containers (B75).
+  const services = mod.services.filter((item) => !item.external);
+  const images = services.map((svc) => ({ name: svc.name, image: imageContract(mod, env, svc.name).image }));
+  const image = images.length > 0 ? images[0].image : null;
+  const imageOutputs = images.map((entry, index) => {
+    const output = index === 0 ? 'image' : 'image_' + entry.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    return 'output "' + output + '" {\n  value = ' + hclString(entry.image) + '\n}\n';
+  });
 
   const registry = options.registry ?? builtinRegistry();
   const resources: string[] = [];
@@ -368,7 +375,7 @@ export function terraformFiles(mod: ModuleNode, options: TerraformOptions = {}):
     '  value = yandex_vpc_subnet.main.id',
     '}',
     '',
-    image ? 'output "image" {\n  value = ' + hclString(image.image) + '\n}\n' : '',
+    ...imageOutputs,
     endpointOutputs(endpoints),
   ].filter((part) => part.length > 0).join('\n');
 
