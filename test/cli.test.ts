@@ -1382,7 +1382,7 @@ test('--reference names the operations it has no demo body for', async () => {
   assert.match(test.err, /no demo body for ping, echo/);
 });
 
-test('ast --check gates on semantic errors and --json bypasses the gate', async () => {
+test('ast --check gates on semantic errors, also under --json', async () => {
   // A spec can parse and still fail check: a public op without a route is
   // A050. `ast --check` is the CI-facing gate, so it has to report the
   // diagnostic and exit 1 instead of printing an AST nobody should trust.
@@ -1404,8 +1404,26 @@ test('ast --check gates on semantic errors and --json bypasses the gate', async 
   assert.match(gated.out, /A050/);
   assert.ok(!gated.out.trimStart().startsWith('{'), 'no AST is printed when the gate trips');
   const json = await run(['ast', file, '--check', '--json']);
-  assert.equal(json.code, 0, '--json is a machine surface and skips the human gate');
-  assert.equal(JSON.parse(json.out).name, 'm');
+  assert.equal(json.code, 1, '--json carries the same gate status');
+  const report = JSON.parse(json.out);
+  assert.equal(report.name, 'm', 'the AST is still there');
+  assert.ok(report.diagnostics.some((d: { code: string }) => d.code === 'A050'), 'the gate diagnostic is in the report');
+
+  const clean = join(dir, 'clean.arc');
+  await writeFile(clean, [
+    'module m @0.1.0 {}',
+    'service Ping : http {',
+    '  contract {',
+    '    public op ping() -> string {',
+    '      route: "GET /v1/ping"',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n'), 'utf8');
+  const ok = await run(['ast', clean, '--check', '--json']);
+  assert.equal(ok.code, 0);
+  assert.deepEqual(JSON.parse(ok.out).diagnostics, []);
 });
 
 test('prompts on a contract with no operations says so and leaves nothing behind', async () => {

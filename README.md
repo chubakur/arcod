@@ -185,7 +185,7 @@ drivers. Full example: `examples/signup`.
 | Command | What it does |
 |---|---|
 | `arcod check [dir]` | parse, check types, bindings, effects and rules; `--json`; `--strict` turns on W013 (missing budget); `--env <name>` checks one environment; a quoted pattern such as `'examples/*/main.arc'` checks every match, reports each file by its path, keeps going after a file that does not parse, and fails if any has an error; `--json` answers a spec that does not parse with `{error: "parse failed", diagnostics}`; `**` spans directories, so `'projects/**'` checks the spec of every project below `projects`, at any depth |
-| `arcod ast [dir]` | print the canonical AST; `--check` also runs the checks |
+| `arcod ast [dir]` | print the canonical AST; `--check` also runs the checks (exit 1 on an error), and `--json` adds a `diagnostics` list while keeping the AST, so a CI gate reads the status instead of the flag |
 | `arcod plan [dir]` | deterministic task DAG: files, dependencies, acceptance criteria |
 | `arcod openapi [dir]` | OpenAPI 3.1 on stdout: paths from `route`, schemas from `types`, errors mapped as in the runtime, examples from the `examples` block; `--service <name>` picks one service, without it every internal service contributes its paths (two services on one route is an error); `--out <file>` writes it instead of printing |
 | `arcod migrate [dir]` | print the migrations of the data model and write them into `.arcod/build/migrations/` (changelog + up/down `.sql`; `arcod build` writes the same artifact); `--json`; `--dialect mysql\|postgres` picks the DDL spelling; `--service name` picks whose plan in a multi-service module (into `migrations-service-<name>/`); the service applies them on boot; files the current plan no longer owns are removed |

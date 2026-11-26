@@ -471,17 +471,19 @@ async function runCheck(flags: Flags): Promise<void> {
 
 async function runAst(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
-  if (!flags.json && flags.check) {
-    const diags = check(loaded.mod, { registry: loadRegistry(loaded.dir) });
-    const errors = diags.filter((d) => d.severity === 'error');
-    if (errors.length > 0) {
-      printDiagnostics(errors, loaded.specPath, specLabel(loaded.specPath));
-      process.exitCode = 1;
-      return;
-    }
+  const diags = flags.check ? check(loaded.mod, { registry: loadRegistry(loaded.dir) }) : null;
+  const errors = diags ? diags.filter((d) => d.severity === 'error') : [];
+  // --json is a machine surface, not a gate bypass: the report keeps the AST
+  // and adds the diagnostics, and the status still says whether the spec is
+  // clean. A CI step that parses stdout must not see a green exit on A050.
+  if (!flags.json && errors.length > 0) {
+    printDiagnostics(errors, loaded.specPath, specLabel(loaded.specPath));
+    process.exitCode = 1;
+    return;
   }
   const { source, ...ast } = loaded.mod;
-  console.log(JSON.stringify(ast, null, 2));
+  console.log(JSON.stringify(diags ? { ...ast, diagnostics: errors } : ast, null, 2));
+  if (errors.length > 0) process.exitCode = 1;
 }
 
 // fmt over a pattern is the shape a formatting gate needs: one line per file,
@@ -1873,7 +1875,9 @@ Parse the spec and print diagnostics. --json prints a JSON report,
 pattern is expanded here: 'examples/*/main.arc' checks every project.`,
   ast: `usage: arcod ast [dir|spec.arc] [--check] [--json]
 
-Print the parsed module (canonical AST). --check also prints the diagnostics.`,
+Print the parsed module (canonical AST). --check also runs the checks: the
+human form prints an error and exits 1, --json adds a diagnostics list and
+keeps the AST while the status still reports the gate.`,
   plan: `usage: arcod plan [dir|spec.arc] [--json]
 
 Print the build plan: services, routes, capabilities, emitted files.`,
