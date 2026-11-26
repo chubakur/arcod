@@ -1,8 +1,8 @@
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { ModuleNode } from './ast.ts';
 import { check } from './check.ts';
-import { buildPrompts, promptManifest, prunePromptFiles } from './prompts.ts';
+import { buildPrompts, promptManifest, promptPath, prunePromptFiles } from './prompts.ts';
 import { runImpl } from './impl.ts';
 import { buildExample } from './build.ts';
 import { runExamples } from './test.ts';
@@ -96,9 +96,11 @@ export async function runPipeline(
   const promptStep = await step('prompts', async () => {
     const promptDir = join(buildDir!, 'prompts');
     await mkdir(promptDir, { recursive: true });
-    await prunePromptFiles(promptDir, set.tasks.map((task) => task.op + '.md'));
+    await prunePromptFiles(promptDir, set.tasks.map((task) => promptPath(set, task)));
     for (const task of set.tasks) {
-      await writeFile(join(promptDir, task.op + '.md'), task.prompt, 'utf8');
+      const path = join(promptDir, promptPath(set, task));
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, task.prompt, 'utf8');
     }
     const manifest = promptManifest(set);
     await writeFile(join(buildDir!, 'prompts.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');

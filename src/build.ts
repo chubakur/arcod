@@ -4,7 +4,7 @@ import type { EnvironmentNode, ModuleNode } from './ast.ts';
 import { emitService, maxBodyBytes, pickService } from './emit/service.ts';
 import { emitWeb, ssrFirstScreenOp } from './emit/web.ts';
 import { composeYaml, localEnvironment, localImage, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
-import { buildPrompts, promptManifest } from './prompts.ts';
+import { buildPrompts, promptManifest, promptPath } from './prompts.ts';
 import { deployManifest, deployProvider, literalMap } from './deploy.ts';
 import { entitiesFromBodies, migrationPlan } from './migrate.ts';
 import { dialectNamed } from './dialects.ts';
@@ -378,7 +378,7 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
   const promptDir = join(dir, 'prompts');
   await mkdir(promptDir, { recursive: true });
   for (const task of prompts.tasks) {
-    const path = join(promptDir, task.op + '.md');
+    const path = join(promptDir, promptPath(prompts, task));
     files.push([path, task.prompt]);
   }
   const promptManifestJson = JSON.stringify(promptManifest(prompts), null, 2) + '\n';
@@ -429,6 +429,7 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
   ]);
 
   for (const [path, content] of files) {
+    await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content, { encoding: 'utf8', mode: 0o644 });
   }
 

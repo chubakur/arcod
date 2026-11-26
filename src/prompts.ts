@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { readdir, rm } from 'node:fs/promises';
+import { readdir, rm, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Expr, ModuleNode, OpNode, ServiceNode, TypeExpr } from './ast.ts';
 import { buildPlan } from './plan.ts';
-import { isGuarded, pickService, routeOf } from './emit/service.ts';
+import { isGuarded, routeOf } from './emit/service.ts';
 import { signatureFor, shortFor, storageUse } from './capabilities.ts';
 import { opEffects, payloadOf, planBody, planText } from './plan-body.ts';
 
@@ -11,18 +11,33 @@ import { opEffects, payloadOf, planBody, planText } from './plan-body.ts';
 // current contract declares. A rerun after an operation is removed must drop
 // its <op>.md: a stale task tells the model to write a body for a route that no
 // longer exists. Everything that is not Markdown is left alone.
+// A multi-service module files its prompts under <service>/, so the keep set is
+// a set of relative paths ("posts/ping.md"), not bare names. A stale service
+// folder left behind by a removed service is pruned down to nothing; only
+// Markdown is ever deleted, and a folder that still holds anything else stays.
 export async function prunePromptFiles(dir: string, keep: Iterable<string>): Promise<void> {
   const owned = new Set(keep);
-  const entries = await readdir(dir).catch(() => null);
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
   if (!entries) return;
-  for (const name of entries) {
-    if (owned.has(name) || !name.endsWith('.md')) continue;
-    await rm(join(dir, name), { force: true });
+  for (const entry of entries) {
+    const rel = entry.name;
+    if (entry.isDirectory()) {
+      const inside = await readdir(join(dir, rel)).catch(() => [] as string[]);
+      for (const name of inside) {
+        if (name.endsWith('.md') && !owned.has(rel + '/' + name)) await rm(join(dir, rel, name), { force: true });
+      }
+      const rest = await readdir(join(dir, rel)).catch(() => null);
+      if (rest && rest.length === 0) await rmdir(join(dir, rel)).catch(() => undefined);
+      continue;
+    }
+    if (owned.has(rel) || !rel.endsWith('.md')) continue;
+    await rm(join(dir, rel), { force: true });
   }
 }
 
 export interface PromptTask {
   id: string;
+  service: string;
   op: string;
   file: string;
   prompt: string;
@@ -36,6 +51,7 @@ export interface PromptSet {
   version: string;
   modelHash: string;
   budget: number;
+  multiService: boolean;
   tasks: PromptTask[];
   overBudget: string[];
   unresolved: string[];
@@ -52,6 +68,7 @@ export function promptManifest(set: PromptSet): Record<string, unknown> {
     budget: set.budget,
     tasks: set.tasks.map((task) => ({
       id: task.id,
+      service: task.service,
       op: task.op,
       file: task.file,
       tokens: task.tokens,
@@ -59,6 +76,13 @@ export function promptManifest(set: PromptSet): Record<string, unknown> {
       unresolved: task.unresolved,
     })),
   };
+}
+
+// Where a prompt lands inside the prompts folder. One service keeps the
+// historical flat <op>.md; several services would collide on a shared
+// operation name, so each gets its own folder.
+export function promptPath(set: PromptSet, task: PromptTask): string {
+  return set.multiService ? task.service + '/' + task.op + '.md' : task.op + '.md';
 }
 
 export interface PromptOptions {
@@ -256,7 +280,7 @@ function taskFor(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean
     'operation ' + op.name + ' (http)',
     'route ' + route,
     '',
-    'Write exactly one file: impl/' + op.name + '.mjs',
+    'Write exactly one file: ' + implPath(mod, svc, op),
     'It exports one function and nothing else. No imports.',
     '',
     '## Signature',
@@ -295,8 +319,9 @@ function taskFor(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean
   const prompt = lines.join('\n');
   return {
     id,
+    service: svc.name,
     op: op.name,
-    file: 'impl/' + op.name + '.mjs',
+    file: implPath(mod, svc, op),
     prompt,
     tokens: estimateTokens(prompt),
     sha256: createHash('sha256').update(prompt).digest('hex'),
@@ -305,14 +330,19 @@ function taskFor(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean
 }
 
 export function buildPrompts(mod: ModuleNode, options: PromptOptions = {}): PromptSet {
-  const svc = pickService(mod);
-  if (!svc) throw new Error('no service to build prompts for');
+  // Every internal service gets its prompts: a module may hold several, and
+  // taking the first silently left the others without a task for the model.
+  const services = mod.services.filter((svc) => !svc.external);
+  if (services.length === 0) throw new Error('no service to build prompts for');
   const budget = options.budget ?? 1600;
-  const guarded = isGuarded(svc);
   const format = options.format ?? 'compact';
-  const tasks = svc.contract
-    .filter((op) => op.kind === 'op')
-    .map((op) => (format === 'full' ? taskFor(mod, svc, op, guarded) : compactTask(mod, svc, op, guarded)))
+  const tasks = services
+    .flatMap((svc) => {
+      const guarded = isGuarded(svc);
+      return svc.contract
+        .filter((op) => op.kind === 'op')
+        .map((op) => (format === 'full' ? taskFor(mod, svc, op, guarded) : compactTask(mod, svc, op, guarded)));
+    })
     .sort((a, b) => a.id.localeCompare(b.id));
 
   return {
@@ -320,6 +350,7 @@ export function buildPrompts(mod: ModuleNode, options: PromptOptions = {}): Prom
     version: mod.version,
     modelHash: buildPlan(mod).modelHash,
     budget,
+    multiService: services.length > 1,
     tasks,
     overBudget: tasks.filter((task) => task.tokens > budget).map((task) => task.id),
     unresolved: tasks
@@ -436,13 +467,22 @@ function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boo
   const prompt = lines.join('\n') + '\n';
   return {
     id,
+    service: svc.name,
     op: op.name,
-    file: 'impl/' + op.name + '.mjs',
+    file: implPath(mod, svc, op),
     prompt,
     tokens: estimateTokens(prompt),
     sha256: createHash('sha256').update(prompt).digest('hex'),
     unresolved: bodyPlan.unresolved,
   };
+}
+
+// Bodies of a multi-service module live in per-service folders: a shared
+// operation name would otherwise overwrite the other service's body. One
+// service keeps the historical flat impl/<op>.mjs.
+function implPath(mod: ModuleNode, svc: ServiceNode, op: OpNode): string {
+  const multi = mod.services.filter((item) => !item.external).length > 1;
+  return multi ? 'impl/' + svc.name + '/' + op.name + '.mjs' : 'impl/' + op.name + '.mjs';
 }
 
 export function formatPrompts(set: PromptSet): string {
@@ -452,7 +492,8 @@ export function formatPrompts(set: PromptSet): string {
   ];
   for (const task of set.tasks) {
     const mark = task.tokens > set.budget ? ' over-budget' : '';
-    lines.push('  ' + task.id + '  ' + task.tokens + ' tokens  ' + task.sha256.slice(0, 12) + mark);
+    const where = set.multiService ? task.service + '  ' : '';
+    lines.push('  ' + where + task.id + '  ' + task.tokens + ' tokens  ' + task.sha256.slice(0, 12) + mark);
     for (const item of task.unresolved) lines.push('    unresolved: ' + item);
   }
   return lines.join('\n');

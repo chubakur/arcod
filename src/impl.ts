@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { ModuleNode } from './ast.ts';
 import { buildPrompts, estimateTokens, type PromptTask } from './prompts.ts';
@@ -161,6 +161,12 @@ export async function runImpl(mod: ModuleNode, dir: string, partial: Partial<Imp
         'Pass --allow-remote if you really mean it.',
     );
   }
+  // A multi-service module needs one body per service (impl/<service>/<op>.mjs),
+  // and build/reference still read a flat impl/ tree. Refusing beats silently
+  // writing both services' ping into impl/ping.mjs.
+  if (mod.services.filter((svc) => !svc.external).length > 1) {
+    throw new Error('arcod impl: a multi-service module needs per-service bodies, and the build does not read impl/<service>/ yet');
+  }
   const set = buildPrompts(mod);
   // Bodies live next to the spec so they can be committed and reviewed; the
   // cache keeps the model responses separately.
@@ -177,7 +183,7 @@ export async function runImpl(mod: ModuleNode, dir: string, partial: Partial<Imp
 }
 
 async function runTask(task: PromptTask, outDir: string, cacheDir: string, options: ImplOptions): Promise<ImplResult> {
-  const target = join(outDir, task.op + '.mjs');
+  const target = join(dirname(outDir), task.file);
   const key = cacheKey(task.prompt, options);
   const cachePath = join(cacheDir, key + '.mjs');
   const base: ImplResult = {
@@ -213,6 +219,7 @@ async function runTask(task: PromptTask, outDir: string, cacheDir: string, optio
   // generated this file, so an impl/ body is never an anonymous blob.
   const promptHash = createHash('sha256').update(task.prompt).digest('hex').slice(0, 12);
   const header = '// @arcod generated: op ' + task.op + ' · prompt ' + promptHash + ' · model ' + options.model + '\n';
+  await mkdir(dirname(target), { recursive: true });
   await writeFile(target, header + code, 'utf8');
   const syntax = spawnSync(process.execPath, ['--check', target], { encoding: 'utf8' });
   if (syntax.status !== 0) {

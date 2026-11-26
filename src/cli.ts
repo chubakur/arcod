@@ -9,7 +9,7 @@ import { BuildError, buildExample, implBodiesFor, implIgnoredDirs, implIgnoredFi
 import { runExamples } from './test.ts';
 import type { Diagnostic } from './diagnostics.ts';
 import type { ModuleNode } from './ast.ts';
-import { buildPrompts, formatPrompts, promptManifest, prunePromptFiles } from './prompts.ts';
+import { buildPrompts, formatPrompts, promptManifest, promptPath, prunePromptFiles } from './prompts.ts';
 import { formatPipeline, runPipeline } from './pipeline.ts';
 import { DEFAULT_IMPL, formatImplReport, runImpl } from './impl.ts';
 import { PROVIDERS, providerNames } from './providers.ts';
@@ -1006,7 +1006,7 @@ async function artifactStep(flags: Flags, path: string, work: () => Promise<unkn
 
 async function writeArtifacts(flags: Flags, files: Array<[string, string]>): Promise<boolean> {
   for (const [path, text] of files) {
-    if (!(await artifactStep(flags, path, () => writeFile(path, text)))) return false;
+    if (!(await artifactStep(flags, path, async () => { await mkdir(dirname(path), { recursive: true }); await writeFile(path, text); }))) return false;
   }
   return true;
 }
@@ -1165,8 +1165,8 @@ async function runPrompts(flags: Flags): Promise<void> {
   }
 
   if (!(await artifactStep(flags, dir, () => mkdir(dir, { recursive: true })))) return;
-  if (!(await artifactStep(flags, dir, () => prunePromptFiles(dir, set.tasks.map((task) => task.op + '.md'))))) return;
-  const files: Array<[string, string]> = set.tasks.map((task) => [join(dir, task.op + '.md'), task.prompt]);
+  if (!(await artifactStep(flags, dir, () => prunePromptFiles(dir, set.tasks.map((task) => promptPath(set, task)))))) return;
+  const files: Array<[string, string]> = set.tasks.map((task) => [join(dir, promptPath(set, task)), task.prompt]);
   files.push([join(artifactDir, 'prompts.json'), JSON.stringify(manifest, null, 2) + '\n']);
   // The build writes the same manifest inside the folder; refresh it here too,
   // so a `prompts` run after a build cannot leave the build's older task list.
