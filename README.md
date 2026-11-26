@@ -368,7 +368,9 @@ binds it names; the front service keeps the published port and the web
 proxy, a later one is published on the next port. Kubernetes draws the same
 topology: a Deployment and a Service per internal service (each with its own
 image from the deploy contract), and an Ingress sends each route root to its
-own service; a one-service module keeps its historical `service.yaml`.
+own service; a one-service module keeps its historical `service.yaml`. The
+chart carries the same split: every later service reads its image from its own
+`services.<name>` values entry.
 
 ### The model as a capability
 

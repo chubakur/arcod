@@ -10,7 +10,7 @@ import { composeYaml, serviceEndpoints } from '../src/emit/compose.ts';
 import { emitOpenapi } from '../src/emit/openapi.ts';
 import { grpcProto } from '../src/emit/grpc.ts';
 import { graphqlSchema } from '../src/emit/graphql.ts';
-import { k8sManifests } from '../src/emit/k8s.ts';
+import { helmChart, k8sManifests } from '../src/emit/k8s.ts';
 
 // A module may declare more than one service. The emitters used to take the
 // first internal service only, so half of the spec disappeared without a word;
@@ -230,5 +230,31 @@ test('k8s: a one-service module keeps the historical service.yaml', () => {
   const ingress = files.find((file) => file.path === 'ingress.yaml')!.content;
   assert.match(ingress, /path: \/\n/);
   assert.equal(ingress.match(/path: /g)!.length, 1);
+});
+
+
+// A chart cannot hard-code an image it is supposed to configure: each later
+// service reads its own values entry, and the first keeps the familiar
+// image.repository/tag pair.
+test('helm: a multi-service chart exposes one values entry per service', () => {
+  const mod = parse(twoServices, 'main.arc');
+  const files = helmChart(mod, { host: 'shop.example.com' });
+  const paths = files.map((file) => file.path);
+  assert.ok(paths.includes('templates/service.yaml'), paths.join(','));
+  assert.ok(paths.includes('templates/service-cache.yaml'), paths.join(','));
+  const values = files.find((file) => file.path === 'values.yaml')!.content;
+  assert.match(values, /services:\n  service:\n    repository: /);
+  assert.match(values, /service-cache:\n    repository: /);
+  const first = files.find((file) => file.path === 'templates/service.yaml')!.content;
+  const second = files.find((file) => file.path === 'templates/service-cache.yaml')!.content;
+  assert.match(first, /image: \{\{ \.Values\.image\.repository \}\}/);
+  assert.match(second, /image: \{\{ index \.Values\.services "service-cache" "repository" \}\}/);
+});
+
+test('helm: a one-service chart keeps the single values shape', () => {
+  const mod = parse(oneService, 'main.arc');
+  const values = helmChart(mod, { host: 'shop.example.com' })
+    .find((file) => file.path === 'values.yaml')!.content;
+  assert.doesNotMatch(values, /^services:/m);
 });
 

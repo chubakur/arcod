@@ -387,6 +387,9 @@ interface AppService {
   // Kubernetes object name and compose context key: `service`, `service-cache`.
   name: string;
   image: string;
+  // The same image split into the chart values a user can edit.
+  repository: string;
+  tag: string;
   routes: string[];
   // Env entries the service's own `uses` produced, so a neighbour's database
   // url does not ride along.
@@ -478,11 +481,21 @@ function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
           .filter((op) => op.kind === 'op')
           .flatMap((op) => op.clauses.filter((clause) => clause.kind === 'route'))
           .map((clause) => routeRoot(clause.value)))].sort();
+        const concrete = deployEnv && deployEnv.deploy
+          ? imageContract(mod, deployEnv, context.svc.name).image
+          : name + '-' + context.key + ':latest';
+        const parts = splitImage(concrete);
+        // A chart cannot hard-code an image and stay configurable: the first
+        // service keeps the familiar image.repository/tag pair, a later one
+        // reads its own entry from the chart values.
+        const image = !tpl ? concrete : context === contexts[0]
+          ? '{{ .Values.image.repository }}:{{ .Values.image.tag }}'
+          : '{{ index .Values.services "' + context.key + '" "repository" }}:{{ index .Values.services "' + context.key + '" "tag" }}';
         return {
           name: context.key,
-          image: deployEnv && deployEnv.deploy
-            ? imageContract(mod, deployEnv, context.svc.name).image
-            : name + '-' + context.key + ':latest',
+          image,
+          repository: parts.repository,
+          tag: parts.tag,
           routes,
           plainEnv: ownFrom(env.plain),
           hiddenEnv: ownFrom(env.hidden),
@@ -840,6 +853,20 @@ function valuesYaml(ctx: Ctx, appImage: string, webImage: string, host: string |
     'service:',
     '  port: ' + ctx.appPort,
     '',
+    // Every internal service gets a values entry so the chart stays editable
+    // where the manifest is not: the first one repeats image above, the others
+    // are the only place their image appears.
+    ...(ctx.services.length > 1
+      ? [
+          'services:',
+          ...ctx.services.flatMap((svc) => [
+            '  ' + svc.name + ':',
+            '    repository: ' + svc.repository,
+            '    tag: ' + svc.tag,
+          ]),
+          '',
+        ]
+      : []),
     'ingress:',
     '  enabled: ' + (host ? 'true' : 'false'),
     '  className: ' + ingressClass,
@@ -850,7 +877,13 @@ function valuesYaml(ctx: Ctx, appImage: string, webImage: string, host: string |
 
 export function helmChart(mod: ModuleNode, options: K8sOptions = {}): EmittedFile[] {
   const ctx = contextOf(mod, options, true);
-  const appImage = options.image && options.image.length > 0 ? options.image : ctx.name + ':latest';
+  // The first service keeps the image the deploy contract names; in a
+  // multi-service chart the others live in their own values entries, so this
+  // is the pair that belongs to .Values.image.
+  const first = ctx.services[0];
+  const appImage = options.image && options.image.length > 0
+    ? options.image
+    : first ? first.repository + ':' + first.tag : ctx.name + ':latest';
   const webImage = options.webImage && options.webImage.length > 0 ? options.webImage : ctx.name + '-web:latest';
   const host = options.host ?? null;
   const files: EmittedFile[] = [
