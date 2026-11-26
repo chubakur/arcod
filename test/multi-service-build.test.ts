@@ -8,6 +8,8 @@ import { parse } from '../src/parser.ts';
 import { buildExample } from '../src/build.ts';
 import { composeYaml, serviceEndpoints } from '../src/emit/compose.ts';
 import { emitOpenapi } from '../src/emit/openapi.ts';
+import { grpcProto } from '../src/emit/grpc.ts';
+import { graphqlSchema } from '../src/emit/graphql.ts';
 
 // A module may declare more than one service. The emitters used to take the
 // first internal service only, so half of the spec disappeared without a word;
@@ -174,4 +176,15 @@ test('openapi: a module with two services documents both', () => {
 test('openapi: two services on one route are refused, not silently merged', () => {
   const clashing = openapiSpec.replace('route: "GET /v1/cache/:key"', 'route: "POST /v1/items"');
   assert.throws(() => emitOpenapi(parse(clashing, 'main.arc')), /declared by both Store\.create and Cache\.get/);
+});
+
+// A proto or an SDL document describes one service. With two services the
+// emitters used to answer for the first and stay quiet about the second; they
+// now name the declaration and ask for --service.
+test('grpc and graphql: several services are named, not silently narrowed', () => {
+  const mod = parse(twoServices, 'main.arc');
+  assert.throws(() => grpcProto(mod), /declares 2 services \(Store, Cache\); pass --service/);
+  assert.throws(() => graphqlSchema(mod), /declares 2 services \(Store, Cache\); pass --service/);
+  assert.match(grpcProto(mod, { service: 'Cache' }), /Cache/);
+  assert.match(graphqlSchema(mod, { service: 'Cache' }), /Cache/);
 });

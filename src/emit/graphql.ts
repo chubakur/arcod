@@ -291,9 +291,16 @@ function rootField(registry: Registry, op: OpNode): string {
 }
 
 export function graphqlSchema(mod: ModuleNode, options: GraphqlOptions = {}): string {
+  // One document describes one service: two operations named the same would
+  // collide in a single schema, so a module with several services says which
+  // one it wants instead of emitting the first and hiding the rest.
+  const own = mod.services.filter((item) => !item.external);
   const svc: ServiceNode | null = options.service
     ? mod.services.find((item) => item.name === options.service) ?? null
-    : pickService(mod);
+    : own.length > 1 ? null : pickService(mod);
+  if (!svc && !options.service && own.length > 1) {
+    throw new Error('this module declares ' + own.length + ' services (' + own.map((item) => item.name).join(', ') + '); pass --service <name> to emit GraphQL for one');
+  }
   if (!svc) throw new Error(options.service ? 'no service named ' + options.service + ' to emit GraphQL for' : 'no service to emit GraphQL for');
 
   const registry = new Registry(mod);
