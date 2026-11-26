@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { parse } from '../src/parser.ts';
 import { buildExample } from '../src/build.ts';
-import { composeYaml } from '../src/emit/compose.ts';
+import { composeYaml, serviceEndpoints } from '../src/emit/compose.ts';
 
 // A module may declare more than one service. The emitters used to take the
 // first internal service only, so half of the spec disappeared without a word;
@@ -127,4 +127,11 @@ test('compose: a second service gets only the binds it names', async () => {
   assert.equal(cache.includes('REDIS_URL'), false, cache);
   const store = yaml.slice(yaml.indexOf('  service:'), yaml.indexOf('  service-cache:'));
   assert.match(store, /KV_HOST: "kv"/);
+});
+
+test('run endpoints: every service gets its published port', () => {
+  const endpoints = serviceEndpoints(parse(twoServices, 'main.arc'), 8080);
+  assert.deepEqual(endpoints.map((item) => [item.name, item.port]), [['Store', 8080], ['Cache', 8081]]);
+  assert.deepEqual(endpoints.map((item) => item.url), ['http://localhost:8080', 'http://localhost:8081']);
+  assert.deepEqual(serviceEndpoints(parse(oneService, 'main.arc'), 8080).map((item) => item.name), ['Store']);
 });

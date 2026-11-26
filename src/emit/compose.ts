@@ -352,6 +352,23 @@ export function composeModel(mod: ModuleNode, port: number, hasUi = true, regist
   return { name, providers, appEnv, hasUi, envByService };
 }
 
+// The host ports compose publishes: the front service on the requested port,
+// each later one on the next port. A run summary that names only the first
+// service hides the second half of a multi-service module.
+export interface ServiceEndpoint {
+  name: string;
+  key: string;
+  port: number;
+  url: string;
+}
+
+export function serviceEndpoints(mod: ModuleNode, port: number): ServiceEndpoint[] {
+  return serviceContexts(mod).map((context, index) => {
+    const hostPort = index === 0 ? port : port + index;
+    return { name: context.svc.name, key: context.key, port: hostPort, url: 'http://localhost:' + hostPort };
+  });
+}
+
 export function localImage(mod: ModuleNode, kind: string, revision: string): string {
   return 'arcod/' + kebab(mod.name) + '-' + kind + ':' + revision;
 }

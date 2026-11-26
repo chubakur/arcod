@@ -18,6 +18,7 @@ import { emitOpenapi } from './emit/openapi.ts';
 import { graphqlSchema } from './emit/graphql.ts';
 import { grpcProto } from './emit/grpc.ts';
 import { pickService } from './emit/service.ts';
+import { serviceEndpoints } from './emit/compose.ts';
 import { entitiesFromBodies, migrationPlan, formatMigrations } from './migrate.ts';
 import { dialectNamed } from './dialects.ts';
 import { formatSource } from './fmt.ts';
@@ -1508,6 +1509,9 @@ async function runRun(flags: Flags): Promise<void> {
 
   const url = 'http://localhost:' + result.port;
   const stop = 'arcod run --down';
+  // One published port per internal service: a multi-service module answers on
+  // more than the front port, and a script that starts it needs every URL.
+  const endpoints = serviceEndpoints(loaded.mod, result.port);
   if (flags.json) {
     // One object for the facts the human lines carry: a script that starts a
     // service in the background needs the URL and how to stop it, not a regex.
@@ -1518,6 +1522,9 @@ async function runRun(flags: Flags): Promise<void> {
       build: result.dir,
       url,
       port: result.port,
+      // Only a module with more than one service needs the list; a single one
+      // keeps the object it has always had.
+      ...(endpoints.length > 1 ? { services: endpoints } : {}),
       stop,
     }, null, 2));
   } else {
@@ -1527,6 +1534,7 @@ async function runRun(flags: Flags): Promise<void> {
     console.log('arcod run: ' + loaded.mod.name + '@' + loaded.mod.version);
     console.log('  build: ' + result.dir);
     console.log('  url:   ' + url);
+    for (const endpoint of endpoints.slice(1)) console.log('  ' + endpoint.name + ': ' + endpoint.url);
     console.log('');
   }
 
