@@ -249,9 +249,25 @@ function createStreamPubSub(url) {
     }
   }
 
+  // One reconnect loop for both ways a connection dies: a closed socket and a
+  // connect that failed. Without the second one a websocket that subscribed
+  // during an outage kept its listener but was forgotten by the bus, so it
+  // stayed silent after redis came back while the service looked healthy.
+  function scheduleReconnect() {
+    if (![...subscriptions.values()].some((count) => count > 0)) return;
+    setTimeout(() => {
+      // The last websocket may have left while the timer was pending.
+      if (![...subscriptions.values()].some((count) => count > 0)) return;
+      connect().catch(() => {});
+    }, 500);
+  }
+
   function connect() {
-    if (state.socket && !state.socket.destroyed) return Promise.resolve();
+    // The attempt in flight is the answer: checking the socket first let a
+    // subscribe() run against a still-connecting socket, so its write was
+    // lost when that attempt failed and the caller thought it was subscribed.
     if (state.connecting) return state.connecting;
+    if (state.socket && !state.socket.destroyed) return Promise.resolve();
     // A half-written push from the previous connection means nothing here.
     state.buffer = Buffer.alloc(0);
     state.sent = new Set();
@@ -262,14 +278,19 @@ function createStreamPubSub(url) {
         resolve();
       });
       socket.on('data', onData);
-      socket.on('error', (err) => { state.connecting = null; reject(err); });
+      socket.on('error', (err) => {
+        state.connecting = null;
+        // A socket that failed is not a connection: keeping it here made the
+        // next subscribe() believe the hub was up and write into a dead
+        // socket, so no reconnect was ever scheduled.
+        if (state.socket === socket) state.socket = null;
+        reject(err);
+      });
       socket.on('close', () => {
         if (state.socket === socket) state.socket = null;
         // Re-subscribe everything on reconnect: delivery resumes where the
         // topics left off, sockets still get their events.
-        if ([...subscriptions.values()].some((count) => count > 0)) {
-          setTimeout(() => connect().catch(() => {}), 500);
-        }
+        scheduleReconnect();
       });
       state.socket = socket;
     });
@@ -284,7 +305,10 @@ function createStreamPubSub(url) {
       await connect();
       sendSubscribe(channel);
     } catch {
-      subscriptions.set(channel, 0);
+      // The listener stays: its websocket is open, so forgetting it here made
+      // the subscription disappear for good. The retry loop announces it once
+      // a connection succeeds (or stops when the last socket leaves).
+      scheduleReconnect();
     }
   }
 

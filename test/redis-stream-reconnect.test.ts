@@ -9,9 +9,9 @@ import { STREAM_SOURCE } from '../src/emit/stream.ts';
 
 interface FakeSocket {
   destroyed: boolean;
-  handlers: Record<string, (chunk?: Buffer) => void>;
+  handlers: Record<string, (chunk?: Buffer | Error) => void>;
   writes: string[];
-  on(event: string, handler: (chunk?: Buffer) => void): void;
+  on(event: string, handler: (chunk?: Buffer | Error) => void): void;
   write(text: string): void;
   destroy(): void;
 }
@@ -135,4 +135,37 @@ test('a second subscribe on a live socket is not sent twice', async () => {
   const second = bus.subscribe(STREAM_CHANNEL + 'room2');
   await second;
   assert.equal(sockets[0].writes.length, 2, 'one SUBSCRIBE per channel');
+});
+
+test('a subscription made during an outage is announced after recovery', async () => {
+  const { create, sockets, timers } = loadPubSub();
+  const bus = create('redis://bus:6379');
+  const subscribed = bus.subscribe(STREAM_CHANNEL + 'room');
+  await tick();
+  assert.equal(sockets.length, 1);
+  sockets[0].handlers.error?.(new Error('connect ECONNREFUSED'));
+  await subscribed;
+  assert.equal(timers.length, 1, 'the live listener gets a reconnect');
+
+  timers[0]();
+  await tick();
+  assert.equal(sockets.length, 2, 'a new socket is opened');
+  sockets[1].connect();
+  await tick();
+  assert.match(sockets[1].writes[0] ?? '', /SUBSCRIBE/);
+  assert.match(sockets[1].writes[0] ?? '', /arcod:stream:room/);
+});
+
+test('a pending reconnect stops when the last listener leaves', async () => {
+  const { create, sockets, timers } = loadPubSub();
+  const bus = create('redis://bus:6379');
+  const subscribed = bus.subscribe(STREAM_CHANNEL + 'room');
+  await tick();
+  sockets[0].handlers.error?.(new Error('connect ECONNREFUSED'));
+  await subscribed;
+  await bus.unsubscribe(STREAM_CHANNEL + 'room');
+
+  timers[0]();
+  await tick();
+  assert.equal(sockets.length, 1, 'no socket is opened for nobody');
 });

@@ -926,8 +926,11 @@ its own websocket clients listen to (the broker URL comes from the bind that
 carries the `stream` capability, so a second redis kept as a cache is not
 mistaken for the broker), so a client may sit on any replica and
 still see every event exactly once. Reconnects re-subscribe automatically,
-including after a broker restart: the new connection announces every topic that
-still has a listener.
+including after a broker restart or an attempt that never connected: the new
+connection announces every topic that still has a listener, and the retry
+repeats every 500 ms while a listener remains, so a websocket that subscribed
+during an outage starts receiving once redis is back. A subscription is not
+lost and not left pending on a socket that failed to connect.
 
 ### A queue: publish in one operation, consume in a job
 
