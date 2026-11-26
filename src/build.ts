@@ -8,6 +8,7 @@ import { buildPrompts, promptManifest } from './prompts.ts';
 import { deployManifest, deployProvider, literalMap } from './deploy.ts';
 import { entitiesFromBodies, migrationPlan } from './migrate.ts';
 import { dialectNamed } from './dialects.ts';
+import { kebab } from './plan.ts';
 import { helmChart, k8sManifests, type K8sOptions } from './emit/k8s.ts';
 import { implCollisions, implSignatureProblems, sandboxViolation, topLevelDeclarations } from './impl.ts';
 
@@ -269,11 +270,19 @@ async function publishTree(staging: string, target: string): Promise<void> {
 
 async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, options: BuildOptions = {}): Promise<BuildResult> {
   const port = options.port ?? 8080;
-  const serviceDir = join(dir, 'service');
   const webDir = join(dir, 'web');
 
+  // One build context per internal service. A module with one service keeps
+  // the historical "service/" directory; the second and later services get
+  // their own context beside it, so no service can be silently dropped.
+  const ownServices = mod.services.filter((item) => !item.external);
+  const serviceBuilds = ownServices.length === 0
+    ? [{ service: null, dirName: 'service' }]
+    : ownServices.map((svc, index) => ({ service: svc, dirName: index === 0 ? 'service' : 'service-' + kebab(svc.name) }));
+  const serviceDirs = serviceBuilds.map((item) => join(dir, item.dirName));
+
   await rm(dir, { recursive: true, force: true });
-  await mkdir(serviceDir, { recursive: true });
+  for (const serviceDir of serviceDirs) await mkdir(serviceDir, { recursive: true });
   if (mod.uis.length > 0) await mkdir(webDir, { recursive: true });
 
   const hasUi = mod.uis.length > 0;
@@ -325,12 +334,25 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
   const pages = webHtml && firstUi && firstUi.render === 'ssr'
     ? [{ route: firstUi.route, html: webHtml, dataOp: ssrFirstScreenOp(mod) }]
     : [];
-  const service = emitService(mod, { reference, impl, implLib, registry: options.registry, dialect, pages });
-
-  const files: Array<[string, string]> = [
-    [join(serviceDir, 'index.mjs'), service],
-    [join(serviceDir, 'Dockerfile'), serviceDockerfile()],
-  ];
+  const files: Array<[string, string]> = [];
+  for (const [index, build] of serviceBuilds.entries()) {
+    const serviceDir = serviceDirs[index]!;
+    const service = emitService(mod, {
+      reference,
+      impl,
+      implLib,
+      registry: options.registry,
+      dialect,
+      // An ssr page is served by the service the ui names; only the first
+      // service carries it today, so the page cannot be emitted twice.
+      pages: index === 0 ? pages : [],
+      service: build.service?.name,
+    });
+    files.push(
+      [join(serviceDir, 'index.mjs'), service],
+      [join(serviceDir, 'Dockerfile'), serviceDockerfile()],
+    );
+  }
 
   if (hasUi && webHtml) {
     // The static copy has no service behind it, so the data slot it cannot

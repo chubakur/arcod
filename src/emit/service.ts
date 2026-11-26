@@ -31,6 +31,10 @@ export interface EmitOptions {
   // Pages the service itself serves (ui render: ssr): route and final HTML.
   // dataOp names the parameterless GET whose result is folded into the page
   pages?: Array<{ route: string; html: string; dataOp?: string | null }>;
+  // A module may declare several services; naming one emits that service.
+  // Omitted, the first internal service is emitted, which is what every
+  // single-service module means.
+  service?: string;
 }
 
 // ---------- plugin runtime adapters ----------
@@ -2111,8 +2115,8 @@ function cryptoImportFor(svc: ServiceNode, withBodies: boolean, dialect: 'mysql'
 }
 
 export function emitService(mod: ModuleNode, options: EmitOptions = {}): string {
-  const svc = pickService(mod);
-  if (!svc) throw new Error('no service to emit');
+  const svc = pickService(mod, options.service);
+  if (!svc) throw new Error(options.service ? 'no service to emit: ' + options.service : 'no service to emit');
   const opNames = svc.contract.filter((op) => op.kind === 'op').map((op) => op.name);
   // The built-in template body covers exactly create/read and is spliced in
   // only in reference mode. Impl bodies come from the caller and the scaffold
@@ -3365,7 +3369,8 @@ function sqlEntityStores(mod: ModuleNode, svc: ServiceNode, entities: string[] |
   return table;
 }
 
-export function pickService(mod: ModuleNode): ServiceNode | null {
+export function pickService(mod: ModuleNode, name?: string): ServiceNode | null {
+  if (name) return mod.services.find((svc) => !svc.external && svc.name === name) ?? null;
   return mod.services.find((svc) => !svc.external) ?? null;
 }
 
