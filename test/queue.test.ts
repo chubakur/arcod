@@ -186,6 +186,44 @@ test('a failing consumer logs the requeue and the dead letter without payload', 
   assert.doesNotMatch(log.map((entry) => entry[1]).join(' '), /secret-value-123/);
 });
 
+// A broker restart fails the LPOP in flight. That rejection used to end the
+// consumer loop for good: HTTP kept answering while no job was consumed.
+test('a failing receive keeps the consumer alive and logs the outage once', async () => {
+  const log: Array<[string, string]> = [];
+  const fakeConsole = {
+    warn: (line: string) => log.push(['warn', line]),
+    error: (line: string) => log.push(['error', line]),
+  };
+  let calls = 0;
+  const queueDriver = {
+    async receive() {
+      calls += 1;
+      if (calls <= 2) throw new Error('socket hang up');
+      return null;
+    },
+    async requeue() {},
+    async toDead() {},
+  };
+  const src = consumerSource([{ topic: 'jobs', handler: 'process', params: ['reportId'], retry: 1 }]);
+  const factory = new Function('queueDriver', 'makeIo', 'setTimeout', 'QUEUE_POLL_MS', 'process', 'console',
+    src + '\nreturn { runConsumer, stop() { consumersStopped = true; } };');
+  const fn = async () => ({ result: true });
+  const loaded = factory(queueDriver, () => ({}), setTimeout, 1, fn, fakeConsole) as {
+    runConsumer: (spec: unknown) => Promise<void>;
+    stop: () => void;
+  };
+  const run = loaded.runConsumer({ topic: 'jobs', fn, params: ['reportId'], retry: 1 });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  loaded.stop();
+  await run;
+  // Two failed polls, then the loop goes on polling instead of ending.
+  assert.ok(calls >= 3, 'consumer stopped after a failed receive');
+  assert.deepEqual(log.map((entry) => entry[0]), ['error', 'warn']);
+  assert.match(log[0][1], /jobs/);
+  assert.match(log[0][1], /socket hang up/);
+  assert.match(log[1][1], /recovered after 2 failed attempt/);
+});
+
 test('an unreadable message logs one error line without the raw payload', async () => {
   const log: Array<[string, string]> = [];
   const fakeConsole = {

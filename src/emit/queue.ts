@@ -272,8 +272,27 @@ function consumerInput(spec, payload) {
 }
 
 async function runConsumer(spec) {
+  let receiveFailures = 0;
   while (!consumersStopped) {
-    const raw = await queueDriver.receive(spec.topic);
+    let raw;
+    try {
+      raw = await queueDriver.receive(spec.topic);
+      if (receiveFailures > 0) {
+        console.warn('[arcod] queue ' + spec.topic + ': receive recovered after ' + receiveFailures + ' failed attempt(s)');
+        receiveFailures = 0;
+      }
+    } catch (error) {
+      // A broker restart fails an in-flight LPOP. Unhandled, that rejection
+      // ended the loop and the service kept serving HTTP without consumers;
+      // now the loop backs off and tries again. One line at the start of an
+      // outage and one every 300 polls (~30s) keep a long outage readable.
+      receiveFailures += 1;
+      if (receiveFailures === 1 || receiveFailures % 300 === 0) {
+        console.error('[arcod] queue ' + spec.topic + ': receive failed (' + receiveFailures + ' in a row): ' + String((error && error.message) || error) + ', retrying');
+      }
+      await new Promise((resolve) => setTimeout(resolve, QUEUE_POLL_MS));
+      continue;
+    }
     if (raw == null) {
       await new Promise((resolve) => setTimeout(resolve, QUEUE_POLL_MS));
       continue;

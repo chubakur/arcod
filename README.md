@@ -963,7 +963,9 @@ Semantics, enforced by the generated runtime rather than written in bodies:
   first entry carrying that payload out of the list (`false` when there is
   none), so a replayed message does not sit there forever; every requeue and
   every dead letter writes one line to the service log — topic, attempt number,
-  `lastError` — and never the payload;
+  `lastError` — and never the payload; a failing `receive` (a broker restart)
+  is retried instead of ending the consumer loop, with one line at the start of
+  the outage and one at recovery;
 - the body receives named parameters: one parameter is the value of that field
   (a bare scalar is the value itself), several are the fields by name;
 - a body that returns nothing while the job declares input is a failed attempt
