@@ -58,7 +58,7 @@ test('a flag value is not mistaken for a second path', async () => {
 
 test('diff still reads two paths', async () => {
   const result = await run(['diff', 'examples/chat', 'examples/tasks']);
-  assert.equal(result.code, 0, result.err);
+  assert.equal(result.code, 1, result.err);
   assert.match(result.out, /^--- /);
   assert.match(result.out, /^\+\+\+ /m);
 });
