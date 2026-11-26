@@ -672,9 +672,22 @@ async function runDiff(args: string[]): Promise<void> {
     process.exitCode = 2;
     return;
   }
-  const left = await load(a);
-  const right = await load(b);
-  process.stdout.write(diffSpecs(left.mod.source, left.specPath, right.mod.source, right.specPath));
+  // The patch is the report, but the exit code is the gate: a CI step that
+  // runs `arcod diff` on a drift check needs a non-zero status for "there is a
+  // difference", the same convention `fmt --check` already follows.
+  let left: Loaded;
+  let right: Loaded;
+  try {
+    left = await load(a);
+    right = await load(b);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 2;
+    return;
+  }
+  const patch = diffSpecs(left.mod.source, left.specPath, right.mod.source, right.specPath);
+  process.stdout.write(patch);
+  if (/^@@/m.test(patch)) process.exitCode = 1;
 }
 
 async function runAdopt(args: string[]): Promise<void> {
@@ -1889,7 +1902,8 @@ where status is "ok", "not formatted", "formatted" or "failed"; the exit code
 is the same as the human form.`,
   diff: `usage: arcod diff <a.arc|dir> <b.arc|dir>
 
-Structurally diff two specs (canonicalized first, so formatting is not a change).`,
+Structurally diff two specs (canonicalized first, so formatting is not a change).
+Exit 1 when a hunk is printed, 0 when the specs match, 2 when a path cannot be read.`,
   adopt: `usage: arcod adopt <openapi.json>
 
 Turn an OpenAPI 3.x document into an arcod spec.`,

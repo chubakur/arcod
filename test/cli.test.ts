@@ -459,7 +459,8 @@ test('diff and adopt insist on their positional arguments', async () => {
 
 test('diff renders a real difference between two specs', () => {
   const r = runChild(['diff', signupUrl.pathname, tasksUrl.pathname]);
-  assert.equal(r.code, 0, r.err);
+  // A drift gate reads the status, not stdout: a printed hunk means "different".
+  assert.equal(r.code, 1, r.err);
   assert.ok(r.out.length > 0, 'two different specs produce output');
 });
 
@@ -472,9 +473,13 @@ test('diff accepts a directory and names a directory without a spec', async () =
 
   const empty = await mkdtemp(join(tmpdir(), 'arcod-diff-empty-'));
   const none = runChild(['diff', empty, signupDir]);
-  assert.equal(none.code, 1);
+  assert.equal(none.code, 2);
   assert.match(none.err, /no \.arc file found in /);
   assert.equal(none.out, '');
+
+  const missing = runChild(['diff', join(tmpdir(), 'arcod-no-such-spec.arc'), signupDir]);
+  assert.equal(missing.code, 2);
+  assert.match(missing.err, /cannot read /);
 });
 
 test('adopt rejects YAML with a pointer to JSON', async () => {
