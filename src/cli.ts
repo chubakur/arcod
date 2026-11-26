@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { probeDocker } from './docker.ts';
 import { parse, ParseError } from './parser.ts';
 import { check } from './check.ts';
-import { buildPlan, formatPlan } from './plan.ts';
+import { buildPlan, formatPlan, kebab } from './plan.ts';
 import { BuildError, buildExample, implBodiesFor, implIgnoredDirs, implIgnoredFiles, implLibFor, resolveDialect } from './build.ts';
 import { runExamples } from './test.ts';
 import type { Diagnostic } from './diagnostics.ts';
@@ -56,7 +56,7 @@ export const COMMAND_FLAGS: Record<string, string[]> = {
   openapi: ['--service', '--out'],
   graphql: ['--service', '--out'],
   grpc: ['--service', '--out'],
-  migrate: ['--json', '--dialect'],
+  migrate: ['--json', '--dialect', '--service'],
   build: ['--reference', '--impl', '--port', '--dialect', '--json'],
   test: ['--impl', '--reference', '--port', '--json'],
   make: ['--force', '--skip-impl', '--no-test', '--model', '--endpoint', '--max-tokens', '--allow-remote', '--reference', '--port', '--json'],
@@ -916,8 +916,14 @@ async function runMigrate(flags: Flags): Promise<void> {
     refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
-  const svc = pickService(loaded.mod);
-  if (!svc) throw new Error('no service to migrate');
+  // A module may declare several services; --service picks whose plan is
+  // printed and written. Without it the first service keeps the historical
+  // behaviour, and a later service's plan lives beside it under the same
+  // migrations-service-<name>/ key the build uses.
+  const first = pickService(loaded.mod);
+  const svc = flags.service ? pickService(loaded.mod, flags.service) : first;
+  if (!svc) throw new Error(flags.service ? 'no internal service named ' + flags.service : 'no service to migrate');
+  const migrationsDir = svc === first ? 'migrations' : 'migrations-service-' + kebab(svc.name);
   // The DDL follows the same rule as the build: the bound database decides,
   // an explicit --dialect that disagrees is refused with the bind named.
   // Tables come from the bodies, so a DTO (an ack, a receipt) never becomes one
@@ -930,14 +936,14 @@ async function runMigrate(flags: Flags): Promise<void> {
   if (plan.migrations.length === 0) {
     // A model that lost its last table must not leave the previous plan on
     // disk: nothing would ever rewrite or remove those files.
-    const stale = join(loaded.dir, '.arcod', 'build', 'migrations');
+    const stale = join(loaded.dir, '.arcod', 'build', migrationsDir);
     if (!(await artifactStep(flags, stale, () => pruneMigrations(stale, new Set())))) return;
     if (flags.json) console.log(JSON.stringify(plan, null, 2));
     else console.log('no stored entities in ' + svc.name + ' — nothing to migrate');
     return;
   }
 
-  const dir = join(loaded.dir, '.arcod', 'build', 'migrations');
+  const dir = join(loaded.dir, '.arcod', 'build', migrationsDir);
   if (!(await artifactStep(flags, dir, () => mkdir(dir, { recursive: true })))) return;
   // Only the files this plan owns survive: a shrunken model renumbers and
   // renames migrations, and an orphan 0003_old.up.sql next to the new changelog
@@ -960,7 +966,7 @@ async function runMigrate(flags: Flags): Promise<void> {
   } else {
     console.log(formatMigrations(plan));
     console.log('');
-    console.log('artifact: .arcod/build/migrations/ — changelog.json + up/down .sql');
+    console.log('artifact: .arcod/build/' + migrationsDir + '/ — changelog.json + up/down .sql');
     console.log('the generated service applies them on boot (sql driver)');
   }
 }
@@ -1831,9 +1837,11 @@ Print the GraphQL schema (or write it with --out).`,
   grpc: `usage: arcod grpc [dir|spec.arc] [--service name] [--out file]
 
 Print the gRPC .proto (or write it with --out).`,
-  migrate: `usage: arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres]
+  migrate: `usage: arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres] [--service name]
 
-Print the migrations for the stored entities. --dialect picks the SQL dialect.`,
+Print the migrations for the stored entities. --dialect picks the SQL dialect.
+--service picks whose plan in a multi-service module: the first service writes
+migrations/, a later one migrations-service-<name>/.`,
   fmt: `usage: arcod fmt [dir|spec.arc|pattern] [--check] [--write] [--to version] [--json]
 
 Print the canonical form of the spec. --check fails when the file differs,
@@ -1927,7 +1935,7 @@ usage:
   arcod openapi [dir|spec.arc] [--service name] [--out file]
   arcod graphql [dir|spec.arc] [--service name] [--out file]
   arcod grpc  [dir|spec.arc] [--service name] [--out file]
-  arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres]
+  arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres] [--service name]
   arcod fmt  [dir|spec.arc|pattern] [--check] [--write] [--to version] [--json]
   arcod diff <a.arc|dir> <b.arc|dir>
   arcod adopt <openapi.json>

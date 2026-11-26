@@ -1458,3 +1458,44 @@ test('build says which bodies it used and when impl/ is empty', async () => {
   assert.equal(bare.code, 0, bare.err);
   assert.match(bare.out, /no bodies in impl\/; run arcod impl first/);
 });
+
+// A module may declare two services, each with its own store. Without
+// --service the first one keeps the historical artifact; with it the chosen
+// service's plan lands in migrations-service-<name>/ beside it, the same key
+// the build writes (B75).
+test('migrate --service writes the chosen service plan beside the first', async () => {
+  const dir = await tempDir('arcod-migrate-multi-');
+  const spec = join(dir, 'main.arc');
+  await writeFile(spec, [
+    'module shop @0.1.0 {}',
+    'type Item = { id: string, name: string }',
+    'service Store : http {',
+    '  uses store: sql',
+    '  effects { allow store.find, store.get, store.del }',
+    '  contract { public op read(id: string) -> Item { route: "GET /v1/items/:id" } }',
+    '}',
+    'service Cache : http {',
+    '  uses store: sql',
+    '  effects { allow store.find, store.get, store.del }',
+    '  contract { public op get(key: string) -> string { route: "GET /v1/cache/:key" } }',
+    '}',
+    'environment local {',
+    '  bind store -> mysql',
+    '}',
+  ].join('\n'));
+
+  const first = await run(['migrate', spec]);
+  assert.equal(first.code, 0, first.err);
+  assert.match(first.out, /artifact: \.arcod\/build\/migrations\//);
+
+  const second = await run(['migrate', spec, '--service', 'Cache']);
+  assert.equal(second.code, 0, second.err);
+  assert.match(second.out, /artifact: \.arcod\/build\/migrations-service-cache\//);
+  const cache = join(dir, '.arcod', 'build', 'migrations-service-cache');
+  assert.ok((await readdir(cache)).some((name) => name.endsWith('.up.sql')), 'the second plan lands on disk');
+
+  const missing = await run(['migrate', spec, '--service', 'Nope']);
+  assert.equal(missing.code, 1);
+  assert.match(missing.err, /no internal service named Nope/);
+});
+
