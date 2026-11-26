@@ -54,14 +54,31 @@ function declaredEmbedDim(mod: ModuleNode): number | null {
 // its own examples. Running only the first one reported a green suite for half
 // the spec, so every service that declares something is started and asked: the
 // report is the union, and a service with nothing declared starts no child.
-export async function runExamples(mod: ModuleNode, buildDir: string): Promise<TestReport> {
+// A service that is already running is tested in place: no build, no spawn.
+// The caller passed --url, so the address is the whole target.
+export interface ExternalTarget {
+  baseUrl: string;
+  service?: string;
+}
+
+export async function reachable(baseUrl: string): Promise<boolean> {
+  try {
+    const response = await fetch(baseUrl + '/healthz', { signal: AbortSignal.timeout(2000) });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function runExamples(mod: ModuleNode, buildDir: string, external?: ExternalTarget): Promise<TestReport> {
   const contexts = serviceContexts(mod);
   const examples: ExampleResult[] = [];
   const rules: RuleResult[] = [];
   for (const context of contexts) {
     const service = context.svc;
     if (service.examples.length === 0 && service.rules.length === 0) continue;
-    const report = await runServiceExamples(mod, buildDir, context, contexts.length > 1);
+    if (external?.service && service.name !== external.service) continue;
+    const report = await runServiceExamples(mod, buildDir, context, contexts.length > 1, external?.baseUrl);
     examples.push(...report.examples);
     rules.push(...report.rules);
   }
@@ -73,6 +90,7 @@ async function runServiceExamples(
   buildDir: string,
   context: ServiceContext,
   named: boolean,
+  externalBaseUrl?: string,
 ): Promise<TestReport> {
   const service = context.svc;
 
@@ -89,7 +107,7 @@ async function runServiceExamples(
   let port = 0;
   let child: ChildProcess | null = null;
   let lastError: Error | null = null;
-  for (let attempt = 0; attempt < 3 && child === null; attempt++) {
+  for (let attempt = 0; attempt < 3 && child === null && !externalBaseUrl; attempt++) {
     const candidatePort = await freePort();
     const attemptErrors: string[] = [];
     const candidate = spawn(process.execPath, [join(buildDir, context.dirName, 'index.mjs')], {
@@ -115,8 +133,8 @@ async function runServiceExamples(
       lastError = error instanceof Error ? error : new Error(String(error));
     }
   }
-  if (!child) throw lastError ?? new Error('service did not start');
-  const baseUrl = 'http://127.0.0.1:' + port;
+  if (!child && !externalBaseUrl) throw lastError ?? new Error('service did not start');
+  const baseUrl = externalBaseUrl ? externalBaseUrl.replace(/\/+$/, '') : 'http://127.0.0.1:' + port;
   const recordTypes = new Set<string>();
   for (const decl of mod.types) if (decl.type.kind === 'record') recordTypes.add(decl.name);
   const ctx: Context = {
@@ -146,7 +164,7 @@ async function runServiceExamples(
     const rules = await runRules(ctx);
     return { examples, rules: named ? rules.map((rule) => ({ ...rule, rule: service.name + ' / ' + rule.rule })) : rules };
   } finally {
-    child.kill('SIGTERM');
+    child?.kill('SIGTERM');
   }
 }
 

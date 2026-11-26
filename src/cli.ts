@@ -6,7 +6,7 @@ import { parse, ParseError } from './parser.ts';
 import { check } from './check.ts';
 import { buildPlan, formatPlan, kebab } from './plan.ts';
 import { BuildError, buildExample, implBodiesFor, implIgnoredDirs, implIgnoredFiles, implLibFor, resolveDialect } from './build.ts';
-import { runExamples } from './test.ts';
+import { reachable, runExamples, type TestReport } from './test.ts';
 import type { Diagnostic } from './diagnostics.ts';
 import type { ModuleNode } from './ast.ts';
 import { buildPrompts, formatPrompts, promptManifest, promptPath, prunePromptFiles } from './prompts.ts';
@@ -58,7 +58,7 @@ export const COMMAND_FLAGS: Record<string, string[]> = {
   grpc: ['--service', '--out'],
   migrate: ['--json', '--dialect', '--service'],
   build: ['--reference', '--impl', '--port', '--dialect', '--json'],
-  test: ['--impl', '--reference', '--port', '--json'],
+  test: ['--impl', '--reference', '--port', '--json', '--url', '--service'],
   make: ['--force', '--skip-impl', '--no-test', '--model', '--endpoint', '--max-tokens', '--allow-remote', '--reference', '--port', '--json'],
   run: ['--impl', '--scaffold', '--port', '--detach', '--down', '--json'],
   providers: ['--json', '--plugins'],
@@ -1363,6 +1363,14 @@ async function runTest(flags: Flags): Promise<void> {
     return;
   }
 
+  if (flags.url && (flags.impl || flags.reference)) {
+    throw new UsageError('--url cannot be combined with --impl or --reference: it tests a service that is already running');
+  }
+  if (flags.url) {
+    await runUrlTest(flags, loaded.mod, own);
+    return;
+  }
+
   const hasBodies = (await readdir(join(loaded.dir, 'impl')).catch(() => [] as string[])).some((name) => name.endsWith('.mjs'));
   const useImpl = flags.impl || (!flags.reference && hasBodies);
   let result: Awaited<ReturnType<typeof buildExample>>;
@@ -1391,16 +1399,42 @@ async function runTest(flags: Flags): Promise<void> {
   }
   const report = await runExamples(loaded.mod, result.dir);
 
+  printReport(report, flags, { target: 'build' });
+}
+
+// A service that is already running is tested in place. The module still owns
+// the examples, but nothing is built and no child is spawned; one /healthz
+// probe turns an unreachable address into a fast exit 2 instead of a timeout.
+async function runUrlTest(flags: Flags, mod: ModuleNode, own: ModuleNode['services']): Promise<void> {
+  const url = (flags.url ?? '').replace(/\/+$/, '');
+  const declared = own.filter((svc) => svc.examples.length > 0 || svc.rules.length > 0);
+  if (declared.length > 1 && !flags.service) {
+    throw new UsageError('--url needs --service <name>: this module declares examples for ' + declared.map((svc) => svc.name).join(', '));
+  }
+  if (flags.service && !declared.some((svc) => svc.name === flags.service)) {
+    throw new UsageError('--service ' + flags.service + ' declares no examples or rules');
+  }
+  if (!(await reachable(url))) {
+    console.error('cannot reach ' + url);
+    process.exitCode = 2;
+    return;
+  }
+  const report = await runExamples(mod, '', { baseUrl: url, service: flags.service });
+  printReport(report, flags, { target: 'url', url });
+}
+
+function printReport(report: TestReport, flags: Flags, meta: Record<string, string>): void {
+  const json = { ...report, ...meta };
   if (report.examples.length === 0 && report.rules.length === 0) {
     // --json is a contract: a caller that parses stdout must not get prose.
     // An empty report is still a report.
-    if (flags.json) console.log(JSON.stringify(report, null, 2));
+    if (flags.json) console.log(JSON.stringify(json, null, 2));
     else console.log('no examples or rules declared');
     return;
   }
 
   if (flags.json) {
-    console.log(JSON.stringify(report, null, 2));
+    console.log(JSON.stringify(json, null, 2));
   } else {
     if (report.examples.length > 0) {
       console.log('examples:');
@@ -1618,6 +1652,7 @@ interface Flags {
   detach: boolean;
   down: boolean;
   reference: boolean;
+  url?: string;
   scaffold: boolean;
   env?: string;
   port: number;
@@ -1703,6 +1738,7 @@ function parseFlags(args: string[], command?: string): Flags {
     else if (arg === '--detach' || arg === '-d') flags.detach = true;
     else if (arg === '--down') flags.down = true;
     else if (arg === '--reference') flags.reference = true;
+    else if (arg === '--url') flags.url = valueFlag('--url', args, ++i);
     else if (arg === '--scaffold') flags.scaffold = true;
     else if (arg === '--env') flags.env = valueFlag('--env', args, ++i);
     else if (arg === '--service') flags.service = valueFlag('--service', args, ++i);
@@ -1904,9 +1940,11 @@ Run the loop: check, prompts, bodies, build, test. Stops at the first failure.`,
 
 Emit the service, migrations, compose and pages into .arcod/build.`,
   test: `usage: arcod test [dir|spec.arc] [--impl] [--reference] [--port 8080]
-                     [--json]
+                     [--json] [--url http://host:port [--service name]]
 
-Run the examples and rules against the emitted service.`,
+Run the examples and rules against the emitted service. --url tests a service
+that is already running: nothing is built or spawned, and --impl/--reference
+cannot be combined with it. A module with several services needs --service.`,
   run: `usage: arcod run [dir|spec.arc] [--impl] [--scaffold] [--port 8080] [--detach] [--down]
                     [--json]
 

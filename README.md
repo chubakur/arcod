@@ -193,7 +193,7 @@ drivers. Full example: `examples/signup`.
 | `arcod build [dir]` | scaffold: routes, adapters, tests, infrastructure in `.arcod/build`; bodies are TODO; `--json` reports mode, dir, dialect, files, images and bodies as one object (a reference run that stops for a missing body answers `{error, missing, advice}`; a spec that does not check answers `{error: "check failed", diagnostics}`, and a project mistake such as two bodies declaring one name answers `{error}` with exit 2) |
 | `arcod build --impl` | bodies from `impl/*.mjs`, the `io` adapter, nothing invented |
 | `arcod build --reference` | the same plus built-in demo bodies for `create`/`read` |
-| `arcod test [dir]` | boots every internal service that declares examples and runs the model's `examples` (a multi-service report prefixes each name with its service); `--json` prints the report (`{examples, rules}`, plus `diagnostics` when the spec does not pass check, `{error, missing, advice}` when a body is missing) and never prose |
+| `arcod test [dir]` | boots every internal service that declares examples and runs the model's `examples` (a multi-service report prefixes each name with its service); `--json` prints the report (`{examples, rules}`, plus `diagnostics` when the spec does not pass check, `{error, missing, advice}` when a body is missing) and never prose; `--url <base>` skips build and spawn and runs the same examples against a running service (one `/healthz` probe, exit 2 when it does not answer; `--impl`/`--reference` cannot be combined, a module with several services needs `--service`) |
 | `arcod make [dir]` | the whole cycle in one command: check → prompts → bodies → build → test |
 | `arcod run [dir]` | build + `docker compose up --build`; the `docker info` probe gives up after 15 s and says the daemon is not answering instead of hanging |
 | `arcod run --down` | stop what this project started (`docker compose down --remove-orphans`); no rebuild, the `.arcod/build` artifacts stay |
@@ -1980,6 +1980,14 @@ query string, every other method sends a JSON body. A `HEAD` answer has no body,
 so the statement evaluates to `null`. `page.hits[0].title` reads a list
 element; a negative or out-of-range index fails the example with a path
 (`index 99 out of range (len 3) in page.hits`).
+
+`--url <base>` runs the same examples against a service that is already running —
+a hand-written or non-Node one. Nothing is built or spawned, `.arcod/build` is
+not touched, and `/healthz` is probed once so an unreachable address is
+`cannot reach <base>` with exit 2. It cannot be combined with `--impl` or
+`--reference`, and a module that declares examples for several services needs
+`--service <name>`; `--json` adds `target: "url"` and the address
+(`target: "build"` otherwise).
 
 `arcod test` supplies every backend as a memory driver: records, blobs, identity,
 the queue and the model. `LLM_DRIVER=memory` answers a chat with a deterministic
