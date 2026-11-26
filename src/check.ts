@@ -1791,6 +1791,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkIgnoredImplDirs(mod, diags, options.implIgnoredDirs);
   checkMissingImplBodies(mod, diags, options.impl, options.implScanned);
   checkServiceLanguage(mod, diags);
+  checkImplLanguage(mod, diags, options.impl);
 
   return sortDiagnostics(diags);
 }
@@ -1857,6 +1858,41 @@ export function checkServiceLanguage(mod: ModuleNode, diags: Diagnostic[]): void
         diag('A103', 'error', mod.file, loc, 'services.' + svc.name + '.language',
           'unknown language \"' + svc.language + '\" in service ' + svc.name,
           'supported languages: ' + LANGUAGES.join(', ')),
+      );
+    }
+  }
+}
+
+// The body extension follows the service language: readImpl bundles *.mjs,
+// so a Go service with an .mjs body would run Node code under a Go label, and
+// a flat impl/*.mjs in a module that mixes languages cannot say which service
+// a body belongs to.
+const LANG_EXT: Record<string, string> = { node: '.mjs', go: '.go', python: '.py' };
+
+export function checkImplLanguage(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined): void {
+  if (!impl) return;
+  const internal = mod.services.filter((svc) => !svc.external);
+  const languages = new Set(internal.map((svc) => svc.language ?? 'node'));
+  const flat = Object.keys(impl).sort();
+  if (flat.length > 0 && languages.size > 1) {
+    for (const op of flat) {
+      diags.push(
+        diag('A106', 'error', 'impl/' + op + '.mjs', { ...mod.loc, line: 1, col: 1, endLine: 1, endCol: 1 }, 'impl.' + op,
+          'flat impl/' + op + '.mjs in a module with services in ' + [...languages].sort().join(' and '),
+          'put each body under impl/<service>/<op> with the extension of its language (.mjs, .go, .py)'),
+      );
+    }
+    return;
+  }
+  for (const svc of internal) {
+    const language = svc.language ?? 'node';
+    if (language === 'node') continue;
+    for (const op of svc.contract) {
+      if (!Object.hasOwn(impl, op.name)) continue;
+      diags.push(
+        diag('A105', 'error', 'impl/' + op.name + '.mjs', op.loc, 'services.' + svc.name + '.ops.' + op.name,
+          'service ' + svc.name + ' is language ' + language + ', but impl/' + op.name + '.mjs is a node body',
+          'name the body impl/' + op.name + (LANG_EXT[language] ?? '.mjs') + ' for the ' + language + ' emitter'),
       );
     }
   }

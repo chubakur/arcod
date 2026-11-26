@@ -1855,6 +1855,12 @@ Errors:
   describes someone else's API and is never generated, so there is no emitter
   to choose. The hint asks to drop the clause or move it to a service the
   build owns.
+- `A105` a Go or Python service has an `.mjs` body: the build bundles `*.mjs`,
+  so the container would run Node code under a Go label. The error names the
+  service and the file; the hint asks for `impl/<op>.go` or `.py`.
+- `A106` a flat `impl/*.mjs` sits in a module whose services mix languages: a
+  flat file cannot say which service it belongs to, so one code per body asks
+  for `impl/<service>/<op>.<ext>`.
 - `A094` a `kv` alias is bound to `redis` in a service that stores in sql:
   the runtime has one store, so the alias lives in the sql store's `arcod_kv`
   table. The bind started a container and exported `REDIS_URL` that no
