@@ -374,9 +374,9 @@ chart carries the same split: every later service reads its image from its own
 
 The service block may name its language: `language: node` (the default) is the
 only emitter today; `language: go` and `language: python` pass `check` and are
-reported by `build --json` under `services`, but a build refuses them until
-those port kits exist — silently generating the wrong runtime is worse than
-stopping. `language:` on an `external` service is an error.
+reported by `build --json` under `services`, but `build` and `impl` refuse
+them until those port kits exist — silently generating the wrong runtime is
+worse than stopping. `language:` on an `external` service is an error.
 
 ### The model as a capability
 

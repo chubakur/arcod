@@ -113,3 +113,26 @@ test('build --json names the language per service, and refuses a non-node one', 
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('impl refuses a non-node service before calling the model', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-impl-lang-'));
+  try {
+    const file = join(dir, 'main.arc');
+    await writeFile(file, spec('  language: go'), 'utf8');
+    const err: string[] = [];
+    const realError = console.error;
+    const before = process.exitCode;
+    process.exitCode = 0;
+    console.error = (...args: unknown[]) => { err.push(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')); };
+    try {
+      await main(['impl', file, '--dry-run']);
+      assert.equal(Number(process.exitCode ?? 0), 2);
+    } finally {
+      console.error = realError;
+      process.exitCode = before;
+    }
+    assert.match(err.join('\n'), /service Front is language: go; impl writes node bodies only/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

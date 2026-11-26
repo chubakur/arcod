@@ -1238,6 +1238,12 @@ async function runImplCmd(flags: Flags): Promise<void> {
     refuseCheckErrors(flags, errors, loaded.specPath);
     return;
   }
+  // impl writes one .mjs body per operation. A Go service would get Node code
+  // in a file check refuses (A105), after paying the model for it.
+  const unsupported = loaded.mod.services.find((svc) => !svc.external && svc.language && svc.language !== 'node');
+  if (unsupported) {
+    throw new BuildError('service ' + unsupported.name + ' is language: ' + unsupported.language + '; impl writes node bodies only');
+  }
 
   const { results, options } = await runImpl(loaded.mod, loaded.dir, {
     endpoint: flags.endpoint,
