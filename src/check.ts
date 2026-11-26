@@ -69,6 +69,11 @@ export interface CheckOptions {
   // impl/lib.mjs: shared helpers bundled once before the bodies, so its names
   // share the top-level namespace with every body.
   implLib?: string;
+  // The caller looked at the conventional impl/ locations, even when it found
+  // no body. `impl` cannot carry this: a caller with no bodies to offer (ast
+  // --check, the examples test) leaves it undefined, and a project that never
+  // created impl/ must not look like one that was never inspected.
+  implScanned?: boolean;
 }
 
 // An ssr page is rendered from a parameterless GET: that is the only shape a
@@ -1784,7 +1789,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkOrphanImplBodies(mod, diags, options.impl);
   checkIgnoredImplBodies(mod, diags, options.implIgnored);
   checkIgnoredImplDirs(mod, diags, options.implIgnoredDirs);
-  checkMissingImplBodies(mod, diags, options.impl);
+  checkMissingImplBodies(mod, diags, options.impl, options.implScanned);
 
   return sortDiagnostics(diags);
 }
@@ -1834,8 +1839,24 @@ export function checkOrphanImplBodies(mod: ModuleNode, diags: Diagnostic[], impl
 // server bug from the client's side. An external service describes someone
 // else's API and a saga job is orchestrated by its steps, so neither owns a
 // body here.
-export function checkMissingImplBodies(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined): void {
-  if (!impl) return;
+export function checkMissingImplBodies(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined, implScanned?: boolean): void {
+  const needsBody = (svc: ServiceNode): number =>
+    svc.contract.filter((op) => !op.clauses.some((clause) => clause.kind === 'saga')).length;
+  if (!impl) {
+    // No body at all is a different silence from a half-filled impl/: one
+    // warning per service says the project has not started, instead of one
+    // warning per operation for a directory that does not exist yet.
+    if (!implScanned) return;
+    for (const svc of mod.services) {
+      if (svc.external || needsBody(svc) === 0) continue;
+      diags.push(
+        diag('W052', 'warning', mod.file, svc.loc, 'services.' + svc.name,
+          'service ' + svc.name + ' has no body in impl/',
+          'add impl/<operation>.mjs for each operation, or its routes answer 501 NotImplemented'),
+      );
+    }
+    return;
+  }
   for (const svc of mod.services) {
     if (svc.external) continue;
     for (const op of svc.contract) {

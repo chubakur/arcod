@@ -1923,6 +1923,11 @@ Warnings:
   weight — shared code belongs in the file `impl/lib.mjs`, not a `lib/`
   directory — and with no top-level body `W050` stays quiet. An empty
   directory is not reported.
+- `W052` a service has no body at all: no `impl/` directory, or one with no
+  `.mjs` body, means every route answers `501 NotImplemented` and `W050` had
+  no operation to name. One warning per service names it, so "forgot the
+  bodies" and "has not started" stop looking the same. A project with some
+  bodies keeps the per-operation `W050`.
 - `W049` an `impl/*.mjs` body is named after no operation: only the bodies the
   service contract declares are bundled, so `impl/total.mjs` (a typo of
   `totals`) was loaded and then dropped — `totals` answered `501
