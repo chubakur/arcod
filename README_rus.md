@@ -2013,6 +2013,7 @@ src/
   deploy.ts       провайдеры развёртывания и манифест
   templates.ts    встроенные reference-тела
   cli.ts          команды и флаги
+  emit/contract.ts       маршруты, виды входов и исходы, общие для эмиттеров
   emit/service.ts        сервис, адаптеры и `io`
   emit/sql-store.ts      клиент MySQL
   emit/identity.ts       Keycloak/JWKS

@@ -17,7 +17,8 @@ import type {
   ServiceNode,
   TypeExpr,
 } from '../ast.ts';
-import { pickService, routeOf, statusForError } from './service.ts';
+import { pickService, statusForError } from './service.ts';
+import { parseRoute } from './contract.ts';
 
 export interface GrpcOptions {
   service?: string;
@@ -78,10 +79,7 @@ function errorNamesOf(op: OpNode): string[] {
 }
 
 function routeInfo(op: OpNode): { method: string; path: string } | null {
-  const value = routeOf(op);
-  if (!value) return null;
-  const [method, path] = value.split(/\s+/);
-  return { method: (method || 'GET').toUpperCase(), path: path || '/' };
+  return parseRoute(op);
 }
 
 function isRecordDecl(mod: ModuleNode, name: string): boolean {

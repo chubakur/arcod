@@ -14,6 +14,7 @@ import type {
   TypeExpr,
 } from '../ast.ts';
 import { accessNotes, pickService, routeOf, statusForError } from './service.ts';
+import { parseRoute } from './contract.ts';
 import { baseType } from '../migrate.ts';
 import { canonicalInstant } from '../instant.ts';
 
@@ -241,9 +242,11 @@ interface RouteInfo {
 }
 
 function routeInfo(op: OpNode): RouteInfo {
-  const value = routeOf(op) ?? op.name;
-  const [method, path] = value.split(/\s+/);
-  return { method: (method || 'GET').toUpperCase(), path: toOpenapiPath(path || '/') };
+  // The same parse the runtime uses (contract IR): a method written lowercase
+  // is published in the casing the server matches.
+  const route = parseRoute(op);
+  if (!route) return { method: 'GET', path: toOpenapiPath('/' + op.name) };
+  return { method: route.method, path: toOpenapiPath(route.path) };
 }
 
 // The router drops empty segments when it matches (check A069 does the same),

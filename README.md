@@ -2135,6 +2135,7 @@ src/
   cli.ts          commands and flags
   lsp.ts          language features (completion, symbols, navigation, fmt)
   lsp-server.ts   zero-dependency LSP server over stdio
+  emit/contract.ts       routes, input kinds and outcomes every emitter shares
   emit/service.ts        service, adapters and `io`
   emit/sql-store.ts      MySQL client
   emit/identity.ts       Keycloak/JWKS

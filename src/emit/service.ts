@@ -13,6 +13,7 @@ import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
 import { baseType, entitiesFromBodies, fieldDefault, migrationPlan, recordColumns, type Column, type DefaultValue } from '../migrate.ts';
 import { boundsOf, constraintTable, lengthBoundsOf } from '../constraints.ts';
+import { inputKinds as contractInputKinds, parseRoute } from './contract.ts';
 import type { ProviderRegistry } from '../registry.ts';
 
 export interface EmitOptions {
@@ -2137,14 +2138,13 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
   const routes = svc.contract
     .filter((op) => op.kind === 'op')
     .map((op) => {
-      const route = routeOf(op);
+      // The parse lives in the contract IR: matchRoute compares against the
+      // uppercased request method, and check accepts "post /v1/x" (A070 looks
+      // the method up case-insensitively). Emitting the written casing made
+      // such a route answer 404 forever.
+      const route = parseRoute(op);
       if (!route) throw new Error('op ' + op.name + ' has no route');
-      const parts = route.split(' ');
-      // matchRoute compares against the uppercased request method, and check
-      // accepts "post /v1/x" (A070 looks the method up case-insensitively).
-      // Emitting the written casing made such a route answer 404 forever; the
-      // remote client and OpenAPI already normalize the same way.
-      return { method: (parts[0] ?? 'GET').toUpperCase(), path: parts[1], op: op.name };
+      return { method: route.method, path: route.path, op: op.name };
     });
 
   // An error may declare payload fields (error Conflict { fence: int }). The
@@ -2650,13 +2650,7 @@ function implHandlers(
   const inputKinds: Record<string, Record<string, string>> = {};
   for (const op of svc.contract) {
     if (op.kind !== 'op') continue;
-    const table: Record<string, string> = {};
-    for (const param of op.params) {
-      const base = baseType(mod, param.type);
-      if (base === 'int' || base === 'number' || base === 'decimal' || base === 'float' || base === 'bool' || base === 'boolean') {
-        table[param.name] = base === 'boolean' ? 'bool' : base;
-      }
-    }
+    const table = contractInputKinds(mod, op);
     if (Object.keys(table).length > 0) inputKinds[op.name] = table;
   }
   parts.push(

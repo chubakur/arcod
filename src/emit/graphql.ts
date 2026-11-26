@@ -15,7 +15,8 @@ import type {
   ServiceNode,
   TypeExpr,
 } from '../ast.ts';
-import { accessNotes, pickService, routeOf, statusForError } from './service.ts';
+import { accessNotes, pickService, statusForError } from './service.ts';
+import { parseRoute } from './contract.ts';
 
 export interface GraphqlOptions {
   service?: string;
@@ -61,10 +62,7 @@ function errorNamesOf(op: OpNode): string[] {
 }
 
 function routeInfo(op: OpNode): { method: string; path: string } | null {
-  const value = routeOf(op);
-  if (!value) return null;
-  const [method, path] = value.split(/\s+/);
-  return { method: (method || 'GET').toUpperCase(), path: path || '/' };
+  return parseRoute(op);
 }
 
 function isRecordDecl(mod: ModuleNode, name: string): boolean {
