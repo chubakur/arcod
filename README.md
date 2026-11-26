@@ -992,7 +992,9 @@ also writes a fact goes through the **outbox**: the body runs in a transaction,
 the event is appended to `arcod_outbox` in the same transaction, and a
 dispatcher relays the committed rows to the broker on its own connection. A
 crash between the fact write and the hand-off cannot lose the event, and a
-replica that dies mid-relay finds the row still pending on restart. See
+replica that dies mid-relay finds the row still pending on restart; a failing
+poll or hand-off leaves the row pending and writes at most one log line per
+30 seconds, not one per row per sweep. See
 `examples/orders`. Identifiers are always quoted (`q()`), so a record type
 named `Order` (table `order`) is safe.
 

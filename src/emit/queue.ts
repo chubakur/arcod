@@ -403,13 +403,24 @@ const outboxStore = process.env.SQL_DRIVER === 'memory'
   ? store
   : new SqlStore(process.env.DATABASE_URL || 'mysql://arcod:***@mysql:3306/arcod');
 
+// A store outage or a dead broker must not write ten lines a second: the
+// dispatcher sweeps continuously, so the log is throttled to one line per
+// kind per 30 seconds. The first failure always gets through.
+let lastOutboxLogAt = 0;
+function outboxLog(kind, error) {
+  const now = Date.now();
+  if (now - lastOutboxLogAt < 30000) return;
+  lastOutboxLogAt = now;
+  console.error('outbox ' + kind + ' failed:', error && error.message ? error.message : error);
+}
+
 async function runOutboxDispatcher() {
   while (!outboxStopped) {
     let rows = [];
     try {
       rows = await outboxStore.outboxPending(20);
     } catch (error) {
-      console.error('outbox poll failed:', error && error.message ? error.message : error);
+      outboxLog('poll', error);
       await new Promise((resolve) => setTimeout(resolve, 250));
       continue;
     }
@@ -423,7 +434,7 @@ async function runOutboxDispatcher() {
         await outboxStore.outboxMark(String(row.id));
       } catch (error) {
         // Leave the row pending; the next sweep retries it (at-least-once).
-        console.error('outbox publish failed:', error && error.message ? error.message : error);
+        outboxLog('publish', error);
       }
     }
   }
