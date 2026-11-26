@@ -81,16 +81,18 @@ async function put(done: unknown, at: unknown) {
   return out;
 }
 
-test('a boolean field refuses a string: sql read "false" as TRUE', async () => {
+test('a boolean field refuses a string the driver would read as TRUE', async () => {
   const res = await put('false', '2026-01-01T00:00:00Z');
   assert.equal(res.status, 400);
-  assert.match(res.text, /insert Item: done must be a boolean/);
+  // The boundary names the parameter without the store's insert prefix: the
+  // JSON type is wrong before any statement is written.
+  assert.equal(JSON.parse(res.text).message, 'done must be a boolean');
 });
 
 test('a boolean field refuses a number', async () => {
   const res = await put(0, '2026-01-01T00:00:00Z');
   assert.equal(res.status, 400);
-  assert.match(res.text, /insert Item: done must be a boolean/);
+  assert.equal(JSON.parse(res.text).message, 'done must be a boolean');
 });
 
 test('a datetime field refuses a word kv used to keep', async () => {

@@ -59,17 +59,25 @@ async function put(qty: unknown, weight: unknown) {
 test('an unbounded int refuses a fraction kv would have kept', async () => {
   const res = await put(1.5, 2);
   assert.equal(res.status, 400);
-  assert.match(res.text, /insert Box: qty must be an integer/);
+  // The boundary refuses it by name: a typed parameter no longer reaches the
+  // store's own message (DECISIONS, 2026-11-26).
+  assert.equal(JSON.parse(res.text).message, 'qty must be an integer');
 });
 
 test('a bounded int refuses a fraction with the same message', async () => {
   const res = await put(2, 1.5);
   assert.equal(res.status, 400);
-  assert.match(res.text, /insert Box: weight must be an integer/);
+  assert.equal(JSON.parse(res.text).message, 'weight must be an integer');
 });
 
 test('whole numbers in both fields are stored', async () => {
   const res = await put(2, 3);
   assert.equal(res.status, 201);
   assert.match(res.text, /"qty":2/);
+});
+
+test('a JSON string is not a number: the boundary refuses it by name', async () => {
+  const res = await put('3', 2);
+  assert.equal(res.status, 400);
+  assert.equal(JSON.parse(res.text).message, 'qty must be an integer');
 });
