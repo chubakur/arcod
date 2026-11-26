@@ -1497,6 +1497,11 @@ no dependencies, no config required:
   uses and names it in the answer: `{"status":"ok","service":"Tasks","kv":"up"}` on kv,
   `{"status":"ok","service":"Tasks","sql":"up"}` on sql; a failed ping is
   `503` with the same key set to `"down"`.
+- **Store deadlines.** The redis client bounds the connect attempt and every
+  command (default `5000` ms, `ARCod_STORE_TIMEOUT_MS`): a blackholed broker
+  cannot hold `/healthz` or a request open past that deadline — the probe
+  answers `503`, the stalled socket is dropped, and its late reply cannot be
+  handed to the next call.
 - **Request timeouts.** `server.requestTimeout`/`headersTimeout` and an
   `AbortSignal.timeout` on external calls, driven by `ARCod_TIMEOUT_MS`
   (default `30000`).

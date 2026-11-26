@@ -20,7 +20,8 @@ interface FakeSocket {
 
 const spec = await readFile(new URL('../examples/onetimemessage/main.arc', import.meta.url), 'utf8');
 
-function loadStore() {
+function loadStore(options: { connect?: (index: number) => boolean } = {}) {
+  const shouldConnect = options.connect ?? (() => true);
   const source = emitService(parse(spec, 'main.arc'));
   const start = source.indexOf('function parseReply(');
   const end = source.indexOf('class MemoryStore');
@@ -48,7 +49,7 @@ function loadStore() {
       };
       sockets.push(socket);
       setTimeout(() => {
-        if (!socket.destroyed) connected();
+        if (!socket.destroyed && shouldConnect(sockets.length - 1)) connected();
       }, 0);
       return socket;
     },
@@ -56,7 +57,7 @@ function loadStore() {
   const factory = new Function('net', 'Buffer', 'setTimeout', 'clearTimeout',
     chunk + '\nreturn { RedisStore };');
   const RedisStore = (factory(net, Buffer, setTimeout, clearTimeout) as {
-    RedisStore: new (host: string, port: number) => { get(key: string): Promise<string | null> };
+    RedisStore: new (host: string, port: number, timeoutMs?: number) => { get(key: string): Promise<string | null> };
   }).RedisStore;
   return { RedisStore, sockets };
 }
@@ -120,4 +121,42 @@ test('the emitted client has one definition of get', () => {
   const end = source.indexOf('class MemoryStore');
   const body = source.slice(start, end);
   assert.equal(body.match(/async get\(/g)?.length, 1, 'duplicate get removed');
+});
+
+test('a broker that accepts but never answers fails the command instead of hanging', async () => {
+  const { RedisStore, sockets } = loadStore();
+  const store = new RedisStore('kv', 6379, 30);
+  const pending = store.get('one');
+  await assert.rejects(pending, /redis command timeout/);
+  assert.equal(sockets.length, 1);
+  assert.equal(sockets[0].destroyed, true, 'the stream is dropped with the timed-out call');
+});
+
+test('a broker that never accepts fails the connect and the next call retries', async () => {
+  const { RedisStore, sockets } = loadStore({ connect: (index) => index > 0 });
+  const store = new RedisStore('kv', 6379, 30);
+  await assert.rejects(store.get('one'), /redis connect timeout/);
+  assert.equal(sockets[0].destroyed, true);
+
+  const second = store.get('two');
+  await tick();
+  assert.equal(sockets.length, 2, 'the timed-out attempt does not stick');
+  sockets[1].handlers.data?.(Buffer.from('$3\r\n2nd\r\n'));
+  assert.equal(await second, '2nd');
+});
+
+test('a stale socket closing after a reconnect does not fail the new call', async () => {
+  const { RedisStore, sockets } = loadStore();
+  const store = new RedisStore('kv', 6379);
+  const first = store.get('one');
+  await tick();
+  sockets[0].handlers.close?.();
+  await assert.rejects(first, /connection closed/);
+
+  const second = store.get('two');
+  await tick();
+  assert.equal(sockets.length, 2);
+  sockets[0].handlers.close?.();
+  sockets[1].handlers.data?.(Buffer.from('$3\r\n2nd\r\n'));
+  assert.equal(await second, '2nd');
 });

@@ -427,10 +427,18 @@ function parseReply(buf, offset) {
   throw new Error('unexpected RESP type: ' + type);
 }
 
+// A broker that never answers must not pin a request forever: each
+// connect attempt and each command gets this deadline before the socket is
+// dropped and the caller hears about it.
+const STORE_TIMEOUT_MS = Number(process.env.ARCod_STORE_TIMEOUT_MS || 5000);
+
 class RedisStore {
-  constructor(host, port) {
+  // The deadline is a constructor default so the emitted service passes two
+  // arguments while a test can ask for a short one.
+  constructor(host, port, timeoutMs) {
     this.host = host;
     this.port = port;
+    this.timeoutMs = Number(timeoutMs) || STORE_TIMEOUT_MS;
     this.socket = null;
     this.buffer = Buffer.alloc(0);
     this.pending = [];
@@ -444,19 +452,43 @@ class RedisStore {
     // new one.
     this.buffer = Buffer.alloc(0);
     this.connecting = new Promise((resolve, reject) => {
+      let timer = null;
+      const stopTimer = () => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+      };
       const socket = net.createConnection({ host: this.host, port: this.port }, () => {
+        stopTimer();
         this.connecting = null;
         resolve();
       });
+      // A blackholed broker drops the SYN: without a deadline the attempt and
+      // every caller waiting on it hang until the OS gives up, minutes later.
+      timer = setTimeout(() => {
+        timer = null;
+        this.connecting = null;
+        if (this.socket === socket) this.socket = null;
+        const error = new Error('redis connect timeout');
+        this.failPending(error);
+        socket.destroy();
+        reject(error);
+      }, this.timeoutMs);
       socket.on('data', (chunk) => this.onData(chunk));
       socket.on('error', (err) => {
+        stopTimer();
+        // A socket that a fresh connection already replaced is not this
+        // connection's business: failing the current pending calls here would
+        // kill healthy work (and a stale close used to do exactly that).
+        if (this.socket !== socket) return;
         this.connecting = null;
+        this.socket = null;
         this.failPending(err);
-        if (this.socket === socket) this.socket = null;
         reject(err);
       });
       socket.on('close', () => {
-        if (this.socket === socket) this.socket = null;
+        stopTimer();
+        if (this.socket !== socket) return;
+        this.socket = null;
         this.failPending(new Error('redis connection closed'));
       });
       this.socket = socket;
@@ -469,7 +501,10 @@ class RedisStore {
   failPending(error) {
     const waiting = this.pending;
     this.pending = [];
-    for (const item of waiting) item.reject(error);
+    for (const item of waiting) {
+      if (item.timer) clearTimeout(item.timer);
+      item.reject(error);
+    }
   }
 
   onData(chunk) {
@@ -489,6 +524,7 @@ class RedisStore {
       this.buffer = this.buffer.subarray(parsed.next);
       const pending = this.pending.shift();
       if (!pending) continue;
+      if (pending.timer) clearTimeout(pending.timer);
       if (parsed.value instanceof Error) pending.reject(parsed.value);
       else pending.resolve(parsed.value);
     }
@@ -497,7 +533,17 @@ class RedisStore {
   async command(...args) {
     await this.connect();
     return new Promise((resolve, reject) => {
-      this.pending.push({ resolve, reject });
+      const item = { resolve, reject };
+      // Replies are matched by position, so a call that timed out takes the
+      // stream with it: its late answer would otherwise be handed to the next
+      // caller. The caller hears the timeout instead of waiting forever.
+      item.timer = setTimeout(() => {
+        const index = this.pending.indexOf(item);
+        if (index !== -1) this.pending.splice(index, 1);
+        if (this.socket) this.socket.destroy();
+        reject(new Error('redis command timeout'));
+      }, this.timeoutMs);
+      this.pending.push(item);
       const parts = ['*' + args.length + '\\r\\n'];
       for (const arg of args) {
         const value = String(arg);

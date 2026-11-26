@@ -1431,6 +1431,11 @@ arcod run --impl examples/onetimemessage-pwd
   реально использует, и называет его в ответе: `{"status":"ok","service":"Tasks","kv":"up"}` на kv,
   `{"status":"ok","service":"Tasks","sql":"up"}` на sql; неудачный пинг —
   `503` с тем же ключом и значением `"down"`.
+- **Дедлайны хранилища.** Redis-клиент ограничивает попытку подключения и
+  каждую команду (по умолчанию `5000` мс, `ARCod_STORE_TIMEOUT_MS`):
+  недоступный брокер не держит `/healthz` и запрос дольше дедлайна — проба
+  отвечает `503`, зависший сокет закрывается, а его поздний ответ не попадёт
+  следующему вызову.
 - **Request timeouts.** `server.requestTimeout`/`headersTimeout` и
   `AbortSignal.timeout` на внешних вызовах, управляются `ARCod_TIMEOUT_MS`
   (по умолчанию `30000`).
