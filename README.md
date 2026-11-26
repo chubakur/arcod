@@ -1352,6 +1352,14 @@ publishes both manifests too: `prompts/manifest.json` and `prompts.json` at
 the root of the build, so `arcod make` cannot lose the loose file when the
 build step replaces the tree.
 
+A module with several internal services gets one prompt set per service:
+`prompts/<service>/<op>.md`, with a `service` field in every manifest task, so
+two services sharing an operation name cannot overwrite each other. One
+service keeps the flat `<op>.md` paths. The prompt names the body path it
+expects: `impl/<op>.mjs` for one service, `impl/<service>/<op>.mjs` for
+several. `arcod impl` refuses a multi-service module for now, because the
+build still reads a flat `impl/` tree and would ignore per-service bodies.
+
 A prompt is a function signature, not a service description:
 
 ```text
@@ -1473,7 +1481,8 @@ Routes, TTL, limits and infrastructure are identical.
   own plan in `migrations-service-<name>/` next to it; a scaffold build has no
   bodies to read, so there every record type is a table — the same rule `arcod migrate`
   applies without evidence;
-- `.arcod/build/prompts/` — one prompt per operation and a `manifest.json` with
+- `.arcod/build/prompts/` — one prompt per operation (`<service>/<op>.md` when
+  the module has several services) and a `manifest.json` with
   the model hash and token budget;
 - `.arcod/build/deploy.<env>.json` — a manifest per environment with `deploy`.
 
