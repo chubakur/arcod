@@ -362,6 +362,11 @@ path: point `endpoint` at the SMTP/API vendor and call it with `io.remote`.
 Every binding that needs a container becomes a compose service with a
 healthcheck, a volume and env; ports are published only with `expose: true`.
 
+A module may declare more than one service: each one gets its own build
+context (`service`, then `service-<name>`), its own container, and only the
+binds it names; the front service keeps the published port and the web
+proxy, a later one is published on the next port.
+
 ### The model as a capability
 
 A service does not know whether the model is local or hosted: it asks for
