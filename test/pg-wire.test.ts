@@ -715,3 +715,29 @@ test('take() rolls back a failed transaction and the store keeps serving it', as
     backend.server.close();
   }
 });
+
+test('postgres query times out on a silent server and drops the connection', async () => {
+  const mod = await pg();
+  const server = createServer((socket) => {
+    let buffer = Buffer.alloc(0);
+    let started = false;
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+      if (started) return; // accept the statement, never answer it
+      if (buffer.length < 4) return;
+      const length = buffer.readInt32BE(0);
+      if (buffer.length < length) return;
+      buffer = buffer.subarray(length);
+      started = true;
+      socket.write(Buffer.concat([message('R', int32(0)), message('Z', Buffer.from('I'))]));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as { port: number }).port;
+  try {
+    const db = new mod.PgConnection('postgres://arcod:s3cret@127.0.0.1:' + port + '/arcod');
+    await db.connect(2000);
+    await assert.rejects(() => db.query('SELECT 1', 80), /query timeout/);
+    assert.equal(db.alive(), false, 'a reply that may still arrive cannot be trusted: the connection is dropped');
+  } finally { server.close(); }
+});

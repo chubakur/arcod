@@ -1507,7 +1507,11 @@ no dependencies, no config required:
   command (default `5000` ms, `ARCod_STORE_TIMEOUT_MS`): a blackholed broker
   cannot hold `/healthz` or a request open past that deadline — the probe
   answers `503`, the stalled socket is dropped, and its late reply cannot be
-  handed to the next call.
+  handed to the next call. The postgres client bounds a statement the same way
+  (`ARCod_SQL_TIMEOUT_MS`, falling back to `ARCod_STORE_TIMEOUT_MS`): a server
+  that stops answering fails the statement, and because a late reply could be
+  read as the next statement's the connection is dropped and reopened by the
+  next query.
 - **Request timeouts.** `server.requestTimeout`/`headersTimeout` and an
   `AbortSignal.timeout` on external calls, driven by `ARCod_TIMEOUT_MS`
   (default `30000`).

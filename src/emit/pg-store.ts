@@ -15,6 +15,11 @@ import { createHash, createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from
 
 const PG_PROTOCOL = 196608;
 
+// Connect had a deadline from the start, a statement did not: a server that
+// accepted the connection and then stopped answering held the request (and
+// /healthz, which pings with SELECT 1) forever.
+const PG_QUERY_TIMEOUT_MS = Number(process.env.ARCod_SQL_TIMEOUT_MS || process.env.ARCod_STORE_TIMEOUT_MS || 5000);
+
 export class PgError extends Error {
   constructor(code, message, severity) {
     super('postgres ' + code + ': ' + message);
@@ -206,7 +211,12 @@ export class PgConnection {
   failConnection(error) {
     this.dead = true;
     if (this.socket) { this.socket.destroy(); this.socket = null; }
-    if (this.pending) { const pending = this.pending; this.pending = null; pending.reject(error); }
+    if (this.pending) {
+      const pending = this.pending;
+      this.pending = null;
+      if (pending.entry && pending.entry.timer) clearTimeout(pending.entry.timer);
+      pending.reject(error);
+    }
     if (this.ready) {
       const ready = this.ready;
       this.ready = null;
@@ -214,7 +224,10 @@ export class PgConnection {
       ready.reject(error);
     }
     const queued = this.queue.splice(0, this.queue.length);
-    for (const item of queued) item.reject(error);
+    for (const item of queued) {
+      if (item.timer) clearTimeout(item.timer);
+      item.reject(error);
+    }
   }
 
   // Transport or startup failures end the connection; a statement error does
@@ -252,6 +265,7 @@ export class PgConnection {
       if (this.pending) {
         const pending = this.pending;
         this.pending = null;
+        if (pending.entry && pending.entry.timer) clearTimeout(pending.entry.timer);
         if (pending.error) pending.reject(pending.error);
         else pending.resolve({ fields: pending.fields, rows: pending.rows, affected: pending.affected || 0 });
         this.flushQueue();
@@ -316,13 +330,32 @@ export class PgConnection {
     this.failAll(new Error('postgres: unsupported auth method ' + code));
   }
 
-  async query(sql) {
+  async query(sql, timeoutMs) {
     if (!this.socket) throw new Error('postgres: not connected');
     // One socket serves the whole service: requests queue in arrival order and
     // the next one is written when the current ReadyForQuery arrives. The
     // store calls query() from many request contexts at once.
+    const limit = Number(timeoutMs) || PG_QUERY_TIMEOUT_MS;
     return await new Promise((resolve, reject) => {
-      this.queue.push({ sql, resolve, reject });
+      const entry = { sql, resolve, reject, timer: null };
+      entry.timer = setTimeout(() => {
+        entry.timer = null;
+        const index = this.queue.indexOf(entry);
+        if (index !== -1) {
+          // Still waiting behind another statement: the protocol is fine, only
+          // this caller gives up.
+          this.queue.splice(index, 1);
+          reject(new Error('postgres: query timeout'));
+          return;
+        }
+        if (!this.pending || this.pending.entry !== entry) return;
+        // The statement was sent and never answered. A late reply would be
+        // read as the next statement's, so the connection is dropped instead.
+        this.pending = null;
+        reject(new Error('postgres: query timeout'));
+        this.failConnection(new Error('postgres: query timeout'));
+      }, limit);
+      this.queue.push(entry);
       this.flushQueue();
     });
   }
@@ -330,7 +363,7 @@ export class PgConnection {
   flushQueue() {
     if (this.pending || this.queue.length === 0) return;
     const next = this.queue.shift();
-    this.pending = { resolve: next.resolve, reject: next.reject, fields: [], rows: [], affected: 0 };
+    this.pending = { resolve: next.resolve, reject: next.reject, entry: next, fields: [], rows: [], affected: 0 };
     this.send('Q', pgCString(next.sql));
   }
 
