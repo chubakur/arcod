@@ -1,7 +1,7 @@
 import type { ModuleNode } from '../ast.ts';
 import { kebab } from '../plan.ts';
 import { providerFor } from '../providers.ts';
-import { composeModel, localEnvironment, providerImage, type RenderedProvider } from './compose.ts';
+import { composeModel, localEnvironment, providerImage, routeRoot, serviceContexts, type RenderedProvider } from './compose.ts';
 import { MANAGED_ENDPOINTS } from './terraform.ts';
 import { imageContract } from '../deploy.ts';
 
@@ -376,6 +376,22 @@ interface Ctx {
   // drawn for them. Empty on a docker-view render.
   managedHosts: string[];
   tpl: boolean;
+  // One entry per internal service when the module declares more than one.
+  // Empty on the single-service path, which keeps `service.yaml` byte for byte.
+  services: AppService[];
+}
+
+// A second internal service needs its own image, Deployment, Service and route
+// set; naming it once here keeps the two manifest builders in step.
+interface AppService {
+  // Kubernetes object name and compose context key: `service`, `service-cache`.
+  name: string;
+  image: string;
+  routes: string[];
+  // Env entries the service's own `uses` produced, so a neighbour's database
+  // url does not ride along.
+  plainEnv: Record<string, string>;
+  hiddenEnv: Record<string, string>;
 }
 
 function splitImage(image: string): { repository: string; tag: string } {
@@ -445,6 +461,35 @@ function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
     ? endpointContract(name, model.providers, env)
     : null;
 
+  // Compose answers "several services" with one container each; the cluster
+  // view owes the same: a Deployment and a Service per internal service, its
+  // own image from the deploy contract, and the route roots it declares. A
+  // module with one service keeps the historical object names.
+  const contexts = serviceContexts(mod);
+  const appServices: AppService[] = contexts.length > 1
+    ? contexts.map((context) => {
+        const own = model.envByService?.[context.key] ?? {};
+        const ownFrom = (bucket: Record<string, string>): Record<string, string> => {
+          const filtered: Record<string, string> = {};
+          for (const [key, value] of Object.entries(bucket)) if (own[key] === value) filtered[key] = value;
+          return filtered;
+        };
+        const routes = [...new Set(context.svc.contract
+          .filter((op) => op.kind === 'op')
+          .flatMap((op) => op.clauses.filter((clause) => clause.kind === 'route'))
+          .map((clause) => routeRoot(clause.value)))].sort();
+        return {
+          name: context.key,
+          image: deployEnv && deployEnv.deploy
+            ? imageContract(mod, deployEnv, context.svc.name).image
+            : name + '-' + context.key + ':latest',
+          routes,
+          plainEnv: ownFrom(env.plain),
+          hiddenEnv: ownFrom(env.hidden),
+        };
+      })
+    : new Array<AppService>();
+
   // The secret store is an environment's bind like any other: a cloud
   // environment may source credentials from Vault while the local one does not.
   const environment = (options.environment
@@ -472,6 +517,7 @@ function contextOf(mod: ModuleNode, options: K8sOptions, tpl: boolean): Ctx {
     endpoints,
     managedHosts,
     tpl,
+    services: appServices,
   };
 }
 
@@ -616,6 +662,7 @@ function appSecretFiles(ctx: Ctx): EmittedFile[] {
 }
 
 function appFiles(ctx: Ctx): EmittedFile[] {
+  if (ctx.services.length > 0) return appServiceFiles(ctx);
   const deployment = workloadYaml({
     partOf: ctx.name,
     name: 'service',
@@ -640,6 +687,42 @@ function appFiles(ctx: Ctx): EmittedFile[] {
   ];
 }
 
+// A multi-service module gets one manifest per internal service: its own
+// Deployment, its own ClusterIP Service and its own env. The first keeps the
+// module-wide env it always had (a bind may exist for the deployment, not for
+// a named use); the later ones read only the entries their uses produced,
+// matching what compose does with the same module.
+function appServiceFiles(ctx: Ctx): EmittedFile[] {
+  const comment = endpointComment(ctx);
+  return ctx.services.map((svc, index) => {
+    const first = index === 0;
+    const deployment = workloadYaml({
+      partOf: ctx.name,
+      name: svc.name,
+      component: svc.name,
+      namespace: ctx.namespace,
+      replicas: ctx.replicas,
+      image: svc.image,
+      port: ctx.appPort,
+      env: first ? undefined : svc.plainEnv,
+      envFromConfigMap: first && Object.keys(ctx.plainEnv).length > 0 ? ctx.name + '-env' : null,
+      envFromSecret: first && Object.keys(ctx.hiddenEnv).length > 0 ? ctx.name + '-env' : null,
+      secretRefs: first
+        ? ctx.endpoints
+          ? ctx.endpoints.refs.map((ref) => ({ name: ref.name, key: ref.key, secret: ctx.endpoints!.secret }))
+          : undefined
+        : Object.keys(svc.hiddenEnv).sort().map((key) => ({ name: key, key, secret: ctx.name + '-env' })),
+      probe: httpProbeLines('/healthz', ctx.appPort, '          '),
+      resources: true,
+    });
+    return {
+      path: svc.name + '.yaml',
+      content: (first && comment.length > 0 ? comment.join('\n') + '\n' : '') +
+        deployment + '\n---\n' + serviceYaml(ctx.name, svc.name, svc.name, [ctx.appPort], ctx.namespace),
+    };
+  });
+}
+
 function webFiles(ctx: Ctx): EmittedFile[] {
   if (!ctx.hasUi) return [];
   const deployment = workloadYaml({
@@ -661,7 +744,23 @@ function webFiles(ctx: Ctx): EmittedFile[] {
   ];
 }
 
-function ingressYaml(ctx: Ctx, backend: string, backendPort: number): string {
+
+// Which paths an Ingress sends where. One service keeps the single `/` rule
+// it always had. Several services get the static prefix of every route they
+// declare, longest first, so /v1/cache reaches the second service instead of
+// 404-ing behind the first; `/` stays with the page server when there is one.
+function ingressPaths(ctx: Ctx): Array<{ path: string; backend: string; port: number }> {
+  const fallback = { path: '/', backend: ctx.hasUi ? 'web' : 'service', port: ctx.hasUi ? WEB_PORT : ctx.appPort };
+  if (ctx.services.length === 0) return [fallback];
+  const routes = ctx.services.flatMap((svc) => svc.routes
+    .filter((route) => route !== '/')
+    .map((route) => ({ path: route, backend: svc.name, port: ctx.appPort })));
+  routes.sort((left, right) => right.path.length - left.path.length || left.path.localeCompare(right.path));
+  routes.push(fallback);
+  return routes;
+}
+
+function ingressYaml(ctx: Ctx, paths: Array<{ path: string; backend: string; port: number }>): string {
   return [
     'apiVersion: networking.k8s.io/v1',
     'kind: Ingress',
@@ -676,13 +775,15 @@ function ingressYaml(ctx: Ctx, backend: string, backendPort: number): string {
     '    - host: ' + (ctx.host ?? 'arcod.local'),
     '      http:',
     '        paths:',
-    '          - path: /',
-    '            pathType: Prefix',
-    '            backend:',
-    '              service:',
-    '                name: ' + backend,
-    '                port:',
-    '                  number: ' + backendPort,
+    ...paths.flatMap((item) => [
+      '          - path: ' + item.path,
+      '            pathType: Prefix',
+      '            backend:',
+      '              service:',
+      '                name: ' + item.backend,
+      '                port:',
+      '                  number: ' + item.port,
+    ]),
   ].join('\n');
 }
 
@@ -702,7 +803,7 @@ export function k8sManifests(mod: ModuleNode, options: K8sOptions = {}): Emitted
   if (ctx.host) {
     files.push({
       path: 'ingress.yaml',
-      content: ingressYaml(ctx, ctx.hasUi ? 'web' : 'service', ctx.hasUi ? WEB_PORT : ctx.appPort),
+      content: ingressYaml(ctx, ingressPaths(ctx)),
     });
   }
   return files;
@@ -765,7 +866,7 @@ export function helmChart(mod: ModuleNode, options: K8sOptions = {}): EmittedFil
   for (const file of webFiles(ctx)) files.push({ path: 'templates/' + file.path, content: file.content });
   files.push({
     path: 'templates/ingress.yaml',
-    content: '{{- if .Values.ingress.enabled }}\n' + ingressYaml(ctx, ctx.hasUi ? 'web' : 'service', ctx.hasUi ? WEB_PORT : ctx.appPort) + '\n{{- end }}\n',
+    content: '{{- if .Values.ingress.enabled }}\n' + ingressYaml(ctx, ingressPaths(ctx)) + '\n{{- end }}\n',
   });
   return files;
 }

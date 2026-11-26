@@ -200,7 +200,7 @@ drivers. Full example: `examples/signup`.
 | `arcod run --detach --json` | one object instead of the start lines: `mode` (reference/scaffold/impl), `name`, `version`, `build`, `url`, `port`, `services` (name/port/url per service when the module has more than one), `stop`; the compose log goes to stderr, so stdout stays parseable. `--json` without `--detach` is a usage error (a foreground run never returns), and a failed start answers `{error}` |
 | `arcod providers` | capability and provider table with ports and the declaring package (`origin`, `-` for built-ins); `--json` also carries each provider's declared bind `options`; `--plugins` lists manifests found on `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
 | `arcod deploy [dir]` | deployment target and `deploy.<env>.json` manifest; `--env`, `--json` (a refusal — no environment, no target, unknown provider — answers `{error}`, not a stderr line) |
-| `arcod k8s [dir]` | Kubernetes objects for the compose topology (namespace, configmap, provider deployments, app, ingress); `--helm` for a chart, `--out dir` to write files; `--env name` renders that environment and an undeclared one is refused (exit 1) like `terraform` |
+| `arcod k8s [dir]` | Kubernetes objects for the compose topology (namespace, configmap, provider deployments, a Deployment and a Service per internal service, an ingress with a path per route set); `--helm` for a chart, `--out dir` to write files; `--env name` renders that environment and an undeclared one is refused (exit 1) like `terraform` |
 | `arcod terraform [dir]` | Terraform for the cloud view: network, managed services for the binds, secrets as variables; `--env`, `--out dir`; Yandex Cloud |
 | `arcod prompts [dir]` | prompts only: compact by default, `--full` for the detailed task prompt (header, contract, io list, storage shape); `--max-tokens`, `--json` |
 | `arcod impl [dir]` | generate operation bodies with a local model: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote`, `--json` |
@@ -365,7 +365,10 @@ healthcheck, a volume and env; ports are published only with `expose: true`.
 A module may declare more than one service: each one gets its own build
 context (`service`, then `service-<name>`), its own container, and only the
 binds it names; the front service keeps the published port and the web
-proxy, a later one is published on the next port.
+proxy, a later one is published on the next port. Kubernetes draws the same
+topology: a Deployment and a Service per internal service (each with its own
+image from the deploy contract), and an Ingress sends each route root to its
+own service; a one-service module keeps its historical `service.yaml`.
 
 ### The model as a capability
 

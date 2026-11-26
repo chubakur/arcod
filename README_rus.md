@@ -192,7 +192,7 @@ UTC, миллисекунды, `T`, `Z` — поэтому смещение в �
 | `arcod run --detach --json` | один объект вместо строк запуска: `mode` (reference/scaffold/impl), `name`, `version`, `build`, `url`, `port`, `services` (name/port/url на сервис, если сервисов больше одного), `stop`; лог compose уходит в stderr, поэтому stdout парсится. `--json` без `--detach` — ошибка использования (foreground-run не возвращается), а неудачный старт отвечает `{error}` |
 | `arcod providers` | таблица возможностей, провайдеров, портов и пакета-объявителя (`origin`, `-` для встроенных); `--json` также отдаёт объявленные опции bind (`options`) каждого провайдера; `--plugins` — манифесты на `ARC_PLUGIN_PATH`, `./.arcod/plugins`, `~/.arcod/plugins` |
 | `arcod deploy [dir]` | target развёртывания и манифест `deploy.<env>.json`; `--env`, `--json` (отказ — нет environment, нет target, неизвестный провайдер — отвечает `{error}`, а не строкой в stderr) |
-| `arcod k8s [dir]` | объекты Kubernetes для compose-топологии (namespace, configmap, деплойменты провайдеров, сервис, ingress); `--helm` — чарт, `--out dir` — записать файлы; `--env name` рисует это окружение, а необъявленное отвергается (exit 1), как в `terraform` |
+| `arcod k8s [dir]` | объекты Kubernetes для compose-топологии (namespace, configmap, деплойменты провайдеров, деплоймент и сервис на каждый внутренний сервис, ingress с путём на каждый набор маршрутов); `--helm` — чарт, `--out dir` — записать файлы; `--env name` рисует это окружение, а необъявленное отвергается (exit 1), как в `terraform` |
 | `arcod terraform [dir]` | Terraform для облака: сеть, managed-сервисы под привязки, секреты через переменные; `--env`, `--out dir`; Yandex Cloud |
 | `arcod prompts [dir]` | только промпты: по умолчанию компактный формат, `--full` — подробная задача (заголовок, контракт, список io, форма хранения); `--max-tokens`, `--json` (когда спек не проходит check, `--json` отвечает `{error: "check failed", diagnostics}`) |
 | `arcod impl [dir]` | тела операций локальной моделью: `--model`, `--endpoint`, `--dry-run`, `--no-cache`, `--allow-remote`, `--json` (когда спек не проходит check, `--json` отвечает `{error: "check failed", diagnostics}`) |
@@ -341,7 +341,11 @@ healthcheck, томом и env; порты публикуются только �
 Модуль может объявлять несколько сервисов: каждому — свой контекст сборки
 (`service`, затем `service-<name>`), свой контейнер и только те bind, которые
 он называет; первый сервис сохраняет опубликованный порт и web-прокси, а
-следующий публикуется на следующем порту.
+следующий публикуется на следующем порту. В Kubernetes это та же
+топология: на каждый внутренний сервис — свой Deployment и Service (и свой
+образ из deploy-контракта), а ingress ведёт статический префикс каждого
+маршрута на его сервис; модуль с одним сервисом сохраняет прежний
+`service.yaml`.
 
 ### Модель как возможность
 

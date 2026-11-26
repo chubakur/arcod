@@ -10,6 +10,7 @@ import { composeYaml, serviceEndpoints } from '../src/emit/compose.ts';
 import { emitOpenapi } from '../src/emit/openapi.ts';
 import { grpcProto } from '../src/emit/grpc.ts';
 import { graphqlSchema } from '../src/emit/graphql.ts';
+import { k8sManifests } from '../src/emit/k8s.ts';
 
 // A module may declare more than one service. The emitters used to take the
 // first internal service only, so half of the spec disappeared without a word;
@@ -188,3 +189,46 @@ test('grpc and graphql: several services are named, not silently narrowed', () =
   assert.match(grpcProto(mod, { service: 'Cache' }), /Cache/);
   assert.match(graphqlSchema(mod, { service: 'Cache' }), /Cache/);
 });
+
+// The cluster view owes the same topology as compose: a Deployment and a
+// Service per internal service, its own image, its own env, and an Ingress
+// path per route set. A manifest that draws one workload loses the other half
+// of the spec exactly like compose did before B75.
+test('k8s: every internal service gets a Deployment and a Service', () => {
+  const mod = parse(twoServices, 'main.arc');
+  const files = k8sManifests(mod, { host: 'shop.example.com' });
+  const paths = files.map((file) => file.path);
+  assert.ok(paths.includes('service.yaml'), paths.join(','));
+  assert.ok(paths.includes('service-cache.yaml'), paths.join(','));
+  const store = files.find((file) => file.path === 'service.yaml')!.content;
+  const cache = files.find((file) => file.path === 'service-cache.yaml')!.content;
+  const image = (content: string) => /image: (.+)/.exec(content)![1].trim();
+  assert.match(store, /kind: Deployment[\s\S]*kind: Service/);
+  assert.match(cache, /kind: Deployment[\s\S]*kind: Service/);
+  assert.notEqual(image(store), image(cache));
+  // The cache names no bind: the store's kv url must not ride along.
+  const configMap = files.find((file) => file.path === 'configmap.yaml')!.content;
+  assert.match(configMap, /KV_HOST/);
+  assert.doesNotMatch(cache, /configMapRef|KV_HOST/);
+});
+
+test('k8s: the ingress routes each service by its route roots', () => {
+  const mod = parse(twoServices, 'main.arc');
+  const ingress = k8sManifests(mod, { host: 'shop.example.com' })
+    .find((file) => file.path === 'ingress.yaml')!.content;
+  assert.match(ingress, /path: \/v1\/items[\s\S]*name: service\n/);
+  assert.match(ingress, /path: \/v1\/cache[\s\S]*name: service-cache/);
+  assert.match(ingress, /path: \/\n/);
+});
+
+test('k8s: a one-service module keeps the historical service.yaml', () => {
+  const mod = parse(oneService, 'main.arc');
+  const files = k8sManifests(mod, { host: 'shop.example.com' });
+  const paths = files.map((file) => file.path);
+  assert.ok(paths.includes('service.yaml'), paths.join(','));
+  assert.ok(!paths.some((path) => path.startsWith('service-')), paths.join(','));
+  const ingress = files.find((file) => file.path === 'ingress.yaml')!.content;
+  assert.match(ingress, /path: \/\n/);
+  assert.equal(ingress.match(/path: /g)!.length, 1);
+});
+
