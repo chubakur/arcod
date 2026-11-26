@@ -16,7 +16,8 @@ interface FakeSocket {
   destroy(): void;
 }
 
-function loadQueue() {
+function loadQueue(options: { env?: Record<string, string>; connect?: (index: number) => boolean } = {}) {
+  const shouldConnect = options.connect ?? (() => true);
   const sockets: FakeSocket[] = [];
   const net = {
     createConnection(_options: unknown, connected: () => void) {
@@ -38,12 +39,12 @@ function loadQueue() {
       };
       sockets.push(socket);
       setTimeout(() => {
-        if (!socket.destroyed) connected();
+        if (!socket.destroyed && shouldConnect(sockets.length - 1)) connected();
       }, 0);
       return socket;
     },
   };
-  const process = { env: { QUEUE_REDIS_URL: 'redis://kv:6379' } };
+  const process = { env: { QUEUE_REDIS_URL: 'redis://kv:6379', ...(options.env ?? {}) } };
   const factory = new Function('process', 'net', 'Buffer', 'setTimeout', 'clearTimeout',
     QUEUE_SOURCE + '\nreturn { queueDriver };');
   const driver = (factory(process, net, Buffer, setTimeout, clearTimeout) as {
@@ -99,4 +100,31 @@ test('a corrupt reply rejects the caller and drops the socket', async () => {
   assert.doesNotThrow(() => sockets[0].handlers.data?.(Buffer.from('?\r\n')), 'no throw from the data event');
   await assert.rejects(first, /unexpected RESP type/);
   assert.equal(sockets[0].destroyed, true, 'the unusable socket is closed');
+});
+
+test('a silent broker fails the receive instead of blocking the consumer', async () => {
+  const { driver, sockets } = loadQueue({ env: { ARCod_QUEUE_TIMEOUT_MS: '30' } });
+  const receive = driver.receive('deliveries');
+  await tick();
+  assert.match(sockets[0].writes[0], /LPOP/);
+  await assert.rejects(receive, /redis command timeout/);
+  assert.equal(sockets[0].destroyed, true, 'the stalled stream is dropped');
+
+  const next = driver.receive('deliveries');
+  await tick();
+  assert.equal(sockets.length, 2, 'the retry opens a fresh connection');
+  sockets[1].handlers.data?.(Buffer.from('$3\r\nmsg\r\n'));
+  assert.equal(await next, 'msg');
+});
+
+test('a broker that never accepts fails the connect instead of blocking the consumer', async () => {
+  const { driver, sockets } = loadQueue({ env: { ARCod_QUEUE_TIMEOUT_MS: '30' }, connect: (index) => index > 0 });
+  await assert.rejects(driver.receive('deliveries'), /redis connect timeout/);
+  assert.equal(sockets[0].destroyed, true);
+
+  const next = driver.receive('deliveries');
+  await tick();
+  assert.equal(sockets.length, 2);
+  sockets[1].handlers.data?.(Buffer.from('$-1\r\n'));
+  assert.equal(await next, null);
 });

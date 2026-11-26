@@ -965,7 +965,10 @@ Semantics, enforced by the generated runtime rather than written in bodies:
   every dead letter writes one line to the service log — topic, attempt number,
   `lastError` — and never the payload; a failing `receive` (a broker restart)
   is retried instead of ending the consumer loop, with one line at the start of
-  the outage and one at recovery;
+  the outage and one at recovery; a silent broker (accepts, never answers) is
+  the same outage: every command has a deadline (`ARCod_QUEUE_TIMEOUT_MS`,
+  falling back to `ARCod_STORE_TIMEOUT_MS`, default `5000` ms), so the consumer
+  retries instead of blocking forever;
 - the body receives named parameters: one parameter is the value of that field
   (a bare scalar is the value itself), several are the fields by name;
 - a body that returns nothing while the job declares input is a failed attempt

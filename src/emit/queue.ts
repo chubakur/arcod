@@ -75,6 +75,10 @@ function createRedisQueueDriver(url) {
   const host = match ? match[1] : 'redis';
   const port = match && match[2] ? Number(match[2]) : 6379;
   const state = { socket: null, buffer: Buffer.alloc(0), pending: [], connecting: null };
+  // A broker that accepts the connection but never answers is the same outage
+  // as a restarted one, only quieter: without a deadline the consumer waits
+  // forever and never reaches its retry path.
+  const timeoutMs = Number(process.env.ARCod_QUEUE_TIMEOUT_MS || process.env.ARCod_STORE_TIMEOUT_MS || 5000);
 
   function parseReply(buf, offset) {
     if (offset >= buf.length) return null;
@@ -114,7 +118,10 @@ function createRedisQueueDriver(url) {
   function failPending(error) {
     const waiting = state.pending;
     state.pending = [];
-    for (const item of waiting) item.reject(error);
+    for (const item of waiting) {
+      if (item.timer) clearTimeout(item.timer);
+      item.reject(error);
+    }
   }
 
   function onData(chunk) {
@@ -134,6 +141,7 @@ function createRedisQueueDriver(url) {
       state.buffer = state.buffer.subarray(parsed.next);
       const pending = state.pending.shift();
       if (!pending) continue;
+      if (pending.timer) clearTimeout(pending.timer);
       if (parsed.value instanceof Error) pending.reject(parsed.value);
       else pending.resolve(parsed.value);
     }
@@ -146,19 +154,41 @@ function createRedisQueueDriver(url) {
     // new one.
     state.buffer = Buffer.alloc(0);
     state.connecting = new Promise((resolve, reject) => {
+      let timer = null;
+      const stopTimer = () => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+      };
       const socket = net.createConnection({ host, port }, () => {
+        stopTimer();
         state.connecting = null;
         resolve();
       });
+      // A dropped SYN would otherwise hang the consumer for the OS timeout.
+      timer = setTimeout(() => {
+        timer = null;
+        state.connecting = null;
+        if (state.socket === socket) state.socket = null;
+        const error = new Error('redis connect timeout');
+        failPending(error);
+        socket.destroy();
+        reject(error);
+      }, timeoutMs);
       socket.on('data', onData);
       socket.on('error', (err) => {
+        stopTimer();
+        // A socket a reconnect already replaced is not this connection's:
+        // failing the current pending calls here would abort healthy work.
+        if (state.socket !== socket) return;
         state.connecting = null;
+        state.socket = null;
         failPending(err);
-        if (state.socket === socket) state.socket = null;
         reject(err);
       });
       socket.on('close', () => {
-        if (state.socket === socket) state.socket = null;
+        stopTimer();
+        if (state.socket !== socket) return;
+        state.socket = null;
         failPending(new Error('redis connection closed'));
       });
       state.socket = socket;
@@ -169,7 +199,16 @@ function createRedisQueueDriver(url) {
   async function command(...args) {
     await connect();
     return new Promise((resolve, reject) => {
-      state.pending.push({ resolve, reject });
+      const item = { resolve, reject };
+      // Replies are positional: a call that timed out drops the stream with
+      // it, so its late answer cannot be handed to the next caller.
+      item.timer = setTimeout(() => {
+        const index = state.pending.indexOf(item);
+        if (index !== -1) state.pending.splice(index, 1);
+        if (state.socket) state.socket.destroy();
+        reject(new Error('redis command timeout'));
+      }, timeoutMs);
+      state.pending.push(item);
       const parts = ['*' + args.length + '\r\n'];
       for (const arg of args) {
         const value = String(arg);
