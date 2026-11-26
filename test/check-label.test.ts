@@ -78,3 +78,37 @@ test('check and fmt name the same file the same way over a pattern', async () =>
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('a pattern --json report names the file like the human line', async () => {
+  const { dir, file, label } = await specInCwd();
+  try {
+    const result = await run(['check', join(dir, '*.arc'), '--json']);
+    assert.equal(result.code, 0, result.err);
+    const report = JSON.parse(result.out) as Array<{ file: string }>;
+    assert.equal(report.length, 1);
+    assert.equal(report[0].file, label, 'the report carries the caller-relative label');
+    assert.equal(report[0].file.startsWith('/'), false, 'never an absolute path');
+    // The single-file report is a diagnostics list, not a file report: its
+    // shape stays untouched.
+    const single = await run(['check', file, '--json']);
+    assert.ok(Array.isArray(JSON.parse(single.out)), single.out);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a pattern --json report names a broken file by the same label', async () => {
+  const { dir, label } = await specInCwd();
+  try {
+    await writeFile(join(dir, 'broken.arc'), 'module broken @0.1.0 {' + '\n' + '  type T = {' + '\n', 'utf8');
+    const result = await run(['check', join(dir, '*.arc'), '--json']);
+    assert.equal(result.code, 1);
+    const report = JSON.parse(result.out) as Array<{ file: string; error?: { message: string } }>;
+    const broken = report.find((item) => item.error !== undefined);
+    assert.ok(broken, result.out);
+    assert.equal(broken.file, relative(process.cwd(), join(dir, 'broken.arc')));
+    assert.ok(report.some((item) => item.file === label), 'the clean file keeps its label too');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

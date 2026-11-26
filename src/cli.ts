@@ -428,7 +428,7 @@ async function runCheckPattern(flags: Flags, pattern: string): Promise<void> {
       const message = fsReason(error);
       const loc = error instanceof ParseError ? error.loc : null;
       if (flags.json) {
-        reports.push({ file: specPath, diagnostics: [], error: { message, line: loc?.line, col: loc?.col } });
+        reports.push({ file: label, diagnostics: [], error: { message, line: loc?.line, col: loc?.col } });
       } else if (loc) {
         console.log(label + ':' + loc.line + ':' + loc.col + '  error  parse  ' + message);
       } else {
@@ -439,7 +439,10 @@ async function runCheckPattern(flags: Flags, pattern: string): Promise<void> {
     const diags = check(mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(dir), impl: await implBodiesFor(dir), implIgnored: await implIgnoredFiles(dir), implIgnoredDirs: await implIgnoredDirs(dir), implLib: await implLibFor(dir) });
     if (diags.some((item) => item.severity === 'error')) failed++;
     if (flags.json) {
-      reports.push({ file: specPath, diagnostics: diags });
+      // Same label as the human line: a pattern run mixes projects that all
+      // call the spec main.arc, and an absolute path names the machine, not
+      // the file the caller asked about.
+      reports.push({ file: label, diagnostics: diags });
     } else if (diags.length === 0) {
       console.log(label + ': ok');
     } else {
