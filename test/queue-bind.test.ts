@@ -5,6 +5,7 @@ import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { providerRows, builtinRegistry } from '../src/registry.ts';
 import { composeYaml } from '../src/emit/compose.ts';
+import { emitService } from '../src/emit/service.ts';
 
 // A broker container that the generated runtime cannot talk to used to look
 // supported: check was clean, compose started rabbitmq, and jobs ran in process
@@ -54,4 +55,32 @@ test('providers lists the reason next to a broker the runtime cannot drive', () 
 test('compose still provisions the broker', () => {
   const yaml = composeYaml(parse(withBroker('rabbitmq'), 'saga.arc'), 8080, false);
   assert.ok(yaml.includes('image: rabbitmq:3.13-management-alpine'));
+});
+
+// The retry budget is the denominator in the consumer log line (attempt 2/4),
+// so the default and an explicit clause both have to reach CONSUMERS.
+function consumersOf(spec: string): string {
+  // Consumers are runtime code, emitted only for an impl build.
+  const out = emitService(parse(spec, 'saga.arc'), { impl: {} });
+  const start = out.indexOf('const CONSUMERS = [');
+  assert.ok(start >= 0, 'the service has a CONSUMERS table');
+  return out.slice(start, start + 400);
+}
+
+test('a job without retry gets the default budget of 3 in CONSUMERS', () => {
+  assert.match(consumersOf(source), /retry: 3/);
+});
+
+test('an explicit retry clause reaches CONSUMERS unchanged', () => {
+  const spec = source.replace('      on: events.checkout\n', '      on: events.checkout\n      retry: 1\n');
+  const block = consumersOf(spec);
+  assert.match(block, /retry: 1/);
+  assert.doesNotMatch(block, /retry: 3/);
+});
+
+test('the emitted service carries the consumer failure log lines', () => {
+  const out = emitService(parse(source, 'saga.arc'), { impl: {} });
+  assert.ok(out.includes("'[arcod] queue '"), 'log prefix is emitted');
+  assert.match(out, /could not record a failed attempt/);
+  assert.match(out, /receive recovered after/);
 });
