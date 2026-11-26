@@ -32,22 +32,24 @@ async function run(argv: string[]): Promise<{ out: string; err: string; code: nu
 }
 
 test('build --env chooses the dialect of that environment', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'arcod-env-'));
-  try {
-    await cp(join(examples, 'files'), dir, { recursive: true });
-    const dev = await run(['build', dir, '--json']);
-    assert.equal(dev.code, 0, dev.err);
-    assert.equal((JSON.parse(dev.out) as { dialect: string }).dialect, 'mysql', 'dev keeps the historical dialect');
+  for (const example of ['files', 'chat', 'orders']) {
+    const dir = await mkdtemp(join(tmpdir(), 'arcod-env-'));
+    try {
+      await cp(join(examples, example), dir, { recursive: true });
+      const dev = await run(['build', dir, '--json']);
+      assert.equal(dev.code, 0, dev.err);
+      assert.equal((JSON.parse(dev.out) as { dialect: string }).dialect, 'mysql', example + ' dev keeps the historical dialect');
 
-    const prod = await run(['build', dir, '--json', '--env', 'prod']);
-    assert.equal(prod.code, 0, prod.err);
-    assert.equal((JSON.parse(prod.out) as { dialect: string }).dialect, 'postgres', 'prod binds postgres');
+      const prod = await run(['build', dir, '--json', '--env', 'prod']);
+      assert.equal(prod.code, 0, prod.err);
+      assert.equal((JSON.parse(prod.out) as { dialect: string }).dialect, 'postgres', example + ' prod binds postgres');
 
-    const unknown = await run(['build', dir, '--env', 'nope']);
-    assert.equal(unknown.code, 2);
-    assert.match(unknown.err, /unknown environment nope/);
-    assert.match(unknown.err, /declared: /, 'the refusal names the environments');
-  } finally {
-    await rm(dir, { recursive: true, force: true });
+      const unknown = await run(['build', dir, '--env', 'nope']);
+      assert.equal(unknown.code, 2);
+      assert.match(unknown.err, /unknown environment nope/);
+      assert.match(unknown.err, /declared: /, 'the refusal names the environments');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 });
