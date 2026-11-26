@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { parse } from '../src/parser.ts';
 import { buildExample } from '../src/build.ts';
 import { composeYaml, serviceEndpoints } from '../src/emit/compose.ts';
+import { emitOpenapi } from '../src/emit/openapi.ts';
 
 // A module may declare more than one service. The emitters used to take the
 // first internal service only, so half of the spec disappeared without a word;
@@ -134,4 +135,43 @@ test('run endpoints: every service gets its published port', () => {
   assert.deepEqual(endpoints.map((item) => [item.name, item.port]), [['Store', 8080], ['Cache', 8081]]);
   assert.deepEqual(endpoints.map((item) => item.url), ['http://localhost:8080', 'http://localhost:8081']);
   assert.deepEqual(serviceEndpoints(parse(oneService, 'main.arc'), 8080).map((item) => item.name), ['Store']);
+});
+
+// The OpenAPI document publishes public surface only, so this fixture marks
+// its operations public.
+const openapiSpec = `
+module shop @0.1.0 {}
+
+type Item = { id: string, title: string }
+
+service Store : http {
+  contract {
+    public op create(title: string) -> Item {
+      route: "POST /v1/items"
+    }
+  }
+}
+
+service Cache : http {
+  contract {
+    public op get(key: string) -> string {
+      route: "GET /v1/cache/:key"
+    }
+  }
+}
+`;
+
+test('openapi: a module with two services documents both', () => {
+  const mod = parse(openapiSpec, 'main.arc');
+  const document = emitOpenapi(mod);
+  const paths = Object.keys(document.paths as Record<string, unknown>);
+  assert.ok(paths.includes('/v1/items'), paths.join(','));
+  assert.ok(paths.includes('/v1/cache/{key}'), paths.join(','));
+  const cache = emitOpenapi(mod, { service: 'Cache' });
+  assert.deepEqual(Object.keys(cache.paths as Record<string, unknown>), ['/v1/cache/{key}']);
+});
+
+test('openapi: two services on one route are refused, not silently merged', () => {
+  const clashing = openapiSpec.replace('route: "GET /v1/cache/:key"', 'route: "POST /v1/items"');
+  assert.throws(() => emitOpenapi(parse(clashing, 'main.arc')), /declared by both Store\.create and Cache\.get/);
 });

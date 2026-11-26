@@ -414,48 +414,74 @@ function operationFor(mod: ModuleNode, svc: ServiceNode, op: OpNode): Record<str
 }
 
 export function emitOpenapi(mod: ModuleNode, options: OpenapiOptions = {}): OpenapiDocument {
-  const svc = options.service
-    ? mod.services.find((item) => item.name === options.service)
-    : pickService(mod);
-  if (!svc) throw new Error(options.service ? 'no service named ' + options.service + ' to emit OpenAPI for' : 'no service to emit OpenAPI for');
+  // A module may declare several services. Naming one keeps the historical
+  // behaviour; without a name every internal service contributes its paths,
+  // so the document cannot silently describe half of the module. Two services
+  // that declare the same route are refused: one operation would overwrite the
+  // other and the reader would never learn it.
+  const own = mod.services.filter((item) => !item.external);
+  const targets = options.service
+    ? mod.services.filter((item) => item.name === options.service)
+    : own.length > 0 ? own : [];
+  if (targets.length === 0) throw new Error(options.service ? 'no service named ' + options.service + ' to emit OpenAPI for' : 'no service to emit OpenAPI for');
 
+  const examplesByService = new Map<ServiceNode, ReturnType<typeof interpretExamples>>();
+  const routed = (svc: ServiceNode): boolean => svc.contract.some((op) => op.kind === 'op' && routeOf(op) !== null);
   // A service that verifies tokens has a real security scheme: the runtime
   // reads a bearer token from the Authorization header, so the contract
-  // publishes the scheme instead of leaving the client to guess.
-  // A scheme nobody needs is noise: publish it only when a routed operation
-  // actually inherits it (a public-only service gets no `security` key).
-  const bearer = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'))
+  // publishes the scheme instead of leaving the client to guess. A scheme
+  // nobody needs is noise: publish it only when a routed operation actually
+  // inherits it (a public-only service gets no `security` key).
+  const bearerOf = (svc: ServiceNode): boolean =>
+    svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'))
     && svc.contract.some((op) => op.kind === 'op' && op.auth && routeOf(op) !== null);
-  const examples = interpretExamples(svc);
+  const bearer = targets.some(bearerOf);
   const paths: Record<string, unknown> = {};
+  const declaredBy = new Map<string, string>();
 
-  for (const op of svc.contract) {
-    if (op.kind !== 'op' || !routeOf(op)) continue; // A050 covers the no-route case
-    if (!svc.external && !op.isPublic && !op.auth) continue; // auth ops are public surface too // an external contract is entirely public surface
-    const { method, path } = routeInfo(op);
-    const operation = operationFor(mod, svc, op);
+  for (const svc of targets) {
+    const examples = interpretExamples(svc);
+    examplesByService.set(svc, examples);
+    const guarded = bearerOf(svc);
 
-    const opExamples: Record<string, unknown> = {};
-    for (const call of examples.calls) {
-      if (call.target === op.name) opExamples[call.example] = { value: call.value };
+    for (const op of svc.contract) {
+      if (op.kind !== 'op' || !routeOf(op)) continue; // A050 covers the no-route case
+      if (!svc.external && !op.isPublic && !op.auth) continue; // auth ops are public surface too // an external contract is entirely public surface
+      const { method, path } = routeInfo(op);
+      const key = method.toUpperCase() + ' ' + path;
+      const previous = declaredBy.get(key);
+      if (previous) {
+        throw new Error('route ' + method.toUpperCase() + ' ' + path + ' is declared by both ' + previous + ' and ' + svc.name + '.' + op.name + '; pass --service <name> to emit one service');
+      }
+      declaredBy.set(key, svc.name + '.' + op.name);
+      const operation = operationFor(mod, svc, op);
+
+      const opExamples: Record<string, unknown> = {};
+      for (const call of examples.calls) {
+        if (call.target === op.name) opExamples[call.example] = { value: call.value };
+      }
+      if (Object.keys(opExamples).length > 0) operation.examples = opExamples;
+      const responses = operation.responses as Record<string, unknown>;
+      for (const entry of examples.errors) {
+        if (entry.target !== op.name) continue;
+        const status = String(statusForError(entry.error));
+        const response = responses[status] as Record<string, unknown> | undefined;
+        if (!response) continue;
+        const content = (response.content ??= {}) as Record<string, unknown>;
+        (content['application/json'] ??= {}) as Record<string, unknown>;
+        const media = content['application/json'] as Record<string, unknown>;
+        (media.examples ??= {}) as Record<string, unknown>;
+        ((media.examples as Record<string, unknown>)[entry.example] = { value: { error: entry.error } });
+      }
+
+      const pathItem = (paths[path] ??= {}) as Record<string, unknown>;
+      if (guarded && op.isPublic) operation.security = []; // public overrides the document default
+      // Several services in one document cannot share a default: a service
+      // without identity must not inherit a bearer requirement. The single
+      // service case keeps the document-level default it always had.
+      else if (guarded && targets.length > 1) operation.security = [{ bearerAuth: [] }];
+      pathItem[method.toLowerCase()] = operation;
     }
-    if (Object.keys(opExamples).length > 0) operation.examples = opExamples;
-    const responses = operation.responses as Record<string, unknown>;
-    for (const entry of examples.errors) {
-      if (entry.target !== op.name) continue;
-      const status = String(statusForError(entry.error));
-      const response = responses[status] as Record<string, unknown> | undefined;
-      if (!response) continue;
-      const content = (response.content ??= {}) as Record<string, unknown>;
-      (content['application/json'] ??= {}) as Record<string, unknown>;
-      const media = content['application/json'] as Record<string, unknown>;
-      (media.examples ??= {}) as Record<string, unknown>;
-      ((media.examples as Record<string, unknown>)[entry.example] = { value: { error: entry.error } });
-    }
-
-    const pathItem = (paths[path] ??= {}) as Record<string, unknown>;
-    if (bearer && op.isPublic) operation.security = []; // public overrides the document default
-    pathItem[method.toLowerCase()] = operation;
   }
 
   const document: OpenapiDocument = {
@@ -476,7 +502,7 @@ export function emitOpenapi(mod: ModuleNode, options: OpenapiOptions = {}): Open
         description: 'access token issued by the identity provider',
       },
     };
-    document.security = [{ bearerAuth: [] }];
+    if (targets.length === 1) document.security = [{ bearerAuth: [] }];
   }
   return document;
 }
