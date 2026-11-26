@@ -141,6 +141,87 @@ test('a job with a result is acked', async () => {
 });
 
 
+// A job used to vanish into the dead-letter key without a word in the service
+// log. The operator now gets one line per requeue and per dead letter, and the
+// payload stays out of it.
+test('a failing consumer logs the requeue and the dead letter without payload', async () => {
+  const calls: Array<[string, string]> = [];
+  const log: Array<[string, string]> = [];
+  const fakeConsole = {
+    warn: (line: string) => log.push(['warn', line]),
+    error: (line: string) => log.push(['error', line]),
+  };
+  let queue: string[] = [JSON.stringify({ payload: { reportId: 'secret-value-123' }, attempts: 0 })];
+  const queueDriver = {
+    async receive() {
+      return queue.length > 0 ? queue.shift()! : null;
+    },
+    async requeue(_topic: string, raw: string) {
+      calls.push(['requeue', raw]);
+      queue.push(raw);
+    },
+    async toDead(_topic: string, raw: string) {
+      calls.push(['dead', raw]);
+    },
+  };
+  const src = consumerSource([{ topic: 'jobs', handler: 'process', params: ['reportId'], retry: 1 }]);
+  const factory = new Function('queueDriver', 'makeIo', 'setTimeout', 'QUEUE_POLL_MS', 'process', 'console',
+    src + '\nreturn { runConsumer, stop() { consumersStopped = true; } };');
+  const fn = async () => { throw new Error('downstream is down'); };
+  const loaded = factory(queueDriver, () => ({}), setTimeout, 1, fn, fakeConsole) as {
+    runConsumer: (spec: unknown) => Promise<void>;
+    stop: () => void;
+  };
+  const run = loaded.runConsumer({ topic: 'jobs', fn, params: ['reportId'], retry: 1 });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  loaded.stop();
+  await run;
+  assert.deepEqual(calls.map((call) => call[0]), ['requeue', 'dead']);
+  assert.deepEqual(log.map((entry) => entry[0]), ['warn', 'error']);
+  for (const [, line] of log) {
+    assert.match(line, /jobs/);
+    assert.match(line, /2/);
+    assert.match(line, /downstream is down/);
+  }
+  assert.doesNotMatch(log.map((entry) => entry[1]).join(' '), /secret-value-123/);
+});
+
+test('an unreadable message logs one error line without the raw payload', async () => {
+  const log: Array<[string, string]> = [];
+  const fakeConsole = {
+    warn: (line: string) => log.push(['warn', line]),
+    error: (line: string) => log.push(['error', line]),
+  };
+  let delivered = false;
+  const dead: string[] = [];
+  const queueDriver = {
+    async receive() {
+      if (delivered) return null;
+      delivered = true;
+      return 'not json at all secret-value-123';
+    },
+    async requeue() {},
+    async toDead(_topic: string, raw: string) { dead.push(raw); },
+  };
+  const src = consumerSource([{ topic: 'jobs', handler: 'process', params: ['reportId'], retry: 1 }]);
+  const factory = new Function('queueDriver', 'makeIo', 'setTimeout', 'QUEUE_POLL_MS', 'process', 'console',
+    src + '\nreturn { runConsumer, stop() { consumersStopped = true; } };');
+  const fn = async () => ({ result: true });
+  const loaded = factory(queueDriver, () => ({}), setTimeout, 1, fn, fakeConsole) as {
+    runConsumer: (spec: unknown) => Promise<void>;
+    stop: () => void;
+  };
+  const run = loaded.runConsumer({ topic: 'jobs', fn, params: ['reportId'], retry: 1 });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  loaded.stop();
+  await run;
+  assert.equal(dead.length, 1);
+  assert.deepEqual(log.map((entry) => entry[0]), ['error']);
+  assert.match(log[0][1], /jobs/);
+  assert.match(log[0][1], /unreadable message/);
+  assert.doesNotMatch(log[0][1], /secret-value-123/);
+});
+
 test(
   'a failing attempt is requeued and the next one exhausts the budget',
   async () => {
