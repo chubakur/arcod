@@ -294,6 +294,12 @@ class Parser {
         closeBlock('contract');
         continue;
       }
+      if (this.is('language')) {
+        svc.languageLoc = locOf(this.next());
+        this.expect(':');
+        svc.language = this.expectIdent('language name').value;
+        continue;
+      }
       if (this.is('roles')) {
         svc.rolesLoc = locOf(this.next());
         this.expect(':');

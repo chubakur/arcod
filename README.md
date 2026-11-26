@@ -372,6 +372,12 @@ own service; a one-service module keeps its historical `service.yaml`. The
 chart carries the same split: every later service reads its image from its own
 `services.<name>` values entry.
 
+The service block may name its language: `language: node` (the default) is the
+only emitter today; `language: go` and `language: python` pass `check` and are
+reported by `build --json` under `services`, but a build refuses them until
+those port kits exist — silently generating the wrong runtime is worse than
+stopping. `language:` on an `external` service is an error.
+
 ### The model as a capability
 
 A service does not know whether the model is local or hosted: it asks for
@@ -1841,6 +1847,14 @@ Errors:
   `arcod build` with `uniques.some is not a function` after `check` had called
   the file clean. The hint suggests `proto` or `metadata`; `constructor` and
   `toString` are ordinary keys and stay legal.
+- `A103` `language:` names a language the compiler cannot generate
+  (`language: rust`): the value chooses the emitter, so a typo must refuse
+  rather than silently generate the Node service the author did not ask for.
+  The hint lists `node`, `go` and `python`.
+- `A104` `language:` sits on an `external` service: an external declaration
+  describes someone else's API and is never generated, so there is no emitter
+  to choose. The hint asks to drop the clause or move it to a service the
+  build owns.
 - `A094` a `kv` alias is bound to `redis` in a service that stores in sql:
   the runtime has one store, so the alias lives in the sql store's `arcod_kv`
   table. The bind started a container and exported `REDIS_URL` that no

@@ -202,6 +202,16 @@ function checkImplDeclarations(impl: Record<string, string>, lib?: string): void
 // not destroy the last good one. Everything is emitted into a sibling staging
 // directory and swapped in only after the last file is written.
 export async function buildExample(mod: ModuleNode, exampleDir: string, options: BuildOptions = {}): Promise<BuildResult> {
+  // `language:` picks the emitter. Until the Go and Python kits exist (B107,
+  // B108), generating Node for a service that asked for Go would be exactly
+  // the silent wrong-runtime bug the clause is meant to prevent.
+  const unsupported = mod.services.find((svc) => !svc.external && svc.language && svc.language !== 'node');
+  if (unsupported) {
+    throw new BuildError(
+      'service ' + unsupported.name + ' asks for language: ' + unsupported.language +
+      ', but this build emits node only; drop the clause or wait for the ' + unsupported.language + ' emitter',
+    );
+  }
   const dir = join(exampleDir, '.arcod', 'build');
   const staging = dir + '.tmp-' + process.pid;
   await cleanAbandonedTrees(dir);

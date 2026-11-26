@@ -1317,6 +1317,9 @@ async function runBuild(flags: Flags): Promise<void> {
         files: result.files,
         images: result.images,
         bodies: result.impl,
+        // One language per service: a mixed module builds Node and Go into
+        // separate containers, so the report names each choice.
+        services: loaded.mod.services.filter((svc) => !svc.external).map((svc) => ({ name: svc.name, language: svc.language ?? 'node' })),
       }, null, 2));
       return;
     }

@@ -190,6 +190,10 @@ export interface ServiceNode {
   // the `roles:` clause. Roles themselves arrive with the token, the service
   // only declares which ones mean something here.
   roles: string[];
+  // The language the service is generated in. Undefined is `node`, so every
+  // spec written before the clause existed keeps its meaning.
+  language?: string;
+  languageLoc?: Loc;
   // The `roles:` keyword itself. Roles arrive as plain names, so the list has
   // no offsets of its own: fmt anchors a comment written above or after that
   // line on this token instead of dropping it.

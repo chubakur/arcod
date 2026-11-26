@@ -281,6 +281,7 @@ function collectService(s: ServiceNode, out: number[]): void {
   for (const loc of s.metaEntryLocs ?? []) out.push(loc.offset);
   if (s.metaLoc) out.push(s.metaLoc.offset);
   for (const c of s.uses) out.push(c.loc.offset);
+  if (s.languageLoc) out.push(s.languageLoc.offset);
   if (s.rolesLoc) out.push(s.rolesLoc.offset);
   if (s.effects) {
     out.push(s.effects.loc.offset);
@@ -597,6 +598,12 @@ class Printer {
       this.blank();
     }
     const body: Array<() => void> = [];
+    if (s.language) {
+      body.push(() => {
+        if (s.languageLoc) this.emitComments(s.languageLoc.offset, 1);
+        this.raw(1, 'language: ' + s.language);
+      });
+    }
     if (s.uses.length > 0) body.push(() => { for (const c of s.uses) this.capUse(c); });
     if (s.roles.length > 0) {
       body.push(() => {

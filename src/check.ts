@@ -1790,6 +1790,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkIgnoredImplBodies(mod, diags, options.implIgnored);
   checkIgnoredImplDirs(mod, diags, options.implIgnoredDirs);
   checkMissingImplBodies(mod, diags, options.impl, options.implScanned);
+  checkServiceLanguage(mod, diags);
 
   return sortDiagnostics(diags);
 }
@@ -1830,6 +1831,34 @@ export function checkOrphanImplBodies(mod: ModuleNode, diags: Diagnostic[], impl
           ? 'name the file after the operation it implements: ' + [...declared].sort().join(', ')
           : 'this module declares no operations, so no body file is bundled'),
     );
+  }
+}
+
+// `language:` decides which emitter generates the service, so an unknown
+// value or one on an external service is refused here: a typo silently
+// generated Node for a Go service, and an external declaration has no emitter
+// to choose.
+const LANGUAGES = ['node', 'go', 'python'];
+
+export function checkServiceLanguage(mod: ModuleNode, diags: Diagnostic[]): void {
+  for (const svc of mod.services) {
+    if (!svc.language) continue;
+    const loc = svc.languageLoc ?? svc.loc;
+    if (svc.external) {
+      diags.push(
+        diag('A104', 'error', mod.file, loc, 'services.' + svc.name + '.language',
+          'service ' + svc.name + ' is external: language: does not apply',
+          'drop the clause: an external service describes someone else\'s API and is not generated'),
+      );
+      continue;
+    }
+    if (!LANGUAGES.includes(svc.language)) {
+      diags.push(
+        diag('A103', 'error', mod.file, loc, 'services.' + svc.name + '.language',
+          'unknown language \"' + svc.language + '\" in service ' + svc.name,
+          'supported languages: ' + LANGUAGES.join(', ')),
+      );
+    }
   }
 }
 
