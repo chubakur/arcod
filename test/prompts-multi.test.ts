@@ -7,6 +7,7 @@ import { parse } from '../src/parser.ts';
 import { buildPrompts, promptManifest, promptPath } from '../src/prompts.ts';
 import { runImpl } from '../src/impl.ts';
 import { main } from '../src/cli.ts';
+import { buildExample } from '../src/build.ts';
 
 // A module may declare several services. Prompts used to be built from the
 // first internal service only, so the other service never reached the model --
@@ -130,6 +131,22 @@ test('impl: a multi-service module is refused instead of overwriting a shared bo
       () => runImpl(parse(twoServices, 'main.arc'), root, { dryRun: true }),
       /multi-service module needs per-service bodies/,
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('build: the prompt artifact of a multi-service module is per service', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'arcod-build-prompts-'));
+  try {
+    // A scaffold build (no impl, no reference) reaches every service, which is
+    // what the prompt artifact follows.
+    const result = await buildExample(parse(twoServices, 'main.arc'), root, { port: 0 });
+    assert.match(await readFile(join(result.dir, 'prompts', 'Store', 'create.md'), 'utf8'), /function create\(input, io\)/);
+    assert.match(await readFile(join(result.dir, 'prompts', 'Cache', 'get.md'), 'utf8'), /function get\(input, io\)/);
+    const manifest = JSON.parse(await readFile(join(result.dir, 'prompts.json'), 'utf8'));
+    assert.deepEqual(manifest.tasks.map((task: { service: string }) => task.service), ['Cache', 'Store', 'Store']);
+    assert.deepEqual((await readdir(join(result.dir, 'prompts'))).sort(), ['Cache', 'Store', 'manifest.json']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
