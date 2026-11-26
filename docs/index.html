@@ -316,45 +316,50 @@
   <section id="news">
     <div class="wrap">
       <div class="kicker">what shipped this week</div>
-      <h2>Three things shipped on 2026-11-24.</h2>
+      <h2>Three things shipped on 2026-11-25.</h2>
       <p class="sub">Each is covered by tests in the repository.</p>
       <div class="grid-3">
         <div class="card">
-          <span class="num">2026-11-24 · UI</span>
-          <h3>A form that cannot send a value the API rejects</h3>
-          <p>The generated page made a text input of every scalar, so an enum
-          accepted a typo and the service answered <code>400</code>
-          <code>must be one of free, pro, team</code>. The form now reads the same
-          resolver as OpenAPI and the boundary: an enum is a
-          <code>&lt;select&gt;</code> of exactly the accepted values,
-          <code>email</code>/<code>url</code> are native inputs, and
-          <code>int</code>/<code>number</code>/<code>decimal</code> carry the
-          declared <code>min</code>/<code>max</code>. Only <code>int</code> keeps
-          <code>step="1"</code>, so the <code>1.5</code> the API accepts is no
-          longer a step mismatch in the browser.</p>
+          <span class="num">2026-11-25 · COMPILER</span>
+          <h3>A field called <code>toString</code> is a field</h3>
+          <p>Every name an author writes is a string key in lookup tables and
+          generated objects, and JavaScript answers a missing key with an
+          inherited member. So a type named <code>toString</code> reached a
+          prompt and a DDL as <code>function toString() { [native code] }</code>,
+          a table of that name failed to migrate, a <code>__proto__</code> field
+          was stored and migrated but silently missing from OpenAPI, and a
+          provider "resolved" to a function. Lookups now ask for an own key
+          (<code>Object.hasOwn</code>), maps keyed by a model name are built with
+          <code>Object.create(null)</code>, and such keys are written with
+          <code>defineProperty</code> — in prompts, migrations, dialects,
+          GraphQL, providers, OpenAPI and both SQL stores. <code>__proto__</code>
+          declared as a name is <code>A102</code>: an error at check time, not a
+          crash at build time.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-24 · RUNTIME</span>
-          <h3>URL parameters arrive with their declared type</h3>
-          <p><code>GET /v1/tasks?limit=3&amp;done=true</code> used to reach the body
-          as the strings <code>"3"</code> and <code>"true"</code>, while the same
-          fields in a JSON body arrived as <code>3</code> and <code>true</code>:
-          <code>limit + 1</code> answered <code>"31"</code>. The boundary now maps
-          both URL sources — query string and <code>:path</code> capture — to the
-          declared type before the body runs: numbers are numbers,
-          <code>bool</code> accepts exactly <code>true</code>/<code>false</code>,
-          and anything else is a <code>400</code> naming the parameter. Declared
-          bounds see the same number the body gets.</p>
+          <span class="num">2026-11-25 · EDITORS</span>
+          <h3>A language server that answers in JSON-RPC</h3>
+          <p><code>arcod lsp</code> speaks to VS Code, Neovim and JetBrains over
+          stdio. A method it does not serve is now <code>-32601</code>, a body
+          that is not a request is <code>-32600</code>, and params it cannot
+          read are <code>-32602</code> — the client's log names the failure
+          instead of showing a <code>null</code>. A request sent as a
+          notification gets no response, after <code>shutdown</code> only
+          <code>exit</code> is served, and <code>exit</code> without
+          <code>shutdown</code> is exit code 1. A CRLF document keeps its
+          diagnostic line numbers and still formats with a valid range.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-24 · BODIES</span>
-          <h3>One helper module for every operation body</h3>
-          <p>Bodies are separate files, so sharing a check meant copy-paste or a
-          package. <code>impl/lib.mjs</code> is bundled once ahead of the bodies and
-          every body calls its exports as top-level names — no import line, no
-          relative path. A body that redeclares one of those names is
-          <code>A093</code>, an error naming the file, so the shared helper cannot
-          be shadowed without a word.</p>
+          <span class="num">2026-11-25 · POSTGRES</span>
+          <h3>One bad statement no longer kills the connection</h3>
+          <p>The Postgres client had a single socket and destroyed it on any
+          error frame, so after one failed statement the queue and
+          <code>/healthz</code> waited on a dead connection forever. The error now
+          belongs to the statement in flight: a duplicate insert arrives at the
+          body as the declared <code>Conflict</code> (409) and the next query
+          answers on the same socket. An aborted transaction is recovered by
+          <code>ROLLBACK</code>, a socket the server closes on idle reconnects,
+          and a reconnect does not run the migrations twice.</p>
         </div>
       </div>
     </div>
@@ -653,6 +658,20 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           top-level name by every body, and refused as <code>A093</code> when a body
           redeclares it.</p>
         </div>
+        <div class="card">
+          <h3>Names your model chooses, not names JavaScript owns</h3>
+          <p>An operation, a field, a type or a provider is a string key in the
+          compiler's tables and in the code it emits. A key that is absent is
+          answered by <code>Object.prototype</code>, so <code>toString</code> or
+          <code>__proto__</code> used to reach generated metadata as an inherited
+          member. Reads check ownership, maps keyed by model names are built
+          without a prototype, and declared keys are written with
+          <code>defineProperty</code>; nine test files name the member
+          (<code>toString</code>, <code>constructor</code>,
+          <code>hasOwnProperty</code>, <code>valueOf</code>,
+          <code>__proto__</code>) and assert the fallback or the published key,
+          not just that nothing crashed.</p>
+        </div>
       </div>
 
       <div class="chips">
@@ -803,6 +822,7 @@ deploy.dev.json          deploy manifest per environment</code></pre>
             <li><b>Workflows</b> are parsed, described and validated — no runner is generated (<code>W022</code>); a job runs only when it declares an <code>on:</code> queue consumer (<code>W017</code>).</li>
             <li><b>Streams and queues are in-process</b> until you bind them to Redis; only then do replicas share events. OpenAPI publishes a <code>bearerAuth</code> scheme for a service that uses <code>auth: identity</code>, and the token requirement is listed only on operations that need it; a <code>public</code> operation opts out with <code>security: []</code>.</li>
             <li><b><code>arcod fmt</code> re-lays out a record type on one line</b> — it is a canonical printer, not a style-preserving one; the comment survives, your line breaks do not.</li>
+            <li><b><code>__proto__</code> is refused as a name, <code>toString</code> is not.</b> <code>A102</code> stops only the name the generated metadata maps cannot carry; <code>constructor</code>, <code>valueOf</code> and friends stay legal and are safe because every lookup is an own-key read. That rule lives in each emitter, so a new one is held to it by a test, not by <code>check</code>.</li>
             <li><b>JavaScript only.</b> PHP, Go and Python would be separate emitters.</li>
             <li><b><code>arcod terraform</code> targets Yandex Cloud only</b> and renders no state backend; <code>terraform validate</code> is not part of CI yet.</li>
           </ul>
