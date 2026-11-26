@@ -1955,7 +1955,10 @@ Warnings:
   files: bodies are read one level deep, so `impl/ops/totals.mjs` is dead
   weight — shared code belongs in the file `impl/lib.mjs`, not a `lib/`
   directory — and with no top-level body `W050` stays quiet. An empty
-  directory is not reported.
+  directory is not reported. A folder named after a service is a body folder
+  instead (`impl/api/totals.mjs`), so it is read and not warned about; a
+  non-`.mjs` file inside it is named with that folder (`impl/api/totals.js`)
+  and the hint asks to rename it there.
 - `W052` a service has no body at all: no `impl/` directory, or one with no
   `.mjs` body, means every route answers `501 NotImplemented` and `W050` had
   no operation to name. One warning per service names it, so "forgot the

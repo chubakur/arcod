@@ -1952,10 +1952,15 @@ export function checkMissingImplBodies(mod: ModuleNode, diags: Diagnostic[], imp
 export function checkIgnoredImplBodies(mod: ModuleNode, diags: Diagnostic[], ignored: string[] | undefined): void {
   if (!ignored) return;
   for (const file of ignored) {
+    // A file inside a service folder names that folder: impl/Store/create.js
+    // is renamed in place, not moved up (which would make it the body of every
+    // service).
+    const folder = file.includes('/') ? file.slice(0, file.indexOf('/')) : null;
+    const target = folder ? 'impl/' + folder + '/<operation>.mjs' : 'impl/<operation>.mjs';
     diags.push(
       diag('W051', 'warning', 'impl/' + file, { ...mod.loc, line: 1, col: 1, endLine: 1, endCol: 1 }, 'impl.' + file,
         'impl/' + file + ' is not a .mjs body and is not bundled',
-        'rename it to impl/<operation>.mjs: the build reads only .mjs bodies'),
+        'rename it to ' + target + ': the build reads only .mjs bodies'),
     );
   }
 }

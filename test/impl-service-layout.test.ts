@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildExample, implDuplicatesFor, implIgnoredDirs, implScanFor } from '../src/build.ts';
+import { buildExample, implDuplicatesFor, implIgnoredDirs, implIgnoredFiles, implScanFor } from '../src/build.ts';
 import { check } from '../src/check.ts';
 import { parse } from '../src/parser.ts';
 import { main } from '../src/cli.ts';
@@ -133,4 +133,22 @@ test('arcod check reports A107 for a duplicate body', async () => {
   }
   const text = out.join('\n');
   assert.match(text, /impl\/Store\/create\.mjs:1:1 {2}error {2}A107 {2}operation create has two bodies/);
+});
+
+test('W051: a wrong extension inside a service folder is named with its folder', async () => {
+  const dir = await project();
+  try {
+    await mkdir(join(dir, 'impl', 'Store'), { recursive: true });
+    await writeFile(join(dir, 'impl', 'Store', 'create.js'), BODY);
+    await writeFile(join(dir, 'impl', 'create.mjs'), BODY);
+    assert.deepEqual(await implIgnoredFiles(dir, ['Store']), ['Store/create.js']);
+    const diags = check(parse(SPEC, 'main.arc'), { implIgnored: ['Store/create.js'] })
+      .filter((item) => item.code === 'W051');
+    assert.equal(diags.length, 1);
+    assert.equal(diags[0].file, 'impl/Store/create.js');
+    assert.match(diags[0].message, /impl\/Store\/create\.js is not a \.mjs body/);
+    assert.match(String(diags[0].hint), /impl\/Store\/<operation>\.mjs/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

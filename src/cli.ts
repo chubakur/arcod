@@ -437,7 +437,7 @@ async function runCheckPattern(flags: Flags, pattern: string): Promise<void> {
       continue;
     }
     const bodyServices = mod.services.filter((svc) => !svc.external).map((svc) => svc.name);
-    const diags = check(mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(dir), impl: await implBodiesFor(dir, bodyServices), implScanned: true, implIgnored: await implIgnoredFiles(dir), implIgnoredDirs: await implIgnoredDirs(dir, bodyServices), implDuplicates: await implDuplicatesFor(dir, bodyServices), implLib: await implLibFor(dir) });
+    const diags = check(mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(dir), impl: await implBodiesFor(dir, bodyServices), implScanned: true, implIgnored: await implIgnoredFiles(dir, bodyServices), implIgnoredDirs: await implIgnoredDirs(dir, bodyServices), implDuplicates: await implDuplicatesFor(dir, bodyServices), implLib: await implLibFor(dir) });
     if (diags.some((item) => item.severity === 'error')) failed++;
     if (flags.json) {
       // Same label as the human line: a pattern run mixes projects that all
@@ -464,7 +464,7 @@ async function runCheck(flags: Flags): Promise<void> {
   // The bodies are where an entity is named, so a typo there is checkable only
   // when check reads them; a project without impl simply has no such warning.
   const bodyServices = loaded.mod.services.filter((svc) => !svc.external).map((svc) => svc.name);
-  const diags = check(loaded.mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(loaded.dir), impl: await implBodiesFor(loaded.dir, bodyServices), implScanned: true, implIgnored: await implIgnoredFiles(loaded.dir), implIgnoredDirs: await implIgnoredDirs(loaded.dir, bodyServices), implDuplicates: await implDuplicatesFor(loaded.dir, bodyServices), implLib: await implLibFor(loaded.dir) });
+  const diags = check(loaded.mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(loaded.dir), impl: await implBodiesFor(loaded.dir, bodyServices), implScanned: true, implIgnored: await implIgnoredFiles(loaded.dir, bodyServices), implIgnoredDirs: await implIgnoredDirs(loaded.dir, bodyServices), implDuplicates: await implDuplicatesFor(loaded.dir, bodyServices), implLib: await implLibFor(loaded.dir) });
   if (flags.json) {
     console.log(JSON.stringify(diags, null, 2));
   } else {

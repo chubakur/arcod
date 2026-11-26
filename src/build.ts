@@ -155,14 +155,27 @@ export async function implDuplicatesFor(exampleDir: string, serviceNames: string
 // nothing named it, nothing warned, and the route answered 501 NotImplemented.
 // The check can only warn about files the caller lists, so the CLI asks for the
 // names the build skipped.
-export async function implIgnoredFiles(exampleDir: string): Promise<string[]> {
+export async function implIgnoredFiles(exampleDir: string, serviceNames: string[] = []): Promise<string[]> {
   const dir = await implDirFor(exampleDir);
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
   if (!entries) return [];
-  return entries
-    .filter((entry) => entry.isFile() && !entry.name.startsWith('.') && !entry.name.endsWith('.mjs'))
-    .map((entry) => entry.name)
-    .sort();
+  const found: string[] = [];
+  for (const entry of entries) {
+    if (entry.isFile() && !entry.name.startsWith('.') && !entry.name.endsWith('.mjs')) found.push(entry.name);
+  }
+  // A body folder is read now (B109), so a wrong extension inside it is just as
+  // invisible as a flat one: impl/Store/create.js was bundled by nobody. The
+  // file is reported with its folder, the same spelling the check prints.
+  const services = new Set(serviceNames);
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !services.has(entry.name)) continue;
+    const inner = await readdir(join(dir, entry.name), { withFileTypes: true }).catch(() => null);
+    if (!inner) continue;
+    for (const item of inner) {
+      if (item.isFile() && !item.name.startsWith('.') && !item.name.endsWith('.mjs')) found.push(entry.name + '/' + item.name);
+    }
+  }
+  return found.sort();
 }
 
 // readImpl reads impl/ one level deep, so a body filed under impl/ops/totals.mjs
