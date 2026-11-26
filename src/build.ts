@@ -23,6 +23,9 @@ export interface BuildOptions {
   // The sql dialect the emitted service speaks: mysql unless the deployment
   // targets postgres.
   dialect?: 'mysql' | 'postgres';
+  // The environment whose binds decide the dialect. Without it the local one
+  // decides; with it a prod build speaks what prod binds, not what dev does.
+  env?: string;
   implDir?: string | null;
   // impl/lib.mjs, when the caller already read it; null means the project has
   // none and the build should not look.
@@ -145,7 +148,7 @@ export class BuildError extends Error {}
 // shipped one died on start with "this build speaks mysql but DATABASE_URL uses
 // postgres://". An explicit --dialect still wins when the spec binds nothing;
 // when it disagrees with a bind the build refuses and names the bind.
-export function resolveDialect(mod: ModuleNode, explicit?: 'mysql' | 'postgres'): 'mysql' | 'postgres' {
+export function resolveDialect(mod: ModuleNode, explicit?: 'mysql' | 'postgres', env?: string): 'mysql' | 'postgres' {
   const sqlBinds = (environment: EnvironmentNode | undefined) => (environment?.binds ?? []).flatMap((bind) => {
     const spec = providerFor(bind.provider);
     if (!spec || spec.capability !== 'sql') return [];
@@ -155,8 +158,20 @@ export function resolveDialect(mod: ModuleNode, explicit?: 'mysql' | 'postgres')
   // One build produces one store, so the local environment — the one compose
   // and `arcod run` use — decides. A spec that only binds the database in
   // another environment still gets its dialect, as long as those agree.
-  let bound = sqlBinds(localEnvironment(mod));
-  if (bound.length === 0) {
+  let bound: Array<{ alias: string; provider: string; dialect: 'mysql' | 'postgres' }>;
+  if (env) {
+    const named = mod.environments.find((item) => item.name === env);
+    if (!named) {
+      const declared = mod.environments.map((item) => item.name);
+      throw new BuildError(
+        'unknown environment ' + env + (declared.length > 0 ? '; declared: ' + declared.join(', ') : '; the module declares no environments'),
+      );
+    }
+    bound = sqlBinds(named);
+  } else {
+    bound = sqlBinds(localEnvironment(mod));
+  }
+  if (bound.length === 0 && !env) {
     for (const env of mod.environments) {
       for (const item of sqlBinds(env)) {
         if (!bound.some((seen) => seen.dialect === item.dialect)) bound.push(item);
@@ -299,7 +314,7 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
   const reference = options.reference === true;
   // The store, the migrations and the compose provider all follow one dialect,
   // so they are resolved once, before anything is emitted.
-  const dialect = resolveDialect(mod, options.dialect);
+  const dialect = resolveDialect(mod, options.dialect, options.env);
   const impl =
     options.implDir === null ? undefined : await readImpl(options.implDir ?? (await implDirFor(exampleDir)));
   // options.implDir names the impl directory itself, not the project.
