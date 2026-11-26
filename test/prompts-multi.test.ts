@@ -124,13 +124,14 @@ test('prompts: a multi-service module files prompts per service and prunes a sta
   }
 });
 
-test('impl: a multi-service module is refused instead of overwriting a shared body', async () => {
+test('impl: a multi-service module plans one body per service folder', async () => {
   const root = await mkdtemp(join(tmpdir(), 'arcod-impl-multi-'));
   try {
-    await assert.rejects(
-      () => runImpl(parse(twoServices, 'main.arc'), root, { dryRun: true }),
-      /multi-service module needs per-service bodies/,
-    );
+    // The build reads impl/<service>/ now (B109), so the prompt's file path is
+    // the path impl writes: a shared ping is no longer one flat file.
+    const { results } = await runImpl(parse(twoServices, 'main.arc'), root, { dryRun: true });
+    const planned = results.map((item) => item.file.slice(root.length + 1).split('\\').join('/')).sort();
+    assert.deepEqual(planned, ['impl/Cache/get.mjs', 'impl/Store/create.mjs', 'impl/Store/read.mjs']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

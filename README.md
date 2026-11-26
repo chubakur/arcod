@@ -296,6 +296,13 @@ declares `export async function totals(input, io)`, and `check` reports the two
 ways that contract breaks (`W049` a file no operation is named after, `W050` an
 operation with no file) so a typo does not turn into a silent `501`.
 
+A module with several internal services files each body under its service:
+`impl/api/totals.mjs` belongs to `api`, and only a folder named after a
+generated service is read (`impl/ops/` stays an ignored directory, `W051`).
+Bodies are still keyed by operation name, so the same operation filed twice —
+a leftover flat `impl/totals.mjs` beside `impl/api/totals.mjs` — is refused by
+name (`A107`) instead of one file silently winning.
+
 ## Providers
 
 The model names a capability (`kv`, `sql`, `blob`…), the environment names a
@@ -1364,8 +1371,9 @@ A module with several internal services gets one prompt set per service:
 two services sharing an operation name cannot overwrite each other. One
 service keeps the flat `<op>.md` paths. The prompt names the body path it
 expects: `impl/<op>.mjs` for one service, `impl/<service>/<op>.mjs` for
-several. `arcod impl` refuses a multi-service module for now, because the
-build still reads a flat `impl/` tree and would ignore per-service bodies.
+several, and `arcod impl` writes the body where the prompt says — the build
+reads the per-service folders, so a multi-service module is generated like any
+other.
 
 A prompt is a function signature, not a service description:
 
@@ -1862,6 +1870,10 @@ Errors:
 - `A106` a flat `impl/*.mjs` sits in a module whose services mix languages: a
   flat file cannot say which service it belongs to, so one code per body asks
   for `impl/<service>/<op>.<ext>`.
+- `A107` one operation has two bodies (`impl/totals.mjs` and
+  `impl/api/totals.mjs`): bodies are keyed by operation name, so one of the two
+  would never run. The error names the operation and both files, and the build
+  refuses the pair before emitting anything.
 - `A094` a `kv` alias is bound to `redis` in a service that stores in sql:
   the runtime has one store, so the alias lives in the sql store's `arcod_kv`
   table. The bind started a container and exported `REDIS_URL` that no

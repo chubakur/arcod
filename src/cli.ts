@@ -5,7 +5,7 @@ import { probeDocker } from './docker.ts';
 import { parse, ParseError } from './parser.ts';
 import { check } from './check.ts';
 import { buildPlan, formatPlan, kebab } from './plan.ts';
-import { BuildError, buildExample, implBodiesFor, implIgnoredDirs, implIgnoredFiles, implLibFor, resolveDialect } from './build.ts';
+import { BuildError, buildExample, implBodiesFor, implDuplicatesFor, implIgnoredDirs, implIgnoredFiles, implLibFor, resolveDialect } from './build.ts';
 import { reachable, runExamples, type TestReport } from './test.ts';
 import type { Diagnostic } from './diagnostics.ts';
 import type { ModuleNode } from './ast.ts';
@@ -436,7 +436,8 @@ async function runCheckPattern(flags: Flags, pattern: string): Promise<void> {
       }
       continue;
     }
-    const diags = check(mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(dir), impl: await implBodiesFor(dir), implScanned: true, implIgnored: await implIgnoredFiles(dir), implIgnoredDirs: await implIgnoredDirs(dir), implLib: await implLibFor(dir) });
+    const bodyServices = mod.services.filter((svc) => !svc.external).map((svc) => svc.name);
+    const diags = check(mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(dir), impl: await implBodiesFor(dir, bodyServices), implScanned: true, implIgnored: await implIgnoredFiles(dir), implIgnoredDirs: await implIgnoredDirs(dir, bodyServices), implDuplicates: await implDuplicatesFor(dir, bodyServices), implLib: await implLibFor(dir) });
     if (diags.some((item) => item.severity === 'error')) failed++;
     if (flags.json) {
       // Same label as the human line: a pattern run mixes projects that all
@@ -462,7 +463,8 @@ async function runCheck(flags: Flags): Promise<void> {
   const loaded = await load(flags.spec);
   // The bodies are where an entity is named, so a typo there is checkable only
   // when check reads them; a project without impl simply has no such warning.
-  const diags = check(loaded.mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(loaded.dir), impl: await implBodiesFor(loaded.dir), implScanned: true, implIgnored: await implIgnoredFiles(loaded.dir), implIgnoredDirs: await implIgnoredDirs(loaded.dir), implLib: await implLibFor(loaded.dir) });
+  const bodyServices = loaded.mod.services.filter((svc) => !svc.external).map((svc) => svc.name);
+  const diags = check(loaded.mod, { environment: flags.env, strict: flags.strict, registry: loadRegistry(loaded.dir), impl: await implBodiesFor(loaded.dir, bodyServices), implScanned: true, implIgnored: await implIgnoredFiles(loaded.dir), implIgnoredDirs: await implIgnoredDirs(loaded.dir, bodyServices), implDuplicates: await implDuplicatesFor(loaded.dir, bodyServices), implLib: await implLibFor(loaded.dir) });
   if (flags.json) {
     console.log(JSON.stringify(diags, null, 2));
   } else {
@@ -947,7 +949,7 @@ async function runMigrate(flags: Flags): Promise<void> {
   // Tables come from the bodies, so a DTO (an ack, a receipt) never becomes one
   // even when a store effect sits on the operation returning it.
   const entities = entitiesFromBodies(
-    await implBodiesFor(loaded.dir),
+    await implBodiesFor(loaded.dir, loaded.mod.services.filter((svc) => !svc.external).map((svc) => svc.name)),
     loaded.mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name),
   );
   const plan = migrationPlan(loaded.mod, svc, { dialect: dialectNamed(resolveDialect(loaded.mod, dialectFlag(flags))), entities });

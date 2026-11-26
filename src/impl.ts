@@ -161,12 +161,11 @@ export async function runImpl(mod: ModuleNode, dir: string, partial: Partial<Imp
         'Pass --allow-remote if you really mean it.',
     );
   }
-  // A multi-service module needs one body per service (impl/<service>/<op>.mjs),
-  // and build/reference still read a flat impl/ tree. Refusing beats silently
-  // writing both services' ping into impl/ping.mjs.
-  if (mod.services.filter((svc) => !svc.external).length > 1) {
-    throw new Error('arcod impl: a multi-service module needs per-service bodies, and the build does not read impl/<service>/ yet');
-  }
+  // A module with several internal services files each body under its service
+  // (impl/<service>/<op>.mjs) and the build reads those folders (B109), so the
+  // prompts' file paths are written as they are. Two services that declare the
+  // same operation name would produce one file per service but one body key:
+  // the build refuses the pair by name (A107), so impl does not need to guess.
   const set = buildPrompts(mod);
   // Bodies live next to the spec so they can be committed and reviewed; the
   // cache keeps the model responses separately.

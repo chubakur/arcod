@@ -66,6 +66,9 @@ export interface CheckOptions {
   // Directories in impl/ that hold bodies the build never reads: readImpl is
   // one level deep, so impl/ops/totals.mjs is dead weight.
   implIgnoredDirs?: Array<{ name: string; bodies: number }>;
+  // The same operation filed twice (impl/totals.mjs and impl/api/totals.mjs):
+  // the body map is keyed by operation name, so one of them would never run.
+  implDuplicates?: Array<{ op: string; files: string[] }>;
   // impl/lib.mjs: shared helpers bundled once before the bodies, so its names
   // share the top-level namespace with every body.
   implLib?: string;
@@ -1792,6 +1795,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkMissingImplBodies(mod, diags, options.impl, options.implScanned);
   checkServiceLanguage(mod, diags);
   checkImplLanguage(mod, diags, options.impl);
+  checkDuplicateImplBodies(mod, diags, options.implDuplicates);
 
   return sortDiagnostics(diags);
 }
@@ -1952,6 +1956,22 @@ export function checkIgnoredImplBodies(mod: ModuleNode, diags: Diagnostic[], ign
       diag('W051', 'warning', 'impl/' + file, { ...mod.loc, line: 1, col: 1, endLine: 1, endCol: 1 }, 'impl.' + file,
         'impl/' + file + ' is not a .mjs body and is not bundled',
         'rename it to impl/<operation>.mjs: the build reads only .mjs bodies'),
+    );
+  }
+}
+
+// A body is keyed by its operation name, so two files for one operation cannot
+// both be bundled: the build refuses the pair, and check names it before a
+// build starts. Per-service folders make the pair easy to create by accident
+// (impl/api/totals.mjs plus a leftover impl/totals.mjs), so the file that would
+// be shadowed is named, not just the operation.
+export function checkDuplicateImplBodies(mod: ModuleNode, diags: Diagnostic[], duplicates: Array<{ op: string; files: string[] }> | undefined): void {
+  if (!duplicates) return;
+  for (const item of duplicates) {
+    diags.push(
+      diag('A107', 'error', item.files[0], { ...mod.loc, line: 1, col: 1, endLine: 1, endCol: 1 }, 'impl.' + item.op,
+        'operation ' + item.op + ' has two bodies: ' + item.files.join(' and '),
+        'keep one body per operation: the build keys bodies by operation name, so the second file would never run'),
     );
   }
 }

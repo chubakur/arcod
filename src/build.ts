@@ -70,10 +70,85 @@ async function implDirFor(exampleDir: string): Promise<string> {
   return entries ? primary : join(exampleDir, '.arcod', 'impl');
 }
 
+// A body of an operation, with the file the reader found it in.
+export interface ImplFile {
+  op: string;
+  file: string;
+  content: string;
+}
+
+// One operation, two bodies. The build keys bodies by operation name (that is
+// the name the emitter calls), so two files for the same operation cannot both
+// win: the scan reports them instead of picking one by directory order.
+export interface ImplDuplicate {
+  op: string;
+  files: string[];
+}
+
+export interface ImplScan {
+  bodies: Record<string, string> | undefined;
+  duplicates: ImplDuplicate[];
+}
+
+// Body layout (B109): one language in a module keeps the flat `impl/<op>.mjs`;
+// a module with several services files each body under its service, so
+// `impl/api/totals.mjs` and `impl/worker/totals.mjs` never look like the same
+// body. Only a directory named after a declared internal service is a body
+// folder: `impl/ops/` stays an ignored directory (W051), not a service.
+export async function scanImplFiles(dir: string, serviceNames: string[] = []): Promise<ImplFile[]> {
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
+  if (!entries) return [];
+  const files: ImplFile[] = [];
+  const read = async (name: string, file: string): Promise<void> => {
+    if (!name.endsWith('.mjs')) return;
+    const op = name.slice(0, -'.mjs'.length);
+    if (op === LIB_BODY) return;
+    files.push({ op, file, content: await readFile(join(dir, file), 'utf8') });
+  };
+  for (const entry of entries) {
+    if (entry.isFile()) await read(entry.name, entry.name);
+  }
+  const services = new Set(serviceNames);
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !services.has(entry.name)) continue;
+    const inner = await readdir(join(dir, entry.name), { withFileTypes: true }).catch(() => null);
+    if (!inner) continue;
+    for (const item of inner) {
+      if (item.isFile()) await read(item.name, entry.name + '/' + item.name);
+    }
+  }
+  return files;
+}
+
+function duplicatesIn(files: ImplFile[]): ImplDuplicate[] {
+  const placed = new Map<string, string[]>();
+  for (const item of files) {
+    placed.set(item.op, [...(placed.get(item.op) ?? []), 'impl/' + item.file]);
+  }
+  return [...placed]
+    .filter(([, found]) => found.length > 1)
+    .map(([op, found]) => ({ op, files: found.sort() }));
+}
+
+export async function implScanFor(exampleDir: string, serviceNames: string[] = []): Promise<ImplScan> {
+  const files = await scanImplFiles(await implDirFor(exampleDir), serviceNames);
+  const bodies: Record<string, string> = {};
+  for (const item of files) {
+    if (!(item.op in bodies)) bodies[item.op] = item.content;
+  }
+  return { bodies: Object.keys(bodies).length > 0 ? bodies : undefined, duplicates: duplicatesIn(files) };
+}
+
 // The bodies the build reads are also the evidence `arcod migrate` uses to
 // tell an entity from a DTO: both commands must name the same tables.
-export async function implBodiesFor(exampleDir: string): Promise<Record<string, string> | undefined> {
-  return readImpl(await implDirFor(exampleDir));
+export async function implBodiesFor(exampleDir: string, serviceNames: string[] = []): Promise<Record<string, string> | undefined> {
+  return (await implScanFor(exampleDir, serviceNames)).bodies;
+}
+
+// The same operation filed twice is a build error and a check error, so both
+// callers see the same evidence: the operation and both files.
+export async function implDuplicatesFor(exampleDir: string, serviceNames: string[] = []): Promise<ImplDuplicate[]> {
+  return (await implScanFor(exampleDir, serviceNames)).duplicates;
 }
 
 // readImpl bundles only *.mjs, so a body saved as impl/totals.js was invisible:
@@ -94,13 +169,16 @@ export async function implIgnoredFiles(exampleDir: string): Promise<string[]> {
 // (or a helper library in impl/lib/) was dropped without a word -- the same
 // silence W051 closes for a wrong extension. An empty directory is harmless, so
 // only a directory that actually holds .mjs files is worth naming.
-export async function implIgnoredDirs(exampleDir: string): Promise<Array<{ name: string; bodies: number }>> {
+export async function implIgnoredDirs(exampleDir: string, serviceNames: string[] = []): Promise<Array<{ name: string; bodies: number }>> {
   const dir = await implDirFor(exampleDir);
   const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
   if (!entries) return [];
+  // A folder named after a service is not ignored: scanImplFiles reads it
+  // (B109), so it must not be reported as dead weight.
+  const services = new Set(serviceNames);
   const found: Array<{ name: string; bodies: number }> = [];
   for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    if (!entry.isDirectory() || entry.name.startsWith('.') || services.has(entry.name)) continue;
     const inner = await readdir(join(dir, entry.name), { withFileTypes: true }).catch(() => null);
     if (!inner) continue;
     const bodies = inner.filter((item) => item.isFile() && !item.name.startsWith('.') && item.name.endsWith('.mjs')).length;
@@ -114,15 +192,11 @@ export async function implIgnoredDirs(exampleDir: string): Promise<Array<{ name:
 // read separately, so it never looks like an orphan body to W049.
 const LIB_BODY = 'lib';
 
-async function readImpl(dir: string): Promise<Record<string, string> | undefined> {
-  const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
-  if (!entries) return undefined;
+async function readImpl(dir: string, serviceNames: string[] = []): Promise<Record<string, string> | undefined> {
+  const files = await scanImplFiles(dir, serviceNames);
   const impl: Record<string, string> = {};
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.mjs')) continue;
-    const op = entry.name.slice(0, -'.mjs'.length);
-    if (op === LIB_BODY) continue;
-    impl[op] = await readFile(join(dir, entry.name), 'utf8');
+  for (const item of files) {
+    if (!(item.op in impl)) impl[item.op] = item.content;
   }
   return Object.keys(impl).length > 0 ? impl : undefined;
 }
@@ -315,8 +389,20 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
   // The store, the migrations and the compose provider all follow one dialect,
   // so they are resolved once, before anything is emitted.
   const dialect = resolveDialect(mod, options.dialect, options.env);
+  // Per-service body folders are read for declared internal services only.
+  const bodyServices = mod.services.filter((svc) => !svc.external).map((svc) => svc.name);
+  const implDir = options.implDir ?? (await implDirFor(exampleDir));
   const impl =
-    options.implDir === null ? undefined : await readImpl(options.implDir ?? (await implDirFor(exampleDir)));
+    options.implDir === null ? undefined : await readImpl(implDir, bodyServices);
+  // One operation, two bodies: the emitter keys bodies by operation name, so
+  // choosing one by directory order would run a body nobody asked for. The
+  // check names the same pair before a build starts (A107).
+  if (options.implDir !== null) {
+    const duplicates = duplicatesIn(await scanImplFiles(implDir, bodyServices));
+    if (duplicates.length > 0) {
+      throw new BuildError('operation ' + duplicates[0].op + ' has two bodies: ' + duplicates[0].files.join(' and '));
+    }
+  }
   // options.implDir names the impl directory itself, not the project.
   const implLib = options.implLib === null
     ? undefined
