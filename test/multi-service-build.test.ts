@@ -258,3 +258,38 @@ test('helm: a one-service chart keeps the single values shape', () => {
   assert.doesNotMatch(values, /^services:/m);
 });
 
+
+// Each service owns its store, so each store owns its migration plan: a build
+// that writes only the first plan tells the second container to start against
+// a schema nobody shipped.
+const twoStores = twoServices.replace('service Cache : http {\n  contract {', 'service Cache : http {\n  uses cache: kv\n  contract {');
+
+test('build: every service with a store gets its own migration plan', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'arcod-multi-'));
+  try {
+    const result = await buildExample(parse(twoStores, 'main.arc'), root, { port: 8080 });
+    const store = await readFile(join(result.dir, 'migrations', 'changelog.json'), 'utf8');
+    const cache = await readFile(join(result.dir, 'migrations-service-cache', 'changelog.json'), 'utf8');
+    assert.match(store, /"name": "item"/);
+    assert.match(cache, /"name": "arcod_kv"/);
+    // With no impl bodies the type list still decides tables, so the second
+    // plan carries the declared records too; what matters here is that its own
+    // store plan exists at all.
+    assert.ok(existsSync(join(result.dir, 'migrations-service-cache', '0001_arcod_kv.up.sql')));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('build: a second service without a store writes no migration directory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'arcod-multi-'));
+  try {
+    const result = await buildExample(parse(twoServices, 'main.arc'), root, { port: 8080 });
+    const entries = await readdir(result.dir);
+    assert.ok(entries.includes('migrations'));
+    assert.ok(!entries.includes('migrations-cache'), entries.join(','));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+

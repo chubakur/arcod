@@ -392,21 +392,24 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
   // applies it on boot, so the .sql artifact beside it is written from the same
   // call: a rebuild cannot leave a stale copy behind and the two cannot
   // disagree. The entity set is the one the bodies prove, so a DTO stays a DTO.
-  const svcNode = pickService(mod);
-  if (svcNode) {
-    const declaredRecords = mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name);
-    const plan = migrationPlan(mod, svcNode, {
-      dialect: dialectNamed(dialect),
-      entities: entitiesFromBodies(impl, declaredRecords),
-    });
-    if (plan.migrations.length > 0) {
-      const migrationDir = join(dir, 'migrations');
-      await mkdir(migrationDir, { recursive: true });
-      files.push([join(migrationDir, 'changelog.json'), JSON.stringify(plan.migrations, null, 2)]);
-      for (const migration of plan.migrations) {
-        files.push([join(migrationDir, migration.version + '_' + migration.name + '.up.sql'), migration.up]);
-        files.push([join(migrationDir, migration.version + '_' + migration.name + '.down.sql'), migration.down]);
-      }
+  // Migrations travel with the build. The service embeds the same plan and
+  // applies it on boot, so the .sql artifact beside it is written from the same
+  // call: a rebuild cannot leave a stale copy behind and the two cannot
+  // disagree. The entity set is the one the bodies prove, so a DTO stays a DTO.
+  // A module may declare several services, each with its own store: the first
+  // keeps the historical migrations/ directory, a later one gets
+  // migrations-<key>/ beside it, the same key its build context uses.
+  const declaredRecords = mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name);
+  const entities = entitiesFromBodies(impl, declaredRecords);
+  for (const [index, svcNode] of mod.services.filter((svc) => !svc.external).entries()) {
+    const plan = migrationPlan(mod, svcNode, { dialect: dialectNamed(dialect), entities });
+    if (plan.migrations.length === 0) continue;
+    const migrationDir = join(dir, index === 0 ? 'migrations' : 'migrations-service-' + kebab(svcNode.name));
+    await mkdir(migrationDir, { recursive: true });
+    files.push([join(migrationDir, 'changelog.json'), JSON.stringify(plan.migrations, null, 2)]);
+    for (const migration of plan.migrations) {
+      files.push([join(migrationDir, migration.version + '_' + migration.name + '.up.sql'), migration.up]);
+      files.push([join(migrationDir, migration.version + '_' + migration.name + '.down.sql'), migration.down]);
     }
   }
 

@@ -1469,8 +1469,9 @@ Routes, TTL, limits and infrastructure are identical.
 - `.arcod/build/migrations/` — the plan the service applies on boot, written
   from the same call as the embedded copy: `changelog.json` plus
   `NNNN_<table>.up.sql` / `.down.sql`; a rebuild replaces the directory, so it
-  cannot carry SQL from an older schema; a scaffold build has no bodies to
-  read, so there every record type is a table — the same rule `arcod migrate`
+  cannot carry SQL from an older schema; a second internal service keeps its
+  own plan in `migrations-service-<name>/` next to it; a scaffold build has no
+  bodies to read, so there every record type is a table — the same rule `arcod migrate`
   applies without evidence;
 - `.arcod/build/prompts/` — one prompt per operation and a `manifest.json` with
   the model hash and token budget;
