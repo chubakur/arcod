@@ -13,7 +13,7 @@ import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
 import { baseType, entitiesFromBodies, fieldDefault, migrationPlan, recordColumns, type Column, type DefaultValue } from '../migrate.ts';
 import { boundsOf, constraintTable, lengthBoundsOf } from '../constraints.ts';
-import { inputKinds as contractInputKinds, parseRoute } from './contract.ts';
+import { inputKinds as contractInputKinds, parseRoute, successStatus } from './contract.ts';
 import type { ProviderRegistry } from '../registry.ts';
 
 export interface EmitOptions {
@@ -3030,15 +3030,11 @@ function implHandlers(
   for (const op of ops) {
     const cap = op.name.charAt(0).toUpperCase() + op.name.slice(1);
     const names = op.params.map((param) => param.name);
-    const route = op.clauses.find((clause) => clause.kind === 'route');
-    const method = route && route.kind === 'route' ? route.value.split(' ')[0].toUpperCase() : 'GET';
-    // A HEAD answer mirrors GET: 200, and Node drops the body. A declared
-    // `status` wins: an idempotent POST action creates nothing and the 201
-    // write code made the client read a new resource.
-    const declaredStatus = op.clauses.find((clause) => clause.kind === 'status');
-    const status = declaredStatus && declaredStatus.kind === 'status'
-      ? declaredStatus.value
-      : method === 'GET' || method === 'HEAD' ? 200 : 201;
+    // The success status is the contract's, not this emitter's: OpenAPI
+    // published 200 for DELETE while the handler answered 201, so a client that
+    // trusted the document saw a created resource on a delete. A HEAD answer
+    // mirrors GET; a declared `status` wins.
+    const status = successStatus(op);
     parts.push(
       // The runtime owns handleRequest, and a spec may name an operation
       // anything: a bare 'handle' + Op would collide for `op request` and the

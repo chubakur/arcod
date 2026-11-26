@@ -7,7 +7,8 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { contractOps, inputKinds, parseRoute } from '../src/emit/contract.ts';
+import { contractOps, inputKinds, parseRoute, successStatus } from '../src/emit/contract.ts';
+import { emitOpenapi } from '../src/emit/openapi.ts';
 import { parse } from '../src/parser.ts';
 import { buildExample } from '../src/build.ts';
 
@@ -83,6 +84,48 @@ test('the Node emitter publishes the IR its table describes', async () => {
       assert.match(emitted, new RegExp('"' + op + '": \\{[^}]*"' + Object.keys(kinds)[0] + '"'));
     }
     assert.deepEqual(expected, { create: { count: 'int', done: 'bool' } });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+const DELETE_SPEC = `module del @0.1.0 {}
+
+service Api : http {
+  uses db: kv
+  contract {
+    public op remove(id: string) -> string {
+      route: "DELETE /v1/items/:id"
+      effects: db.set
+    }
+  }
+}
+
+environment dev {
+  bind db -> mysql
+}
+`;
+
+test('successStatus: a read is 200, a write or delete 201, a declared status wins', () => {
+  const mod = parse(SPEC, 'main.arc');
+  const remove = parse(DELETE_SPEC, 'del.arc').services[0].contract[0];
+  assert.equal(successStatus(remove), 201);
+  assert.equal(successStatus(mod.services[0].contract[0]), 201);
+  const declared = parse('module d @0.1.0 {}\n\nservice Api : http {\n  contract {\n    public op cancel() -> string {\n      route: "POST /v1/cancel"\n      status: 202\n    }\n  }\n}\n', 'd.arc');
+  assert.equal(successStatus(declared.services[0].contract[0]), 202);
+});
+
+test('the runtime and OpenAPI answer a DELETE with the same status', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-ir-del-'));
+  try {
+    await mkdir(join(dir, 'impl'), { recursive: true });
+    await writeFile(join(dir, 'impl', 'remove.mjs'), 'export async function remove(input, io) {\n  return "ok";\n}\n');
+    const mod = parse(DELETE_SPEC, 'del.arc');
+    const result = await buildExample(mod, dir, { port: 8080 });
+    const emitted = await readFile(join(result.dir, 'service', 'index.mjs'), 'utf8');
+    assert.match(emitted, /callImpl\(req, res, params, implRemove, \['id'\], 201, 'remove'\)/);
+    const openapi = emitOpenapi(mod) as { paths: Record<string, { delete: { responses: Record<string, unknown> } }> };
+    assert.deepEqual(Object.keys(openapi.paths['/v1/items/{id}'].delete.responses), ['201']);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

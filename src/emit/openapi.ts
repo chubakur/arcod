@@ -14,7 +14,7 @@ import type {
   TypeExpr,
 } from '../ast.ts';
 import { accessNotes, pickService, routeOf, statusForError } from './service.ts';
-import { parseRoute } from './contract.ts';
+import { parseRoute, successStatus as contractSuccessStatus } from './contract.ts';
 import { baseType } from '../migrate.ts';
 import { canonicalInstant } from '../instant.ts';
 
@@ -341,12 +341,9 @@ function operationFor(mod: ModuleNode, svc: ServiceNode, op: OpNode): Record<str
   const route = routeInfo(op);
 
   const responses: Record<string, unknown> = {};
-  // A read is 200; a write (POST/PUT/PATCH) is 201 in the generated runtime,
-  // unless the operation declares its own success status.
-  const declared = op.clauses.find((clause) => clause.kind === 'status');
-  const successStatus = declared && declared.kind === 'status'
-    ? String(declared.value)
-    : route.method === 'GET' || route.method === 'DELETE' || route.method === 'HEAD' ? '200' : '201';
+  // Published from the same rule the runtime answers with (contract IR): a
+  // declared status wins, a read/delete is 200 and a write is 201.
+  const successStatus = String(contractSuccessStatus(op));
   const success: Record<string, unknown> = { description: 'ok' };
   if (op.returns && !(op.returns.kind === 'named' && (op.returns.name === 'void' || op.returns.name === 'null'))) {
     const schema = schemaFor(mod, op.returns);

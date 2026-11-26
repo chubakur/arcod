@@ -42,6 +42,20 @@ export function inputKinds(mod: ModuleNode, op: OpNode): Record<string, string> 
   return table;
 }
 
+// The answer a successful call gets. A declared `status` wins (an idempotent
+// POST action creates nothing); otherwise a read is 200 and a write is 201.
+// The runtime and OpenAPI used two different tables — DELETE was 200 in the
+// document and 201 in the response, and the response is what the examples and
+// the emitted handlers were built around — so the rule lives here now and both
+// callers read it.
+export function successStatus(op: OpNode): number {
+  const declared = op.clauses.find((clause) => clause.kind === 'status');
+  if (declared && declared.kind === 'status') return declared.value;
+  const route = parseRoute(op);
+  const method = route ? route.method : 'GET';
+  return method === 'GET' || method === 'HEAD' ? 200 : 201;
+}
+
 export interface ContractOp {
   name: string;
   route: RouteParts | null;
