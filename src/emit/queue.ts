@@ -303,7 +303,11 @@ async function runConsumer(spec) {
     } catch {
       // The topic name and a fixed phrase only: the raw message is user data.
       console.error('[arcod] queue ' + spec.topic + ': unreadable message, moved to dead letter');
-      await queueDriver.toDead(spec.topic, JSON.stringify({ payload: null, attempts: 0, lastError: 'unreadable message' }));
+      try {
+        await queueDriver.toDead(spec.topic, JSON.stringify({ payload: null, attempts: 0, lastError: 'unreadable message' }));
+      } catch (storeError) {
+        console.error('[arcod] queue ' + spec.topic + ': could not record an unreadable message: ' + String((storeError && storeError.message) || storeError));
+      }
       continue;
     }
     try {
@@ -319,17 +323,23 @@ async function runConsumer(spec) {
       const attempts = Number(envelope.attempts || 0) + 1;
       const maxAttempts = spec.retry + 1;
       const lastError = String((error && error.message) || error);
-      if (attempts > spec.retry) {
-        // One line, no payload: the reason a job disappeared is in the service log.
-        console.error('[arcod] queue ' + spec.topic + ': attempt ' + attempts + '/' + maxAttempts + ' failed: ' + lastError + ', moved to dead letter');
-        await queueDriver.toDead(spec.topic, JSON.stringify({
-          payload: envelope.payload,
-          attempts,
-          lastError,
-        }));
-      } else {
-        console.warn('[arcod] queue ' + spec.topic + ': attempt ' + attempts + '/' + maxAttempts + ' failed: ' + lastError + ', requeued');
-        await queueDriver.requeue(spec.topic, JSON.stringify({ payload: envelope.payload, attempts }));
+      try {
+        if (attempts > spec.retry) {
+          // One line, no payload: the reason a job disappeared is in the service log.
+          console.error('[arcod] queue ' + spec.topic + ': attempt ' + attempts + '/' + maxAttempts + ' failed: ' + lastError + ', moved to dead letter');
+          await queueDriver.toDead(spec.topic, JSON.stringify({
+            payload: envelope.payload,
+            attempts,
+            lastError,
+          }));
+        } else {
+          console.warn('[arcod] queue ' + spec.topic + ': attempt ' + attempts + '/' + maxAttempts + ' failed: ' + lastError + ', requeued');
+          await queueDriver.requeue(spec.topic, JSON.stringify({ payload: envelope.payload, attempts }));
+        }
+      } catch (storeError) {
+        // The broker is down at the worst moment: the attempt could not be
+        // recorded, but the service must keep consuming once it is back.
+        console.error('[arcod] queue ' + spec.topic + ': could not record a failed attempt: ' + String((storeError && storeError.message) || storeError));
       }
     }
   }

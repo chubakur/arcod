@@ -224,6 +224,43 @@ test('a failing receive keeps the consumer alive and logs the outage once', asyn
   assert.match(log[1][1], /recovered after 2 failed attempt/);
 });
 
+// The broker can die between the failed attempt and the requeue. That throw
+// used to end the consumer loop too.
+test('a failing requeue does not end the consumer', async () => {
+  const log: Array<[string, string]> = [];
+  const fakeConsole = {
+    warn: (line: string) => log.push(['warn', line]),
+    error: (line: string) => log.push(['error', line]),
+  };
+  let calls = 0;
+  const queueDriver = {
+    async receive() {
+      calls += 1;
+      if (calls > 1) return null;
+      return JSON.stringify({ payload: { reportId: 'x' }, attempts: 0 });
+    },
+    async requeue() { throw new Error('broker down'); },
+    async toDead() {},
+  };
+  const src = consumerSource([{ topic: 'jobs', handler: 'process', params: ['reportId'], retry: 1 }]);
+  const factory = new Function('queueDriver', 'makeIo', 'setTimeout', 'QUEUE_POLL_MS', 'process', 'console',
+    src + '\nreturn { runConsumer, stop() { consumersStopped = true; } };');
+  const fn = async () => { throw new Error('work failed'); };
+  const loaded = factory(queueDriver, () => ({}), setTimeout, 1, fn, fakeConsole) as {
+    runConsumer: (spec: unknown) => Promise<void>;
+    stop: () => void;
+  };
+  const run = loaded.runConsumer({ topic: 'jobs', fn, params: ['reportId'], retry: 1 });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  loaded.stop();
+  await run;
+  assert.ok(calls >= 2, 'consumer stopped after a failed requeue');
+  assert.deepEqual(log.map((entry) => entry[0]), ['warn', 'error']);
+  assert.match(log[1][1], /jobs/);
+  assert.match(log[1][1], /could not record a failed attempt/);
+  assert.match(log[1][1], /broker down/);
+});
+
 test('an unreadable message logs one error line without the raw payload', async () => {
   const log: Array<[string, string]> = [];
   const fakeConsole = {
