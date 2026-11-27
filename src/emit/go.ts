@@ -21,9 +21,8 @@ export function goUnsupported(mod: ModuleNode, svc: ServiceNode): string[] {
       continue;
     }
     if (capability === 'stream') names.push('stream');
-    // queue is carried (B107.5b): arcodio/queue.go publishes. The consumer
-    // side is a job op, which is refused below by name, so a queue here is
-    // always publish-only.
+    // queue is carried whole (B107.5b publishes, B111.2 consumes): a job op
+    // runs in the consumer loop of main.go.
     if (capability === 'graphql') names.push('graphql');
     if (capability === 'olap') names.push('olap');
     if (capability === 'mail' || use.alias === 'mail') names.push('mail');
@@ -32,23 +31,65 @@ export function goUnsupported(mod: ModuleNode, svc: ServiceNode): string[] {
   if (mod.uis.length > 0) names.push('ui page');
   if (svc.roles.length > 0) names.push('roles');
   if (svc.sagas.length > 0) names.push('saga');
-  if (svc.contract.some((op) => op.kind === 'job')) names.push('job');
+  // A job body is a plain function of one message, so the consumer loop runs
+  // it (B111.2). A job that drives a saga instead of a body is still refused:
+  // the Go kit carries no saga runner, and a loop that dropped such a message
+  // would lose the work silently.
+  for (const op of svc.contract) {
+    if (op.kind !== 'job') continue;
+    if ((op.clauses ?? []).some((clause) => clause.kind === 'saga')) names.push('saga job ' + op.name);
+  }
   if (svc.contract.some((op) => op.auth)) names.push('auth');
   return [...new Set(names)];
 }
 
-// A queue-bound Go service gets the publish half of the queue in its own
-// file (arcodio/queue.go). Consumers are job operations, which goUnsupported
-// refuses by name, so a queue here is always publish-only.
+// A queue-bound Go service gets the queue half in its own file
+// (arcodio/queue.go): publishing from a body, and the receive/requeue/dead
+// calls the consumer loop makes. A service that only declares a job consumes
+// a queue without naming the capability, so the jobs count too.
 export function goQueueBound(svc: ServiceNode): boolean {
+  if (goJobs(svc).length > 0) return true;
   return svc.uses.some(
     (use) => use.capability.replace(/^arcod\.std\./, '') === 'queue' || use.alias === 'queue',
   );
 }
 
+// One consumer per queue-backed job. The topic, the parameters and the retry
+// budget come from the contract, so a Node and a Go service on the same spec
+// consume identically; only the loop around them differs.
+export interface GoJob {
+  name: string;
+  topic: string;
+  params: string[];
+  retry: number;
+}
+
+export function goJobs(svc: ServiceNode): GoJob[] {
+  const jobs: GoJob[] = [];
+  for (const op of svc.contract) {
+    if (op.kind !== 'job') continue;
+    const consume = op.clauses.find((clause) => clause.kind === 'consume');
+    if (!consume || consume.kind !== 'consume') continue;
+    const retry = op.clauses.find((clause) => clause.kind === 'retry');
+    jobs.push({
+      name: op.name,
+      // 'queue.orders.created' is alias plus topic; the wire key carries the
+      // topic alone, as in the Node runtime.
+      topic: consume.source.split('.').slice(1).join('.'),
+      params: op.params.map((param) => param.name),
+      retry: retry && retry.kind === 'retry' ? retry.value : 3,
+    });
+  }
+  return jobs;
+}
+
 function goString(value: string): string {
   return JSON.stringify(value);
 }
+
+// A Go struct tag is a backtick string, and a backtick inside this file's
+// template-literal source would close it: build the character instead.
+const backtick = String.fromCharCode(96);
 
 function pascal(name: string): string {
   return name
@@ -60,6 +101,11 @@ function pascal(name: string): string {
 
 function handlerName(name: string): string {
   return 'handle' + pascal(name);
+}
+
+// The parameter names of a job, as a Go slice literal.
+function paramsLiteral(params: string[]): string {
+  return '[]string{' + params.map(goString).join(', ') + '}';
 }
 
 // Two routes that differ only in the name of their capture — '/v1/items/:id'
@@ -122,6 +168,7 @@ function statusLiteral(op: ContractOp, svc: ServiceNode): string {
 
 export function goMain(mod: ModuleNode, svc: ServiceNode): string {
   const ops = contractOps(mod, svc.contract).filter((op) => op.route !== null);
+  const jobs = goJobs(svc);
   const errors = errorsIn(svc);
   const lines: string[] = [];
   lines.push('// Code generated from ' + mod.file + ' by arcod. DO NOT EDIT.');
@@ -138,6 +185,7 @@ export function goMain(mod: ModuleNode, svc: ServiceNode): string {
   lines.push('\t"net/http"');
   lines.push('\t"os"');
   lines.push('\t"strconv"');
+  if (jobs.length > 0) lines.push('\t"time"');
   lines.push('');
   lines.push('\tarcodio ' + goString(goModulePath(svc) + '/arcodio'));
   lines.push(')');
@@ -168,6 +216,11 @@ export function goMain(mod: ModuleNode, svc: ServiceNode): string {
   for (const op of ops) {
     lines.push('\tmux.HandleFunc(' + goString(op.route!.method + ' ' + goPattern(op.route!.path)) + ', ' + handlerName(op.name) + ')');
   }
+  for (const job of jobs) {
+    lines.push('\t// The consumer starts with the service: a message that arrived while');
+    lines.push('\t// the process was down waits in the topic, not in memory.');
+    lines.push('\tgo consume' + pascal(job.name) + '(arc)');
+  }
   lines.push('\tlog.Printf("arcod go service %s listening on %s", ' + goString(svc.name) + ', addr())');
   lines.push('\tlog.Fatal(http.ListenAndServe(addr(), mux))');
   lines.push('}');
@@ -183,6 +236,138 @@ export function goMain(mod: ModuleNode, svc: ServiceNode): string {
   lines.push('func health(w http.ResponseWriter, r *http.Request) {');
   lines.push('\twriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "service": ' + goString(svc.name) + '})');
   lines.push('}');
+  // Jobs (B111.2): a consumer per job operation, started with the service.
+  // The loop is runtime code, not body code: a body stays a plain function of
+  // one message, and retry/dead-letter rules live in one place per language.
+  if (jobs.length > 0) {
+    lines.push('');
+    lines.push('// queuePoll paces an empty topic. The Node runtime polls every 100ms,');
+    lines.push('// and a blocking read would hold the one store connection hostage for');
+    lines.push('// the whole wait, so the loop sleeps instead.');
+    lines.push('const queuePoll = 100 * time.Millisecond');
+  }
+  for (const job of jobs) {
+    const name = pascal(job.name);
+    lines.push('');
+    lines.push('// consume' + name + ' runs job ' + job.name + ' off queue ' + job.topic + '.');
+    lines.push('// One message at a time: a body that fails is retried with backoff and');
+    lines.push('// then written to the dead letter, as the Node runtime does on the same');
+    lines.push('// wire, so either language can drain a topic the other published to.');
+    lines.push('func consume' + name + '(arc *arcodio.IO) {');
+    lines.push('\tconst topic = ' + goString(job.topic));
+    lines.push('\tconst retry = ' + job.retry);
+    lines.push('\tfor {');
+    lines.push('\t\traw, ok, err := arc.QueueReceive(topic)');
+    lines.push('\t\tif err != nil {');
+    lines.push('\t\t\tlog.Printf("queue %s: receive failed: %v, retrying", topic, err)');
+    lines.push('\t\t\ttime.Sleep(queuePoll)');
+    lines.push('\t\t\tcontinue');
+    lines.push('\t\t}');
+    lines.push('\t\tif !ok {');
+    lines.push('\t\t\ttime.Sleep(queuePoll)');
+    lines.push('\t\t\tcontinue');
+    lines.push('\t\t}');
+    lines.push('\t\tvar envelope struct {');
+    lines.push('\t\t\tPayload  any ' + backtick + 'json:"payload"' + backtick);
+    lines.push('\t\t\tAttempts int ' + backtick + 'json:"attempts"' + backtick);
+    lines.push('\t\t}');
+    lines.push('\t\tif err := json.Unmarshal([]byte(raw), &envelope); err != nil {');
+    lines.push('\t\t\t// The topic and a fixed phrase only: the raw message is user data.');
+    lines.push('\t\t\tlog.Printf("queue %s: unreadable message, moved to dead letter", topic)');
+    lines.push('\t\t\tif err := arc.QueueDead(topic, ' + backtick + '{"payload":null,"attempts":0,"lastError":"unreadable message"}' + backtick + '); err != nil {');
+    lines.push('\t\t\t\tlog.Printf("queue %s: could not record an unreadable message: %v", topic, err)');
+    lines.push('\t\t\t}');
+    lines.push('\t\t\tcontinue');
+    lines.push('\t\t}');
+    lines.push('\t\tout, err := op' + name + '(arc, jobInput(' + paramsLiteral(job.params) + ', envelope.Payload))');
+    if (job.params.length > 0) {
+      // A job with input that returns nothing did nothing: the body fell
+      // through. Acking it would lose the work, so it counts as a failure.
+      lines.push('\t\tif err == nil && out == nil {');
+      lines.push('\t\t\terr = errors.New("consumer returned no result for its input")');
+      lines.push('\t\t}');
+    }
+    lines.push('\t\tif err == nil {');
+    lines.push('\t\t\tcontinue');
+    lines.push('\t\t}');
+    lines.push('\t\tattempts := envelope.Attempts + 1');
+    lines.push('\t\tlastError := describeError(err)');
+    lines.push('\t\tif attempts > retry {');
+    lines.push('\t\t\t// One line, no payload: the reason a job disappeared is the log.');
+    lines.push('\t\t\tlog.Printf("queue %s: attempt %d/%d failed: %s, moved to dead letter", topic, attempts, retry+1, lastError)');
+    lines.push('\t\t\tentry, _ := json.Marshal(map[string]any{"payload": envelope.Payload, "attempts": attempts, "lastError": lastError})');
+    lines.push('\t\t\tif err := arc.QueueDead(topic, string(entry)); err != nil {');
+    lines.push('\t\t\t\tlog.Printf("queue %s: could not record a failed attempt: %v", topic, err)');
+    lines.push('\t\t\t}');
+    lines.push('\t\t\tcontinue');
+    lines.push('\t\t}');
+    lines.push('\t\tdelay := retryDelay(attempts)');
+    lines.push('\t\tlog.Printf("queue %s: attempt %d/%d failed: %s, requeued in %s", topic, attempts, retry+1, lastError, delay)');
+    lines.push('\t\ttime.Sleep(delay)');
+    lines.push('\t\tentry, _ := json.Marshal(map[string]any{"payload": envelope.Payload, "attempts": attempts})');
+    lines.push('\t\tif err := arc.QueueRequeue(topic, string(entry)); err != nil {');
+    lines.push('\t\t\tlog.Printf("queue %s: could not record a failed attempt: %v", topic, err)');
+    lines.push('\t\t}');
+    lines.push('\t}');
+    lines.push('}');
+  }
+  if (jobs.length > 0) {
+    lines.push('');
+    lines.push('// jobInput maps a payload onto the parameters a job declares, as the');
+    lines.push('// Node runtime does: one parameter takes the field of that name, or the');
+    lines.push('// whole payload when the payload has no such field; several parameters');
+    lines.push('// take their own fields and nil where the publisher sent nothing.');
+    lines.push('func jobInput(params []string, payload any) map[string]any {');
+    lines.push('\tin := map[string]any{}');
+    lines.push('\tif len(params) == 0 {');
+    lines.push('\t\treturn in');
+    lines.push('\t}');
+    lines.push('\tobject, isObject := payload.(map[string]any)');
+    lines.push('\tif len(params) == 1 {');
+    lines.push('\t\tif isObject {');
+    lines.push('\t\t\tif value, ok := object[params[0]]; ok {');
+    lines.push('\t\t\t\tin[params[0]] = value');
+    lines.push('\t\t\t\treturn in');
+    lines.push('\t\t\t}');
+    lines.push('\t\t}');
+    lines.push('\t\tin[params[0]] = payload');
+    lines.push('\t\treturn in');
+    lines.push('\t}');
+    lines.push('\tfor _, name := range params {');
+    lines.push('\t\tif isObject {');
+    lines.push('\t\t\tif value, ok := object[name]; ok {');
+    lines.push('\t\t\t\tin[name] = value');
+    lines.push('\t\t\t\tcontinue');
+    lines.push('\t\t\t}');
+    lines.push('\t\t}');
+    lines.push('\t\tin[name] = nil');
+    lines.push('\t}');
+    lines.push('\treturn in');
+    lines.push('}');
+    lines.push('');
+    lines.push('// retryDelay is the Node runtime backoff: 250ms, 500ms, 1s, capped at');
+    lines.push('// 30s, so a broken downstream does not burn the budget in milliseconds.');
+    lines.push('func retryDelay(attempts int) time.Duration {');
+    lines.push('\tdelay := 250 * time.Millisecond');
+    lines.push('\tfor attempt := 1; attempt < attempts && delay < 30*time.Second; attempt++ {');
+    lines.push('\t\tdelay *= 2');
+    lines.push('\t}');
+    lines.push('\tif delay > 30*time.Second {');
+    lines.push('\t\treturn 30 * time.Second');
+    lines.push('\t}');
+    lines.push('\treturn delay');
+    lines.push('}');
+    lines.push('');
+    lines.push('// describeError names a failure for the log and the dead letter: a');
+    lines.push('// declared error carries its message, anything else its own text.');
+    lines.push('func describeError(err error) string {');
+    lines.push('\tvar declared *OpError');
+    lines.push('\tif errors.As(err, &declared) {');
+    lines.push('\t\treturn declared.Message');
+    lines.push('\t}');
+    lines.push('\treturn err.Error()');
+    lines.push('}');
+  }
   for (const op of ops) {
     lines.push('');
     lines.push('func ' + handlerName(op.name) + '(w http.ResponseWriter, r *http.Request) {');
@@ -321,16 +506,24 @@ const BODY_IMPORTS: Array<[string, string]> = [
   ['time', 'time'],
 ];
 
-function bodyImports(ops: ContractOp[], bodies: Record<string, string>): string[] {
-  const text = ops.map((op) => bodies[op.name] ?? '').join('\n');
+function bodyImports(names: string[], bodies: Record<string, string>): string[] {
+  const text = names.map((name) => bodies[name] ?? '').join('\n');
   return BODY_IMPORTS.filter(([, ident]) => new RegExp('(^|[^A-Za-z0-9_.])' + ident + '\\.').test(text)).map(
     ([path]) => path,
   );
 }
 
 export function goOps(mod: ModuleNode, svc: ServiceNode, bodies: Record<string, string> = {}): string {
-  const ops = contractOps(mod, svc.contract).filter((op) => op.route !== null);
-  const stdlib = bodyImports(ops, bodies);
+  // Job bodies live in the same file as the http ones: a body is a function of
+  // one message either way, and splitting them would make impl/ layout depend
+  // on the operation kind.
+  const entries = [
+    ...contractOps(mod, svc.contract)
+      .filter((op) => op.route !== null)
+      .map((op) => ({ name: op.name, comment: 'implements ' + op.route!.method + ' ' + op.route!.path })),
+    ...goJobs(svc).map((job) => ({ name: job.name, comment: 'implements job ' + job.name + ' off queue ' + job.topic })),
+  ];
+  const stdlib = bodyImports(entries.map((entry) => entry.name), bodies);
   const lines: string[] = [];
   lines.push('// Operation bodies for ' + svc.name + '. Bodies come from impl/*.go;');
   lines.push('// the rest are stubs. Keep the signature and never edit main.go.');
@@ -345,9 +538,9 @@ export function goOps(mod: ModuleNode, svc: ServiceNode, bodies: Record<string, 
   } else {
     lines.push('import arcodio ' + goString(goModulePath(svc) + '/arcodio'));
   }
-  for (const op of ops) {
+  for (const op of entries) {
     lines.push('');
-    lines.push('// op' + pascal(op.name) + ' implements ' + op.route!.method + ' ' + op.route!.path + '.');
+    lines.push('// op' + pascal(op.name) + ' ' + op.comment + '.');
     const body = bodies[op.name];
     if (body !== undefined) {
       lines.push(body.trimEnd());

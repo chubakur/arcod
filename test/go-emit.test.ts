@@ -114,8 +114,8 @@ test('every feature the go kit cannot carry is named', () => {
   assert.deepEqual(named({ uses: [{ alias: 'store', capability: 'arcod.std.kv', params: {}, loc }] }), []);
   assert.deepEqual(named({ uses: [{ alias: 'store', capability: 'arcod.std.sql', params: {}, loc }] }), ['store: sql']);
   assert.deepEqual(named({ uses: [{ alias: 'live', capability: 'arcod.std.stream', params: {}, loc }] }), ['stream']);
-  // The queue publishes through arcodio/queue.go now; its consumer side is a
-  // job op, refused below as 'job'.
+  // The queue is carried whole: arcodio/queue.go publishes, and a job op is
+  // run by the consumer loop in main.go.
   assert.deepEqual(named({ uses: [{ alias: 'events', capability: 'arcod.std.queue', params: {}, loc }] }), []);
   assert.deepEqual(named({ uses: [{ alias: 'api', capability: 'arcod.std.graphql', params: {}, loc }] }), ['graphql']);
   assert.deepEqual(named({ uses: [{ alias: 'reports', capability: 'arcod.std.olap', params: {}, loc }] }), ['olap']);
@@ -124,7 +124,14 @@ test('every feature the go kit cannot carry is named', () => {
   assert.deepEqual(named({}, { uis: [{}] }), ['ui page']);
   assert.deepEqual(named({ roles: ['admin'] }), ['roles']);
   assert.deepEqual(named({ sagas: [{}] }), ['saga']);
-  assert.deepEqual(named({ contract: [{ kind: 'job', loc }] }), ['job']);
+  assert.deepEqual(named({ contract: [{ kind: 'job', name: 'fulfil', clauses: [], loc }] }), []);
+  // A job that drives a saga instead of a body is still refused by name: the
+  // Go kit carries no saga runner, and a loop that dropped the message would
+  // lose the work silently.
+  assert.deepEqual(
+    named({ contract: [{ kind: 'job', name: 'fulfil', clauses: [{ kind: 'saga', name: 'checkout', loc }], loc }] }),
+    ['saga job fulfil'],
+  );
   assert.deepEqual(named({ contract: [{ kind: 'op', auth: true, loc }] }), ['auth']);
 });
 

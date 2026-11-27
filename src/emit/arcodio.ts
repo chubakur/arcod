@@ -237,19 +237,21 @@ func (kv *KV) Has(key string) (bool, error) {
 `;
 }
 
-// The publish half of the queue (B107.5b), generated as its own file in the
+// The queue (B107.5b, consumer half B111.2), generated as its own file in the
 // arcodio package: a service that binds no queue carries no queue code, and
 // the kv facade stays byte for byte as it was. The wire is the Node runtime's
-// — RPUSH on 'arcod:q:<topic>' with the envelope {"payload":…,"attempts":0}
-// — so a Go publisher feeds the consumer a Node service already runs.
+// — RPUSH on 'arcod:q:<topic>' with the envelope {"payload":…,"attempts":0},
+// LPOP to receive, and '<topic>:dead' for messages out of retries — so a Go
+// publisher feeds a Node consumer and a Go consumer drains a Node publisher.
 export function arcodioQueueSource(): string {
   return [
     '// Code generated from the .arc model by arcod. DO NOT EDIT.',
     '//',
-    '// The publish half of the queue: a body calls io.QueuePublish(topic,',
-    '// message) and the message lands where the Node runtime consumer',
-    '// already listens. The consumer side is a job operation, which the Go',
-    '// kit does not carry yet, so publishing is the whole of the queue here.',
+    '// The queue: a body calls io.QueuePublish(topic, message) and the message',
+    '// lands where the Node runtime consumer already listens. A job operation',
+    '// is run by the consumer loop in main.go, which uses QueueReceive,',
+    '// QueueRequeue and QueueDead below — the same three calls the Node',
+    '// runtime makes, in the same order.',
     'package arcodio',
     '',
     'import (',
@@ -324,6 +326,48 @@ export function arcodioQueueSource(): string {
     '\t\treturn false, err',
     '\t}',
     '\treturn true, nil',
+    '}',
+    '',
+    '// QueueReceive takes the oldest message of a topic. The bool says the topic',
+    '// was not empty: an idle poll is not an error, and the caller sleeps',
+    '// instead of spinning. The Node runtime drains the same key with LPOP, so',
+    '// either side can consume the other side\'s messages.',
+    'func (io *IO) QueueReceive(topic string) (string, bool, error) {',
+    '\tclient := queueConnection()',
+    '\tif client == nil {',
+    '\t\treturn "", false, ErrNoQueue',
+    '\t}',
+    '\treply, err := client.call("LPOP", queuePrefix+topic)',
+    '\tif err != nil {',
+    '\t\treturn "", false, err',
+    '\t}',
+    '\ttext, ok := reply.(string)',
+    '\tif !ok {',
+    '\t\treturn "", false, nil',
+    '\t}',
+    '\treturn text, true, nil',
+    '}',
+    '',
+    '// QueueRequeue puts a failed attempt back at the head of the topic: the',
+    '// retry is the next message the loop sees, as LPUSH is in the Node runtime.',
+    'func (io *IO) QueueRequeue(topic, text string) error {',
+    '\tclient := queueConnection()',
+    '\tif client == nil {',
+    '\t\treturn ErrNoQueue',
+    '\t}',
+    '\t_, err := client.call("LPUSH", queuePrefix+topic, text)',
+    '\treturn err',
+    '}',
+    '',
+    '// QueueDead appends a message to the topic\'s dead letter, where',
+    '// io.queueDead reads it in both runtimes.',
+    'func (io *IO) QueueDead(topic, text string) error {',
+    '\tclient := queueConnection()',
+    '\tif client == nil {',
+    '\t\treturn ErrNoQueue',
+    '\t}',
+    '\t_, err := client.call("RPUSH", queuePrefix+topic+":dead", text)',
+    '\treturn err',
     '}',
     '',
   ].join('\n');
