@@ -306,7 +306,12 @@ generated `--reference` ones (`save(k, { value: 7 })` writes `b: null` — `set`
 is the call that means "this value"). Alongside them: `io.del(key)`,
 `io.has(key)`, `io.seen(key)` (the at-most-once marker a consumed key leaves),
 `io.takeIf(key, record)` (compare-and-delete for `once`), `io.scan()` and
-`io.new()` for a uuid. A queue-bound service adds `io.queuePublish(topic, message)`.
+`io.new()` for a uuid. A queue-bound service adds `io.queuePublish(topic, message)`,
+and `io.queuePublishLater(topic, message, delaySeconds)` for a message that must
+not arrive before that many seconds have passed: the broker (or the outbox row)
+holds it and the consumer's poll moves it into the topic when it is due. Nothing
+schedules itself — no timer runs in the service, so a topic nobody consumes
+keeps its delayed messages waiting.
 The one contract any of them keep is the ttl the model declared on the store.
 
 A module with several internal services files each body under its service:
@@ -866,6 +871,9 @@ A delayed trigger is a declaration for a runner, **not a timer**: v0.1 does
 not fire `at`/`after` by itself, and work that must happen on a deadline stays
 the application's responsibility until a runner exists. An impossible instant,
 a missing zone or a non-positive delay is rejected at build time (`A034`).
+For a delay an operation really needs, `io.queuePublishLater(topic, message,
+seconds)` hands the wait to the broker instead: the consumer's poll delivers the
+message once it is due, so a job behind it runs late rather than on a timer.
 
 ### Files, sign-in and rights
 

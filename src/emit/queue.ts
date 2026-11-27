@@ -16,6 +16,13 @@ async function queuePublishDriver(topic, text) {
   return queueDriver.publish(topic, text);
 }
 
+// A message published for later waits in a due-time set instead of the list
+// (B25). No timer runs in the service: the consumer promotes whatever is due
+// before each receive, which is the poll it already makes.
+async function queuePublishLaterDriver(topic, text, delayMs) {
+  return queueDriver.later(topic, text, delayMs);
+}
+
 async function queueDeadDriver(topic) {
   return queueDriver.dead(topic);
 }
@@ -30,6 +37,22 @@ async function queueDeadDropDriver(topic, text) {
 // per topic, which is also what the redis driver provides.
 const MEM_QUEUES = new Map();
 const MEM_DEAD = new Map();
+// Delayed messages wait here until their due moment; the next receive on the
+// topic moves them into MEM_QUEUES.
+const MEM_LATER = new Map();
+
+function promoteMemoryLater(topic) {
+  const waiting = MEM_LATER.get(topic);
+  if (!waiting || waiting.length === 0) return 0;
+  const now = Date.now();
+  const due = waiting.filter((item) => item.at <= now).sort((a, b) => a.at - b.at);
+  if (due.length === 0) return 0;
+  MEM_LATER.set(topic, waiting.filter((item) => item.at > now));
+  const list = MEM_QUEUES.get(topic) || [];
+  for (const item of due) list.push(item.text);
+  MEM_QUEUES.set(topic, list);
+  return due.length;
+}
 
 const memoryQueueDriver = {
   async publish(topic, text) {
@@ -38,7 +61,14 @@ const memoryQueueDriver = {
     MEM_QUEUES.set(topic, list);
     return true;
   },
+  async later(topic, text, delayMs) {
+    const list = MEM_LATER.get(topic) || [];
+    list.push({ at: Date.now() + Math.max(0, Number(delayMs) || 0), text });
+    MEM_LATER.set(topic, list);
+    return true;
+  },
   async receive(topic) {
+    promoteMemoryLater(topic);
     const list = MEM_QUEUES.get(topic);
     if (!list || list.length === 0) return null;
     return list.shift();
@@ -218,12 +248,39 @@ function createRedisQueueDriver(url) {
     });
   }
 
+  // Sorted-set members are unique, so two identical payloads must not share
+  // one: the nonce keeps both messages and is stripped on promotion.
+  let laterSeq = 0;
+
+  async function promoteLater(topic) {
+    const key = QUEUE_PREFIX + topic + ':later';
+    const due = await command('ZRANGEBYSCORE', key, '-inf', String(Date.now()), 'LIMIT', '0', '100');
+    if (!Array.isArray(due) || due.length === 0) return 0;
+    let moved = 0;
+    for (const member of due.map(String)) {
+      // ZREM is the claim: two replicas polling one topic race here and only
+      // the one that removed the member enqueues it, so a delayed message is
+      // delivered once (retry and the dead letter keep at-least-once on top).
+      if (Number(await command('ZREM', key, member)) > 0) {
+        await command('RPUSH', QUEUE_PREFIX + topic, member.slice(member.indexOf('\n') + 1));
+        moved += 1;
+      }
+    }
+    return moved;
+  }
+
   return {
     async publish(topic, text) {
       await command('RPUSH', QUEUE_PREFIX + topic, text);
       return true;
     },
+    async later(topic, text, delayMs) {
+      const nonce = Date.now().toString(36) + '-' + (laterSeq++) + '-' + Math.random().toString(36).slice(2, 8);
+      await command('ZADD', QUEUE_PREFIX + topic + ':later', String(Date.now() + Math.max(0, Number(delayMs) || 0)), nonce + '\n' + text);
+      return true;
+    },
     async receive(topic) {
+      await promoteLater(topic);
       const value = await command('LPOP', QUEUE_PREFIX + topic);
       return value == null ? null : String(value);
     },

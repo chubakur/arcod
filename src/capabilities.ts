@@ -142,15 +142,17 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
   queue: {
     effects: {
       publish: 'publish(topic: string, message: any) -> boolean',
+      publishLater: 'publishLater(topic: string, message: any, delaySeconds: int) -> boolean',
       dead: 'dead(topic: string) -> list<{ payload: any, attempts: number, lastError: string }>',
       drop: 'drop(topic: string, payload: any) -> boolean',
     },
     short: {
       publish: 'publish(topic, msg) -> bool',
+      publishLater: 'publishLater(topic, msg, delaySeconds) -> bool',
       dead: 'dead(topic) -> list',
       drop: 'drop(topic, payload) -> bool',
     },
-    notes: 'Returns true when the broker accepted the message. Delivery to the consumer is at-least-once: a failed body (exception or { error }) is retried up to the job retry count, then moved to the dead letter queue, where dead(topic) reads it; drop(topic, payload) takes the first entry carrying that payload out of the list (false when there is none), so a replayed message does not stay there forever.',
+    notes: 'Returns true when the broker accepted the message. Delivery to the consumer is at-least-once: a failed body (exception or { error }) is retried up to the job retry count, then moved to the dead letter queue, where dead(topic) reads it; drop(topic, payload) takes the first entry carrying that payload out of the list (false when there is none), so a replayed message does not stay there forever. publishLater(topic, message, delaySeconds) is the same publish with a due time: the message lands in the topic only when the delay has passed, and the consumer makes it arrive without any timer in the service — there is no scheduler, so a topic nobody consumes holds its delayed messages. The count is whole seconds, 0 publishes right away.',
   },
   ids: {
     effects: {

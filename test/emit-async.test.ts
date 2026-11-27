@@ -42,6 +42,9 @@ async function startFakeRedis(port: number): Promise<() => Promise<void>> {
   const { createServer } = await import('node:net');
   const subs = new Map<string, Set<import('node:net').Socket>>();
   const lists = new Map<string, string[]>();
+  // publishLater parks a message in a sorted set until its due moment; the
+  // consumer promotes it, so the fake speaks the three ZSET commands.
+  const zsets = new Map<string, Map<string, number>>();
   const bulk = (value: string) => '$' + Buffer.byteLength(value) + '\r\n' + value + '\r\n';
   const array = (items: string[]) => '*' + items.length + '\r\n' + items.join('');
 
@@ -101,6 +104,31 @@ async function startFakeRedis(port: number): Promise<() => Promise<void>> {
           const value = list.length > 0 ? list.shift()! : null;
           lists.set(args[1], list);
           socket.write(value == null ? '$-1\r\n' : bulk(value));
+        } else if (cmd === 'ZADD') {
+          const set = zsets.get(args[1]) || new Map<string, number>();
+          const added = set.has(args[3]) ? 0 : 1;
+          set.set(args[3], Number(args[2]));
+          zsets.set(args[1], set);
+          socket.write(':' + added + '\\r\\n');
+        } else if (cmd === 'ZRANGEBYSCORE') {
+          const set = zsets.get(args[1]) || new Map<string, number>();
+          const max = args[3] === '+inf' ? Infinity : Number(args[3]);
+          const min = args[2] === '-inf' ? -Infinity : Number(args[2]);
+          let due = [...set.entries()]
+            .filter(([, score]) => score >= min && score <= max)
+            .sort((a, b) => a[1] - b[1])
+            .map(([member]) => member);
+          if (args[4] && args[4].toUpperCase() === 'LIMIT') {
+            const offset = Number(args[5] || 0);
+            const count = Number(args[6] || 0);
+            due = due.slice(offset, count > 0 ? offset + count : undefined);
+          }
+          socket.write(array(due.map(bulk)));
+        } else if (cmd === 'ZREM') {
+          const set = zsets.get(args[1]) || new Map<string, number>();
+          const removed = set.delete(args[2]) ? 1 : 0;
+          zsets.set(args[1], set);
+          socket.write(':' + removed + '\\r\\n');
         } else if (cmd === 'LLEN') {
           socket.write(':' + (lists.get(args[1]) || []).length + '\r\n');
         } else if (cmd === 'LRANGE') {

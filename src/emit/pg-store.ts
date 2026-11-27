@@ -924,17 +924,21 @@ class PgStore {
     await this.query('COMMIT');
   }
 
-  async outboxAppend(id, topic, payload) {
+  async outboxAppend(id, topic, payload, dueAt) {
+    // created_at is the moment the relay may publish the row, not the wall
+    // clock of the write: publishLater stores a future moment and pending()
+    // below waits for it. The column predates the delay, so it is reused
+    // rather than migrated (an applied migration cannot change its text).
     await this.query(
       'INSERT INTO arcod_outbox (id, topic, payload, created_at) VALUES (' +
-      pgLiteral('string', String(id)) + ', ' + pgLiteral('string', String(topic)) + ', ' + pgLiteral('string', String(payload)) + ', ' + Date.now() + ')'
+      pgLiteral('string', String(id)) + ', ' + pgLiteral('string', String(topic)) + ', ' + pgLiteral('string', String(payload)) + ', ' + (Number(dueAt) > 0 ? Number(dueAt) : Date.now()) + ')'
     );
     return true;
   }
 
   async outboxPending(limit) {
     const found = await this.query(
-      'SELECT id, topic, payload FROM arcod_outbox WHERE published_at IS NULL ORDER BY created_at LIMIT ' + Number(limit || 100)
+      'SELECT id, topic, payload FROM arcod_outbox WHERE published_at IS NULL AND created_at <= ' + Date.now() + ' ORDER BY created_at LIMIT ' + Number(limit || 100)
     );
     return found.rows.map((row) => ({ id: String(row[0]), topic: String(row[1]), payload: String(row[2]) }));
   }

@@ -81,7 +81,7 @@ function pluginCapabilityName(capability: string): string {
 // build refuses it instead of emitting an object with a duplicate key.
 const RESERVED_IO_METHODS = new Set([
   'load', 'save', 'get', 'set', 'scan', 'del', 'seen', 'takeIf', 'new', 'actor', 'users', 'chat', 'model',
-  'publish', 'queuePublish', 'queueDead', 'queueDeadDrop', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify', 'count', 'aggregate', 'embed',
+  'publish', 'queuePublish', 'queuePublishLater', 'queueDead', 'queueDeadDrop', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify', 'count', 'aggregate', 'embed',
 ]);
 
 export function pluginBindings(mod: ModuleNode, registry?: ProviderRegistry): PluginBinding[] {
@@ -710,12 +710,15 @@ class MemoryStore {
   async begin() {}
   async commit() {}
   async rollback() {}
-  async outboxAppend(id, topic, payload) {
-    this.outbox.push({ id, topic, payload, publishedAt: null, at: Date.now() });
+  async outboxAppend(id, topic, payload, dueAt) {
+    // at is the moment the relay may publish the row: Date.now() for an
+    // ordinary event, later for publishLater. The pending read waits for it.
+    this.outbox.push({ id, topic, payload, publishedAt: null, at: Number(dueAt) || Date.now() });
     return true;
   }
   async outboxPending(limit) {
-    return this.outbox.filter((row) => row.publishedAt == null).sort((a, b) => a.at - b.at).slice(0, Number(limit || 100));
+    const now = Date.now();
+    return this.outbox.filter((row) => row.publishedAt == null && row.at <= now).sort((a, b) => a.at - b.at).slice(0, Number(limit || 100));
   }
   async outboxMark(id) {
     const row = this.outbox.find((item) => item.id === id);
@@ -2867,8 +2870,17 @@ function implHandlers(
     const outboxPublish = storageKind(svc) === 'sql'
       ? '    async queuePublish(topic, message) { return store.outboxAppend(randomUUID(), String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0 })); },'
       : '    async queuePublish(topic, message) { return queuePublishDriver(String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0 })); },';
+    // A delayed publish is the same message with a due moment. On the outbox
+    // the row is due-aware, so the relay hands it to the broker when its time
+    // comes; without a store the broker's set holds it. The delay is the
+    // body's, so it is checked here rather than at the http boundary.
+    const publishLaterGuard = ' const seconds = Number(delaySeconds); if (!Number.isFinite(seconds) || seconds < 0) throw new Error("queuePublishLater: delaySeconds must be a non-negative number");';
+    const outboxPublishLater = storageKind(svc) === 'sql'
+      ? '    async queuePublishLater(topic, message, delaySeconds) {' + publishLaterGuard + ' return store.outboxAppend(randomUUID(), String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0 }), Date.now() + Math.round(seconds * 1000)); },'
+      : '    async queuePublishLater(topic, message, delaySeconds) {' + publishLaterGuard + ' return queuePublishLaterDriver(String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0 }), Math.round(seconds * 1000)); },';
     parts.push(
       outboxPublish,
+      outboxPublishLater,
       '    async queueDead(topic) { const items = await queueDeadDriver(String(topic)); return items.map((item) => { try { return JSON.parse(item); } catch { return item; } }); },',
       '    async queueDeadDrop(topic, payload) { const wanted = JSON.stringify(payload === undefined ? null : payload); const items = await queueDeadDriver(String(topic)); for (const item of items) { let envelope; try { envelope = JSON.parse(item); } catch { envelope = undefined; } const carried = envelope && typeof envelope === "object" && envelope !== null && Object.prototype.hasOwnProperty.call(envelope, "payload") ? envelope.payload : envelope; if (JSON.stringify(carried) === wanted) return queueDeadDropDriver(String(topic), item); } return false; },',
     );

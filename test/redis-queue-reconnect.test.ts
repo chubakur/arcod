@@ -89,6 +89,9 @@ test('a half-written reply from the old connection does not leak into the new on
 
   const second = driver.receive('deliveries');
   await tick();
+  // receive promotes the delay set first, then the topic list.
+  sockets[1].handlers.data?.(Buffer.from('*0\r\n'));
+  await tick();
   sockets[1].handlers.data?.(Buffer.from('$3\r\nmsg\r\n'));
   assert.equal(await second, 'msg');
 });
@@ -106,13 +109,15 @@ test('a silent broker fails the receive instead of blocking the consumer', async
   const { driver, sockets } = loadQueue({ env: { ARCod_QUEUE_TIMEOUT_MS: '30' } });
   const receive = driver.receive('deliveries');
   await tick();
-  assert.match(sockets[0].writes[0], /LPOP/);
+  assert.match(sockets[0].writes[0], /ZRANGEBYSCORE/, 'promotion is a command like any other');
   await assert.rejects(receive, /redis command timeout/);
   assert.equal(sockets[0].destroyed, true, 'the stalled stream is dropped');
 
   const next = driver.receive('deliveries');
   await tick();
   assert.equal(sockets.length, 2, 'the retry opens a fresh connection');
+  sockets[1].handlers.data?.(Buffer.from('*0\r\n'));
+  await tick();
   sockets[1].handlers.data?.(Buffer.from('$3\r\nmsg\r\n'));
   assert.equal(await next, 'msg');
 });
@@ -125,6 +130,8 @@ test('a broker that never accepts fails the connect instead of blocking the cons
   const next = driver.receive('deliveries');
   await tick();
   assert.equal(sockets.length, 2);
+  sockets[1].handlers.data?.(Buffer.from('*0\r\n'));
+  await tick();
   sockets[1].handlers.data?.(Buffer.from('$-1\r\n'));
   assert.equal(await next, null);
 });
