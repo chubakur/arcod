@@ -42,6 +42,21 @@ export function inputKinds(mod: ModuleNode, op: OpNode): Record<string, string> 
   return table;
 }
 
+// Every successful answer the operation declares, in declaration order. The
+// first one is the default: a body that names no outcome gets it, which keeps
+// the single-code `status: 200` form and the derived 200/201 rule intact.
+export interface SuccessOutcome { name: string | null; code: number }
+
+export function successOutcomes(op: OpNode): SuccessOutcome[] {
+  const declared = op.clauses.find((clause) => clause.kind === 'status');
+  if (declared && declared.kind === 'status') {
+    return declared.outcomes.map((outcome) => ({ name: outcome.name, code: outcome.value }));
+  }
+  const route = parseRoute(op);
+  const method = route ? route.method : 'GET';
+  return [{ name: null, code: method === 'GET' || method === 'HEAD' ? 200 : 201 }];
+}
+
 // The answer a successful call gets. A declared `status` wins (an idempotent
 // POST action creates nothing); otherwise a read is 200 and a write is 201.
 // The runtime and OpenAPI used two different tables — DELETE was 200 in the
@@ -49,11 +64,7 @@ export function inputKinds(mod: ModuleNode, op: OpNode): Record<string, string> 
 // the emitted handlers were built around — so the rule lives here now and both
 // callers read it.
 export function successStatus(op: OpNode): number {
-  const declared = op.clauses.find((clause) => clause.kind === 'status');
-  if (declared && declared.kind === 'status') return declared.value;
-  const route = parseRoute(op);
-  const method = route ? route.method : 'GET';
-  return method === 'GET' || method === 'HEAD' ? 200 : 201;
+  return successOutcomes(op)[0].code;
 }
 
 export interface ContractOp {

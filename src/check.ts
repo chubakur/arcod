@@ -1387,19 +1387,50 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
     // A097 — a declared success status has to be a body-carrying 2xx. A
     // 4xx/5xx written as `status` would turn a successful call into an error,
     // and 204/205 has no body while every handler of this runtime builds one.
+    // A named outcome (B94) is one answer the body may pick, so its code obeys
+    // the same rule, names and codes are unique, and at most one outcome is
+    // unnamed (that one is the default).
     for (const op of svc.contract) {
       if (op.kind !== 'op') continue;
       const declared = op.clauses.find((clause) => clause.kind === 'status');
       if (!declared || declared.kind !== 'status') continue;
       const where = 'services.' + svc.name + '.contract.' + op.name;
-      if (declared.value < 200 || declared.value > 299) {
+      const names = new Map<string, number>();
+      const codes = new Map<number, string | null>();
+      let anonymous = 0;
+      for (const outcome of declared.outcomes) {
+        const label = outcome.name ? 'outcome ' + outcome.name + ' (' + outcome.value + ')' : 'status ' + outcome.value;
+        if (outcome.value < 200 || outcome.value > 299) {
+          diags.push(diag('A097', 'error', mod.file, declared.loc, where,
+            label + ' is not a success code',
+            'a declared status names the answer of a successful call: write a 2xx, e.g. status: 200'));
+        } else if (outcome.value === 204 || outcome.value === 205) {
+          diags.push(diag('A097', 'error', mod.file, declared.loc, where,
+            label + ' has no body, and this runtime always answers with one',
+            'use status: 200 for an action that returns a result'));
+        }
+        if (outcome.name) {
+          if (names.has(outcome.name)) {
+            diags.push(diag('A097', 'error', mod.file, declared.loc, where,
+              'outcome name ' + outcome.name + ' is declared twice',
+              'give each outcome of the operation its own name, e.g. status: created 201, existed 200'));
+          }
+          names.set(outcome.name, outcome.value);
+        } else {
+          anonymous += 1;
+        }
+        const previous = codes.get(outcome.value);
+        if (previous !== undefined || codes.has(outcome.value)) {
+          diags.push(diag('A097', 'error', mod.file, declared.loc, where,
+            'status ' + outcome.value + ' is declared twice (' + (previous ?? 'unnamed') + ' and ' + (outcome.name ?? 'unnamed') + ')',
+            'named outcomes answer different codes: the body picks one by name, so two names for one code cannot be told apart'));
+        }
+        codes.set(outcome.value, outcome.name);
+      }
+      if (anonymous > 1) {
         diags.push(diag('A097', 'error', mod.file, declared.loc, where,
-          'status ' + declared.value + ' is not a success code',
-          'a declared status names the answer of a successful call: write a 2xx, e.g. status: 200'));
-      } else if (declared.value === 204 || declared.value === 205) {
-        diags.push(diag('A097', 'error', mod.file, declared.loc, where,
-          'status ' + declared.value + ' has no body, and this runtime always answers with one',
-          'use status: 200 for an action that returns a result'));
+          'the status clause declares ' + anonymous + ' unnamed outcomes',
+          'at most one outcome may be unnamed (it is the default); name the rest: status: created 201, existed 200'));
       }
     }
 
@@ -1410,7 +1441,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
       const declared = op.clauses.find((clause) => clause.kind === 'status');
       if (!declared || declared.kind !== 'status') continue;
       diags.push(diag('A097', 'error', mod.file, declared.loc, 'services.' + svc.name + '.jobs.' + op.name,
-        'status ' + declared.value + ' on job ' + op.name + ' answers no HTTP call',
+        'status ' + declared.outcomes.map((outcome) => outcome.value).join('/') + ' on job ' + op.name + ' answers no HTTP call',
         'drop it: a job is consumed from a queue, not requested; a status belongs to an operation'));
     }
 
@@ -1809,6 +1840,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkMissingImplBodies(mod, diags, options.impl, options.implScanned);
   checkServiceLanguage(mod, diags);
   checkImplLanguage(mod, diags, options.impl);
+  checkStatusOutcomeLiterals(mod, diags, options.impl);
   checkDuplicateImplBodies(mod, diags, options.implDuplicates);
 
   return sortDiagnostics(diags);
@@ -2017,6 +2049,35 @@ export function checkIgnoredImplDirs(mod: ModuleNode, diags: Diagnostic[], dirs:
 // passes build, then answers 500 `io.aggregate is not a function` at request
 // time because the single parameter is the input (issue #34). The build reads
 // the same bodies, so the check names the file before a container starts.
+// A body chooses its successful answer by naming a declared outcome (B94).
+// The name is a string literal the compiler could otherwise only meet at
+// runtime, where a typo answers 500; the declared outcomes are the vocabulary,
+// so a miss is an error here with the literal, its line and the declared names.
+const STATUS_OUTCOME = /\bstatus\s*:\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\1/g;
+
+export function checkStatusOutcomeLiterals(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined): void {
+  if (!impl) return;
+  for (const svc of mod.services) {
+    for (const op of svc.contract) {
+      if (op.kind !== 'op') continue;
+      const declared = op.clauses.find((clause) => clause.kind === 'status');
+      if (!declared || declared.kind !== 'status') continue;
+      const named = declared.outcomes.filter((outcome) => outcome.name).map((outcome) => outcome.name as string);
+      if (named.length === 0) continue;
+      const source = impl[op.name];
+      if (typeof source !== 'string') continue;
+      for (const match of source.matchAll(STATUS_OUTCOME)) {
+        const name = match[2];
+        if (named.includes(name)) continue;
+        const line = source.slice(0, match.index).split('\n').length;
+        diags.push(diag('A097', 'error', 'impl/' + op.name + '.mjs', { ...mod.loc, line, endLine: line }, 'services.' + svc.name + '.contract.' + op.name + '.' + name,
+          'operation ' + op.name + ' answers outcome "' + name + '", which its status clause does not declare',
+          'declare it in the clause or use one of: ' + named.join(', ')));
+      }
+    }
+  }
+}
+
 export function checkImplSignatures(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined): void {
   if (!impl) return;
   for (const problem of implSignatureProblems(impl)) {

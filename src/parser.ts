@@ -1,7 +1,7 @@
 import type {
   Arg, BindNode, BudgetNode, CapUse, Clause, DeployNode, EnumDecl, EnvironmentNode, ErrorDecl,
   ExampleNode, Expr, EffectsNode, Loc, ModuleNode, OpNode, Param, RuleNode,
-  ServiceNode, SagaNode, SagaStepNode, Stmt, TriggerNode, TypeArg, TypeDecl, TypeExpr, UiNode, UiSlide,
+  ServiceNode, SagaNode, SagaStepNode, StatusOutcome, Stmt, TriggerNode, TypeArg, TypeDecl, TypeExpr, UiNode, UiSlide,
   UseNode,
   WorkflowNode, WorkflowStepNode,
 } from './ast.ts';
@@ -491,12 +491,28 @@ class Parser {
       }
       if (key === 'status') {
         this.expect(':');
-        const tok = this.next();
-        const value = Number(tok.value);
-        if (!Number.isInteger(value) || value < 100 || value > 599) {
-          this.error('status expects an HTTP status code, e.g. status: 200');
-        }
-        clauses.push({ kind: 'status', value, loc: locOf(tok) });
+        // `status: 200` is one unnamed outcome; `status: created 201, existed 200`
+        // names each successful answer so the body can pick one (B94).
+        const outcomes: StatusOutcome[] = [];
+        const start = this.peek();
+        do {
+          const first = this.next();
+          let name: string | null = null;
+          let codeTok = first;
+          if (first.kind === 'ident') {
+            name = String(first.value);
+            codeTok = this.next();
+          }
+          if (codeTok.kind !== 'number') {
+            this.error('status expects a code or a named outcome, e.g. status: 200 or status: created 201, existed 200');
+          }
+          const value = Number(codeTok.value);
+          if (!Number.isInteger(value) || value < 100 || value > 599) {
+            this.error('status expects an HTTP status code, e.g. status: 200');
+          }
+          outcomes.push({ name, value });
+        } while (this.accept(','));
+        clauses.push({ kind: 'status', outcomes, loc: locOf(start) });
         continue;
       }
       if (key === 'set') this.error('`set` on an operation is not supported in v0.1 — the change belongs in the operation body (impl/<op>.mjs) or in `post`');

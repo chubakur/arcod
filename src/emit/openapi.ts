@@ -14,7 +14,7 @@ import type {
   TypeExpr,
 } from '../ast.ts';
 import { accessNotes, pickService, routeOf, statusForError } from './service.ts';
-import { parseRoute, successStatus as contractSuccessStatus } from './contract.ts';
+import { parseRoute, successOutcomes as contractSuccessOutcomes } from './contract.ts';
 import { baseType } from '../migrate.ts';
 import { canonicalInstant } from '../instant.ts';
 
@@ -341,17 +341,18 @@ function operationFor(mod: ModuleNode, svc: ServiceNode, op: OpNode): Record<str
   const route = routeInfo(op);
 
   const responses: Record<string, unknown> = {};
-  // Published from the same rule the runtime answers with (contract IR): a
-  // declared status wins, a read/delete is 200 and a write is 201.
-  const successStatus = String(contractSuccessStatus(op));
-  const success: Record<string, unknown> = { description: 'ok' };
+  // Published from the same rule the runtime answers with (contract IR): the
+  // declared outcomes (B94) or, without a clause, 200 for a read and 201 for a
+  // write. Each named outcome is published under its code, described by name.
+  const outcomes = contractSuccessOutcomes(op);
+  const successFields: Record<string, unknown> = {};
   // B92.2: a file answer publishes the declared media type and a binary schema,
   // so a generated client reads bytes and the download name from the contract
   // instead of guessing a JSON shape.
   const file = op.clauses.find((clause) => clause.kind === 'file');
   if (file && file.kind === 'file') {
-    success.content = { [file.contentType]: { schema: { type: 'string', format: 'binary' } } };
-    success.headers = {
+    successFields.content = { [file.contentType]: { schema: { type: 'string', format: 'binary' } } };
+    successFields.headers = {
       'content-disposition': {
         description: 'attachment; filename="' + file.filename + '"',
         schema: { type: 'string' },
@@ -360,17 +361,20 @@ function operationFor(mod: ModuleNode, svc: ServiceNode, op: OpNode): Record<str
   } else if (op.returns && !(op.returns.kind === 'named' && (op.returns.name === 'void' || op.returns.name === 'null'))) {
     const schema = schemaFor(mod, op.returns);
     const isString = schema.type === 'string' && schema.$ref === undefined;
-    success.content = isString
+    successFields.content = isString
       ? { 'text/plain': { schema } }
       : { 'application/json': { schema } };
   }
-  responses[successStatus] = success;
+  for (const outcome of outcomes) {
+    responses[String(outcome.code)] = { description: outcome.name ?? 'ok', ...successFields };
+  }
+  const successCodes = new Set(outcomes.map((outcome) => outcome.code));
 
   for (const name of errorNamesOf(op)) {
     const status = statusForError(name);
     const body = errorSchema(mod, name);
     const existing = responses[String(status)] as Record<string, unknown> | undefined;
-    if (existing && existing.description === 'ok') continue; // success owns its status
+    if (existing && successCodes.has(status)) continue; // success owns its status
     if (existing) {
       // Two declared errors map to one status (Forbidden/WrongPassword):
       // oneOf keeps both shapes in the contract.

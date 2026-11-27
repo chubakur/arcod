@@ -17,7 +17,7 @@ import { localEnvironment } from './compose.ts';
 import { endpointEnv } from '../providers.ts';
 import { baseType, entitiesFromBodies, fieldDefault, migrationPlan, recordColumns, type Column, type DefaultValue } from '../migrate.ts';
 import { boundsOf, constraintTable, lengthBoundsOf } from '../constraints.ts';
-import { inputKinds as contractInputKinds, parseRoute, successStatus } from './contract.ts';
+import { inputKinds as contractInputKinds, parseRoute, successOutcomes } from './contract.ts';
 import type { ProviderRegistry } from '../registry.ts';
 
 export interface EmitOptions {
@@ -3396,7 +3396,7 @@ function implHandlers(
       .filter((item) => item.file)
       .map((item) => '[' + JSON.stringify(item.op.name) + ', { type: ' + JSON.stringify((item.file as { contentType: string }).contentType) + ', name: ' + JSON.stringify((item.file as { filename: string }).filename) + ' }]')
       .join(', ') + ']);',
-    'async function callImpl(req, res, params, implFn, names, status, opName) {',
+    'async function callImpl(req, res, params, implFn, names, statuses, opName) {',
     '  const read = await readInput(req, params, names);',
     '  if (read.error) return sendError(res, read.error);',
     '  const input = read.input;',
@@ -3438,6 +3438,16 @@ function implHandlers(
     '  if (out && out.error) return sendError(res, out.error, out);',
     "  if (!out) return sendError(res, 'Internal');",
     '  const result = out.result;',
+    '  let status = statuses[0].code;',
+    '  const chosen = out.status;',
+    '  if (chosen !== undefined && chosen !== null && chosen !== \"\") {',
+    '    const hit = statuses.find((item) => item.name === chosen);',
+    '    if (!hit) {',
+    '      const declared = statuses.map((item) => (item.name ? item.name + \" \" : \"\") + item.code).join(\", \");',
+    '      return send(res, 500, JSON.stringify({ error: \"Internal\", message: \"operation \" + opName + \" answered outcome \" + JSON.stringify(chosen) + \", but the contract declares \" + declared }), \"application/json\");',
+    '    }',
+    '    status = hit.code;',
+    '  }',
     // A file answer is the bytes with the contract's headers (B92.2); a plain
     // byte result keeps the octet-stream fallback (B92.1).
     '  const file = FILE_OPS.get(opName);',
@@ -3463,14 +3473,14 @@ function implHandlers(
     // published 200 for DELETE while the handler answered 201, so a client that
     // trusted the document saw a created resource on a delete. A HEAD answer
     // mirrors GET; a declared `status` wins.
-    const status = successStatus(op);
+    const statuses = JSON.stringify(successOutcomes(op));
     parts.push(
       // The runtime owns handleRequest, and a spec may name an operation
       // anything: a bare 'handle' + Op would collide for `op request` and the
       // module would not even parse. Handlers carry the arcod prefix so the
       // generated names cannot meet a runtime name.
       'async function arcodHandle' + cap + '(req, res, params) {',
-      "  return callImpl(req, res, params, impl" + cap + ', [' + names.map((name) => "'" + name + "'").join(', ') + '], ' + status + ", '" + op.name + "');",
+      "  return callImpl(req, res, params, impl" + cap + ', [' + names.map((name) => "'" + name + "'").join(', ') + '], ' + statuses + ", '" + op.name + "');",
       '}',
       '',
     );

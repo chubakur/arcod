@@ -232,6 +232,11 @@ export interface OpNode {
   loc: Loc;
 }
 
+// One successful answer of an operation. `name` is the identifier the body
+// returns in its `status` field; the first outcome is the default when the
+// body names none.
+export interface StatusOutcome { name: string | null; value: number }
+
 export type Clause =
   | { kind: 'errors'; names: string[]; loc: Loc }
   // Effects this operation uses, e.g. store.get, files.put. Optional: when
@@ -243,7 +248,10 @@ export type Clause =
   // The success status of the operation: POST answers 201 because a write
   // usually creates something, but an idempotent action (cancel, replay)
   // creates nothing and has to say 200. Only a 2xx code belongs here.
-  | { kind: 'status'; value: number; loc: Loc }
+  // An operation may declare several named outcomes (B94) and the body picks
+  // one by name: `status: created 201, existed 200`. A lone code stays the
+  // single unnamed outcome.
+  | { kind: 'status'; outcomes: StatusOutcome[]; loc: Loc }
   // The response is the file itself: `file: "text/csv", "report.csv"` sends
   // the body's bytes with this content type and a content-disposition name
   // instead of wrapping them in a JSON record (B92.2).
