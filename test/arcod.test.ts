@@ -820,7 +820,7 @@ test('a multi-field payload is stored as a record and returned as JSON', async (
   const svc = recAst.services[0];
   const create = svc.contract.find((op) => op.kind === 'op' && op.name === 'create')!;
   const plan = planBody(recAst, svc, create);
-  assert.ok(plan.steps.some((step) => step.includes('{ b: { author: author, body: body }, h: null }')), plan.steps.join(' | '));
+  assert.ok(plan.steps.some((step) => step.includes('await io.set(id, { author: author, body: body })')), plan.steps.join(' | '));
 
   const set = buildPrompts(recAst);
   const prompt = set.tasks.find((task) => task.op === 'create')!.prompt;
@@ -1677,15 +1677,15 @@ test('the planner derives procedures for arbitrary operations', () => {
   }
 
   const upload = plan('upload').steps.join(' ');
-  assert.ok(upload.includes('io.new()') && upload.includes('io.save'), upload);
+  assert.ok(upload.includes('io.new()') && upload.includes('io.set'), upload);
   assert.ok(upload.includes('io.blobPut(id, body)'), 'the content parameter, not the file name: ' + upload);
 
   const download = plan('download').steps.join(' ');
-  assert.ok(download.includes('io.load(id)') && download.includes('io.blobGet(id)'), download);
+  assert.ok(download.includes('io.get(id)') && download.includes('io.blobGet(id)'), download);
 
   assert.ok(plan('list').steps.join(' ').includes('io.scan'));
   assert.ok(plan('users').steps.join(' ').includes('io.users'));
-  assert.ok(plan('setVisibility').steps.join(' ').includes('io.save(id'), 'update keeps the loaded record');
+  assert.ok(plan('setVisibility').steps.join(' ').includes('io.set(id'), 'update keeps the loaded record');
 });
 
 test('a create returning an entity stores it whole, owner included', () => {
@@ -1746,7 +1746,7 @@ test('a create returning an entity stores it whole, owner included', () => {
   const create = plan('create').steps.join(' ');
   assert.ok(create.includes('owner: actor.id'), create);
   assert.ok(create.includes('createdAt: new Date().toISOString()'), create);
-  assert.ok(create.includes('io.save(id, { b: record, h: null })'), create);
+  assert.ok(create.includes('io.set(id, record)'), create);
   assert.ok(create.includes('return { result: record }'), create);
 
   // An actor-scoped board: scan is filtered by owner, then by the matching
@@ -1967,7 +1967,7 @@ test('the procedure is derived from the model, not from the operation name', () 
 
   const createPlan = planBody(guardedAst, svc, create);
   assert.deepEqual(createPlan.unresolved, []);
-  assert.ok(createPlan.steps.join(' ').includes('await io.save'));
+  assert.ok(createPlan.steps.join(' ').includes('await io.set'));
   assert.ok(!createPlan.steps.join(' ').includes('io.load'));
 });
 

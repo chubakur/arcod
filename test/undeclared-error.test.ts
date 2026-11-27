@@ -52,7 +52,7 @@ const IMPL = {
   write: [
     'export async function write(input, io) {',
     '  const actor = await io.actor();',
-    '  await io.save(String(input.id), { b: { title: String(input.title), owner: actor.id }, h: null });',
+    '  await io.set(String(input.id), { title: String(input.title), owner: actor.id });',
     '  return { result: String(input.id) };',
     '}',
   ].join(NL),

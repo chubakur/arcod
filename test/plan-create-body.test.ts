@@ -40,7 +40,7 @@ test('a create spells the record it stores: id, owner, now, param', () => {
     'actor = await io.actor()',
     'id = await io.new()',
     'record = { id: id, title: title, owner: actor.id, createdAt: new Date().toISOString() }',
-    'await io.save(id, { b: record, h: null })',
+    'await io.set(id, record)',
     'return { result: record }',
   ]);
   assert.deepEqual(plan.intents, ['actor', 'generate-id', 'persist']);

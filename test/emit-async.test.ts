@@ -275,7 +275,7 @@ test('queue: memory driver consumes, and a failing body retries then dead-letter
   const built = await buildQueueService(dir, [
     'export async function audit(input, io) {',
     '  const id = await io.new();',
-    '  await io.save(id, { b: { entry: input.entry }, h: null });',
+    '  await io.set(id, { entry: input.entry });',
     '  return { result: true };',
     '}',
     '',
@@ -332,7 +332,7 @@ test('queue: the redis driver carries messages over the wire', async () => {
     const built = await buildQueueService(dir, [
       'export async function audit(input, io) {',
       '  const id = await io.new();',
-      '  await io.save(id, { b: { entry: input.entry }, h: null });',
+      '  await io.set(id, { entry: input.entry });',
       '  return { result: true };',
       '}',
       '',

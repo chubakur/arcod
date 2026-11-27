@@ -63,13 +63,13 @@ const IMPL = {
   create: [
     'export async function create(input, io) {',
     '  const actor = await io.actor();',
-    '  await io.save(String(input.id), { b: { title: String(input.title), owner: actor.id }, h: null });',
+    '  await io.set(String(input.id), { title: String(input.title), owner: actor.id });',
     '  return { result: String(input.id) };',
     '}',
   ].join('\n'),
   read: [
     'export async function read(input, io) {',
-    '  const rec = await io.load(String(input.id));',
+    '  const rec = await io.get(String(input.id));',
     '  if (!rec) return { error: "NotFound" };',
     '  return { result: String(input.id) };',
     '}',

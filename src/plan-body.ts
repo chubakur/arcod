@@ -182,6 +182,11 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
   // owner guard read the stored record back field by field, so a create
   // persists the whole entity, not just the payload parameters.
   const record = returnedRecord(mod, op);
+  // B91: the envelope { b, h } is an implementation detail. A body reads the
+  // hash only to verify a password, and hands the whole record to takeIf for
+  // optimistic locking; every other operation speaks values through io.get and
+  // io.set, so the generated body never mentions b or h.
+  const envelope = names.has('takeIf') || names.has('verify');
 
   const intents: string[] = [];
   const steps: string[] = [];
@@ -208,7 +213,7 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
 
   if (storageGet && idParam) {
     intents.push('load');
-    steps.push('rec = await io.load(' + idParam.name + ')');
+    steps.push('rec = await io.' + (envelope ? 'load' : 'get') + '(' + idParam.name + ')');
     if (storageSet) {
       const missing = errorFor(['Unauthorized', 'Forbidden', 'Gone']) ?? 'NotFound';
       steps.push("if (!rec) return { error: " + quote(missing) + " }");
@@ -252,13 +257,17 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
     if (names.has('new') || !idParam) {
       if (record) {
         steps.push('record = ' + entityLiteral(mod, op, record.fields, names.has('actor'), blobPut ? bytesParam : undefined));
-        steps.push('await io.save(id, { b: record, h: ' + hash + ' })');
+        steps.push(envelope ? 'await io.save(id, { b: record, h: ' + hash + ' })' : 'await io.set(id, record)');
       } else {
-        steps.push('await io.save(id, { b: { ' + fields + ' }, h: ' + hash + ' })');
+        steps.push(envelope
+          ? 'await io.save(id, { b: { ' + fields + ' }, h: ' + hash + ' })'
+          : 'await io.set(id, { ' + fields + ' })');
       }
     } else {
-      steps.push('rec.b = { ...rec.b, ' + fields + ' }');
-      steps.push('await io.save(' + idParam.name + ', { b: rec.b, h: rec.h })');
+      steps.push(envelope ? 'rec.b = { ...rec.b, ' + fields + ' }' : 'rec = { ...rec, ' + fields + ' }');
+      steps.push(envelope
+        ? 'await io.save(' + idParam.name + ', { b: rec.b, h: rec.h })'
+        : 'await io.set(' + idParam.name + ', rec)');
     }
   }
 
@@ -313,12 +322,12 @@ export function planBody(mod: ModuleNode, svc: ServiceNode, op: OpNode): BodyPla
         ? 'body'
         : fromParam
           ? field.name
-          : 'rec.b.' + field.name;
+          : envelope ? 'rec.b.' + field.name : 'rec.' + field.name;
       return field.name + ': ' + value;
     });
     steps.push('return { result: { ' + fields.join(', ') + ' } }');
   } else if (record && storageGet && idParam) {
-    steps.push('return { result: rec.b }');
+    steps.push(envelope ? 'return { result: rec.b }' : 'return { result: rec }');
   } else if (record && storageSet && (names.has('new') || !idParam)) {
     steps.push('return { result: record }');
   } else if (returns) {
