@@ -193,6 +193,26 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
     short: { hash: 'hash(password)', verify: 'verify(password, hash) -> bool' },
     notes: 'hash returns a salted scrypt record; verify compares in constant time.',
   },
+  // Analytical writes land in a column store, not in the record store: the
+  // typed select groups and aggregates by the columns of a declared type, and
+  // the body never writes SQL unless it asks for the raw escape hatch (B95).
+  // The surface is declared ahead of the driver: the plan is B95.1 → B95.3,
+  // and until the adapter exists the provider carries noRuntime, so check
+  // refuses a service that tries to use it (A083) instead of generating calls
+  // that write nowhere.
+  olap: {
+    effects: {
+      append: 'olapAppend(entity: string, record: any) -> void',
+      select: 'olapSelect(entity: string, query: { where?: any, groupBy?: list<string>, metrics?: list<{ name: string, op: string, field: string, distinct?: boolean }>, order?: string, limit?: int }) -> list<any>',
+      sql: 'olapSql(sql: string, params?: any) -> list<any>',
+    },
+    short: {
+      append: 'olapAppend(entity, record)',
+      select: 'olapSelect(entity, {where,groupBy,metrics,order,limit})',
+      sql: 'olapSql(sql, params) -> list',
+    },
+    notes: 'append writes one row and is at-least-once: a retried job may write it twice, so a count that must not inflate uses distinct on the id. select is typed — groupBy, metrics (sum/count/avg/min/max) and order are checked against the declared columns. sql is the raw escape hatch: SELECT/WITH only, one statement, values through params, never string interpolation.',
+  },
 };
 
 export function capabilityFor(name: string): CapabilitySpec | null {

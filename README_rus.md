@@ -345,8 +345,11 @@ arcod deploy . --env prod  # target развёртывания и манифес
 **Только инфраструктура** — провайдер провижинится в compose, но эффектов у
 возможности пока нет, и адаптер в сервис не попадает: `document` (mongodb),
 `proxy` (nginx), `migrations` (liquibase),
-`olap` (clickhouse), `metrics` (prometheus), `errors` (sentry), `tracing`
-(jaeger), `dashboards` (grafana), `secrets` (vault).
+`metrics` (prometheus), `errors` (sentry), `tracing`
+(jaeger), `dashboards` (grafana), `secrets` (vault). `olap` (clickhouse)
+стоит между двумя рядами: эффекты `append`/`select`/`sql` объявлены
+(B95.1) и типизированный select — то, что будет звать тело, но драйвера ещё
+нет, поэтому bind, обслуживающий `olap`, — это `A083` до B95.3.
 `endpoint` и `websocket` контейнера не создают вовсе: первый — адрес чужого
 сервиса, второй — сервер внутри самого сервиса.
 

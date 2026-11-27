@@ -376,9 +376,12 @@ Redis for delivery across processes.
 **Infrastructure only** — the provider is provisioned in compose, but the
 capability has no effect signatures yet and no adapter reaches the service:
 `document` (mongodb), `proxy` (nginx),
-`migrations` (liquibase), `olap` (clickhouse), `metrics` (prometheus),
+`migrations` (liquibase), `metrics` (prometheus),
 `errors` (sentry), `tracing` (jaeger), `dashboards` (grafana), `secrets`
-(vault). `endpoint` and `websocket` create no container at all: the first is an
+(vault). `olap` (clickhouse) sits between the two rows: its effects
+`append`/`select`/`sql` are declared (B95.1) and the typed select is what a
+body will call, but the driver is not built yet, so a bind that serves `olap`
+is `A083` until B95.3. `endpoint` and `websocket` create no container at all: the first is an
 address of somebody else's service, the second is a server inside the service
 itself.
 

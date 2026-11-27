@@ -1,6 +1,8 @@
 // `uses analytics: olap` passed check: clickhouse declares the capability,
 // so it looked bound, but no effect list and no adapter existed — the
-// generated service knew nothing about the alias. A076 rejects it.
+// generated service knew nothing about the alias. B95.1 declared the effects
+// (append/select/sql) and marked the provider noRuntime, so the guard moved
+// from A076 to A083: the bind is rejected until B95.3 ships the driver.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse } from '../src/parser.ts';
@@ -38,12 +40,13 @@ function spec(capability: string, effect: string): string {
   return lines.join('\n');
 }
 
-test('a capability with no effects and no adapter is an error', () => {
+test('a declared capability without a driver is an error at the bind', () => {
   const mod = parse(spec('olap', 'insert'), 'main.arc');
-  const found = check(mod).filter((item) => item.code === 'A076');
-  assert.deepEqual(found.map((item) => [item.severity, item.path, item.message]), [
-    ['error', 'services.Analytics.uses.analytics', 'capability olap has no effects and no adapter'],
-  ]);
+  assert.equal(check(mod).filter((item) => item.code === 'A076').length, 0);
+  const found = check(mod).filter((item) => item.code === 'A083');
+  assert.equal(found.length, 1);
+  assert.match(found[0].message, /clickhouse cannot serve olap at runtime/);
+  assert.match(String(found[0].hint), /B95\.3/);
 });
 
 test('an invented capability and an invented effect are not silent', () => {
