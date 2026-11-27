@@ -1546,8 +1546,8 @@ test('the emitted service reaches the model through one adapter', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'arcod-chat-'));
   const built = await buildExample(chatAst, dir, { implDir: chatImplDir });
   const service = await readFile(join(built.dir, 'service', 'index.mjs'), 'utf8');
-  assert.ok(service.includes('async function llmChat(messages, system)'), 'one adapter');
-  assert.ok(service.includes('async chat(messages, system) { return llmChat(messages, system); }'), 'io.chat');
+  assert.ok(service.includes('async function llmChat(messages, system, tools)'), 'one adapter');
+  assert.ok(service.includes('async chat(messages, system, tools) { return llmChat(messages, system, tools); }'), 'io.chat');
   assert.ok(!service.includes('openai.com'), 'the vendor URL is not baked into the body');
 
   const compose = await readFile(join(built.dir, 'docker-compose.yml'), 'utf8');
