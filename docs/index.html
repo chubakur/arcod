@@ -305,7 +305,7 @@
               <span><b style="color:var(--text); font-size:18px">0</b><br>runtime deps</span>
               <span><b style="color:var(--text); font-size:18px">132</b><br>diagnostics</span>
               <span><b style="color:var(--text); font-size:18px">9</b><br>capabilities</span>
-              <span><b style="color:var(--text); font-size:18px">1200+</b><br>tests</span>
+              <span><b style="color:var(--text); font-size:18px">1500+</b><br>tests</span>
             </div>
           </div>
         </div>
@@ -316,50 +316,45 @@
   <section id="news">
     <div class="wrap">
       <div class="kicker">what shipped this week</div>
-      <h2>Three things shipped on 2026-11-25.</h2>
+      <h2>Three things shipped on 2026-11-26.</h2>
       <p class="sub">Each is covered by tests in the repository.</p>
       <div class="grid-3">
         <div class="card">
-          <span class="num">2026-11-25 · COMPILER</span>
-          <h3>A field called <code>toString</code> is a field</h3>
-          <p>Every name an author writes is a string key in lookup tables and
-          generated objects, and JavaScript answers a missing key with an
-          inherited member. So a type named <code>toString</code> reached a
-          prompt and a DDL as <code>function toString() { [native code] }</code>,
-          a table of that name failed to migrate, a <code>__proto__</code> field
-          was stored and migrated but silently missing from OpenAPI, and a
-          provider "resolved" to a function. Lookups now ask for an own key
-          (<code>Object.hasOwn</code>), maps keyed by a model name are built with
-          <code>Object.create(null)</code>, and such keys are written with
-          <code>defineProperty</code> — in prompts, migrations, dialects,
-          GraphQL, providers, OpenAPI and both SQL stores. <code>__proto__</code>
-          declared as a name is <code>A102</code>: an error at check time, not a
-          crash at build time.</p>
+          <span class="num">2026-11-26 · SERVICES</span>
+          <h3>One model, more than one service</h3>
+          <p>A module can declare several internal services, and every emitter
+          follows the split. <code>compose</code> writes one container per
+          service, <code>k8s</code> a Deployment, a Service and an ingress path
+          for each, <code>terraform</code> an image per service, <code>openapi</code>
+          the paths of all of them (or one with <code>--service</code>), and
+          <code>build</code>, <code>prompts</code> and <code>test</code> keep a
+          per-service artifact. A body is filed under its own service —
+          <code>impl/&lt;service&gt;/&lt;op&gt;.mjs</code> — and the same operation
+          filed twice is refused by name (<code>A107</code>) instead of one file
+          winning quietly.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-25 · EDITORS</span>
-          <h3>A language server that answers in JSON-RPC</h3>
-          <p><code>arcod lsp</code> speaks to VS Code, Neovim and JetBrains over
-          stdio. A method it does not serve is now <code>-32601</code>, a body
-          that is not a request is <code>-32600</code>, and params it cannot
-          read are <code>-32602</code> — the client's log names the failure
-          instead of showing a <code>null</code>. A request sent as a
-          notification gets no response, after <code>shutdown</code> only
-          <code>exit</code> is served, and <code>exit</code> without
-          <code>shutdown</code> is exit code 1. A CRLF document keeps its
-          diagnostic line numbers and still formats with a valid range.</p>
+          <span class="num">2026-11-26 · BUILD</span>
+          <h3>dev on MySQL, prod on Postgres, one model</h3>
+          <p><code>arcod build --env prod</code> reads that environment's
+          <code>sql</code> binds and emits the dialect they speak. The examples
+          declare MySQL in <code>dev</code> and Postgres in <code>prod</code>, so
+          the prod build ships the Postgres client and Postgres migrations while
+          the dev build keeps MySQL. An environment that is not declared is
+          refused with the names that are, instead of guessing.
+          <code>--dialect</code> still forces one dialect when you want it.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-25 · POSTGRES</span>
-          <h3>One bad statement no longer kills the connection</h3>
-          <p>The Postgres client had a single socket and destroyed it on any
-          error frame, so after one failed statement the queue and
-          <code>/healthz</code> waited on a dead connection forever. The error now
-          belongs to the statement in flight: a duplicate insert arrives at the
-          body as the declared <code>Conflict</code> (409) and the next query
-          answers on the same socket. An aborted transaction is recovered by
-          <code>ROLLBACK</code>, a socket the server closes on idle reconnects,
-          and a reconnect does not run the migrations twice.</p>
+          <span class="num">2026-11-26 · TEST</span>
+          <h3>Test what you already deployed</h3>
+          <p><code>arcod test --url &lt;base&gt;</code> skips the build and the
+          spawn: one <code>/healthz</code> probe, then the model's
+          <code>examples</code> against the service that is answering. An
+          unreachable address is <code>cannot reach &lt;base&gt;</code> with exit
+          2, and <code>--impl</code> together with <code>--reference</code> is a
+          usage error — so the run cannot quietly test a build you did not
+          deploy. A module with several services names one with
+          <code>--service</code>, and <code>--json</code> reports which.</p>
         </div>
       </div>
     </div>
@@ -545,9 +540,23 @@ deploy.dev.json          deploy manifest per environment</code></pre>
         <div class="card">
           <h3>One model, two SQL dialects</h3>
           <p><code>arcod build --dialect postgres</code> emits a <code>PgStore</code> and
-          Postgres migrations from the same model; MySQL remains the default output. A
-          build speaks one dialect: a <code>DATABASE_URL</code> of the other scheme stops
-          startup with a named error instead of failing later.</p>
+          Postgres migrations from the same model; MySQL remains the default output.
+          <code>build --env &lt;name&gt;</code> takes the dialect from that environment's
+          <code>sql</code> binds instead, so a prod build speaks Postgres while dev keeps
+          MySQL. A build speaks one dialect: a <code>DATABASE_URL</code> of the other
+          scheme stops startup with a named error instead of failing later.</p>
+        </div>
+        <div class="card">
+          <h3>Several services, one module</h3>
+          <p>An internal service carries its own contract, its own bodies under
+          <code>impl/&lt;service&gt;/</code>, its own container in compose, its own
+          Deployment and ingress path in k8s, its own image in terraform and its own
+          prompt set at <code>prompts/&lt;service&gt;/&lt;op&gt;.md</code>.
+          <code>openapi</code> sums every service into one document, <code>graphql</code>
+          and <code>grpc</code> write one file per service, <code>migrate --service</code>
+          picks whose plan, and a multi-service <code>test</code> report prefixes each
+          result with the service it ran. Two services claiming one route is an error,
+          not a race.</p>
         </div>
         <div class="card">
           <h3>Observable without a stack</h3>
@@ -647,7 +656,9 @@ deploy.dev.json          deploy manifest per environment</code></pre>
         </div>
         <div class="card">
           <h3>Bodies held to the same contract</h3>
-          <p>An operation body is <code>impl/&lt;op&gt;.mjs</code>, and <code>check</code>
+          <p>An operation body is <code>impl/&lt;op&gt;.mjs</code>, or
+          <code>impl/&lt;service&gt;/&lt;op&gt;.mjs</code> when the module declares
+          several services, and <code>check</code>
           reads it as strictly as the spec: it has to export
           <code>async function &lt;op&gt;(input, io)</code>. A body with nothing to rename is
           <code>A096</code> — an error, so <code>build</code> refuses with the file and
@@ -811,7 +822,8 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <h3>What does not work yet</h3>
           <ul>
             <li><b>Scaffold without bodies</b> answers <code>501 NotImplemented</code> for every operation; a build is contracts, routes and adapters until bodies come from <code>--impl</code> or your own code.</li>
-            <li><b>Bodies are loaded from <code>impl/&lt;op&gt;.mjs</code> only.</b> A body written in a <code>.js</code> or <code>.ts</code> file next to the <code>.mjs</code> ones is not read: <code>W051</code> names that file, so it is not mistaken for a silent <code>W050</code>.</li>
+            <li><b>No demo in <code>examples/</code> declares more than one internal service yet.</b> The split is covered by the CLI test suite; the seventeen demos are single-service, so a multi-service module has tests but no example to copy.</li>
+            <li><b>A body is <code>impl/&lt;op&gt;.mjs</code>, or <code>impl/&lt;service&gt;/&lt;op&gt;.mjs</code> in a module with several services.</b> A body written in a <code>.js</code> or <code>.ts</code> file next to the <code>.mjs</code> ones is not read: <code>W051</code> names that file, so it is not mistaken for a silent <code>W050</code>.</li>
             <li><b>The Postgres runtime is proven against a fake wire backend and an end-to-end example</b>, not yet against a live managed server in CI. MySQL remains the default build.</li>
             <li><b>OLAP, metrics, secrets</b> and friends are provisioned in compose but have no effect signatures; <b>Kafka and RabbitMQ</b> provision a queue the adapter cannot speak — bind <code>queue</code> to Redis.</li>
             <li><b><code>find</code> on <code>kv</code> is a scan with a filter</b>, not a query planner: one entity namespace matched in memory. On <code>sql</code> the same <code>find</code> is pushed into <code>WHERE</code>/<code>ORDER BY</code>/<code>LIMIT</code>. Indexes are single-field (<code>index Task.dueAt</code>); composite and partial indexes are not generated.</li>
@@ -823,7 +835,7 @@ deploy.dev.json          deploy manifest per environment</code></pre>
             <li><b>Streams and queues are in-process</b> until you bind them to Redis; only then do replicas share events. OpenAPI publishes a <code>bearerAuth</code> scheme for a service that uses <code>auth: identity</code>, and the token requirement is listed only on operations that need it; a <code>public</code> operation opts out with <code>security: []</code>.</li>
             <li><b><code>arcod fmt</code> re-lays out a record type on one line</b> — it is a canonical printer, not a style-preserving one; the comment survives, your line breaks do not.</li>
             <li><b><code>__proto__</code> is refused as a name, <code>toString</code> is not.</b> <code>A102</code> stops only the name the generated metadata maps cannot carry; <code>constructor</code>, <code>valueOf</code> and friends stay legal and are safe because every lookup is an own-key read. That rule lives in each emitter, so a new one is held to it by a test, not by <code>check</code>.</li>
-            <li><b>JavaScript only.</b> PHP, Go and Python would be separate emitters.</li>
+            <li><b>The <code>language:</code> clause is checked, not yet honoured.</b> <code>node</code>, <code>go</code> and <code>python</code> parse, and their body layout is validated (<code>A103</code>–<code>A106</code>), but the only emitter is Node: <code>build</code> refuses a <code>go</code> or <code>python</code> service by name instead of shipping an empty shell.</li>
             <li><b><code>arcod terraform</code> targets Yandex Cloud only</b> and renders no state backend; <code>terraform validate</code> is not part of CI yet.</li>
           </ul>
         </div>
