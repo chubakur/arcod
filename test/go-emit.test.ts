@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { parse } from '../src/parser.ts';
 import { buildExample } from '../src/build.ts';
+import { goUnsupported } from '../src/emit/go.ts';
 
 const spec = (extra = ''): string => `module gokit @0.1.0 {}
 
@@ -93,6 +94,29 @@ test('a go service gets main.go with the contract routes and input kinds', async
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// The refusal list is the contract of the first kit. A feature that quietly
+// drops off it would be generated as a service that ignores the declaration,
+// so every name is pinned here, not only the store and the stream.
+test('every feature the go kit cannot carry is named', () => {
+  const loc = { line: 1, column: 1, offset: 0 };
+  const base = { contract: [], sagas: [], roles: [], uses: [] };
+  const named = (svc: object, mod: object = { uis: [] }): string[] =>
+    goUnsupported(mod as never, { ...base, ...svc } as never);
+  assert.deepEqual(named({ uses: [{ alias: 'store', capability: 'arcod.std.kv', params: {}, loc }] }), ['store: kv']);
+  assert.deepEqual(named({ uses: [{ alias: 'store', capability: 'arcod.std.sql', params: {}, loc }] }), ['store: sql']);
+  assert.deepEqual(named({ uses: [{ alias: 'live', capability: 'arcod.std.stream', params: {}, loc }] }), ['stream']);
+  assert.deepEqual(named({ uses: [{ alias: 'events', capability: 'arcod.std.queue', params: {}, loc }] }), ['queue']);
+  assert.deepEqual(named({ uses: [{ alias: 'api', capability: 'arcod.std.graphql', params: {}, loc }] }), ['graphql']);
+  assert.deepEqual(named({ uses: [{ alias: 'reports', capability: 'arcod.std.olap', params: {}, loc }] }), ['olap']);
+  assert.deepEqual(named({ uses: [{ alias: 'mailer', capability: 'arcod.std.mail', params: {}, loc }] }), ['mail']);
+  assert.deepEqual(named({ uses: [{ alias: 'files', capability: 'arcod.std.files', params: {}, loc }] }), ['files']);
+  assert.deepEqual(named({}, { uis: [{}] }), ['ui page']);
+  assert.deepEqual(named({ roles: ['admin'] }), ['roles']);
+  assert.deepEqual(named({ sagas: [{}] }), ['saga']);
+  assert.deepEqual(named({ contract: [{ kind: 'job', loc }] }), ['job']);
+  assert.deepEqual(named({ contract: [{ kind: 'op', auth: true, loc }] }), ['auth']);
 });
 
 test('the go kit refuses a store it cannot serve, by name', async () => {
