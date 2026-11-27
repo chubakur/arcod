@@ -141,6 +141,11 @@ async function readGoBodies(
         'Go body ' + display + ' declares a package; arcod splices the function into ops.go, so leave the package clause out',
       );
     }
+    if (/^\s*import\s*[("]/m.test(text)) {
+      throw new BuildError(
+        'Go body ' + display + ' declares its own import; arcod splices the body into ops.go and adds the stdlib imports it spells (json, strconv, time, …)',
+      );
+    }
     if (!/func\s+op[A-Za-z0-9_]*\s*\(/.test(text)) {
       throw new BuildError('Go body ' + display + ' has no func op<Name>(in map[string]any) (any, error) signature');
     }

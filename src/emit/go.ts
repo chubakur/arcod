@@ -305,14 +305,46 @@ export function goMain(mod: ModuleNode, svc: ServiceNode): string {
 // stubs where they do not: an operation without a body answers 501 by name,
 // never a guessed implementation. A body is spliced verbatim — it is the
 // author's file, and the build keeps it readable in the output.
+// Go imports are per file, not per package: a body spliced into ops.go cannot
+// see main.go's imports. The kit therefore allowlists the stdlib a body needs
+// (json for a record, strconv for a counter, time for a ttl) and adds an import
+// only when the body actually spells that identifier — an unused import is a
+// compile error in Go, so guessing would break the service. net/fs/exec are
+// not on the list: the contract denies those effects.
+const BODY_IMPORTS: Array<[string, string]> = [
+  ['encoding/json', 'json'],
+  ['errors', 'errors'],
+  ['fmt', 'fmt'],
+  ['sort', 'sort'],
+  ['strconv', 'strconv'],
+  ['strings', 'strings'],
+  ['time', 'time'],
+];
+
+function bodyImports(ops: ContractOp[], bodies: Record<string, string>): string[] {
+  const text = ops.map((op) => bodies[op.name] ?? '').join('\n');
+  return BODY_IMPORTS.filter(([, ident]) => new RegExp('(^|[^A-Za-z0-9_.])' + ident + '\\.').test(text)).map(
+    ([path]) => path,
+  );
+}
+
 export function goOps(mod: ModuleNode, svc: ServiceNode, bodies: Record<string, string> = {}): string {
   const ops = contractOps(mod, svc.contract).filter((op) => op.route !== null);
+  const stdlib = bodyImports(ops, bodies);
   const lines: string[] = [];
   lines.push('// Operation bodies for ' + svc.name + '. Bodies come from impl/*.go;');
   lines.push('// the rest are stubs. Keep the signature and never edit main.go.');
   lines.push('package main');
   lines.push('');
-  lines.push('import arcodio ' + goString(goModulePath(svc) + '/arcodio'));
+  if (stdlib.length > 0) {
+    lines.push('import (');
+    for (const path of stdlib) lines.push('\t' + goString(path));
+    lines.push('');
+    lines.push('\tarcodio ' + goString(goModulePath(svc) + '/arcodio'));
+    lines.push(')');
+  } else {
+    lines.push('import arcodio ' + goString(goModulePath(svc) + '/arcodio'));
+  }
   for (const op of ops) {
     lines.push('');
     lines.push('// op' + pascal(op.name) + ' implements ' + op.route!.method + ' ' + op.route!.path + '.');

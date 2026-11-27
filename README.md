@@ -405,11 +405,20 @@ from `QUEUE_REDIS_URL` and falls back to the kv one. The consumer side of a
 queue is a job operation, which this kit refuses, so a queue here is
 publish-only; a service without one carries no queue code and a call says
 `arcodio.ErrNoQueue`. A service without a store gets `IO{}` and a store call
-returns `arcodio.ErrNoStore`. A body cannot add its own `import` line — it
-shares the imports of the generated `ops.go` (`arcodio`) and `main.go`
-(`encoding/json`, `errors`, `io`, `log`, `net/http`, `os`, `strconv`);
-because the body owns the signature, a parameter named `io` hides the
-standard package there. A rule such as `atomic read { get; del }` is not
+returns `arcodio.ErrNoStore`. A body cannot add its own `import` line —
+Go imports are per file, and `main.go`'s imports are invisible in `ops.go`.
+The build instead adds the stdlib imports the body actually spells:
+`encoding/json`, `errors`, `fmt`, `sort`, `strconv`, `strings`, `time`;
+an identifier the body never mentions pulls nothing in, because an unused
+import is a compile error in Go, and `net`/`os`/`os/exec` are off the list
+(the contract denies those effects). A body that opens with its own
+`import` is refused by name at build time. Because the body owns the
+signature, a parameter named `io` hides the standard package there.
+`test/fixtures/go-project1` is the same one-time-message service in Go, with
+Go bodies; `arcod test test/fixtures/go-project1 --url <service>` answers 5/5
+against the running binary, and `test/go-live.test.ts` does exactly that
+with the real toolchain (it compiles the service and points it at a fake
+RESP store, since the VM has no docker). A rule such as `atomic read { get; del }` is not
 carried by the emitter for Go — no generated body exists to obey it — so the
 author's body keeps that promise and `arcod test` is what checks it.
 `language: python` passes
