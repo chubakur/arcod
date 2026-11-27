@@ -27,6 +27,12 @@ test('a name the model does not declare is not evidence', () => {
   assert.equal(olapTableNamesFromBodies({ record: 'io.olapAppend("NoSuchType", {})' }, DECLARED), null);
 });
 
+test('a call the scan cannot read keeps every table', () => {
+  // A comment between the name and the paren breaks the strict pattern; the
+  // mention count then exceeds the recognized calls and the answer stays wide.
+  assert.equal(olapTableNamesFromBodies({ record: 'io.olapAppend /* later */ ("DeliveryEvent", {})' }, DECLARED), null);
+});
+
 test('a computed name, raw SQL or missing bodies keeps every table', () => {
   assert.equal(olapTableNamesFromBodies({ record: 'const T = "DeliveryEvent"; io.olapAppend(T, {})' }, DECLARED), null);
   assert.equal(olapTableNamesFromBodies({ record: 'io.olapAppend("Delivery" + suffix, {})' }, DECLARED), null);

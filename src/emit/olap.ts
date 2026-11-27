@@ -230,6 +230,11 @@ export function readOnlySql(sql: string): boolean {
 // io.olapSql whose SQL names its own tables, means the compiler cannot know,
 // and a table missing from the schema would turn a write into a 500.
 const OLAP_READ_CALL = /io\.olap(Append|Select)\s*\(/g;
+// A call the strict pattern misses (a comment between the name and the paren,
+// a line break after a backslash) would hide its table; counting every mention
+// and comparing it with the calls that named a literal keeps the answer wide
+// instead of dropping a table the body still writes to.
+const OLAP_READ_ANY = /io\.olap(Append|Select)\b/g;
 const OLAP_RAW_CALL = /io\.olapSql\s*\(/;
 const STRING_LITERAL = /^(['"])([A-Za-z_$][\w$]*)\1$/;
 
@@ -245,7 +250,10 @@ export function olapTableNamesFromBodies(
   const names = new Set<string>();
   for (const body of sources) {
     if (OLAP_RAW_CALL.test(body)) return null;
-    for (const match of body.matchAll(OLAP_READ_CALL)) {
+    const mentions = [...body.matchAll(OLAP_READ_ANY)].length;
+    const calls = [...body.matchAll(OLAP_READ_CALL)];
+    if (calls.length !== mentions) return null;
+    for (const match of calls) {
       const rest = body.slice(match.index + match[0].length);
       const end = rest.search(/[,)]/);
       const literal = STRING_LITERAL.exec((end === -1 ? rest : rest.slice(0, end)).trim());
