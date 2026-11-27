@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse } from '../src/parser.ts';
-import { clickhouseType, olapColumns, createTableSql, insertSql, readOnlySql } from '../src/emit/olap.ts';
+import { clickhouseType, olapColumns, createTableSql, insertSql, readOnlySql, selectSql } from '../src/emit/olap.ts';
 
 const mod = parse([
   'module demo @0.1.0 {',
@@ -80,6 +80,71 @@ test('the raw escape hatch takes one read-only statement', () => {
   assert.equal(readOnlySql('SELECT 1; DROP TABLE events'), false);
   assert.equal(readOnlySql('SELECT 1; -- then'), false);
   assert.equal(readOnlySql(''), false);
+});
+
+const EVENTS = [
+  { name: 'day', type: 'String' },
+  { name: 'sent', type: 'Int64' },
+  { name: 'failed', type: 'Int64' },
+  { name: 'at', type: 'DateTime64(3)' },
+];
+
+test('a typed select groups by the declared columns and names the metrics', () => {
+  const { sql, params } = selectSql('DeliveryEvent', EVENTS, {
+    groupBy: ['day'],
+    metrics: [
+      { name: 'sent', op: 'sum', field: 'sent' },
+      { name: 'failed', op: 'sum', field: 'failed' },
+    ],
+    order: 'day desc',
+    limit: 90,
+  });
+  assert.equal(sql, [
+    'SELECT "day", sum("sent") AS "sent", sum("failed") AS "failed"',
+    'FROM "DeliveryEvent"',
+    'GROUP BY "day"',
+    'ORDER BY "day" DESC',
+    'LIMIT 90',
+    'FORMAT JSON',
+  ].join('\n'));
+  assert.deepEqual(params, {});
+});
+
+test('a filter value is a parameter, never a piece of SQL', () => {
+  const { sql, params } = selectSql('DeliveryEvent', EVENTS, {
+    where: { day: '2026-01-01\' OR 1=1', sent: { gte: 3 } },
+    limit: 1,
+  });
+  assert.match(sql, /"day" = \{p1:String\}/);
+  assert.match(sql, /"sent" >= \{p2:Int64\}/);
+  assert.equal(params.p1, '2026-01-01\' OR 1=1');
+  assert.equal(params.p2, '3');
+  assert.doesNotMatch(sql, /OR 1=1/);
+});
+
+test('count distinct rides on a column so a retry does not inflate it', () => {
+  const { sql } = selectSql('DeliveryEvent', EVENTS, {
+    metrics: [{ name: 'events', op: 'count', field: 'day', distinct: true }],
+  });
+  assert.equal(sql.split('\n')[0], 'SELECT count(DISTINCT "day") AS "events"');
+});
+
+test('an unknown column, metric or operator is refused by name', () => {
+  assert.throws(() => selectSql('DeliveryEvent', EVENTS, { groupBy: ['week'] }), /unknown column week; declared: day, sent, failed, at/);
+  assert.throws(() => selectSql('DeliveryEvent', EVENTS, { where: { sent: { like: 1 } } }), /unknown operator like/);
+  assert.throws(() => selectSql('DeliveryEvent', EVENTS, { metrics: [{ name: 'x', op: 'median', field: 'sent' }] }), /unknown metric median/);
+  assert.throws(() => selectSql('DeliveryEvent', EVENTS, { limit: 0 }), /limit must be a positive whole number/);
+});
+
+test('an empty in-list matches nothing instead of everything', () => {
+  const { sql } = selectSql('DeliveryEvent', EVENTS, { where: { day: { in: [] } } });
+  assert.match(sql, /WHERE 0/);
+});
+
+test('contains is a position, not a LIKE with user text in the pattern', () => {
+  const { sql, params } = selectSql('DeliveryEvent', EVENTS, { where: { day: { contains: '%' } } });
+  assert.match(sql, /position\("day", \{p1:String\}\) > 0/);
+  assert.equal(params.p1, '%');
 });
 
 test('an optional column is Nullable, and a named type resolves', () => {

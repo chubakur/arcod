@@ -95,6 +95,108 @@ export function insertSql(table: string): string {
   return 'INSERT INTO ' + quoteName(table) + ' FORMAT JSONEachRow';
 }
 
+export interface OlapQuery {
+  where?: Record<string, unknown>;
+  groupBy?: string[];
+  metrics?: Array<{ name: string; op: string; field?: string; distinct?: boolean }>;
+  order?: string;
+  limit?: number;
+}
+
+const METRICS = new Set(['sum', 'count', 'avg', 'min', 'max']);
+const OPERATORS = new Set(['gt', 'gte', 'lt', 'lte', 'ne', 'in', 'contains']);
+
+// A typed select is the main path: the body names columns, not SQL. Every
+// identifier is checked against the declared table (an unknown column is an
+// error with its name, not a ClickHouse 400 after the query), and every value
+// travels as a {pN:Type} parameter — a string that looks like SQL stays a
+// string, which is what makes the raw escape hatch unnecessary for filters.
+export function selectSql(
+  table: string,
+  columns: OlapColumn[],
+  query: OlapQuery,
+): { sql: string; params: Record<string, string> } {
+  const byName = new Map(columns.map((column) => [column.name, column]));
+  const params: Record<string, string> = {};
+  let counter = 0;
+  const columnOf = (name: string): OlapColumn => {
+    const column = byName.get(name);
+    if (!column) throw new Error('unknown column ' + name + '; declared: ' + columns.map((item) => item.name).join(', '));
+    return column;
+  };
+  const param = (value: unknown, type: string): string => {
+    counter += 1;
+    const key = 'p' + counter;
+    params[key] = String(value);
+    return '{' + key + ':' + type + '}';
+  };
+
+  const conditions: string[] = [];
+  for (const [name, raw] of Object.entries(query.where ?? {})) {
+    const column = columnOf(name);
+    const ref = '"' + column.name + '"';
+    if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const [operator, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (!OPERATORS.has(operator)) throw new Error('unknown operator ' + operator + ' on column ' + name);
+        if (operator === 'in') {
+          const list = Array.isArray(value) ? value : [value];
+          if (list.length === 0) {
+            conditions.push('0');
+            continue;
+          }
+          conditions.push(ref + ' IN (' + list.map((item) => param(item, column.type)).join(', ') + ')');
+          continue;
+        }
+        if (operator === 'contains') {
+          conditions.push('position(' + ref + ', ' + param(value, column.type) + ') > 0');
+          continue;
+        }
+        const symbol: Record<string, string> = { gt: '>', gte: '>=', lt: '<', lte: '<=', ne: '!=' };
+        conditions.push(ref + ' ' + symbol[operator] + ' ' + param(value, column.type));
+      }
+      continue;
+    }
+    if (raw === null) {
+      conditions.push(ref + ' IS NULL');
+      continue;
+    }
+    conditions.push(ref + ' = ' + param(raw, column.type));
+  }
+
+  const group = (query.groupBy ?? []).map((name) => {
+    const column = columnOf(name);
+    return { name: column.name, ref: '"' + column.name + '"' };
+  });
+  const metrics = (query.metrics ?? []).map((metric) => {
+    const op = metric.op.toLowerCase();
+    if (!METRICS.has(op)) throw new Error('unknown metric ' + metric.op + '; use sum, count, avg, min or max');
+    if (op === 'count' && (!metric.field || metric.distinct)) {
+      const field = metric.distinct ? columnOf(metric.field ?? '').name : null;
+      return 'count(' + (field ? 'DISTINCT "' + field + '"' : '*') + ') AS "' + (metric.name || 'count') + '"';
+    }
+    const field = columnOf(metric.field ?? metric.name);
+    return op + '("' + field.name + '") AS "' + (metric.name || op) + '"';
+  });
+
+  const list = [...group.map((item) => item.ref), ...metrics];
+  const sql = ['SELECT ' + (list.length > 0 ? list.join(', ') : '*'), 'FROM "' + table + '"'];
+  if (conditions.length > 0) sql.push('WHERE ' + conditions.join(' AND '));
+  if (group.length > 0) sql.push('GROUP BY ' + group.map((item) => item.ref).join(', '));
+  if (query.order) {
+    const parts = query.order.trim().split(/\s+/);
+    const column = columnOf(parts[0]);
+    const direction = (parts[1] ?? 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    sql.push('ORDER BY "' + column.name + '" ' + direction);
+  }
+  if (query.limit !== undefined) {
+    const limit = Math.trunc(Number(query.limit));
+    if (!Number.isFinite(limit) || limit <= 0) throw new Error('limit must be a positive whole number');
+    sql.push('LIMIT ' + limit);
+  }
+  sql.push('FORMAT JSON');
+  return { sql: sql.join('\n'), params };
+}
+
 // The raw escape hatch accepts one read-only statement: a second one could
 // hide a write behind a SELECT.
 export function readOnlySql(sql: string): boolean {
