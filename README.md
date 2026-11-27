@@ -1373,6 +1373,27 @@ A `sql` service takes the same call: the rows come from the same `where` as a
 typed table (`UPDATE`), so the unique keys stay the table's business. Reading it
 needs `store.updateWhere` in `effects` on either store.
 
+`io.update` takes the same guard as a fourth argument when the body already
+holds the row it wants to change:
+
+```js
+const row = await io.fetch('Doc', id);
+// ... compute the next text ...
+const next = await io.update('Doc', id, { version: row.version + 1, text }, { if: { version: row.version } });
+```
+
+`if` names the values the stored record must still hold; the record is
+re-read under a lease and written only when they do, so the loser of a race
+gets `Conflict` (409) and the row is untouched instead of one step being
+overwritten. An unknown key under the fourth argument, an `if` that is not an
+object, or an empty `if` is `Invalid` naming the call — a guard that guards
+nothing is a caller mistake, not an unconditional write. A body that wants the
+write to land retries on `error.error === 'Conflict'` by re-reading the row;
+ten parallel read-modify-writes then end at version 10 with every character,
+instead of the version 2 that the lost-update bug left behind. The guard needs
+no extra effect: it is the same `store.update`, on `kv` and `sql` alike, and
+`{ inc }`/count semantics stay `io.updateWhere`'s job.
+
 A total is a separate call, not a page you fold yourself:
 
 ```js

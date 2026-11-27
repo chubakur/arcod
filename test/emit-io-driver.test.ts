@@ -108,5 +108,10 @@ test('a sql bundle carries no kv entity code', async () => {
 test('a kv bundle still scans the entity prefix', async () => {
   const body = makeIoBody(await emit('kv'));
   assert.match(body, /await store\.scan\(meta\.prefix\)/, 'the kv count scans its prefix');
-  assert.equal(body.includes('meta.table'), false, 'the sql entity methods leaked into the kv bundle');
+  // The kv lease key spells the entity prefix (meta.prefix), so meta.table
+  // itself must not appear either. What the old check meant to catch is a call
+  // to the typed-table methods, which the kv store does not have.
+  for (const method of ['entityFetch', 'entityInsert', 'entityUpdate', 'entityRemove', 'entityFind', 'entityCount', 'entityAggregate']) {
+    assert.equal(body.includes(method), false, 'the sql method ' + method + ' leaked into the kv bundle');
+  }
 });

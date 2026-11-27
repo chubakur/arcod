@@ -1404,6 +1404,42 @@ function applyChanges(base, changes) {
   return value;
 }
 
+// io.update takes an optional fourth argument: { if: { version: 3 } } names
+// the values the stored record must still hold. Without it the write is the
+// read-modify-write it always was, and two requests that fetched the same
+// snapshot overwrite each other; with it the record is re-read under a lease
+// and written only when the condition still holds, so the loser answers
+// Conflict instead of dropping the winner's step. An unknown key is Invalid
+// rather than a guard silently ignored, and an empty if names nothing.
+function updateGuard(entity, guard) {
+  if (guard == null) return null;
+  if (typeof guard !== 'object' || Array.isArray(guard)) {
+    throw new ArcodError('Invalid', { message: 'update ' + entity + ': the precondition must be an object like { if: { version: 3 } }' });
+  }
+  for (const key of Object.keys(guard)) {
+    if (key !== 'if') throw new ArcodError('Invalid', { message: 'update ' + entity + ': unknown precondition ' + JSON.stringify(key) + '; use if' });
+  }
+  const expected = guard.if;
+  if (expected == null || typeof expected !== 'object' || Array.isArray(expected)) {
+    throw new ArcodError('Invalid', { message: 'update ' + entity + ': if must be an object of field values' });
+  }
+  if (Object.keys(expected).length === 0) {
+    throw new ArcodError('Invalid', { message: 'update ' + entity + ': if names no field, so it guards nothing' });
+  }
+  return expected;
+}
+
+// The lease a guarded update holds while it re-reads and writes. It is a
+// value with a TTL, not a flag: a writer that dies holds the record for 5 s,
+// and a caller that waits longer than 10 s gets Conflict instead of idling.
+async function lease(store, lockKey, token, what) {
+  const deadline = Date.now() + 10000;
+  while (!(await store.lock(lockKey, token, 5000))) {
+    if (Date.now() >= deadline) throw new ArcodError('Conflict', { message: what + ': the record stayed locked' });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+}
+
 // The email and url shapes of the op boundary, written as plain code: a regex
 // inside this emitted template needs its backslashes doubled at every level, and
 // one missed level silently turns [^\s@] into [^s@].
@@ -2558,40 +2594,56 @@ function kvEntityIoLines(): string[] {
     '      await store.set(key, JSON.stringify({ b: value, h: null }), CONFIG.ttlMs);',
     '      return value;',
     '    },',
-    '    async update(entity, id, patch) {',
+    '    async update(entity, id, patch, guard) {',
     '      metricCapability("store.update");',
     '      const meta = requestEntity(entity);',
     '      checkRecordFields(meta, patch, "update " + entity);',
     '      checkUpdateKey(entity, id, patch);',
+    '      const expected = updateGuard(entity, guard);',
+    '      if (expected) checkWhereFields(meta, expected);',
     '      const key = meta.prefix + String(id);',
-    '      const raw = await store.get(key);',
-    "      if (raw == null) throw new ArcodError('NotFound');",
-    '      const current = recordOf(raw);',
-    '      const base = current && typeof current === "object" ? current : {};',
-    '      const value = Object.assign({}, base, patch || {});',
-    '      if (value.id == null) value.id = id;',
-    '      const claimed = [];',
-    '      const released = [];',
-    '      for (const group of meta.uniqueGroups) {',
-    '        const before = group.map((field) => base[field]);',
-    '        const after = group.map((field) => value[field]);',
-    '        if (JSON.stringify(before) === JSON.stringify(after)) continue;',
-    '        // Giving a value up is its own step. A clear to NULL must release the',
-    '        // claim even though NULL itself is never claimed: skipping the group',
-    '        // before the release kept the old value held forever, so the row no',
-    '        // longer carried it and nobody could take it.',
-    '        if (before.every((item) => item != null)) released.push(uniqueKey(entity, group.join(','), before));',
-    '        if (after.some((item) => item == null)) continue;',
-    "        const claim = uniqueKey(entity, group.join(','), after);",
-    '        if (!(await store.claim(claim))) {',
-    '          for (const item of claimed) await store.del(item);',
-    "          throw new ArcodError('Conflict');",
+    '      const write = async () => {',
+    '        const raw = await store.get(key);',
+    "        if (raw == null) throw new ArcodError('NotFound');",
+    '        const current = recordOf(raw);',
+    '        const base = current && typeof current === "object" ? current : {};',
+    '        if (expected && !matchesWhere(withDefaults(meta, base), expected)) {',
+    "          throw new ArcodError('Conflict', { message: 'update ' + entity + ': the record changed' });",
     '        }',
-    '        claimed.push(claim);',
+    '        const value = Object.assign({}, base, patch || {});',
+    '        if (value.id == null) value.id = id;',
+    '        const claimed = [];',
+    '        const released = [];',
+    '        for (const group of meta.uniqueGroups) {',
+    '          const before = group.map((field) => base[field]);',
+    '          const after = group.map((field) => value[field]);',
+    '          if (JSON.stringify(before) === JSON.stringify(after)) continue;',
+    '          // Giving a value up is its own step. A clear to NULL must release the',
+    '          // claim even though NULL itself is never claimed: skipping the group',
+    '          // before the release kept the old value held forever, so the row no',
+    '          // longer carried it and nobody could take it.',
+    '          if (before.every((item) => item != null)) released.push(uniqueKey(entity, group.join(','), before));',
+    '          if (after.some((item) => item == null)) continue;',
+    "          const claim = uniqueKey(entity, group.join(','), after);",
+    '          if (!(await store.claim(claim))) {',
+    '            for (const item of claimed) await store.del(item);',
+    "            throw new ArcodError('Conflict');",
+    '          }',
+    '          claimed.push(claim);',
+    '        }',
+    '        await store.set(key, JSON.stringify({ b: value, h: null }), CONFIG.ttlMs);',
+    '        for (const item of released) await store.del(item);',
+    '        return fillDeclared(meta, value);',
+    '      };',
+    '      if (!expected) return write();',
+    '      const lockKey = "lock:" + meta.prefix + id;',
+    '      const token = randomUUID();',
+    '      await lease(store, lockKey, token, "update " + entity);',
+    '      try {',
+    '        return await write();',
+    '      } finally {',
+    '        await store.unlock(lockKey, token);',
     '      }',
-    '      await store.set(key, JSON.stringify({ b: value, h: null }), CONFIG.ttlMs);',
-    '      for (const item of released) await store.del(item);',
-    '      return fillDeclared(meta, value);',
     '    },',
     // B23: the read-modify-write a body could not make atomic on kv. The
     // record is locked for the duration, the condition is re-read under the
@@ -2741,12 +2793,27 @@ function sqlEntityIoLines(): string[] {
     '      await store.entityInsert(meta.table, meta.columns, value, meta.uniqueGroups);',
     '      return value;',
     '    },',
-    '    async update(entity, id, patch) {',
+    '    async update(entity, id, patch, guard) {',
     '      metricCapability("store.update");',
     '      const meta = requestEntity(entity);',
     '      checkRecordFields(meta, patch, "update " + entity);',
     '      checkUpdateKey(entity, id, patch);',
-    '      return fillDeclared(meta, await store.entityUpdate(meta.table, meta.columns, id, patch, meta.uniqueGroups));',
+    '      const expected = updateGuard(entity, guard);',
+    '      if (expected == null) return fillDeclared(meta, await store.entityUpdate(meta.table, meta.columns, id, patch, meta.uniqueGroups));',
+    '      checkWhereFields(meta, expected);',
+    '      const lockKey = "lock:" + meta.table + ":" + id;',
+    '      const token = randomUUID();',
+    '      await lease(store, lockKey, token, "update " + entity);',
+    '      try {',
+    '        const fresh = await store.entityFetch(meta.table, meta.columns, id);',
+    "        if (fresh == null) throw new ArcodError('NotFound');",
+    '        if (!matchesWhere(withDefaults(meta, fresh), expected)) {',
+    "          throw new ArcodError('Conflict', { message: 'update ' + entity + ': the record changed' });",
+    '        }',
+    '        return fillDeclared(meta, await store.entityUpdate(meta.table, meta.columns, id, patch, meta.uniqueGroups));',
+    '      } finally {',
+    '        await store.unlock(lockKey, token);',
+    '      }',
     '    },',
     // B23.2: the same primitive on sql. The rows come from entityFind, each
     // one is re-read and re-matched under its lease, and the write is
