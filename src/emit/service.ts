@@ -1670,8 +1670,24 @@ function send(res, status, body, type) {
   res.end(body);
 }
 
+// The runtime raises a few errors itself, not from a body: authorize answers
+// 'Unauthorized', the message path 'Gone'. A contract that does not declare
+// them still has to answer with their status -- 500 for an anonymous request
+// to an auth op was the bug B112 names. The declared table wins, because it
+// carries the fields a body attached.
+const BUILTIN_ERRORS = {
+  Invalid: { status: 400, message: 'invalid request' },
+  Unauthorized: { status: 401, message: 'unauthorized' },
+  Forbidden: { status: 403, message: 'forbidden' },
+  NotFound: { status: 404, message: 'not found' },
+  Gone: { status: 410, message: 'already consumed' },
+  Conflict: { status: 409, message: 'conflict' },
+  RateLimited: { status: 429, message: 'too many requests' },
+  Unavailable: { status: 503, message: 'temporarily unavailable' },
+};
+
 function sendError(res, name, values) {
-  const info = ERRORS[name] || { status: 500, message: 'internal error', fields: [] };
+  const info = ERRORS[name] || BUILTIN_ERRORS[name] || { status: 500, message: 'internal error', fields: [] };
   // An Internal error may carry one sentence about what went wrong inside the
   // service (an unknown entity, a missing adapter): it is ours, not the
   // caller's, so it is safe to echo and it is the only clue the client gets.

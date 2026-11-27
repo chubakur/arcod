@@ -918,6 +918,12 @@ body runs:
   otherwise `403` (administrators bypass; a missing record is `404`, never a
   leak).
 
+The runtime raises `Unauthorized`, `Forbidden`, `NotFound`, `Conflict` and the
+rest of the built-in set itself, so a contract does not have to declare them to
+get their status: an `auth op` with no `errors:` answers `401` (it used to
+answer `500`, because the table was built from `errors:` alone). Declaring the
+error is still what attaches fields to the body — the declared entry wins.
+
 The operation name is yours to choose. The generated module keeps its own
 dispatcher (`handleRequest`), so the per-operation wrappers carry the prefix —
 `arcodHandle<Op>` — and an operation called `request` builds and loads instead
