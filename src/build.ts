@@ -121,20 +121,44 @@ export async function scanImplFiles(dir: string, serviceNames: string[] = []): P
   return files;
 }
 
-// Go bodies would live at impl/<op>.go or impl/<service>/<op>.go (B109); the
-// build scans for them only to say it cannot read them yet.
-async function goBodyFiles(dir: string, serviceNames: string[]): Promise<string[]> {
-  const found: string[] = [];
+// Go bodies live at impl/<op>.go (one service) or impl/<service>/<op>.go
+// (B109) and are spliced into the generated ops.go verbatim. A file that
+// repeats the package clause would produce a second package inside one file,
+// so it is refused with the file name rather than producing a broken build.
+async function readGoBodies(
+  dir: string,
+  serviceNames: string[],
+  single: boolean,
+): Promise<{ bodies: Record<string, string>; files: string[] }> {
+  const bodies: Record<string, string> = {};
+  const files: string[] = [];
+  const read = async (file: string, display: string): Promise<void> => {
+    const text = await readFile(join(dir, file), 'utf8');
+    if (text.trim().length === 0) throw new BuildError('Go body ' + display + ' is empty');
+    if (/^\s*package\s+/m.test(text)) {
+      throw new BuildError(
+        'Go body ' + display + ' declares a package; arcod splices the function into ops.go, so leave the package clause out',
+      );
+    }
+    if (!/func\s+op[A-Za-z0-9_]*\s*\(/.test(text)) {
+      throw new BuildError('Go body ' + display + ' has no func op<Name>(in map[string]any) (any, error) signature');
+    }
+    const op = file.slice(file.lastIndexOf('/') + 1, -'.go'.length);
+    if (bodies[op] !== undefined) throw new BuildError('operation ' + op + ' has two Go bodies: ' + display);
+    bodies[op] = text.trimEnd() + '\n';
+    files.push(display);
+  };
   const visit = async (base: string, prefix: string): Promise<void> => {
     const entries = await readdir(base, { withFileTypes: true }).catch(() => null);
     if (!entries) return;
     for (const entry of entries) {
-      if (entry.isFile() && entry.name.endsWith('.go')) found.push('impl/' + prefix + entry.name);
+      if (!entry.isFile() || !entry.name.endsWith('.go')) continue;
+      await read(prefix + entry.name, 'impl/' + prefix + entry.name);
     }
   };
-  await visit(dir, '');
+  if (single) await visit(dir, '');
   for (const name of serviceNames) await visit(join(dir, name), name + '/');
-  return found.sort();
+  return { bodies, files };
 }
 
 function duplicatesIn(files: ImplFile[]): ImplDuplicate[] {
@@ -475,19 +499,6 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
   const pages = webHtml && firstUi && firstUi.render === 'ssr'
     ? [{ route: firstUi.route, html: webHtml, dataOp: ssrFirstScreenOp(mod) }]
     : [];
-  // A body under impl/<service>/<op>.go is a body the author wrote, but the Go
-  // kit still writes its own ops.go stubs and does not read them. Building a
-  // service that ignores the file would look like a working build and answer
-  // NotImplemented at request time, so the build refuses instead.
-  if (serviceBuilds.some((item) => (item.service?.language ?? 'node') === 'go')) {
-    const goBodies = await goBodyFiles(implDir, bodyServices);
-    if (goBodies.length > 0) {
-      throw new BuildError(
-        'Go bodies are not wired yet: ' + goBodies.join(', ') +
-        '; the Go kit writes ops.go stubs, so these bodies would be ignored',
-      );
-    }
-  }
   const files: Array<[string, string]> = [];
   for (const [index, build] of serviceBuilds.entries()) {
     const serviceDir = serviceDirs[index]!;
@@ -500,9 +511,10 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
           ' yet; keep the service in node or wait for the next Go slice',
         );
       }
+      const { bodies } = await readGoBodies(implDir, [svc.name], ownServices.length === 1);
       files.push(
         [join(serviceDir, 'main.go'), goMain(mod, svc)],
-        [join(serviceDir, 'ops.go'), goOps(mod, svc)],
+        [join(serviceDir, 'ops.go'), goOps(mod, svc, bodies)],
         [join(serviceDir, 'go.mod'), goMod(svc)],
         [join(serviceDir, 'Dockerfile'), goDockerfile()],
       );

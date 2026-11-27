@@ -387,10 +387,11 @@ contract IR as Node, `/healthz`, one `ops.go` stub per operation, a `go.mod`
 and a multi-stage `Dockerfile`; the route pattern uses Go 1.22's `{id}` form.
 The kit is deliberately narrow: a service that uses a store, `stream`,
 `queue`, `graphql`, `olap`, `mail`, `files`, a ui page, roles, a saga, a job
-or `auth` is refused by name at build time, and so is a Go body on disk
-(`impl/*.go`) — the kit writes stubs and does not read bodies yet. `language:
-python` passes `check` and is reported by `build --json`, but `build` and
-`impl` refuse it until B108. Silently generating the wrong runtime is worse
+or `auth` is refused by name at build time. A Go body at `impl/<op>.go` (or
+`impl/<service>/<op>.go` beside other services) is spliced into `ops.go`
+verbatim; an operation without one keeps a 501 stub. `language: python` passes
+`check` and is reported by `build --json`, but `build` and `impl` refuse it
+until B108. Silently generating the wrong runtime is worse
 than stopping. `language:` on an `external` service is an error.
 
 ### The model as a capability

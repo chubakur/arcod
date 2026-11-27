@@ -3,7 +3,7 @@
 // status — are read from the contract IR, so a fix there reaches both languages
 // and the two emitters cannot drift into two contracts.
 import type { ModuleNode, ServiceNode } from '../ast.ts';
-import { contractOps, type ContractOp } from './contract.ts';
+import { contractOps, successStatus, type ContractOp } from './contract.ts';
 import { messageForError, statusForError } from './service.ts';
 
 // Features the first Go kit does not carry. It refuses by name instead of
@@ -81,11 +81,9 @@ function opOf(svc: ServiceNode, op: ContractOp) {
   return svc.contract.find((item) => item.kind === 'op' && item.name === op.name)!;
 }
 
+// One success-status rule for every emitter: the IR decides, not a copy.
 function statusLiteral(op: ContractOp, svc: ServiceNode): string {
-  const node = opOf(svc, op);
-  const status = node.clauses.find((clause) => clause.kind === 'status');
-  if (status && status.kind === 'status') return String(status.value);
-  return String((op.route?.method === 'GET' || op.route?.method === 'HEAD') ? 200 : 201);
+  return String(successStatus(opOf(svc, op)));
 }
 
 export function goMain(mod: ModuleNode, svc: ServiceNode): string {
@@ -265,15 +263,24 @@ export function goMain(mod: ModuleNode, svc: ServiceNode): string {
   return lines.join('\n');
 }
 
-export function goOps(mod: ModuleNode, svc: ServiceNode): string {
+// ops.go is assembled from the author's Go bodies where they exist and from
+// stubs where they do not: an operation without a body answers 501 by name,
+// never a guessed implementation. A body is spliced verbatim — it is the
+// author's file, and the build keeps it readable in the output.
+export function goOps(mod: ModuleNode, svc: ServiceNode, bodies: Record<string, string> = {}): string {
   const ops = contractOps(mod, svc.contract).filter((op) => op.route !== null);
   const lines: string[] = [];
-  lines.push('// Operation bodies for ' + svc.name + '. arcod build wrote these stubs;');
-  lines.push('// fill them in, keep the signature, and never edit main.go (it is generated).');
+  lines.push('// Operation bodies for ' + svc.name + '. Bodies come from impl/*.go;');
+  lines.push('// the rest are stubs. Keep the signature and never edit main.go.');
   lines.push('package main');
   for (const op of ops) {
     lines.push('');
     lines.push('// op' + pascal(op.name) + ' implements ' + op.route!.method + ' ' + op.route!.path + '.');
+    const body = bodies[op.name];
+    if (body !== undefined) {
+      lines.push(body.trimEnd());
+      continue;
+    }
     lines.push('func op' + pascal(op.name) + '(in map[string]any) (any, error) {');
     lines.push('\treturn nil, &OpError{Name: "NotImplemented", Status: 501, Message: "implement ' + op.name + ' according to the .arc contract"}');
     lines.push('}');

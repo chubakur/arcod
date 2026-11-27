@@ -123,16 +123,35 @@ test('the go kit names an unsupported stream instead of generating half a servic
   }
 });
 
-test('a go body on disk is refused, not silently ignored', async () => {
+test('a go body is spliced into ops.go, and the op without one stays a stub', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'arcod-go-'));
   try {
     const implDir = join(dir, 'impl');
     await mkdir(implDir, { recursive: true });
-    await writeFile(join(implDir, 'read.go'), 'package main\n', 'utf8');
+    const body = 'func opRead(in map[string]any) (any, error) {\n\treturn map[string]any{"name": "from body"}, nil\n}\n';
+    await writeFile(join(implDir, 'read.go'), body, 'utf8');
+    const mod = parse(spec(), 'main.arc');
+    await buildExample(mod, dir, { implDir });
+    const ops = await readFile(join(dir, '.arcod', 'build', 'service', 'ops.go'), 'utf8');
+    assert.match(ops, /from body/);
+    assert.match(ops, /func opCreate\(in map\[string\]any\) \(any, error\) \{\n\treturn nil, &OpError\{Name: "NotImplemented"/);
+    // The body is not wrapped in a second package clause.
+    assert.equal(ops.match(/^package main$/gm)?.length, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a go body that repeats the package clause is refused with its file', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-go-'));
+  try {
+    const implDir = join(dir, 'impl');
+    await mkdir(implDir, { recursive: true });
+    await writeFile(join(implDir, 'read.go'), 'package main\n\nfunc opRead(in map[string]any) (any, error) { return nil, nil }\n', 'utf8');
     const mod = parse(spec(), 'main.arc');
     await assert.rejects(
       buildExample(mod, dir, { reference: true, implDir }),
-      /Go bodies are not wired yet: impl\/read\.go/,
+      /impl\/read\.go declares a package/,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
