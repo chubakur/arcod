@@ -40,13 +40,13 @@ function spec(capability: string, effect: string): string {
   return lines.join('\n');
 }
 
-test('a declared capability without a driver is an error at the bind', () => {
-  const mod = parse(spec('olap', 'insert'), 'main.arc');
-  assert.equal(check(mod).filter((item) => item.code === 'A076').length, 0);
-  const found = check(mod).filter((item) => item.code === 'A083');
-  assert.equal(found.length, 1);
-  assert.match(found[0].message, /clickhouse cannot serve olap at runtime/);
-  assert.match(String(found[0].hint), /B95\.3/);
+test('a declared capability with a driver is not an unknown one', () => {
+  // B95.3 shipped the adapter, so the bind is served: neither the
+  // unknown-capability error nor the no-runtime refusal applies any more.
+  const mod = parse(spec('olap', 'append'), 'main.arc');
+  const diags = check(mod);
+  assert.equal(diags.filter((item) => item.code === 'A076').length, 0);
+  assert.equal(diags.filter((item) => item.code === 'A083').length, 0);
 });
 
 test('an invented capability and an invented effect are not silent', () => {

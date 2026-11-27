@@ -281,10 +281,9 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
     healthcheck: { test: '["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"]', interval: '2s', timeout: '2s', retries: 30 },
     volumes: ['clickhousedata:/var/lib/clickhouse'],
     appEnv: ({ host, port }) => ({ CLICKHOUSE_URL: 'http://' + host + ':' + port }),
-    // B95.1 declared the capability surface; the driver lands in B95.3. Until
-    // then check refuses a service that uses olap (A083): a container start
-    // that nothing writes to and reads from is worse than a build error.
-    noRuntime: 'the ClickHouse adapter is not built yet (B95.3): olap append/select/sql have no driver',
+    // B95.3: the adapter ships with the service (src/emit/olap-runtime.ts), so
+    // the bind is served, not refused: append/select/sql reach this container
+    // over HTTP 8123 and /healthz probes it with SELECT 1.
   },
   prometheus: {
     name: 'prometheus',

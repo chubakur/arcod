@@ -1,9 +1,7 @@
-// B95.1: the olap capability and its ClickHouse provider are declared before
-// the adapter exists. The bind is real — compose can start the container and
-// OLAP_URL is set — but check must refuse a service that uses the capability,
-// because the generated service has no driver and would silently write into a
-// container nobody reads (A083). This is the guard that makes the declared
-// surface safe until B95.3.
+// B95.1 declared the olap capability and its ClickHouse provider; B95.3 gave
+// them a driver, so bind and uses are served rather than refused (the A083
+// guard that held the surface safe until the adapter landed is gone). These
+// assertions keep the surface itself honest: effects, environment, tables.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse } from '../src/parser.ts';
@@ -36,12 +34,13 @@ const spec = (body: string) => [
   '',
 ].join('\n');
 
-test('clickhouse declares the olap capability, its environment and the missing driver', () => {
+test('clickhouse declares the olap capability and its environment', () => {
   const provider = PROVIDERS.clickhouse;
   assert.equal(provider.capability, 'olap');
   assert.equal(provider.port, 8123);
   assert.match(provider.appEnv!({ host: 'clickhouse', port: 8123 } as never).CLICKHOUSE_URL, /^http:\/\/clickhouse:8123$/);
-  assert.match(String(provider.noRuntime), /B95\.3/);
+  // B95.3 shipped the adapter, so the provider promises nothing it lacks.
+  assert.equal(provider.noRuntime, undefined);
 });
 
 test('the olap capability declares append, select and the raw escape hatch', () => {
@@ -52,12 +51,13 @@ test('the olap capability declares append, select and the raw escape hatch', () 
   assert.match(olap!.notes ?? '', /distinct/);
 });
 
-test('a bound clickhouse refuses to serve olap until the adapter lands', () => {
+test('a bound clickhouse serves olap: the adapter is the driver', () => {
   const diags = check(parse(spec('bind events -> clickhouse'), 'main.arc'));
-  const hit = diags.filter((item) => item.code === 'A083');
-  assert.equal(hit.length, 1);
-  assert.match(hit[0].message, /clickhouse cannot serve olap at runtime/);
-  assert.match(String(hit[0].hint), /B95\.3/);
+  assert.equal(diags.filter((item) => item.code === 'A083').length, 0);
+  assert.equal(diags.filter((item) => item.severity === 'error').length, 0, JSON.stringify(diags));
+  // The surface test in olap-live proves the driver answers; here the provider
+  // simply must not promise a runtime it lacks.
+  assert.equal(PROVIDERS.clickhouse.noRuntime, undefined);
 });
 
 test('a bind to another provider does not claim olap', () => {

@@ -9,6 +9,8 @@ import { IDENTITY_SOURCE } from './identity.ts';
 import { BLOB_SOURCE } from './blob.ts';
 import { LLM_SOURCE } from './llm.ts';
 import { endpointSource } from './endpoint.ts';
+import { olapRuntime } from './olap-runtime.ts';
+import { olapTablesFromTypes } from './olap.ts';
 import { STREAM_SOURCE } from './stream.ts';
 import { TX_GATE_SOURCE } from './tx-gate.ts';
 import { QUEUE_SOURCE, QUEUE_SHUTDOWN, OUTBOX_SHUTDOWN, OUTBOX_SOURCE, outboxSource, consumerSource } from './queue.ts';
@@ -84,7 +86,7 @@ function pluginCapabilityName(capability: string): string {
 // build refuses it instead of emitting an object with a duplicate key.
 const RESERVED_IO_METHODS = new Set([
   'load', 'save', 'get', 'set', 'scan', 'del', 'seen', 'takeIf', 'new', 'actor', 'users', 'chat', 'model',
-  'updateWhere', 'call',
+  'updateWhere', 'call', 'olapAppend', 'olapSelect', 'olapSql',
   'publish', 'queuePublish', 'queuePublishLater', 'queueDead', 'queueDeadDrop', 'cancelJob', 'remote', 'blobPut', 'blobGet', 'blobPutBytes', 'blobGetBytes', 'blobDelete', 'hash', 'verify', 'count', 'aggregate', 'embed',
 ]);
 
@@ -167,6 +169,11 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 const CONFIG = __CONFIG__;
 CONFIG.timeoutMs = Number(process.env.ARCod_TIMEOUT_MS || CONFIG.timeoutMs || 30000);
+// The olap capability adds a second dependency to /healthz. Both doors start
+// closed so the template keeps one shape: an assembly that carries the adapter
+// switches them on and probes ClickHouse with SELECT 1 (B95.3).
+let OLAP_ENABLED = false;
+let olapProbe = async () => {};
 const ROUTES = __ROUTES__;
 
 // Pages rendered at build time and delivered by the service itself; the web
@@ -1954,16 +1961,19 @@ async function handleRequest(req, res, start) {
     if (url.pathname === '/healthz' && (req.method === 'GET' || req.method === 'HEAD')) {
       try {
         await store.ping();
+        await olapProbe();
         // The probe names the store it actually pinged: a sql service used to
         // answer kv: up, which reads as a healthy cache while the database
         // is the thing under test. kv keeps its key, a sql service says sql.
         const health = { status: 'ok', service: CONFIG.service };
         health[CONFIG.store] = 'up';
+        if (OLAP_ENABLED) health.olap = 'up';
         send(res, 200, JSON.stringify(health));
         finish('/healthz', '', 200, start, req);
       } catch {
         const health = { status: 'degraded' };
         health[CONFIG.store] = 'down';
+        if (OLAP_ENABLED) health.olap = 'down';
         send(res, 503, JSON.stringify(health));
         finish('/healthz', '', 503, start, req);
       }
@@ -3097,11 +3107,21 @@ function implHandlers(
   const hasBlob = svc.uses.some((use) => use.capability === 'blob' || use.capability.endsWith('.blob'));
   const hasLlm = svc.uses.some((use) => use.capability === 'llm' || use.capability.endsWith('.llm'));
   const endpointUses = svc.uses.filter((use) => use.capability === 'endpoint' || use.capability.endsWith('.endpoint'));
+  // The analytical store is its own capability: a service can write facts to
+  // sql and events to ClickHouse in one body. The tables come from the
+  // module's record types, so the adapter refuses a column the compiler never
+  // saw, and every part that names the capability gets the same map (B95.3).
+  const olapUses = svc.uses.filter((use) => use.capability === 'olap' || use.capability.endsWith('.olap'));
+  const olapTables = olapUses.length > 0 ? olapTablesFromTypes(mod.types, olapUseOptions(olapUses[0])) : null;
   const usesQueue = hasQueue(svc);
 
   if (hasIdentity) parts.push(IDENTITY_SOURCE);
   if (hasBlob) parts.push(BLOB_SOURCE);
   if (hasLlm) parts.push(LLM_SOURCE);
+  if (olapTables) {
+    parts.push(olapRuntime(olapTables.tables));
+    parts.push('OLAP_ENABLED = true;', 'olapProbe = olapPing;', '');
+  }
   // One base URL per alias: the binding names the host, the body only picks the
   // path, so a body cannot reach a host the environment never declared.
   if (endpointUses.length > 0) {
@@ -3189,6 +3209,16 @@ function implHandlers(
 
   if (endpointUses.length > 0) {
     parts.push('    async call(alias, method, path, body, headers) { return endpointCall(alias, method, path, body, headers); },');
+  }
+
+  if (olapTables) {
+    // The three effects of the capability; the adapter owns the checks, so a
+    // body sees Invalid/Unavailable the same way whichever store it used.
+    parts.push(
+      '    async olapAppend(entity, record) { return olapAppend(entity, record); },',
+      '    async olapSelect(entity, query) { return olapSelect(entity, query); },',
+      '    async olapSql(sql, params) { return olapSql(sql, params); },',
+    );
   }
 
   if (hasLlm) {
@@ -3837,6 +3867,16 @@ function redisKvAlias(mod: ModuleNode, svc: ServiceNode): CapUse | null {
     if (binds.some((bind) => bind.alias === use.alias && bind.provider === 'redis')) return use;
   }
   return null;
+}
+
+// orderBy names the sorting key of every table, ttl asks for the record's
+// datetime column to expire by. Both are read from the use clause, and a
+// column the record lacks is reported by olapTablesFromTypes, not guessed.
+function olapUseOptions(use: CapUse | undefined): { orderBy?: string[]; ttl?: boolean } {
+  if (!use) return {};
+  const orderBy = use.params.orderBy;
+  const order = orderBy && orderBy.kind === 'literal' && typeof orderBy.value === 'string' ? [orderBy.value] : undefined;
+  return { orderBy: order, ttl: Boolean(use.params.ttl) };
 }
 
 function useTtlMs(use: CapUse | null): number {
