@@ -80,7 +80,7 @@ function pluginCapabilityName(capability: string): string {
 // names would shadow the store/blob/queue contract inside every body, so the
 // build refuses it instead of emitting an object with a duplicate key.
 const RESERVED_IO_METHODS = new Set([
-  'load', 'save', 'scan', 'del', 'seen', 'takeIf', 'new', 'actor', 'users', 'chat', 'model',
+  'load', 'save', 'get', 'set', 'scan', 'del', 'seen', 'takeIf', 'new', 'actor', 'users', 'chat', 'model',
   'publish', 'queuePublish', 'queueDead', 'queueDeadDrop', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify', 'count', 'aggregate', 'embed',
 ]);
 
@@ -2779,6 +2779,18 @@ function implHandlers(
     'function makeIo(req) {',
     '  let actorPromise = null;',
     '  return {',
+    // io.get/io.set are the pair a body should reach for (B91): the record
+    // envelope { b, h } and the 'msg:' prefix stay inside. io.load/io.save
+    // remain for the bodies that already speak the envelope.
+    '    async get(id) {',
+    "      const raw = await store.get('msg:' + id);",
+    '      if (raw == null) return null;',
+    "      try { const rec = JSON.parse(raw); if (rec && typeof rec === 'object' && 'b' in rec) return rec.b === undefined ? null : rec.b; } catch {}",
+    '      return raw;',
+    '    },',
+    '    async set(id, value) {',
+    "      await store.set('msg:' + id, JSON.stringify({ b: value === undefined ? null : value, h: null }), CONFIG.ttlMs);",
+    '    },',
     '    async load(id) {',
     "      const raw = await store.get('msg:' + id);",
     '      if (raw == null) return null;',

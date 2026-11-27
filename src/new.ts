@@ -98,6 +98,14 @@ const IMPL_README = [
   'Run "arcod build --impl" to generate bodies with a local model, or hand-write',
   'them. Bodies only see the io adapter (no imports, no raw network/fs/exec).',
   '',
+  'With a kv store the adapter carries io.get(key) and io.set(key, value): the',
+  'value goes in and comes back whole, and a missing key is null. The record',
+  'shape is the runtime business — the key is "msg:<key>" and the stored JSON',
+  'is { b: <value>, h: <hash|null> } — but io.load/io.save expose that envelope',
+  'if you need it (save expects { b }, so save(k, {value: 7}) stores b: null).',
+  'Also: io.del, io.has, io.seen, io.takeIf, io.scan, io.new (uuid), and',
+  'io.queuePublish when the service binds a queue.',
+  '',
 ].join('\n');
 
 export interface ScaffoldResult {

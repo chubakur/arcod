@@ -296,6 +296,19 @@ declares `export async function totals(input, io)`, and `check` reports the two
 ways that contract breaks (`W049` a file no operation is named after, `W050` an
 operation with no file) so a typo does not turn into a silent `501`.
 
+What the `io` adapter offers depends on the stores the service declares. With
+`uses store: kv` a body gets `io.get(key)` and `io.set(key, value)`: the value
+goes in and comes back whole (a scalar, a list or an object), and a key that was
+never written is `null`. The store's own record shape stays inside the
+runtime: a key is `msg:<key>`, the stored JSON is `{ b: <value>, h: <hash|null> }`,
+and `io.load`/`io.save` expose that envelope for the older bodies and for the
+generated `--reference` ones (`save(k, { value: 7 })` writes `b: null` — `set`
+is the call that means "this value"). Alongside them: `io.del(key)`,
+`io.has(key)`, `io.seen(key)` (the at-most-once marker a consumed key leaves),
+`io.takeIf(key, record)` (compare-and-delete for `once`), `io.scan()` and
+`io.new()` for a uuid. A queue-bound service adds `io.queuePublish(topic, message)`.
+The one contract any of them keep is the ttl the model declared on the store.
+
 A module with several internal services files each body under its service:
 `impl/api/totals.mjs` belongs to `api`, and only a folder named after a
 generated service is read (`impl/ops/` stays an ignored directory, `W051`).
