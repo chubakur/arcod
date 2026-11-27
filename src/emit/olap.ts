@@ -97,6 +97,13 @@ export function createTableSql(table: OlapTable): string {
     + 'ORDER BY (' + order + ')';
 }
 
+// The whole schema as one script: the build writes it beside the service and
+// `arcod migrate` applies the same text, so the file a user reads and the DDL
+// a server gets cannot drift.
+export function clickhouseSchemaSql(tables: OlapTable[]): string {
+  return tables.map((table) => createTableSql(table) + ';').join('\n\n') + '\n';
+}
+
 // A typed append: the adapter posts one JSON object per line under this
 // prefix, so a retried job writes the same row twice (at-least-once) and a
 // count that must not inflate asks for distinct.

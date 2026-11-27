@@ -280,7 +280,15 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
     env: { CLICKHOUSE_DB: 'arcod', CLICKHOUSE_USER: 'arcod', CLICKHOUSE_PASSWORD: 'arcod', CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1' },
     healthcheck: { test: '["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"]', interval: '2s', timeout: '2s', retries: 30 },
     volumes: ['clickhousedata:/var/lib/clickhouse'],
-    appEnv: ({ host, port }) => ({ CLICKHOUSE_URL: 'http://' + host + ':' + port }),
+    // The container creates its user from the same fixed local credentials the
+    // other stores use, so the service must name them too: the adapter sends
+    // x-clickhouse-user/key, and ClickHouse refuses an anonymous request from
+    // outside its own container (B95.5 — compose healthy end to end).
+    appEnv: ({ host, port }) => ({
+      CLICKHOUSE_URL: 'http://' + host + ':' + port,
+      CLICKHOUSE_USER: 'arcod',
+      CLICKHOUSE_PASSWORD: 'arcod',
+    }),
     // B95.3: the adapter ships with the service (src/emit/olap-runtime.ts), so
     // the bind is served, not refused: append/select/sql reach this container
     // over HTTP 8123 and /healthz probes it with SELECT 1.

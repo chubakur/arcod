@@ -11,7 +11,7 @@ import { deployManifest, deployProvider, literalMap } from './deploy.ts';
 import { entitiesFromBodies, migrationPlan } from './migrate.ts';
 import { dialectNamed } from './dialects.ts';
 import { kebab } from './plan.ts';
-import { createTableSql, olapTablesFromTypes, olapUseOptions } from './emit/olap.ts';
+import { clickhouseSchemaSql, olapTablesFromTypes, olapUseOptions } from './emit/olap.ts';
 import { helmChart, k8sManifests, type K8sOptions } from './emit/k8s.ts';
 import { implCollisions, implSignatureProblems, sandboxViolation, topLevelDeclarations } from './impl.ts';
 
@@ -629,7 +629,7 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
     if (tables.length === 0) continue;
     const olapDir = join(dir, (index === 0 ? 'clickhouse' : 'clickhouse-service-' + kebab(svcNode.name)));
     await mkdir(olapDir, { recursive: true });
-    files.push([join(olapDir, 'schema.sql'), tables.map((table) => createTableSql(table) + ';').join('\n\n') + '\n']);
+    files.push([join(olapDir, 'schema.sql'), clickhouseSchemaSql(tables)]);
   }
 
   // Body provenance: which ops have impl bodies, their hashes, and the emit

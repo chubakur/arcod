@@ -593,6 +593,10 @@ test('every provider in the registry renders a compose service', () => {
   assert.match(yaml, /S3_ENDPOINT: "http:\/\/s3:9000"/);
   assert.match(yaml, /KAFKA_BROKERS: "kafka:9092"/);
   assert.match(yaml, /CLICKHOUSE_URL: "http:\/\/ch:8123"/);
+  // The service authenticates with the same user the container creates: an
+  // anonymous request from another container is refused by ClickHouse.
+  assert.match(yaml, /CLICKHOUSE_USER: "arcod"/);
+  assert.match(yaml, /CLICKHOUSE_PASSWORD: "arcod"/);
   assert.match(yaml, /^volumes:\n(  \w+:\n)*  pgdata:\n/m);
   assert.ok(yaml.includes('"9001:9001"'), 'minio console port');
   assert.match(yaml, /SENTRY_DSN: "https:\/\/key@sentry\.example\/1"/);

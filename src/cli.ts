@@ -18,6 +18,8 @@ import { emitOpenapi } from './emit/openapi.ts';
 import { graphqlSchema } from './emit/graphql.ts';
 import { grpcProto } from './emit/grpc.ts';
 import { pickService } from './emit/service.ts';
+import { clickhouseSchemaSql, olapTablesFromTypes, olapUseOptions } from './emit/olap.ts';
+import { applyClickhouseSchema, olapTarget } from './olap-apply.ts';
 import { serviceEndpoints } from './emit/compose.ts';
 import { entitiesFromBodies, migrationPlan, formatMigrations } from './migrate.ts';
 import { dialectNamed } from './dialects.ts';
@@ -56,7 +58,7 @@ export const COMMAND_FLAGS: Record<string, string[]> = {
   openapi: ['--service', '--out'],
   graphql: ['--service', '--out'],
   grpc: ['--service', '--out'],
-  migrate: ['--json', '--dialect', '--service'],
+  migrate: ['--json', '--dialect', '--service', '--olap-url'],
   build: ['--reference', '--impl', '--port', '--dialect', '--env', '--json'],
   test: ['--impl', '--reference', '--port', '--json', '--url', '--service'],
   make: ['--force', '--skip-impl', '--no-test', '--model', '--endpoint', '--max-tokens', '--allow-remote', '--reference', '--port', '--json'],
@@ -944,6 +946,45 @@ async function runMigrate(flags: Flags): Promise<void> {
   const svc = flags.service ? pickService(loaded.mod, flags.service) : first;
   if (!svc) throw new Error(flags.service ? 'no internal service named ' + flags.service : 'no service to migrate');
   const migrationsDir = svc === first ? 'migrations' : 'migrations-service-' + kebab(svc.name);
+  // B95.5 — the analytical store. A service bound to ClickHouse has a schema of
+  // its own: `arcod build` writes it into the build, this command writes the
+  // same text and, when a target is named (--olap-url or CLICKHOUSE_URL, then
+  // OLAP_URL in the environment), creates the tables over the HTTP interface.
+  // No target means no network: a module without a reachable ClickHouse still
+  // migrates offline.
+  const olapUse = svc.uses.find((use) => use.capability === 'olap' || use.capability.endsWith('.olap'));
+  let olap: { artifact: string; tables: string[]; applied: boolean; url?: string } | null = null;
+  if (olapUse) {
+    const { tables, problems } = olapTablesFromTypes(loaded.mod.types, olapUseOptions(olapUse.params));
+    // A column the builder cannot spell is reported by name instead of being
+    // guessed: the table map the adapter carries comes from the same call, so
+    // the schema and the runtime stay one shape even when a field is refused.
+    for (const problem of problems) console.error('olap: ' + problem);
+    if (tables.length > 0) {
+      const schemaKey = svc === first ? 'clickhouse' : 'clickhouse-service-' + kebab(svc.name);
+      const olapDir = join(loaded.dir, '.arcod', 'build', schemaKey);
+      if (!(await artifactStep(flags, olapDir, () => mkdir(olapDir, { recursive: true })))) return;
+      if (!(await writeArtifacts(flags, [[join(olapDir, 'schema.sql'), clickhouseSchemaSql(tables)]]))) return;
+      const artifact = '.arcod/build/' + schemaKey + '/schema.sql';
+      const target = olapTarget(process.env, flags.olapUrl);
+      if (!target) {
+        if (!flags.json) console.log('olap: schema written to ' + artifact + ' (set CLICKHOUSE_URL or --olap-url to create the tables)');
+        olap = { artifact, tables: tables.map((table) => table.name), applied: false };
+      } else {
+        try {
+          const applied = await applyClickhouseSchema(tables, target);
+          if (!flags.json) console.log('olap: ' + applied.length + ' table(s) created at ' + target.url + ' — ' + applied.join(', '));
+          olap = { artifact, tables: tables.map((table) => table.name), applied: true, url: target.url };
+        } catch (error) {
+          const message = 'olap: ' + (error instanceof Error ? error.message : String(error));
+          if (flags.json) console.log(JSON.stringify({ error: message }, null, 2));
+          else console.error('arcod: ' + message);
+          process.exitCode = 1;
+          return;
+        }
+      }
+    }
+  }
   // The DDL follows the same rule as the build: the bound database decides,
   // an explicit --dialect that disagrees is refused with the bind named.
   // Tables come from the bodies, so a DTO (an ack, a receipt) never becomes one
@@ -958,8 +999,8 @@ async function runMigrate(flags: Flags): Promise<void> {
     // disk: nothing would ever rewrite or remove those files.
     const stale = join(loaded.dir, '.arcod', 'build', migrationsDir);
     if (!(await artifactStep(flags, stale, () => pruneMigrations(stale, new Set())))) return;
-    if (flags.json) console.log(JSON.stringify(plan, null, 2));
-    else console.log('no stored entities in ' + svc.name + ' — nothing to migrate');
+    if (flags.json) console.log(JSON.stringify(olap ? { ...plan, olap } : plan, null, 2));
+    else if (!olap) console.log('no stored entities in ' + svc.name + ' — nothing to migrate');
     return;
   }
 
@@ -982,7 +1023,7 @@ async function runMigrate(flags: Flags): Promise<void> {
   if (!(await writeArtifacts(flags, files))) return;
 
   if (flags.json) {
-    console.log(JSON.stringify(plan, null, 2));
+    console.log(JSON.stringify(olap ? { ...plan, olap } : plan, null, 2));
   } else {
     console.log(formatMigrations(plan));
     console.log('');
@@ -1721,6 +1762,7 @@ interface Flags {
   replicas?: number;
   ingressClass?: string;
   out?: string;
+  olapUrl?: string;
 }
 
 // A numeric flag that silently becomes NaN ends up in a manifest
@@ -1808,6 +1850,7 @@ function parseFlags(args: string[], command?: string): Flags {
     else if (arg === '--replicas') flags.replicas = intFlag('--replicas', valueFlag('--replicas', args, ++i), 1, 1000);
     else if (arg === '--ingress-class') flags.ingressClass = valueFlag('--ingress-class', args, ++i);
     else if (arg === '--out') flags.out = valueFlag('--out', args, ++i);
+    else if (arg === '--olap-url') flags.olapUrl = valueFlag('--olap-url', args, ++i);
     else if (!arg.startsWith('-')) {
       // Two paths on one line used to mean the second one: `arcod build a b`
       // built b and silently dropped a. `diff` is the one command that reads
@@ -1917,11 +1960,15 @@ Print the GraphQL schema (or write it with --out).`,
   grpc: `usage: arcod grpc [dir|spec.arc] [--service name] [--out file]
 
 Print the gRPC .proto (or write it with --out).`,
-  migrate: `usage: arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres] [--service name]
+  migrate: `usage: arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres] [--service name] [--olap-url url]
 
 Print the migrations for the stored entities. --dialect picks the SQL dialect.
 --service picks whose plan in a multi-service module: the first service writes
-migrations/, a later one migrations-service-<name>/.`,
+migrations/, a later one migrations-service-<name>/.
+A service bound to ClickHouse also gets its analytical schema written to
+.arcod/build/clickhouse/schema.sql; --olap-url (or CLICKHOUSE_URL / OLAP_URL)
+creates those tables over the HTTP interface, one CREATE TABLE per request.
+Credentials come from CLICKHOUSE_USER / CLICKHOUSE_PASSWORD, never from argv.`,
   fmt: `usage: arcod fmt [dir|spec.arc|pattern] [--check] [--write] [--to version] [--json]
 
 Print the canonical form of the spec. --check fails when the file differs,
@@ -2018,7 +2065,7 @@ usage:
   arcod openapi [dir|spec.arc] [--service name] [--out file]
   arcod graphql [dir|spec.arc] [--service name] [--out file]
   arcod grpc  [dir|spec.arc] [--service name] [--out file]
-  arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres] [--service name]
+  arcod migrate [dir|spec.arc] [--json] [--dialect mysql|postgres] [--service name] [--olap-url url]
   arcod fmt  [dir|spec.arc|pattern] [--check] [--write] [--to version] [--json]
   arcod diff <a.arc|dir> <b.arc|dir>
   arcod adopt <openapi.json>

@@ -188,7 +188,7 @@ drivers. Full example: `examples/signup`.
 | `arcod ast [dir]` | print the canonical AST; `--check` also runs the checks (exit 1 on an error), and `--json` adds a `diagnostics` list while keeping the AST, so a CI gate reads the status instead of the flag |
 | `arcod plan [dir]` | deterministic task DAG: files, dependencies, acceptance criteria |
 | `arcod openapi [dir]` | OpenAPI 3.1 on stdout: paths from `route`, schemas from `types`, errors mapped as in the runtime, examples from the `examples` block; `--service <name>` picks one service, without it every internal service contributes its paths (two services on one route is an error); `--out <file>` writes it instead of printing |
-| `arcod migrate [dir]` | print the migrations of the data model and write them into `.arcod/build/migrations/` (changelog + up/down `.sql`; `arcod build` writes the same artifact); `--json`; `--dialect mysql\|postgres` picks the DDL spelling; `--service name` picks whose plan in a multi-service module (into `migrations-service-<name>/`); the service applies them on boot; files the current plan no longer owns are removed |
+| `arcod migrate [dir]` | print the migrations of the data model and write them into `.arcod/build/migrations/` (changelog + up/down `.sql`; `arcod build` writes the same artifact); `--json`; `--dialect mysql\|postgres` picks the DDL spelling; `--service name` picks whose plan in a multi-service module (into `migrations-service-<name>/`); the service applies them on boot; files the current plan no longer owns are removed; a service bound to `olap` also gets `.arcod/build/clickhouse/schema.sql`, and `--olap-url url` (or `CLICKHOUSE_URL`) creates those ClickHouse tables over HTTP 8123, one `CREATE TABLE` per request, with `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD` as headers |
 | `arcod build --dialect postgres` | same build, Postgres client/store/migrations; MySQL is the default |
 | `arcod build --env prod` | same build for a named environment: the dialect follows that environment's `bind .. -> postgres`, so dev can stay MySQL; an unknown name is refused with the declared environments |
 | `arcod build [dir]` | scaffold: routes, adapters, tests, infrastructure in `.arcod/build`; bodies are TODO; `--json` reports mode, dir, dialect, files, images and bodies as one object (a reference run that stops for a missing body answers `{error, missing, advice}`; a spec that does not check answers `{error: "check failed", diagnostics}`, and a project mistake such as two bodies declaring one name answers `{error}` with exit 2) |
@@ -378,10 +378,11 @@ capability has no effect signatures yet and no adapter reaches the service:
 `document` (mongodb), `proxy` (nginx),
 `migrations` (liquibase), `metrics` (prometheus),
 `errors` (sentry), `tracing` (jaeger), `dashboards` (grafana), `secrets`
-(vault). `olap` (clickhouse) sits between the two rows: its effects
-`append`/`select`/`sql` are declared (B95.1) and the typed select is what a
-body will call, but the driver is not built yet, so a bind that serves `olap`
-is `A083` until B95.3. `endpoint` and `websocket` create no container at all: the first is an
+(vault). `olap` (clickhouse) is served instead: the generated service carries
+an adapter for `append`/`select`/`sql` over HTTP 8123, `/healthz` probes it
+with `SELECT 1`, and `arcod build`/`arcod migrate` write
+`.arcod/build/clickhouse/schema.sql` from the declared records. A bind that
+serves `olap` is no longer `A083`. `endpoint` and `websocket` create no container at all: the first is an
 address of somebody else's service, the second is a server inside the service
 itself.
 

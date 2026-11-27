@@ -180,7 +180,7 @@ UTC, миллисекунды, `T`, `Z` — поэтому смещение в �
 | `arcod ast [dir]` | печатает канонический AST |
 | `arcod plan [dir]` | детерминированный DAG задач: файлы, зависимости, критерии приёмки |
 | `arcod openapi [dir]` | документ OpenAPI 3.1 в stdout: пути из `route`, схемы из `types`, ошибки как в рантайме, примеры из блока `examples`; `--service <имя>` выбирает сервис, без него пути дают все внутренние сервисы (два сервиса на одном маршруте — ошибка); `--out <файл>` пишет документ в файл вместо stdout |
-| `arcod migrate [dir]` | печатает миграции модели данных и пишет их в `.arcod/build/migrations/` (changelog + up/down `.sql`; `arcod build` пишет тот же артефакт); `--json` (когда спек не проходит check, `--json` отвечает `{error: "check failed", diagnostics}`); `--dialect mysql\|postgres` выбирает диалект DDL; `--service имя` выбирает сервис в мультисервисном модуле (план ложится в `migrations-service-<имя>/`); сервис применяет их при старте; файлы, которых нет в текущем плане, удаляются |
+| `arcod migrate [dir]` | печатает миграции модели данных и пишет их в `.arcod/build/migrations/` (changelog + up/down `.sql`; `arcod build` пишет тот же артефакт); `--json` (когда спек не проходит check, `--json` отвечает `{error: "check failed", diagnostics}`); `--dialect mysql\|postgres` выбирает диалект DDL; `--service имя` выбирает сервис в мультисервисном модуле (план ложится в `migrations-service-<имя>/`); сервис применяет их при старте; файлы, которых нет в текущем плане, удаляются; сервису с bind `olap` пишется ещё `.arcod/build/clickhouse/schema.sql`, а `--olap-url url` (или `CLICKHOUSE_URL`) создаёт эти таблицы ClickHouse по HTTP 8123, по одному `CREATE TABLE` на запрос, с `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD` в заголовках |
 | `arcod build [dir]` | scaffold: маршруты, адаптеры, тесты, инфраструктура в `.arcod/build`; тела — TODO; `--json` отдаёт mode, dir, dialect, files, images и bodies одним объектом (reference-прогон без тела отвечает `{error, missing, advice}`, а спек, не проходящий check, — `{error: "check failed", diagnostics}`, а ошибка проекта (два тела объявляют одно имя) — `{error}` с кодом 2) |
 | `arcod build --dialect postgres` | та же сборка с postgres-клиентом, `PgStore` (entity/kv/outbox/транзакции) и postgres-миграциями; mysql по умолчанию |
 | `arcod build --env prod` | та же сборка для названного окружения: диалект берётся из его `bind .. -> postgres`, поэтому dev может остаться на MySQL; неизвестное имя отвергается со списком объявленных окружений |
@@ -346,10 +346,11 @@ arcod deploy . --env prod  # target развёртывания и манифес
 возможности пока нет, и адаптер в сервис не попадает: `document` (mongodb),
 `proxy` (nginx), `migrations` (liquibase),
 `metrics` (prometheus), `errors` (sentry), `tracing`
-(jaeger), `dashboards` (grafana), `secrets` (vault). `olap` (clickhouse)
-стоит между двумя рядами: эффекты `append`/`select`/`sql` объявлены
-(B95.1) и типизированный select — то, что будет звать тело, но драйвера ещё
-нет, поэтому bind, обслуживающий `olap`, — это `A083` до B95.3.
+(jaeger), `dashboards` (grafana), `secrets` (vault). `olap` (clickhouse), наоборот,
+обслуживается: в сервис попадает адаптер `append`/`select`/`sql` поверх HTTP
+8123, `/healthz` проверяет его через `SELECT 1`, а `arcod build`/`arcod migrate`
+пишут `.arcod/build/clickhouse/schema.sql` из объявленных записей. Bind с
+`olap` больше не `A083`.
 `endpoint` и `websocket` контейнера не создают вовсе: первый — адрес чужого
 сервиса, второй — сервер внутри самого сервиса.
 
