@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import { parse } from '../src/parser.ts';
 import { buildExample } from '../src/build.ts';
 import { runExamples } from '../src/test.ts';
+import { planBody } from '../src/plan-body.ts';
 
 const spec = `module cache @0.1.0 {}
 
@@ -116,4 +117,73 @@ test('the scaffolded impl/README names the io surface and the record shape', asy
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// B91 also covers the generator: a body written from a plan must speak values.
+// io.get/io.set carry the value; only a password verify or a takeIf needs the
+// envelope, so only those two keep io.load/io.save.
+test('the planner uses io.get/io.set unless the hash or takeIf needs the envelope', () => {
+  const source = `module planner @0.1.0 {}
+
+use capability arcod.std.kv @1
+
+type Item = { id: uuid, title: string }
+
+error NotFound
+
+error Gone
+
+service Items : http {
+  uses store: kv
+
+  effects {
+    allow store.get, store.set
+  }
+
+  contract {
+    public op create(title: string) -> Item {
+      route: "POST /v1/items"
+      effects: store.set
+    }
+
+    public op read(id: uuid) -> Item {
+      route: "GET /v1/items/:id"
+      effects: store.get
+    }
+
+    public op consume(id: uuid) -> Item {
+      route: "DELETE /v1/items/:id"
+      effects: store.get, store.takeIf
+      errors: NotFound, Gone
+    }
+  }
+
+  rules {
+    invariant read.at_most_once: once(read, by: id, else: Gone)
+  }
+}
+
+environment dev {
+  bind store -> redis
+  deploy docker
+}
+`;
+  const mod = parse(source, 'planner.arc');
+  const svc = mod.services[0];
+  const plan = (name: string) => planBody(mod, svc, svc.contract.find((op) => op.kind === 'op' && op.name === name)!);
+
+  const create = plan('create').steps.join(' ');
+  assert.match(create, /io\.set\(id, record\)/, create);
+  assert.ok(!create.includes('io.save'), create);
+
+  const read = plan('read').steps.join(' ');
+  assert.match(read, /io\.get\(id\)/, read);
+  assert.ok(!read.includes('io.load'), read);
+
+  // takeIf compares the whole stored record, so this one body keeps the
+  // envelope: io.load hands it back, and io.takeIf consumes it.
+  const consume = plan('consume').steps.join(' ');
+  assert.match(consume, /io\.load\(id\)/, consume);
+  assert.match(consume, /io\.takeIf\(id, rec\)/, consume);
+  assert.ok(!consume.includes('io.get('), consume);
 });

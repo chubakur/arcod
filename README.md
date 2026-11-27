@@ -303,7 +303,9 @@ never written is `null`. The store's own record shape stays inside the
 runtime: a key is `msg:<key>`, the stored JSON is `{ b: <value>, h: <hash|null> }`,
 and `io.load`/`io.save` expose that envelope for the older bodies and for the
 generated `--reference` ones (`save(k, { value: 7 })` writes `b: null` — `set`
-is the call that means "this value"). Alongside them: `io.del(key)`,
+is the call that means "this value"). The planner behind `arcod impl` writes
+`get`/`set` too and falls back to `load`/`save` only where the body needs the
+hash (a password `verify`) or the whole record (`takeIf`). Alongside them: `io.del(key)`,
 `io.has(key)`, `io.seen(key)` (the at-most-once marker a consumed key leaves),
 `io.takeIf(key, record)` (compare-and-delete for `once`), `io.scan()` and
 `io.new()` for a uuid. A queue-bound service adds `io.queuePublish(topic, message)`,
