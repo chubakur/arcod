@@ -81,6 +81,7 @@ function pluginCapabilityName(capability: string): string {
 // build refuses it instead of emitting an object with a duplicate key.
 const RESERVED_IO_METHODS = new Set([
   'load', 'save', 'get', 'set', 'scan', 'del', 'seen', 'takeIf', 'new', 'actor', 'users', 'chat', 'model',
+  'updateWhere',
   'publish', 'queuePublish', 'queuePublishLater', 'queueDead', 'queueDeadDrop', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify', 'count', 'aggregate', 'embed',
 ]);
 
@@ -394,6 +395,15 @@ const LUA_READ = [
   "return {'missing'}",
 ].join('\\n');
 
+// The lock an updateWhere holds is a value, not a flag: a caller may only
+// release the lock it took, so a slow caller whose lease expired cannot free
+// the next holder's lock. Compare-and-delete is one round trip.
+const LUA_UNLOCK = [
+  "local v = redis.call('GET', KEYS[1])",
+  "if v == ARGV[1] then return redis.call('DEL', KEYS[1]) end",
+  'return 0',
+].join(String.fromCharCode(10));
+
 // ---------- minimal RESP client (no dependencies) ----------
 
 // __REDIS_START__
@@ -592,6 +602,18 @@ class RedisStore {
     return value != null;
   }
 
+  // A lease, not a claim: updateWhere takes it per record, and the TTL keeps
+  // a crashed writer from blocking the row forever.
+  async lock(key, token, ttlMs) {
+    const value = await this.command('SET', key, String(token), 'PX', String(ttlMs), 'NX');
+    return value != null;
+  }
+
+  async unlock(key, token) {
+    const reply = await this.command('EVAL', LUA_UNLOCK, '1', key, String(token));
+    return Number(reply) === 1;
+  }
+
   async takeIf(messageKey, goneKey, ttlMs, expected) {
     const reply = await this.command('EVAL', LUA_TAKE_IF, '2', messageKey, goneKey, String(expected), String(ttlMs));
     return String(reply) === 'ok';
@@ -651,6 +673,22 @@ class MemoryStore {
     const entry = this.map.get(key);
     if (entry && entry.expires > Date.now()) return false;
     this.map.set(key, { value: '1', expires: Infinity });
+    return true;
+  }
+
+  // No await between the read and the write, so the pair is one step of the
+  // event loop: two callers cannot both take the same record.
+  async lock(key, token, ttlMs) {
+    const entry = this.map.get(key);
+    if (entry && entry.expires > Date.now()) return false;
+    this.map.set(key, { value: String(token), expires: Date.now() + ttlMs });
+    return true;
+  }
+
+  async unlock(key, token) {
+    const entry = this.map.get(key);
+    if (!entry || String(entry.value) !== String(token)) return false;
+    this.map.delete(key);
     return true;
   }
 
@@ -753,7 +791,7 @@ class MemoryStore {
       const claim = uniqueKey(table, group.join(','), values);
       if (!(await this.claim(claim))) {
         for (const item of claimed) await this.del(item);
-        throw new ArcodError('Conflict');
+      throw new ArcodError('Conflict');
       }
       claimed.push(claim);
     }
@@ -788,7 +826,7 @@ class MemoryStore {
       if (!(await this.claim(claim))) {
         for (const item of claimed) await this.del(item);
         for (const rel of released) await this.claim(uniqueKey(table, rel.group.join(','), rel.before));
-        throw new ArcodError('Conflict');
+      throw new ArcodError('Conflict');
       }
       claimed.push(claim);
     }
@@ -1329,6 +1367,41 @@ function checkUpdateKey(entity, id, patch) {
   if (!patch || patch.id == null) return;
   if (String(patch.id) === String(id)) return;
   throw new ArcodError('Invalid', { message: 'update ' + entity + ': id cannot be changed' });
+}
+
+// updateWhere's patch is a record patch with arithmetic steps: a field is
+// either a literal ({ done: true }) or one step ({ inc: 1 }, { dec: 1 }). One
+// place decides which, so both drivers read a patch the same way and a typo
+// ({ incr: 1 }) is a 400 that names the field, not a silent literal object.
+function patchChanges(meta, entity, patch) {
+  const out = [];
+  for (const field of Object.keys(patch)) {
+    const item = patch[field];
+    const column = meta.columns.find((entry) => entry.name === field);
+    if (!column) throw new ArcodError('Invalid', { message: 'updateWhere ' + entity + ': unknown field ' + JSON.stringify(field) });
+    const keys = item && typeof item === 'object' && !Array.isArray(item) ? Object.keys(item) : [];
+    const step = keys.length === 1 && (keys[0] === 'inc' || keys[0] === 'dec') ? keys[0] : null;
+    if (step) {
+      if (['int', 'float', 'number', 'decimal'].indexOf(column.base) === -1) {
+        throw new ArcodError('Invalid', { message: 'updateWhere ' + entity + ': ' + field + ' is not numeric' });
+      }
+      const amount = Number(item[step]);
+      if (!Number.isFinite(amount)) throw new ArcodError('Invalid', { message: 'updateWhere ' + entity + ': ' + step + ' of ' + field + ' must be a number' });
+      out.push({ field: field, add: step === 'inc' ? amount : -amount });
+      continue;
+    }
+    out.push({ field: field, value: item });
+  }
+  return out;
+}
+
+function applyChanges(base, changes) {
+  const value = Object.assign({}, base);
+  for (const change of changes) {
+    if (Object.hasOwn(change, 'add')) value[change.field] = Number(value[change.field] || 0) + change.add;
+    else value[change.field] = change.value;
+  }
+  return value;
 }
 
 // The email and url shapes of the op boundary, written as plain code: a regex
@@ -1950,7 +2023,7 @@ export function hasQueue(svc: ServiceNode | null): boolean {
 // An operation writes a fact and publishes an event in the same breath. On the
 // sql driver the runtime wraps the body in a transaction and routes the publish
 // through the outbox table, so the two commit or roll back together.
-const STORE_WRITE_EFFECTS = new Set(['insert', 'set', 'update', 'remove', 'del', 'takeIf']);
+const STORE_WRITE_EFFECTS = new Set(['insert', 'set', 'update', 'updateWhere', 'remove', 'del', 'takeIf']);
 
 function outboxActive(svc: ServiceNode): boolean {
   return storageKind(svc) === 'sql' && hasQueue(svc);
@@ -1967,7 +2040,7 @@ function outboxOps(svc: ServiceNode): Set<string> {
     const effects = op.clauses.find((clause) => clause.kind === 'effects');
     if (!effects || effects.kind !== 'effects') continue;
     const names = effects.names;
-    const writes = names.some((name) => name === store + '.insert' || name === store + '.update' || name === store + '.remove' || name === store + '.set' || name === store + '.del' || name === store + '.takeIf');
+    const writes = names.some((name) => name === store + '.insert' || name === store + '.update' || name === store + '.updateWhere' || name === store + '.remove' || name === store + '.set' || name === store + '.del' || name === store + '.takeIf');
     const publishes = names.some((name) => name === queue + '.publish');
     if (writes && publishes) out.add(op.name);
   }
@@ -2503,6 +2576,64 @@ function kvEntityIoLines(): string[] {
     '      await store.set(key, JSON.stringify({ b: value, h: null }), CONFIG.ttlMs);',
     '      for (const item of released) await store.del(item);',
     '      return fillDeclared(meta, value);',
+    '    },',
+    // B23: the read-modify-write a body could not make atomic on kv. The
+    // record is locked for the duration, the condition is re-read under the
+    // lock, and a caller that no longer matches answers updated: 0 — so two
+    // racing patches see one winner, and { inc } never loses a step.
+    '    async updateWhere(entity, where, patch) {',
+    '      metricCapability("store.updateWhere");',
+    '      const meta = requestEntity(entity);',
+    "      if (where == null || typeof where !== 'object' || Array.isArray(where)) throw new ArcodError('Invalid', { message: 'updateWhere ' + entity + ': where must be an object' });",
+    "      if (patch == null || typeof patch !== 'object' || Array.isArray(patch)) throw new ArcodError('Invalid', { message: 'updateWhere ' + entity + ': patch must be an object' });",
+    '      checkWhereFields(meta, where);',
+    '      checkUpdateKey(entity, null, patch);',
+    '      const changes = patchChanges(meta, entity, patch);',
+    '      const rows = await store.scan(meta.prefix);',
+    '      let updated = 0;',
+    '      let record = null;',
+    '      const deadline = Date.now() + 10000;',
+    '      for (const row of rows) {',
+    '        const id = row.key.slice(meta.prefix.length);',
+    '        if (!matchesWhere(withDefaults(meta, recordOf(row.value)), where)) continue;',
+    '        const lockKey = "lock:" + meta.prefix + id;',
+    '        const token = randomUUID();',
+    '        while (!(await store.lock(lockKey, token, 5000))) {',
+    "          if (Date.now() >= deadline) throw new ArcodError('Conflict', { message: 'updateWhere ' + entity + ': the record stayed locked' });",
+    '          await new Promise((resolve) => setTimeout(resolve, 2));',
+    '        }',
+    '        try {',
+    '          const raw = await store.get(meta.prefix + String(id));',
+    '          if (raw == null) continue;',
+    '          const base = withDefaults(meta, recordOf(raw));',
+    '          if (!matchesWhere(base, where)) continue;',
+    '          const value = applyChanges(base, changes);',
+    '          if (value.id == null) value.id = id;',
+    '          checkRecordFields(meta, value, "updateWhere " + entity);',
+    '          const claimed = [];',
+    '          const released = [];',
+    '          for (const group of meta.uniqueGroups) {',
+    '            const before = group.map((field) => base[field]);',
+    '            const after = group.map((field) => value[field]);',
+    '            if (JSON.stringify(before) === JSON.stringify(after)) continue;',
+    '            if (before.every((item) => item != null)) released.push(uniqueKey(entity, group.join(","), before));',
+    '            if (after.some((item) => item == null)) continue;',
+    '            const claim = uniqueKey(entity, group.join(","), after);',
+    '            if (!(await store.claim(claim))) {',
+    '              for (const item of claimed) await store.del(item);',
+    "              throw new ArcodError('Conflict');",
+    '            }',
+    '            claimed.push(claim);',
+    '          }',
+    '          await store.set(meta.prefix + String(id), JSON.stringify({ b: value, h: null }), CONFIG.ttlMs);',
+    '          for (const item of released) await store.del(item);',
+    '          updated += 1;',
+    '          record = fillDeclared(meta, value);',
+    '        } finally {',
+    '          await store.unlock(lockKey, token);',
+    '        }',
+    '      }',
+    '      return { updated, record };',
     '    },',
     '    async remove(entity, id) {',
     '      metricCapability("store.remove");',
