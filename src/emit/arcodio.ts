@@ -96,12 +96,12 @@ func (kv *KV) call(args ...string) (any, error) {
 		return nil, err
 	}
 	_ = kv.conn.SetDeadline(time.Now().Add(5 * time.Second))
-	if _, err := kv.w.WriteString("*" + strconv.Itoa(len(args)) + "\r\n"); err != nil {
+	if _, err := kv.w.WriteString("*" + strconv.Itoa(len(args)) + "\\r\\n"); err != nil {
 		kv.reset()
 		return nil, err
 	}
 	for _, arg := range args {
-		if _, err := kv.w.WriteString("$" + strconv.Itoa(len(arg)) + "\r\n" + arg + "\r\n"); err != nil {
+		if _, err := kv.w.WriteString("$" + strconv.Itoa(len(arg)) + "\\r\\n" + arg + "\\r\\n"); err != nil {
 			kv.reset()
 			return nil, err
 		}
@@ -140,7 +140,7 @@ func (kv *KV) Close() error {
 }
 
 func readReply(r *bufio.Reader) (any, error) {
-	line, err := r.ReadString('\n')
+	line, err := r.ReadString('\\n')
 	if err != nil {
 		return nil, err
 	}
@@ -149,17 +149,17 @@ func readReply(r *bufio.Reader) (any, error) {
 	}
 	switch line[0] {
 	case '+':
-		return strings.TrimRight(line[1:], "\r\n"), nil
+		return strings.TrimRight(line[1:], "\\r\\n"), nil
 	case '-':
-		return nil, errors.New(strings.TrimRight(line[1:], "\r\n"))
+		return nil, errors.New(strings.TrimRight(line[1:], "\\r\\n"))
 	case ':':
-		value, err := strconv.ParseInt(strings.TrimRight(line[1:], "\r\n"), 10, 64)
+		value, err := strconv.ParseInt(strings.TrimRight(line[1:], "\\r\\n"), 10, 64)
 		if err != nil {
 			return nil, err
 		}
 		return value, nil
 	case '$':
-		size, err := strconv.Atoi(strings.TrimRight(line[1:], "\r\n"))
+		size, err := strconv.Atoi(strings.TrimRight(line[1:], "\\r\\n"))
 		if err != nil {
 			return nil, err
 		}
@@ -172,7 +172,7 @@ func readReply(r *bufio.Reader) (any, error) {
 		}
 		return string(buf[:size]), nil
 	case '*':
-		size, err := strconv.Atoi(strings.TrimRight(line[1:], "\r\n"))
+		size, err := strconv.Atoi(strings.TrimRight(line[1:], "\\r\\n"))
 		if err != nil {
 			return nil, err
 		}
@@ -235,4 +235,96 @@ func (kv *KV) Has(key string) (bool, error) {
 	return ok && count > 0, nil
 }
 `;
+}
+
+// The publish half of the queue (B107.5b), generated as its own file in the
+// arcodio package: a service that binds no queue carries no queue code, and
+// the kv facade stays byte for byte as it was. The wire is the Node runtime's
+// — RPUSH on 'arcod:q:<topic>' with the envelope {"payload":…,"attempts":0}
+// — so a Go publisher feeds the consumer a Node service already runs.
+export function arcodioQueueSource(): string {
+  return [
+    '// Code generated from the .arc model by arcod. DO NOT EDIT.',
+    '//',
+    '// The publish half of the queue: a body calls io.QueuePublish(topic,',
+    '// message) and the message lands where the Node runtime consumer',
+    '// already listens. The consumer side is a job operation, which the Go',
+    '// kit does not carry yet, so publishing is the whole of the queue here.',
+    'package arcodio',
+    '',
+    'import (',
+    '\t"encoding/json"',
+    '\t"errors"',
+    '\t"os"',
+    '\t"strings"',
+    '\t"sync"',
+    ')',
+    '',
+    '// queuePrefix is the namespace the Node queue runtime writes under.',
+    'const queuePrefix = "arcod:q:"',
+    '',
+    '// ErrNoQueue says the service bound no queue: a wiring mistake, not a',
+    '// client error.',
+    'var ErrNoQueue = errors.New("arcodio: no queue is bound to this service")',
+    '',
+    'var (',
+    '\tqueueOnce   sync.Once',
+    '\tqueueClient *KV',
+    ')',
+    '',
+    '// queueAddress names the broker. compose writes QUEUE_REDIS_URL for a',
+    '// redis bound as queue; the kv address is the fallback, because one',
+    '// redis may carry both stores.',
+    'func queueAddress() string {',
+    '\tif url := os.Getenv("QUEUE_REDIS_URL"); url != "" {',
+    '\t\treturn trimQueueScheme(url)',
+    '\t}',
+    '\tif address := os.Getenv("KV_URL"); address != "" {',
+    '\t\treturn address',
+    '\t}',
+    '\thost, port := os.Getenv("KV_HOST"), os.Getenv("KV_PORT")',
+    '\tif host != "" && port != "" {',
+    '\t\treturn host + ":" + port',
+    '\t}',
+    '\tif url := os.Getenv("REDIS_URL"); url != "" {',
+    '\t\treturn trimQueueScheme(url)',
+    '\t}',
+    '\treturn ""',
+    '}',
+    '',
+    'func trimQueueScheme(url string) string {',
+    '\treturn strings.TrimPrefix(strings.TrimPrefix(url, "redis://"), "tcp://")',
+    '}',
+    '',
+    '// queueConnection opens the broker on first use, so a service boots even',
+    '// while the store is starting.',
+    'func queueConnection() *KV {',
+    '\tqueueOnce.Do(func() {',
+    '\t\tif address := queueAddress(); address != "" {',
+    '\t\t\tqueueClient = NewKV(address)',
+    '\t\t}',
+    '\t})',
+    '\treturn queueClient',
+    '}',
+    '',
+    '// QueuePublish appends a message to a topic. The envelope is the Node',
+    '// runtime one, so one broker serves both languages; Go sorts map keys,',
+    '// and JSON makes the order irrelevant. The bool is the Node receipt:',
+    '// true once the broker accepted the message.',
+    'func (io *IO) QueuePublish(topic string, message any) (bool, error) {',
+    '\tclient := queueConnection()',
+    '\tif client == nil {',
+    '\t\treturn false, ErrNoQueue',
+    '\t}',
+    '\ttext, err := json.Marshal(map[string]any{"payload": message, "attempts": 0})',
+    '\tif err != nil {',
+    '\t\treturn false, err',
+    '\t}',
+    '\tif _, err := client.call("RPUSH", queuePrefix+topic, string(text)); err != nil {',
+    '\t\treturn false, err',
+    '\t}',
+    '\treturn true, nil',
+    '}',
+    '',
+  ].join('\n');
 }

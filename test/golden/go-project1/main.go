@@ -31,8 +31,9 @@ var (
 	ErrNotFound = &OpError{Name: "NotFound", Status: 404, Message: "not found"}
 )
 
+var arc = arcodio.Connect()
+
 func main() {
-	arc := arcodio.Connect()
 	mux := http.NewServeMux()
 	// A probe is a read: POST /healthz stays a 404, as in the Node runtime.
 	mux.HandleFunc("GET /healthz", health)

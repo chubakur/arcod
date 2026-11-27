@@ -81,7 +81,9 @@ test('a go service gets main.go with the contract routes and input kinds', async
     assert.match(ops, /func opRename\(io \*arcodio\.IO, in map\[string\]any\) \(any, error\)/);
     assert.match(ops, /import arcodio "arcod\/catalog\/arcodio"/);
     assert.match(main, /out, err := opRead\(arc, in\)/);
-    assert.match(main, /arc := arcodio\.Connect\(\)/);
+    // The facade is package-level: every handler closure reads it, and a
+    // service with no op keeps it unused (legal for a package var, not a local).
+    assert.match(main, /var arc = arcodio\.Connect\(\)/);
     assert.match(ops, /NotImplemented/);
 
     const dockerfile = await readFile(join(dir, '.arcod', 'build', 'service', 'Dockerfile'), 'utf8');
@@ -112,7 +114,9 @@ test('every feature the go kit cannot carry is named', () => {
   assert.deepEqual(named({ uses: [{ alias: 'store', capability: 'arcod.std.kv', params: {}, loc }] }), []);
   assert.deepEqual(named({ uses: [{ alias: 'store', capability: 'arcod.std.sql', params: {}, loc }] }), ['store: sql']);
   assert.deepEqual(named({ uses: [{ alias: 'live', capability: 'arcod.std.stream', params: {}, loc }] }), ['stream']);
-  assert.deepEqual(named({ uses: [{ alias: 'events', capability: 'arcod.std.queue', params: {}, loc }] }), ['queue']);
+  // The queue publishes through arcodio/queue.go now; its consumer side is a
+  // job op, refused below as 'job'.
+  assert.deepEqual(named({ uses: [{ alias: 'events', capability: 'arcod.std.queue', params: {}, loc }] }), []);
   assert.deepEqual(named({ uses: [{ alias: 'api', capability: 'arcod.std.graphql', params: {}, loc }] }), ['graphql']);
   assert.deepEqual(named({ uses: [{ alias: 'reports', capability: 'arcod.std.olap', params: {}, loc }] }), ['olap']);
   assert.deepEqual(named({ uses: [{ alias: 'mailer', capability: 'arcod.std.mail', params: {}, loc }] }), ['mail']);
@@ -124,6 +128,63 @@ test('every feature the go kit cannot carry is named', () => {
   assert.deepEqual(named({ contract: [{ kind: 'op', auth: true, loc }] }), ['auth']);
 });
 
+// The queue is carried as publish-only (B107.5b): the message has to land in
+// the format the Node consumer already reads — RPUSH on 'arcod:q:<topic>' with
+// {"payload":…,"attempts":0} — because the two languages may share one broker.
+test('a queue-bound go service publishes in the node wire format', async () => {
+  const source = `module goq @0.1.0 {}
+
+use capability arcod.std.queue @1
+
+type OrderId = uuid
+error Invalid
+
+service Orders : http {
+  language: go
+  uses events: queue
+
+  contract {
+    public op place(id: OrderId) -> { id: OrderId } {
+      route: "POST /v1/orders"
+      errors: Invalid
+    }
+  }
+}
+
+environment dev {
+  bind events -> redis(host: "q", port: 6379)
+  deploy docker
+}
+`;
+  const { dir, result } = await build(source);
+  try {
+    const queue = await readFile(join(dir, '.arcod', 'build', 'service', 'arcodio', 'queue.go'), 'utf8');
+    assert.match(queue, /const queuePrefix = "arcod:q:"/);
+    assert.match(queue, /"RPUSH", queuePrefix\+topic/);
+    assert.match(queue, /map\[string\]any\{"payload": message, "attempts": 0\}/);
+    assert.match(queue, /QUEUE_REDIS_URL/);
+    assert.match(queue, /func \(io \*IO\) QueuePublish\(topic string, message any\) \(bool, error\)/);
+    // The body reaches it through the facade it already receives.
+    const ops = await readFile(join(dir, '.arcod', 'build', 'service', 'ops.go'), 'utf8');
+    assert.match(ops, /func opPlace\(io \*arcodio\.IO, in map\[string\]any\)/);
+    // Still no Node runtime beside the Go one.
+    assert.equal(result.files.some((file) => file.endsWith(join('service', 'index.mjs'))), false);
+    assert.ok(result.files.some((file) => file.endsWith(join('arcodio', 'queue.go'))));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a go service without a queue carries no queue code', async () => {
+  const { dir, result } = await build(spec());
+  try {
+    assert.equal(result.files.some((file) => file.endsWith(join('arcodio', 'queue.go'))), false);
+    const facade = await readFile(join(dir, '.arcod', 'build', 'service', 'arcodio', 'arcodio.go'), 'utf8');
+    assert.doesNotMatch(facade, /QueuePublish/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 test('the go kit refuses the stores it cannot serve, by name', async () => {
   const source = 'module gosql @0.1.0 {}\n\nservice Catalog : http {\n  language: go\n  uses store: sql\n\n  contract {\n    public op list() -> string {\n      route: "GET /v1/items"\n    }\n  }\n}\n\nenvironment dev {}\n';
   const dir = await mkdtemp(join(tmpdir(), 'arcod-go-'));

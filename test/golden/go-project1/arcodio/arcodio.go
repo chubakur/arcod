@@ -82,15 +82,12 @@ func (kv *KV) call(args ...string) (any, error) {
 		return nil, err
 	}
 	_ = kv.conn.SetDeadline(time.Now().Add(5 * time.Second))
-	if _, err := kv.w.WriteString("*" + strconv.Itoa(len(args)) + "
-"); err != nil {
+	if _, err := kv.w.WriteString("*" + strconv.Itoa(len(args)) + "\r\n"); err != nil {
 		kv.reset()
 		return nil, err
 	}
 	for _, arg := range args {
-		if _, err := kv.w.WriteString("$" + strconv.Itoa(len(arg)) + "
-" + arg + "
-"); err != nil {
+		if _, err := kv.w.WriteString("$" + strconv.Itoa(len(arg)) + "\r\n" + arg + "\r\n"); err != nil {
 			kv.reset()
 			return nil, err
 		}
@@ -129,8 +126,7 @@ func (kv *KV) Close() error {
 }
 
 func readReply(r *bufio.Reader) (any, error) {
-	line, err := r.ReadString('
-')
+	line, err := r.ReadString('\n')
 	if err != nil {
 		return nil, err
 	}
@@ -139,21 +135,17 @@ func readReply(r *bufio.Reader) (any, error) {
 	}
 	switch line[0] {
 	case '+':
-		return strings.TrimRight(line[1:], "
-"), nil
+		return strings.TrimRight(line[1:], "\r\n"), nil
 	case '-':
-		return nil, errors.New(strings.TrimRight(line[1:], "
-"))
+		return nil, errors.New(strings.TrimRight(line[1:], "\r\n"))
 	case ':':
-		value, err := strconv.ParseInt(strings.TrimRight(line[1:], "
-"), 10, 64)
+		value, err := strconv.ParseInt(strings.TrimRight(line[1:], "\r\n"), 10, 64)
 		if err != nil {
 			return nil, err
 		}
 		return value, nil
 	case '$':
-		size, err := strconv.Atoi(strings.TrimRight(line[1:], "
-"))
+		size, err := strconv.Atoi(strings.TrimRight(line[1:], "\r\n"))
 		if err != nil {
 			return nil, err
 		}
@@ -166,8 +158,7 @@ func readReply(r *bufio.Reader) (any, error) {
 		}
 		return string(buf[:size]), nil
 	case '*':
-		size, err := strconv.Atoi(strings.TrimRight(line[1:], "
-"))
+		size, err := strconv.Atoi(strings.TrimRight(line[1:], "\r\n"))
 		if err != nil {
 			return nil, err
 		}

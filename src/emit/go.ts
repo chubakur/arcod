@@ -21,7 +21,9 @@ export function goUnsupported(mod: ModuleNode, svc: ServiceNode): string[] {
       continue;
     }
     if (capability === 'stream') names.push('stream');
-    if (capability === 'queue' || use.alias === 'queue') names.push('queue');
+    // queue is carried (B107.5b): arcodio/queue.go publishes. The consumer
+    // side is a job op, which is refused below by name, so a queue here is
+    // always publish-only.
     if (capability === 'graphql') names.push('graphql');
     if (capability === 'olap') names.push('olap');
     if (capability === 'mail' || use.alias === 'mail') names.push('mail');
@@ -33,6 +35,15 @@ export function goUnsupported(mod: ModuleNode, svc: ServiceNode): string[] {
   if (svc.contract.some((op) => op.kind === 'job')) names.push('job');
   if (svc.contract.some((op) => op.auth)) names.push('auth');
   return [...new Set(names)];
+}
+
+// A queue-bound Go service gets the publish half of the queue in its own
+// file (arcodio/queue.go). Consumers are job operations, which goUnsupported
+// refuses by name, so a queue here is always publish-only.
+export function goQueueBound(svc: ServiceNode): boolean {
+  return svc.uses.some(
+    (use) => use.capability.replace(/^arcod\.std\./, '') === 'queue' || use.alias === 'queue',
+  );
 }
 
 function goString(value: string): string {
@@ -148,8 +159,9 @@ export function goMain(mod: ModuleNode, svc: ServiceNode): string {
     lines.push(')');
     lines.push('');
   }
+  lines.push('var arc = arcodio.Connect()');
+  lines.push('');
   lines.push('func main() {');
-  lines.push('\tarc := arcodio.Connect()');
   lines.push('\tmux := http.NewServeMux()');
   lines.push('\t// A probe is a read: POST /healthz stays a 404, as in the Node runtime.');
   lines.push('\tmux.HandleFunc("GET /healthz", health)');

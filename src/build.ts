@@ -3,8 +3,8 @@ import { dirname, join, relative, sep } from 'node:path';
 import type { EnvironmentNode, ModuleNode } from './ast.ts';
 import { emitService, maxBodyBytes, pickService } from './emit/service.ts';
 import { emitWeb, ssrFirstScreenOp } from './emit/web.ts';
-import { goDockerfile, goMain, goMod, goOps, goPatternCollisions, goUnsupported } from './emit/go.ts';
-import { arcodioSource } from './emit/arcodio.ts';
+import { goDockerfile, goMain, goMod, goOps, goPatternCollisions, goQueueBound, goUnsupported } from './emit/go.ts';
+import { arcodioQueueSource, arcodioSource } from './emit/arcodio.ts';
 import { composeYaml, localEnvironment, localImage, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
 import { buildPrompts, promptManifest, promptPath } from './prompts.ts';
 import { deployManifest, deployProvider, literalMap } from './deploy.ts';
@@ -526,6 +526,11 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
         // The facade is part of every Go service: op signatures name
         // *arcodio.IO even when no store is declared.
         [join(serviceDir, 'arcodio', 'arcodio.go'), arcodioSource()],
+        // A bound queue is a second file in the package: a service without one
+        // carries no queue code at all.
+        ...(goQueueBound(svc)
+          ? [[join(serviceDir, 'arcodio', 'queue.go'), arcodioQueueSource()] as [string, string]]
+          : []),
         [join(serviceDir, 'go.mod'), goMod(svc)],
         [join(serviceDir, 'Dockerfile'), goDockerfile()],
       );
