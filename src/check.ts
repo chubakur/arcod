@@ -1,5 +1,5 @@
 import type { Diagnostic } from './diagnostics.ts';
-import type { Expr, Loc, ModuleNode, OpNode, Param, ServiceNode, TypeExpr, UiNode } from './ast.ts';
+import type { EnvironmentNode, Expr, Loc, ModuleNode, OpNode, Param, ServiceNode, TypeExpr, UiNode } from './ast.ts';
 import { templateFor } from './templates.ts';
 import { BIND_ARGS, providerImplements } from './providers.ts';
 import { builtinRegistry, type ProviderRegistry } from './registry.ts';
@@ -1776,6 +1776,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkSagas(mod, diags);
   checkEntityLiterals(mod, diags, options.impl);
   checkWhereOperators(mod, diags, options.impl);
+  checkEndpointCalls(mod, diags, options.impl, env);
   checkImplCollisions(mod, diags, options.impl, options.implLib);
   checkImplSignatures(mod, diags, options.impl);
   checkOrphanImplBodies(mod, diags, options.impl);
@@ -2082,6 +2083,54 @@ export function checkWhereOperators(mod: ModuleNode, diags: Diagnostic[], impl: 
             'unknown where operator "' + name + '"',
             'where operators are eq, ne, in, contains, gt, gte, lt, lte'));
         }
+      }
+    }
+  }
+}
+
+// W053 — a body that writes an absolute URL is asking for a host the binding
+// does not own. The adapter answers Forbidden before a byte leaves the
+// service, so the request fails on every call. The literal is visible while the
+// body is in hand, so name it at check time; a computed path stays a runtime
+// guarantee. An alias the environment does not bind is the same story one step
+// earlier: it answers Unavailable and no host exists to reach.
+const ENDPOINT_CALL = /\bio\.call\(\s*(['\"])([A-Za-z_$][A-Za-z0-9_$-]*)\1\s*,\s*(['\"])([A-Za-z]+)\3\s*,\s*(['\"])([^'\"\n]*)\5/g;
+const URL_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+
+export function checkEndpointCalls(
+  mod: ModuleNode,
+  diags: Diagnostic[],
+  impl: Record<string, string> | undefined,
+  env: EnvironmentNode | undefined,
+): void {
+  if (!impl || !env) return;
+  const endpoints = new Set(env.binds.filter((bind) => bind.provider === 'endpoint').map((bind) => bind.alias));
+  for (const op of Object.keys(impl).sort()) {
+    // A generated body carries escaped quotes ("api"), a hand-written body does
+    // not. A backslash before a quote means nothing in a path, so drop those
+    // first; offsets shift by at most a character and lines do not move.
+    const text = impl[op].replace(/\\(['"])/g, '$1');
+    for (const match of text.matchAll(ENDPOINT_CALL)) {
+      const alias = match[2];
+      const path = match[6];
+      const line = text.slice(0, match.index).split(String.fromCharCode(10)).length;
+      const loc = { ...mod.loc, line, endLine: line };
+      const where = 'impl/' + op + '.mjs';
+      if (!endpoints.has(alias)) {
+        diags.push(diag('W053', 'warning', where, loc, 'impl.' + op,
+          'io.call names endpoint "' + alias + '", which environment ' + env.name + ' does not bind' +
+            (endpoints.size > 0 ? '; bound: ' + [...endpoints].sort().join(', ') : ''),
+          'bind ' + alias + ' -> endpoint(url: "https://...") in environment ' + env.name));
+        continue;
+      }
+      if (path.startsWith('//') || URL_SCHEME.test(path)) {
+        diags.push(diag('W053', 'warning', where, loc, 'impl.' + op,
+          'io.call path "' + path + '" leaves the bound host; the runtime answers Forbidden',
+          'name only the path, e.g. /v1/hook: the binding owns scheme and host'));
+      } else if (!path.startsWith('/')) {
+        diags.push(diag('W053', 'warning', where, loc, 'impl.' + op,
+          'io.call path "' + path + '" must start with /',
+          'write /v1/hook; the bound base URL supplies scheme and host'));
       }
     }
   }

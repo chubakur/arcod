@@ -677,7 +677,10 @@ back, where `body` is the response text and a non-2xx answer is a value, not an
 exception. The binding is the allow-list: the body chooses the path, headers and
 body, never the host, and an absolute URL, a `//host` path or a scheme prefix
 answers `403 Forbidden` before a request leaves the service. A bare `fetch(` in
-a body stays a sandbox violation - the effect is the only way out.
+a body stays a sandbox violation - the effect is the only way out. `check` reads
+the same literal while the body is in hand: a path with a scheme or a leading
+`//`, a path without `/`, or an alias the environment does not bind is `W053`
+before the service is even built.
 
 The method decides where a parameter goes: a name that matches a `:path`
 capture fills the path (percent-encoded), `GET`, `HEAD` and `DELETE` put the
@@ -2154,6 +2157,11 @@ Warnings:
   no operation to name. One warning per service names it, so "forgot the
   bodies" and "has not started" stop looking the same. A project with some
   bodies keeps the per-operation `W050`.
+- `W053` a literal `io.call` path would fail every request: it carries a scheme
+  or a leading `//` (a host the binding does not own, answered `403 Forbidden`),
+  it does not start with `/`, or its alias names no `endpoint` bind in the
+  environment (answered `503 Unavailable`). The runtime keeps the guarantee for
+  a computed path; the check reads the literal while the body is in hand.
 - `W049` an `impl/*.mjs` body is named after no operation: only the bodies the
   service contract declares are bundled, so `impl/total.mjs` (a typo of
   `totals`) was loaded and then dropped — `totals` answered `501
