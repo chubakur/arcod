@@ -116,6 +116,24 @@ async function settle(job: { run: Promise<void>; stop: () => void }) {
   await job.run;
 }
 
+// A requeued attempt now backs off (250ms for the first retry), so a test that
+// waits for the second outcome cannot use a fixed 30ms window.
+async function waitFor(check: () => boolean, ms: number): Promise<void> {
+  const started = Date.now();
+  while (!check()) {
+    if (Date.now() - started > ms) throw new Error('condition not met in ' + ms + 'ms');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+test('retry backoff is 250ms doubling to a 30s cap', () => {
+  const src = consumerSource([{ topic: 'jobs', handler: 'process', params: [], retry: 3 }]);
+  const factory = new Function('queueDriver', 'makeIo', 'setTimeout', 'QUEUE_POLL_MS', 'process',
+    src + '\nreturn { retryDelayMs };');
+  const loaded = factory({}, () => ({}), setTimeout, 1, null) as { retryDelayMs: (attempts: number) => number };
+  assert.deepEqual([1, 2, 3, 4, 9].map(loaded.retryDelayMs), [250, 500, 1000, 2000, 30000]);
+});
+
 test('a job that returns nothing for its input goes to dead letter', async () => {
   const job = consumerRun(['reportId'], 0, async () => null);
   await settle(job);
@@ -173,7 +191,7 @@ test('a failing consumer logs the requeue and the dead letter without payload', 
     stop: () => void;
   };
   const run = loaded.runConsumer({ topic: 'jobs', fn, params: ['reportId'], retry: 1 });
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await waitFor(() => calls.length === 2, 3000);
   loaded.stop();
   await run;
   assert.deepEqual(calls.map((call) => call[0]), ['requeue', 'dead']);
@@ -251,7 +269,9 @@ test('a failing requeue does not end the consumer', async () => {
     stop: () => void;
   };
   const run = loaded.runConsumer({ topic: 'jobs', fn, params: ['reportId'], retry: 1 });
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  // The attempt backs off 250ms before it even tries the requeue; the point of
+  // the test is the next receive after the failed requeue, not the 20ms window.
+  await waitFor(() => calls >= 2, 3000);
   loaded.stop();
   await run;
   assert.ok(calls >= 2, 'consumer stopped after a failed requeue');
@@ -325,7 +345,7 @@ test(
       stop: () => void;
     };
     const run = loaded.runConsumer({ topic: 'jobs', fn, params: ['reportId'], retry: 1 });
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await waitFor(() => calls.length === 2, 3000);
     loaded.stop();
     await run;
     assert.deepEqual(calls.map((call) => call[0]), ['requeue', 'dead']);

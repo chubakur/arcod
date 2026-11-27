@@ -288,6 +288,17 @@ const CONSUMERS = [
 ` + table + String.raw`
 ];
 
+// Retry backoff (B25): a failed attempt waits 250ms, 500ms, 1s, ... before
+// the requeue, capped at 30s. Requeueing at once turned one broken downstream
+// into a hot loop that burned the retry budget in milliseconds and filled the
+// log; the cap keeps a long outage cheap. Deterministic, so tests can read it.
+const RETRY_BASE_MS = 250;
+const RETRY_CAP_MS = 30000;
+
+function retryDelayMs(attempts) {
+  return Math.min(RETRY_CAP_MS, RETRY_BASE_MS * Math.pow(2, Math.max(0, attempts - 1)));
+}
+
 let consumersStopped = false;
 let consumersDrained = Promise.resolve();
 
@@ -372,7 +383,9 @@ async function runConsumer(spec) {
             lastError,
           }));
         } else {
-          console.warn('[arcod] queue ' + spec.topic + ': attempt ' + attempts + '/' + maxAttempts + ' failed: ' + lastError + ', requeued');
+          const delay = retryDelayMs(attempts);
+          console.warn('[arcod] queue ' + spec.topic + ': attempt ' + attempts + '/' + maxAttempts + ' failed: ' + lastError + ', requeued in ' + delay + 'ms');
+          await new Promise((resolve) => setTimeout(resolve, delay));
           await queueDriver.requeue(spec.topic, JSON.stringify({ payload: envelope.payload, attempts }));
         }
       } catch (storeError) {

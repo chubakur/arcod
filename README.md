@@ -997,7 +997,8 @@ Semantics, enforced by the generated runtime rather than written in bodies:
 - the consumer starts before the http server and stops on `SIGINT`/`SIGTERM`,
   finishing the message in flight (ack by completion, nack by requeue);
 - a failing body — an exception or `{ error: ... }` — is retried up to
-  `retry` times (default 3), then moved to the dead letter queue, readable
+  `retry` times (default 3) with an exponential pause before each requeue
+  (250ms, then doubling, capped at 30s), then moved to the dead letter queue, readable
   with `io.queueDead(topic)`; `io.queueDeadDrop(topic, payload)` takes the
   first entry carrying that payload out of the list (`false` when there is
   none), so a replayed message does not sit there forever; every requeue and
