@@ -303,6 +303,26 @@ test(
       assert.equal(entry.attempts, 2);
       assert.ok((entry.lastError ?? '').length > 0, 'the dead letter names the failure: ' + dead[0]);
       assert.equal((store.lists.get('arcod:q:orders') ?? []).length, 0, 'the failed message left the topic');
+
+      // A message that is not the envelope at all must not stop the loop: it is
+      // dead-lettered as unreadable, with a fixed phrase and no payload echo.
+      await respCommand(store.port, ['RPUSH', 'arcod:q:orders', 'not json']);
+      await waitFor('the unreadable message to reach the dead letter', async () => (store.lists.get('arcod:q:orders:dead') ?? []).length === 2);
+      const unreadable = JSON.parse((store.lists.get('arcod:q:orders:dead') ?? [])[1]!) as {
+        payload?: unknown;
+        attempts?: number;
+        lastError?: string;
+      };
+      assert.equal(unreadable.payload, null);
+      assert.equal(unreadable.attempts, 0);
+      assert.equal(unreadable.lastError, 'unreadable message');
+      // The loop is still alive after a malformed message.
+      await respCommand(store.port, [
+        'RPUSH',
+        'arcod:q:orders',
+        JSON.stringify({ payload: { id: 'a2' }, attempts: 0 }),
+      ]);
+      await waitFor('the job to keep consuming after an unreadable message', async () => store.data.get('fulfilled:a2') === 'yes');
     } finally {
       service?.kill('SIGKILL');
       await store.close();
