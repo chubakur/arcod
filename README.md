@@ -1394,6 +1394,28 @@ instead of the version 2 that the lost-update bug left behind. The guard needs
 no extra effect: it is the same `store.update`, on `kv` and `sql` alike, and
 `{ inc }`/count semantics stay `io.updateWhere`'s job.
 
+The retry is the difference between a 409 the client sees and a step that
+lands. Ten parallel edits of one document, each retrying on `Conflict`, end at
+version 10 with every character:
+
+```js
+export async function append(input, io) {
+  const ch = String(input.ch);
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const row = await io.fetch('Doc', input.id);
+    try {
+      return await io.update('Doc', input.id,
+        { version: row.version + 1, text: row.text + ch },
+        { if: { version: row.version } });
+    } catch (error) {
+      if (!error || error.error !== 'Conflict') throw error;
+      // another writer won this version; re-read and try again
+    }
+  }
+  return { error: 'Conflict' };
+}
+```
+
 A total is a separate call, not a page you fold yourself:
 
 ```js
