@@ -76,9 +76,7 @@ test('the polled flag aborts io.signal while the body is inside a call', async (
       io.signal.addEventListener('abort', () => { clearTimeout(guard); resolve(null); });
     });
     // The body turns the abort into the documented error, as io.remote does.
-    const cancelled = new Error('remote: Slow.ping cancelled');
-    cancelled.kind = 'cancelled';
-    throw cancelled;
+    throw Object.assign(new Error('remote: Slow.ping cancelled'), { kind: 'cancelled' });
   });
   await settle(job, 1500);
   assert.deepEqual(seen, { messageId: 'm1', hasSignal: true });
@@ -90,9 +88,7 @@ test('the polled flag aborts io.signal while the body is inside a call', async (
 
 test('a cancelled error is not retried and not dead-lettered', async () => {
   const job = consumerRun(async () => {
-    const cancelled = new Error('remote: Slow.ping cancelled');
-    cancelled.kind = 'cancelled';
-    throw cancelled;
+    throw Object.assign(new Error('remote: Slow.ping cancelled'), { kind: 'cancelled' });
   }, 2);
   await settle(job, 500);
   assert.deepEqual(job.calls, []);
