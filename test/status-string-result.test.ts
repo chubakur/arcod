@@ -59,13 +59,49 @@ test('a declared status gives a POST its declared string back, as text and as sc
   }
 });
 
-test('a POST with no status still answers the one-time-message envelope', async () => {
+// B60: the envelope is one-time-message semantics, not "any write". An op that
+// declares Gone says the value expires and a second read is an error; only
+// there does `{ id, expiresIn }` describe the answer. Everything else answers
+// the declared string, which is what OpenAPI has always promised.
+test('a POST with no status answers its declared string, not the envelope', async () => {
   const svc = await startService(spec, { impl });
   try {
     const shout = await post(svc.base + '/v1/shout');
     assert.equal(shout.status, 201);
-    const body = await shout.json();
-    assert.equal(body.id, 'HELLO');
+    assert.match(shout.headers.get('content-type') || '', /text\/plain/);
+    assert.equal(await shout.text(), 'HELLO');
+  } finally {
+    await svc.stop();
+  }
+});
+
+const oneTimeLines = [
+  'module One @0.1.0 {}',
+  '',
+  'error Gone',
+  '',
+  'service One : http {',
+  '  contract {',
+  '    public op issue() -> string {',
+  '      route: "POST /v1/issue"',
+  '      errors: Gone',
+  '    }',
+  '  }',
+  '}',
+  '',
+];
+const oneTimeSpec = oneTimeLines.join(String.fromCharCode(10));
+const oneTimeImpl = {
+  issue: 'export async function issue(input, io) {\n  return { result: \"TICKET\" };\n}',
+};
+
+test('an op that declares Gone keeps the one-time-message envelope', async () => {
+  const svc = await startService(oneTimeSpec, { impl: oneTimeImpl });
+  try {
+    const res = await post(svc.base + '/v1/issue');
+    assert.equal(res.status, 201);
+    const body = await res.json();
+    assert.equal(body.id, 'TICKET');
     assert.equal(typeof body.expiresIn, 'number');
   } finally {
     await svc.stop();

@@ -1815,7 +1815,9 @@ test('file visibility: restricted list, authenticated, public and admin bypass',
       body: JSON.stringify({ name: 'plan.txt', body: 'secret', visibility: 'restricted', allowed: ['u-vika'] }),
     });
     assert.equal(upload.status, 201);
-    const id = (await upload.json() as { id: string }).id;
+    // `upload -> FileId` (a string): the contract says string, so the answer
+    // is that string, not the { id, expiresIn } envelope (B60).
+    const id = await upload.text();
 
     const read = (actor: string, admin = false) => fetch(base + '/v1/files/' + id, { headers: as(actor, admin) });
     assert.equal((await read('u-vika')).status, 200, 'listed user reads');
@@ -1848,7 +1850,7 @@ test('file visibility: restricted list, authenticated, public and admin bypass',
       body: JSON.stringify({ name: 'mine.txt', body: 'own', visibility: 'restricted', allowed: ['u-vika'] }),
     });
     assert.equal(own.status, 201, 'authenticated upload passes the guard');
-    const ownId = (await own.json() as { id: string }).id;
+    const ownId = await own.text();
     const ownFlip = await fetch(base + '/v1/files/' + ownId + '/visibility', {
       method: 'PUT',
       headers: { ...as('u-vika'), 'content-type': 'application/json' },

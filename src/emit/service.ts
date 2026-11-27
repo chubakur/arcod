@@ -3318,6 +3318,16 @@ function implHandlers(
     '  return { input, fromUrl, fromBody };',
     '}',
     '',
+    // A string result is a one-time-message reference only where the contract
+    // says so: an op that declares Gone promises the value expires and a
+    // second read is an error. Any other `-> string` answers the declared
+    // string; wrapping every write in { id, expiresIn } made a client
+    // generated from OpenAPI parse an object where the schema says string
+    // (B60).
+    'const STRING_ENVELOPE_OPS = new Set([' + ops
+      .filter((op) => op.clauses.some((clause) => clause.kind === 'errors' && clause.names.includes('Gone')))
+      .map((op) => "'" + op.name + "'")
+      .join(', ') + ']);',
     'async function callImpl(req, res, params, implFn, names, status, opName) {',
     '  const read = await readInput(req, params, names);',
     '  if (read.error) return sendError(res, read.error);',
@@ -3361,7 +3371,7 @@ function implHandlers(
     "  if (!out) return sendError(res, 'Internal');",
     '  const result = out.result;',
     "  if (typeof result === 'string') {",
-    "    if (status === 201) return send(res, status, JSON.stringify({ id: result, expiresIn: Math.round(CONFIG.ttlMs / 1000) }), 'application/json');",
+    "    if (STRING_ENVELOPE_OPS.has(opName) && status === 201) return send(res, status, JSON.stringify({ id: result, expiresIn: Math.round(CONFIG.ttlMs / 1000) }), 'application/json');",
     "    return send(res, status, result, 'text/plain; charset=utf-8');",
     '  }',
     "  return send(res, status, JSON.stringify(result === undefined ? null : result), 'application/json');",
