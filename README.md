@@ -389,7 +389,9 @@ The kit is deliberately narrow: a service that uses a store, `stream`,
 `queue`, `graphql`, `olap`, `mail`, `files`, a ui page, roles, a saga, a job
 or `auth` is refused by name at build time. A Go body at `impl/<op>.go` (or
 `impl/<service>/<op>.go` beside other services) is spliced into `ops.go`
-verbatim; an operation without one keeps a 501 stub. `language: python` passes
+verbatim; an operation without one keeps a 501 stub. A body cannot add its own
+`import` line — it shares the imports of the generated `main.go`
+(`encoding/json`, `errors`, `io`, `log`, `net/http`, `os`, `strconv`). `language: python` passes
 `check` and is reported by `build --json`, but `build` and `impl` refuse it
 until B108. Silently generating the wrong runtime is worse
 than stopping. `language:` on an `external` service is an error.
