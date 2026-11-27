@@ -918,6 +918,8 @@ environment dev {
 `io.blobPut/blobGet` store and read text objects; `io.blobPutBytes/io.blobGetBytes`
 (`files.putBytes`/`files.getBytes`) move binary payloads byte-for-byte — no
 base64 or UTF-8 in between, and the S3 driver signs the same bytes it sends.
+A body that returns bytes (a Buffer or Uint8Array) answers them as the
+response body with `application/octet-stream`, not as JSON of a Buffer.
 The provider is still chosen in the
 environment: neither Keycloak nor MinIO is named in the model.
 

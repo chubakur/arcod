@@ -817,6 +817,8 @@ environment dev {
 кладут и читают текстовые объекты; `io.blobPutBytes/io.blobGetBytes`
 (`files.putBytes`/`files.getBytes`) переносят бинарные данные байт-в-байт — без
 base64 и UTF-8 посередине, а S3-драйвер подписывает те же байты, что отправляет.
+Тело, вернувшее байты (Buffer или Uint8Array), отдаётся телом ответа с
+`application/octet-stream`, а не JSON-описанием Buffer.
 Провайдер по-прежнему выбирается в окружении: в модели нет ни Keycloak, ни
 MinIO.
 

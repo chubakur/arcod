@@ -3402,6 +3402,11 @@ function implHandlers(
     '  if (out && out.error) return sendError(res, out.error, out);',
     "  if (!out) return sendError(res, 'Internal');",
     '  const result = out.result;',
+    // A byte result is the file itself (B92.1): JSON.stringify turned a Buffer
+    // into {"type":"Buffer","data":[...]}, which no downloader expects.
+    '  if (result instanceof Uint8Array) {',
+    "    return send(res, status, Buffer.from(result), 'application/octet-stream');",
+    '  }',
     "  if (typeof result === 'string') {",
     "    if (STRING_ENVELOPE_OPS.has(opName) && status === 201) return send(res, status, JSON.stringify({ id: result, expiresIn: Math.round(CONFIG.ttlMs / 1000) }), 'application/json');",
     "    return send(res, status, result, 'text/plain; charset=utf-8');",
