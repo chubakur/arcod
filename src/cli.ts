@@ -989,6 +989,13 @@ async function runMigrate(flags: Flags): Promise<void> {
           return;
         }
       }
+    } else {
+      // No body names a table (a module of DTOs bound to ClickHouse): the
+      // schema an earlier run wrote is stale, and leaving it would describe
+      // tables nothing writes to.
+      const schemaKey = svc === first ? 'clickhouse' : 'clickhouse-service-' + kebab(svc.name);
+      await rm(join(loaded.dir, '.arcod', 'build', schemaKey, 'schema.sql'), { force: true });
+      if (!flags.json) console.log('olap: no table to create — no schema written');
     }
   }
   // The DDL follows the same rule as the build: the bound database decides,

@@ -74,3 +74,19 @@ test('migrate writes only the table the body appends', async () => {
   assert.match(sql, /CREATE TABLE IF NOT EXISTS "DeliveryEvent"/);
   assert.doesNotMatch(sql, /"DayRow"/);
 });
+
+test('a body that names no table removes the stale schema', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-olap-narrow-stale-'));
+  await writeFile(join(dir, 'main.arc'), SPEC, 'utf8');
+  await mkdir(join(dir, 'impl'), { recursive: true });
+  const schema = join(dir, '.arcod', 'build', 'clickhouse', 'schema.sql');
+  await writeFile(join(dir, 'impl', 'record.mjs'), BODY, 'utf8');
+  assert.equal((await run(dir)).code, 0);
+  await readFile(schema, 'utf8');
+  // The same project after the append moved out of the body: the schema an
+  // earlier run wrote describes a table nothing writes to any more.
+  await writeFile(join(dir, 'impl', 'record.mjs'), 'export async function record() {\n  return { result: { ok: true } };\n}\n', 'utf8');
+  const result = await run(dir);
+  assert.equal(result.code, 0, result.err);
+  await assert.rejects(() => readFile(schema, 'utf8'), /ENOENT/);
+});

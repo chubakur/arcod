@@ -248,10 +248,12 @@ export function olapTableNamesFromBodies(
   // its own: leaving it out would drop a table the service still writes to.
   const sources = lib && lib.trim() ? [...Object.values(bodies), lib] : Object.values(bodies);
   const names = new Set<string>();
+  let sawCall = false;
   for (const body of sources) {
     if (OLAP_RAW_CALL.test(body)) return null;
     const mentions = [...body.matchAll(OLAP_READ_ANY)].length;
     const calls = [...body.matchAll(OLAP_READ_CALL)];
+    if (mentions > 0) sawCall = true;
     if (calls.length !== mentions) return null;
     for (const match of calls) {
       const rest = body.slice(match.index + match[0].length);
@@ -261,8 +263,12 @@ export function olapTableNamesFromBodies(
       if (declared.includes(literal[2])) names.add(literal[2]);
     }
   }
-  // A literal that names no declared record is a typo, not evidence: it must
-  // not shrink the schema to nothing and hide the list a 500 would need.
+  // A body that never mentions the capability writes no row: no call at all is
+  // an empty answer, not the wide one, and a schema an earlier run wrote must
+  // not survive it. A call that named nobody is the other case - a typo in a
+  // literal must not shrink the schema to nothing and hide the list a 500
+  // would need.
+  if (!sawCall) return [];
   return names.size > 0 ? [...names].sort() : null;
 }
 // B95.3: the tables a service with the olap capability carries. `only` narrows

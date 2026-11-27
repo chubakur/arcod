@@ -33,6 +33,10 @@ test('a call the scan cannot read keeps every table', () => {
   assert.equal(olapTableNamesFromBodies({ record: 'io.olapAppend /* later */ ("DeliveryEvent", {})' }, DECLARED), null);
 });
 
+test('bodies that never mention the capability name no table', () => {
+  assert.deepEqual(olapTableNamesFromBodies({ record: 'return { result: { ok: true } };' }, DECLARED), []);
+});
+
 test('a computed name, raw SQL or missing bodies keeps every table', () => {
   assert.equal(olapTableNamesFromBodies({ record: 'const T = "DeliveryEvent"; io.olapAppend(T, {})' }, DECLARED), null);
   assert.equal(olapTableNamesFromBodies({ record: 'io.olapAppend("Delivery" + suffix, {})' }, DECLARED), null);

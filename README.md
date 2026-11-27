@@ -1532,7 +1532,10 @@ The tables come from the bodies: `io.olapAppend("DeliveryEvent", …)` and
 types get DDL and a place in the adapter map, so a DTO returned by an operation
 stays a DTO. A computed name, a raw `io.olapSql`, or a build without bodies
 keeps every record type: the compiler cannot know which tables such a body
-reaches, and a table missing from the schema would turn a write into a 500. The
+reaches, and a table missing from the schema would turn a write into a 500.
+Bodies that never mention the capability name no table at all, and `arcod
+migrate` then removes the schema an earlier run wrote instead of leaving tables
+nothing writes to. The
 adapter carries the same map, so a body cannot write a shape the compiler never
 saw. `orderBy` names
 the sorting key; `ttl: <duration>` expires rows by the record's `datetime`
