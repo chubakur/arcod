@@ -286,7 +286,7 @@ function taskFor(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean
     '## Signature',
     'export async function ' + op.name + '(input, io) { /* ... */ }',
     'input: { ' + inputFields.join(', ') + ' }',
-    'returns: ' + returns,
+    'returns: ' + returns + outcomeSuffix(op),
     '',
   ];
 
@@ -303,6 +303,7 @@ function taskFor(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean
     '- Do not write HTTP, statuses or headers: the compiler owns them.',
     '- Return { error: "Name" } for declared errors; return { result } on success.',
     '- Keep the body under 40 lines. No comments except a one-line summary.',
+    ...outcomeNote(op),
   ];
   if (op.auth || op.clauses.some((clause) => clause.kind === 'owner')) {
     constraints.push('- The runtime enforces auth and owner: guards before the body runs: do not re-check them.');
@@ -327,6 +328,28 @@ function taskFor(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boolean
     sha256: createHash('sha256').update(prompt).digest('hex'),
     unresolved: bodyPlan.unresolved,
   };
+}
+
+// An operation with named successful answers (B94) chooses one by name, and a
+// generated body can only do that if the prompt shows the names. The suffix
+// rides on the out type; the note says which name answers which code.
+function statusOutcomes(op: OpNode): Array<{ name: string; code: number }> {
+  const declared = op.clauses.find((clause) => clause.kind === 'status');
+  if (!declared || declared.kind !== 'status') return [];
+  return declared.outcomes.filter((outcome) => outcome.name !== null)
+    .map((outcome) => ({ name: outcome.name as string, code: outcome.value }));
+}
+
+function outcomeSuffix(op: OpNode): string {
+  const names = statusOutcomes(op);
+  if (names.length === 0) return '';
+  return ', status: ' + names.map((item) => "'" + item.name + "'").join(' | ');
+}
+
+function outcomeNote(op: OpNode): string[] {
+  const names = statusOutcomes(op);
+  if (names.length === 0) return [];
+  return ['- Answer status: ' + names.map((item) => '"' + item.name + '" (' + item.code + ')').join(' or ') + ' to choose the successful answer; without it the first declared outcome answers.'];
 }
 
 export function buildPrompts(mod: ModuleNode, options: PromptOptions = {}): PromptSet {
@@ -403,7 +426,7 @@ function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boo
     ? '{ result: ' + resultWire + ' } | { error: ' + errors.map((name) => '"' + name + '"').join(' | ') + ' }'
     : '{ result: ' + resultWire + ' }';
 
-  const lines = ['export async function ' + op.name + '(input, io)', 'in: { ' + input + ' }', 'out: ' + result];
+  const lines = ['export async function ' + op.name + '(input, io)', 'in: { ' + input + ' }', 'out: ' + result + outcomeSuffix(op), ...outcomeNote(op)];
 
   for (const clause of op.clauses) {
     // "result != null" is a tautology of the generated model: noise for the body.

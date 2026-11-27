@@ -10,6 +10,7 @@ import { check } from '../src/check.ts';
 import { formatSource } from '../src/fmt.ts';
 import { emitOpenapi } from '../src/emit/openapi.ts';
 import { goMain } from '../src/emit/go.ts';
+import { buildPrompts } from '../src/prompts.ts';
 import { spawnSync } from 'node:child_process';
 import { startService } from './harness.ts';
 
@@ -168,6 +169,16 @@ test('the Go emitter keeps the constant status for an operation without names', 
   const generated = goMain(mod, mod.services[0]);
   assert.doesNotMatch(generated, /successOutcome/);
   assert.match(generated, /writeJSON\(w, 201, out\)/);
+});
+
+test('the body prompt shows the outcome names and their codes', () => {
+  const prompt = buildPrompts(parse(source, 'main.arc')).tasks.find((task) => task.op === 'create')!.prompt;
+  assert.match(prompt, /status: 'created' \| 'existed'/);
+  assert.match(prompt, /Answer status: \"created\" \(201\) or \"existed\" \(200\)/);
+  // An operation without named outcomes gets no such line.
+  const plain = source.replace('created 201, existed 200', '200');
+  const plainPrompt = buildPrompts(parse(plain, 'main.arc')).tasks.find((task) => task.op === 'create')!.prompt;
+  assert.doesNotMatch(plainPrompt, /Answer status:/);
 });
 
 test('the old single-code status still answers that code', async () => {
