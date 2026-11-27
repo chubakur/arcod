@@ -3113,7 +3113,7 @@ function implHandlers(
   // saw, and every part that names the capability gets the same map (B95.3).
   const olapUses = svc.uses.filter((use) => use.capability === 'olap' || use.capability.endsWith('.olap'));
   const olapNames = mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name);
-  const olapOnly = olapTableNamesFromBodies(impl, olapNames);
+  const olapOnly = olapTableNamesFromBodies(impl, olapNames, implLib);
   const olapTables = olapUses.length > 0 ? olapTablesFromTypes(mod.types, olapUseOptions(olapUses[0].params), olapOnly) : null;
   const usesQueue = hasQueue(svc);
 

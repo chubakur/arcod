@@ -70,10 +70,11 @@ const BODY = [
   '}',
 ].join('\n');
 
-async function buildWith(body, impl = true) {
+async function buildWith(body: string, impl = true, lib?: string) {
   const dir = await mkdtemp(join(tmpdir(), 'arcod-olap-narrow-'));
   await mkdir(join(dir, 'impl'), { recursive: true });
   await writeFile(join(dir, 'impl', 'record.mjs'), body);
+  if (lib) await writeFile(join(dir, 'impl', 'lib.mjs'), lib);
   await buildExample(parse(SPEC, 'main.arc'), dir, impl ? { implDir: join(dir, 'impl') } : { implDir: null });
   return dir;
 }
@@ -95,6 +96,28 @@ test('the schema and the adapter carry only the table the body appends', async (
 
 test('a body that computes the name keeps every record type', async () => {
   const dir = await buildWith(BODY.replace('io.olapAppend("DeliveryEvent"', 'io.olapAppend(table'));
+  const sql = await readFile(join(dir, '.arcod', 'build', 'clickhouse', 'schema.sql'), 'utf8');
+  assert.match(sql, /"DeliveryEvent"/);
+  assert.match(sql, /"DayRow"/);
+  assert.match(sql, /"Ack"/);
+});
+
+test('a helper in impl/lib.mjs names its table too', async () => {
+  const lib = [
+    'export async function appendDay(io, row) {',
+    '  return io.olapAppend("DayRow", row);',
+    '}',
+  ].join('\n');
+  const dir = await buildWith(BODY, true, lib);
+  const sql = await readFile(join(dir, '.arcod', 'build', 'clickhouse', 'schema.sql'), 'utf8');
+  assert.match(sql, /"DeliveryEvent"/);
+  assert.match(sql, /"DayRow"/);
+  assert.doesNotMatch(sql, /"Ack"/);
+});
+
+test('a helper with a computed name keeps every record type', async () => {
+  const lib = 'export async function appendDay(io, table, row) {\n  return io.olapAppend(table, row);\n}\n';
+  const dir = await buildWith(BODY, true, lib);
   const sql = await readFile(join(dir, '.arcod', 'build', 'clickhouse', 'schema.sql'), 'utf8');
   assert.match(sql, /"DeliveryEvent"/);
   assert.match(sql, /"DayRow"/);

@@ -236,10 +236,14 @@ const STRING_LITERAL = /^(['"])([A-Za-z_$][\w$]*)\1$/;
 export function olapTableNamesFromBodies(
   bodies: Record<string, string> | undefined,
   declared: string[],
+  lib?: string,
 ): string[] | null {
   if (!bodies) return null;
+  // A helper in impl/lib.mjs is bundled next to the bodies and can append on
+  // its own: leaving it out would drop a table the service still writes to.
+  const sources = lib && lib.trim() ? [...Object.values(bodies), lib] : Object.values(bodies);
   const names = new Set<string>();
-  for (const body of Object.values(bodies)) {
+  for (const body of sources) {
     if (OLAP_RAW_CALL.test(body)) return null;
     for (const match of body.matchAll(OLAP_READ_CALL)) {
       const rest = body.slice(match.index + match[0].length);

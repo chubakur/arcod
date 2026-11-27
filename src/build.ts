@@ -625,7 +625,7 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
   for (const [index, svcNode] of mod.services.filter((svc) => !svc.external).entries()) {
     const olapUse = svcNode.uses.find((use) => use.capability === 'olap' || use.capability.endsWith('.olap'));
     if (!olapUse) continue;
-    const { tables } = olapTablesFromTypes(mod.types, olapUseOptions(olapUse.params), olapTableNamesFromBodies(impl, declaredRecords));
+    const { tables } = olapTablesFromTypes(mod.types, olapUseOptions(olapUse.params), olapTableNamesFromBodies(impl, declaredRecords, implLib));
     if (tables.length === 0) continue;
     const olapDir = join(dir, (index === 0 ? 'clickhouse' : 'clickhouse-service-' + kebab(svcNode.name)));
     await mkdir(olapDir, { recursive: true });

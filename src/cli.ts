@@ -957,10 +957,11 @@ async function runMigrate(flags: Flags): Promise<void> {
   // same files: read them once so both plans see one set of bodies.
   const implBodies = await implBodiesFor(loaded.dir, loaded.mod.services.filter((item) => !item.external).map((item) => item.name));
   const declaredRecords = loaded.mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name);
+  const implLib = await implLibFor(loaded.dir);
   const olapUse = svc.uses.find((use) => use.capability === 'olap' || use.capability.endsWith('.olap'));
   let olap: { artifact: string; tables: string[]; applied: boolean; url?: string } | null = null;
   if (olapUse) {
-    const { tables, problems } = olapTablesFromTypes(loaded.mod.types, olapUseOptions(olapUse.params), olapTableNamesFromBodies(implBodies, declaredRecords));
+    const { tables, problems } = olapTablesFromTypes(loaded.mod.types, olapUseOptions(olapUse.params), olapTableNamesFromBodies(implBodies, declaredRecords, implLib));
     // A column the builder cannot spell is reported by name instead of being
     // guessed: the table map the adapter carries comes from the same call, so
     // the schema and the runtime stay one shape even when a field is refused.
