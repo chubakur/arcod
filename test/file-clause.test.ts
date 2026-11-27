@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { parse, ParseError } from '../src/parser.ts';
 import { emitOpenapi } from '../src/emit/openapi.ts';
 import { formatSource } from '../src/fmt.ts';
+import { check } from '../src/check.ts';
 import { startService } from './harness.ts';
 
 const spec = [
@@ -163,4 +164,38 @@ test('fmt prints the file clause back and stays idempotent', () => {
   const once = formatSource(spec, 'main.arc');
   assert.match(once, /file: "text\/csv", "report\.csv"/);
   assert.equal(formatSource(once, 'main.arc'), once);
+});
+
+test('A108: a file clause on a record answer or on a job is an error', () => {
+  const head = [
+    'module fileclause2 @0.1.0 {}',
+    'use capability arcod.std.queue @1',
+    'type Row = { id: string }',
+    'service S : http {',
+    '  uses events: queue',
+    '  contract {',
+  ];
+  const recordAnswer = head.concat([
+    '    public op dl(id: string) -> Row {',
+    '      route: "GET /v1/dl/:id"',
+    '      file: "text/csv", "a.csv"',
+    '    }',
+    '  }',
+    '}',
+  ]).join('\n');
+  const recordDiags = check(parse(recordAnswer, 'main.arc')).filter((item) => item.code === 'A108');
+  assert.equal(recordDiags.length, 1, 'a record answer cannot be a file');
+  assert.match(recordDiags[0]!.message, /does not return string or bytes/);
+
+  const jobAnswer = head.concat([
+    '    job audit(entry: string) {',
+    '      on: events.jobs',
+    '      file: "text/csv", "a.csv"',
+    '    }',
+    '  }',
+    '}',
+  ]).join('\n');
+  const jobDiags = check(parse(jobAnswer, 'main.arc')).filter((item) => item.code === 'A108');
+  assert.equal(jobDiags.length, 1, 'a job answers no http call');
+  assert.match(jobDiags[0]!.message, /answers no HTTP call/);
 });

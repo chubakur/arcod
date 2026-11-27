@@ -2108,6 +2108,11 @@ Errors:
   `impl/api/totals.mjs`): bodies are keyed by operation name, so one of the two
   would never run. The error names the operation and both files, and the build
   refuses the pair before emitting anything.
+- `A108` a `file:` clause sits on a job or on an operation that returns a
+  record: a job answers no HTTP call, and the runtime would stringify a record
+  into the download, so the client reads `[object Object]` where the contract
+  promised a file. The hint asks for `-> bytes`/`-> string` or for dropping the
+  clause.
 - `A089` a type or enum is declared with a builtin name (`type int = string`):
   OpenAPI listed the declaration under components while every use site resolved
   the builtin, so one module stated two contracts at once and the runtime, the

@@ -1414,6 +1414,30 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
         'drop it: a job is consumed from a queue, not requested; a status belongs to an operation'));
     }
 
+    // A108 — a file answer belongs to an http operation and carries text or
+    // bytes. On a job the clause answers nobody, and on a record-returning
+    // operation the runtime would stringify the record into the download, so
+    // the client reads `[object Object]` where the contract promised a file.
+    for (const op of svc.contract) {
+      const declared = op.clauses.find((clause) => clause.kind === 'file');
+      if (!declared || declared.kind !== 'file') continue;
+      const where = 'services.' + svc.name + (op.kind === 'job' ? '.jobs.' : '.contract.') + op.name;
+      if (op.kind !== 'op') {
+        diags.push(diag('A108', 'error', mod.file, declared.loc, where,
+          'a file answer on ' + op.name + ' answers no HTTP call',
+          'drop it: a job is consumed from a queue, not requested; a file belongs to an operation'));
+        continue;
+      }
+      const returns = op.returns;
+      const textual = returns !== null
+        && (resolvesTo(mod, returns, 'string') || resolvesTo(mod, returns, 'bytes'));
+      if (!textual) {
+        diags.push(diag('A108', 'error', mod.file, declared.loc, where,
+          'file: sends the body of ' + op.name + ', which does not return string or bytes',
+          'declare the operation as -> bytes (or -> string) and return the file from the body'));
+      }
+    }
+
     // A071 — every :name in the route has to be an operation parameter. A
     // typo (:tid instead of id) captures a value nobody reads and leaves the
     // argument unbound, and the runtime has nothing to report.
