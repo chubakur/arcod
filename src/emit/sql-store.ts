@@ -3,6 +3,10 @@
 // nothing from a request is ever concatenated into SQL unescaped.
 export const SQL_STORE_SOURCE = `// ---------- mysql ----------
 
+// Connect, handshake and every query share one deadline (B99). A server that
+// accepts the socket and then says nothing used to hold the request forever.
+const SQL_TIMEOUT_MS = Number(process.env.ARCod_SQL_TIMEOUT_MS || process.env.ARCod_STORE_TIMEOUT_MS || 5000);
+
 const MIGRATIONS_TABLE = 'CREATE TABLE IF NOT EXISTS arcod_migrations (version VARCHAR(16) NOT NULL PRIMARY KEY, checksum VARCHAR(64) NOT NULL, applied_at BIGINT NOT NULL) ENGINE=InnoDB';
 
 // Applies the generated changelog deterministically. A fresh database ends in
@@ -196,6 +200,7 @@ class MySqlConnection {
   }
 
   reset() {
+    if (this.pending && this.pending.timer) clearTimeout(this.pending.timer);
     if (this.socket) {
       try {
         this.socket.destroy();
@@ -217,13 +222,25 @@ class MySqlConnection {
       this.buffer = this.buffer.subarray(4 + length);
       const waiter = this.pending;
       this.pending = null;
+      if (waiter.timer) clearTimeout(waiter.timer);
       waiter.resolve(packet);
     }
   }
 
-  readPacket() {
+  readPacket(label = 'mysql: query timeout') {
     return new Promise((resolve, reject) => {
-      this.pending = { resolve, reject };
+      // One waiter, one deadline. On expiry the socket is dropped: a late reply
+      // must never be read as the answer to the next statement.
+      const pending = { resolve, reject, timer: null };
+      if (SQL_TIMEOUT_MS > 0) {
+        pending.timer = setTimeout(() => {
+          if (this.pending !== pending) return;
+          this.pending = null;
+          this.reset();
+          reject(new Error(label));
+        }, SQL_TIMEOUT_MS);
+      }
+      this.pending = pending;
       this.pump();
     });
   }
@@ -255,7 +272,10 @@ class MySqlConnection {
       const socket = net.connect({ host: this.host, port: this.port });
       this.socket = socket;
       socket.setNoDelay(true);
-      socket.once('connect', resolve);
+      const connectTimer = SQL_TIMEOUT_MS > 0
+        ? setTimeout(() => { socket.destroy(); reject(new Error('mysql: connect timeout')); }, SQL_TIMEOUT_MS)
+        : null;
+      socket.once('connect', () => { if (connectTimer) clearTimeout(connectTimer); resolve(); });
       socket.once('error', reject);
       socket.on('data', (chunk) => {
         this.buffer = Buffer.concat([this.buffer, chunk]);
@@ -267,13 +287,14 @@ class MySqlConnection {
         if (this.pending) {
           const waiter = this.pending;
           this.pending = null;
+          if (waiter.timer) clearTimeout(waiter.timer);
           waiter.reject(new Error('mysql connection closed'));
         }
       });
       socket.on('error', () => {});
     });
 
-    const greeting = await this.readPacket();
+    const greeting = await this.readPacket('mysql: connect timeout');
     if (greeting[0] === 0xff) throw mysqlError(greeting);
 
     let offset = 1;
@@ -314,7 +335,7 @@ class MySqlConnection {
       Buffer.from(plugin, 'utf8'), Buffer.from([0]),
     ]));
 
-    let reply = await this.readPacket();
+    let reply = await this.readPacket('mysql: connect timeout');
     for (let step = 0; step < 4; step += 1) {
       if (reply[0] === 0x00 || reply[0] === 0xff) break;
       if (reply[0] === 0xfe) {
@@ -323,22 +344,22 @@ class MySqlConnection {
         this.plugin = switched;
         this.salt = reply.subarray(end + 1, end + 1 + 20);
         this.writePacket(this.scramble(switched));
-        reply = await this.readPacket();
+        reply = await this.readPacket('mysql: connect timeout');
         continue;
       }
       if (reply[0] === 0x01 && reply[1] === 0x03) {
-        reply = await this.readPacket();
+        reply = await this.readPacket('mysql: connect timeout');
         continue;
       }
       if (reply[0] === 0x01 && reply[1] === 0x04) {
         this.writePacket(Buffer.from([0x02]));
-        const key = await this.readPacket();
+        const key = await this.readPacket('mysql: connect timeout');
         const pem = key[0] === 0x01 ? key.subarray(1) : key;
         const publicKey = createPublicKey(pem.toString('utf8'));
         const secret = Buffer.from(this.password + String.fromCharCode(0), 'utf8');
         const encrypted = publicEncrypt({ key: publicKey, padding: constants.RSA_PKCS1_OAEP_PADDING }, xorBytes(secret, this.salt));
         this.writePacket(encrypted);
-        reply = await this.readPacket();
+        reply = await this.readPacket('mysql: connect timeout');
         continue;
       }
       throw new Error('mysql: unexpected auth packet ' + reply[0]);

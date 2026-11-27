@@ -1755,7 +1755,10 @@ no dependencies, no config required:
   (`ARCod_SQL_TIMEOUT_MS`, falling back to `ARCod_STORE_TIMEOUT_MS`): a server
   that stops answering fails the statement, and because a late reply could be
   read as the next statement's the connection is dropped and reopened by the
-  next query.
+  next query. The mysql client uses the same deadline for connect, handshake
+  and every statement, so a server that accepts the socket and then says
+  nothing fails with `mysql: connect timeout` / `mysql: query timeout` and the
+  next operation opens a fresh connection.
 - **Request timeouts.** `server.requestTimeout`/`headersTimeout` and an
   `AbortSignal.timeout` on external calls, driven by `ARCod_TIMEOUT_MS`
   (default `30000`).

@@ -1597,7 +1597,10 @@ arcod run --impl examples/onetimemessage-pwd
   (`ARCod_SQL_TIMEOUT_MS`, с откатом на `ARCod_STORE_TIMEOUT_MS`): сервер,
   переставший отвечать, роняет запрос, а соединение закрывается, потому что
   поздний ответ можно прочитать как ответ на следующий запрос; следующая
-  операция открывает новое.
+  операция открывает новое. MySQL-клиент использует тот же дедлайн для
+  connect, handshake и каждого запроса: сервер, принявший сокет и замолчавший,
+  даёт `mysql: connect timeout` / `mysql: query timeout`, а следующая операция
+  открывает новое соединение.
 - **Request timeouts.** `server.requestTimeout`/`headersTimeout` и
   `AbortSignal.timeout` на внешних вызовах, управляются `ARCod_TIMEOUT_MS`
   (по умолчанию `30000`).
