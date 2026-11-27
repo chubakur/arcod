@@ -1229,6 +1229,9 @@ function checkWhereFields(meta, where) {
 // the driver (500). Both name the field and the declared columns now.
 function checkOrderFields(meta, order) {
   for (const rule of order) {
+    // id is the record key, not a declared column: it is the default order
+    // (parseOrder falls back to it), so every entity can sort by it.
+    if (rule.field === 'id') continue;
     const column = meta.columns.find((item) => item.name === rule.field);
     if (!column) {
       throw new ArcodError('Invalid', {
@@ -1370,6 +1373,9 @@ function checkRecordFields(meta, record, place) {
   const own = Object.create(null);
   for (const key of Object.keys(record)) own[key] = record[key];
   for (const field of Object.keys(record)) {
+    // id is the record key, not a declared column: a body names it on insert
+    // and the kv facade stores the record under it.
+    if (field === 'id') continue;
     if (!meta.columns.some((column) => column.name === field)) {
       throw new ArcodError('Invalid', {
         message: place + ': unknown field "' + field + '"; declared: ' + meta.columns.map((column) => column.name).join(', '),
