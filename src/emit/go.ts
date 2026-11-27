@@ -5,6 +5,7 @@
 import type { ModuleNode, ServiceNode } from '../ast.ts';
 import { contractOps, successStatus, type ContractOp } from './contract.ts';
 import { messageForError, statusForError } from './service.ts';
+import { goModulePath } from './arcodio.ts';
 
 // Features the first Go kit does not carry. It refuses by name instead of
 // emitting a service that silently answers half the contract: a store-less
@@ -13,8 +14,10 @@ export function goUnsupported(mod: ModuleNode, svc: ServiceNode): string[] {
   const names: string[] = [];
   for (const use of svc.uses) {
     const capability = use.capability.replace(/^arcod\.std\./, '');
+    // kv is carried by the arcodio facade; every other store needs a dialect
+    // layer the kit does not have yet.
     if (use.alias === 'store') {
-      names.push(capability === 'kv' ? 'store: kv' : 'store: ' + capability);
+      if (capability !== 'kv') names.push('store: ' + capability);
       continue;
     }
     if (capability === 'stream') names.push('stream');
@@ -124,6 +127,8 @@ export function goMain(mod: ModuleNode, svc: ServiceNode): string {
   lines.push('\t"net/http"');
   lines.push('\t"os"');
   lines.push('\t"strconv"');
+  lines.push('');
+  lines.push('\tarcodio ' + goString(goModulePath(svc) + '/arcodio'));
   lines.push(')');
   lines.push('');
   lines.push('// OpError is an error the contract declares by name.');
@@ -144,6 +149,7 @@ export function goMain(mod: ModuleNode, svc: ServiceNode): string {
     lines.push('');
   }
   lines.push('func main() {');
+  lines.push('\tarc := arcodio.Connect()');
   lines.push('\tmux := http.NewServeMux()');
   lines.push('\t// A probe is a read: POST /healthz stays a 404, as in the Node runtime.');
   lines.push('\tmux.HandleFunc("GET /healthz", health)');
@@ -173,7 +179,7 @@ export function goMain(mod: ModuleNode, svc: ServiceNode): string {
     lines.push('\t\tfail(w, err)');
     lines.push('\t\treturn');
     lines.push('\t}');
-    lines.push('\tout, err := op' + pascal(op.name) + '(in)');
+    lines.push('\tout, err := op' + pascal(op.name) + '(arc, in)');
     lines.push('\tif err != nil {');
     lines.push('\t\tfail(w, err)');
     lines.push('\t\treturn');
@@ -293,6 +299,8 @@ export function goOps(mod: ModuleNode, svc: ServiceNode, bodies: Record<string, 
   lines.push('// Operation bodies for ' + svc.name + '. Bodies come from impl/*.go;');
   lines.push('// the rest are stubs. Keep the signature and never edit main.go.');
   lines.push('package main');
+  lines.push('');
+  lines.push('import arcodio ' + goString(goModulePath(svc) + '/arcodio'));
   for (const op of ops) {
     lines.push('');
     lines.push('// op' + pascal(op.name) + ' implements ' + op.route!.method + ' ' + op.route!.path + '.');
@@ -301,7 +309,7 @@ export function goOps(mod: ModuleNode, svc: ServiceNode, bodies: Record<string, 
       lines.push(body.trimEnd());
       continue;
     }
-    lines.push('func op' + pascal(op.name) + '(in map[string]any) (any, error) {');
+    lines.push('func op' + pascal(op.name) + '(io *arcodio.IO, in map[string]any) (any, error) {');
     lines.push('\treturn nil, &OpError{Name: "NotImplemented", Status: 501, Message: "implement ' + op.name + ' according to the .arc contract"}');
     lines.push('}');
   }
@@ -310,7 +318,7 @@ export function goOps(mod: ModuleNode, svc: ServiceNode, bodies: Record<string, 
 }
 
 export function goMod(svc: ServiceNode): string {
-  return 'module arcod/' + pascal(svc.name).toLowerCase() + '\n\ngo 1.23\n';
+  return 'module ' + goModulePath(svc) + '\n\ngo 1.23\n';
 }
 
 export function goDockerfile(): string {
@@ -319,6 +327,7 @@ export function goDockerfile(): string {
     'WORKDIR /src',
     'COPY go.mod ./',
     'COPY main.go ops.go ./',
+    'COPY arcodio ./arcodio',
     'RUN CGO_ENABLED=0 go build -trimpath -o /out/service .',
     '',
     'FROM alpine:3.20',

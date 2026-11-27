@@ -76,8 +76,12 @@ test('a go service gets main.go with the contract routes and input kinds', async
     assert.match(main, /mux\.HandleFunc\("GET \/healthz", health\)/);
 
     const ops = await readFile(join(dir, '.arcod', 'build', 'service', 'ops.go'), 'utf8');
-    assert.match(ops, /func opRead\(in map\[string\]any\) \(any, error\)/);
-    assert.match(ops, /func opRename\(in map\[string\]any\) \(any, error\)/);
+    // The body receives the facade and the inputs; one signature for every op.
+    assert.match(ops, /func opRead\(io \*arcodio\.IO, in map\[string\]any\) \(any, error\)/);
+    assert.match(ops, /func opRename\(io \*arcodio\.IO, in map\[string\]any\) \(any, error\)/);
+    assert.match(ops, /import arcodio "arcod\/catalog\/arcodio"/);
+    assert.match(main, /out, err := opRead\(arc, in\)/);
+    assert.match(main, /arc := arcodio\.Connect\(\)/);
     assert.match(ops, /NotImplemented/);
 
     const dockerfile = await readFile(join(dir, '.arcod', 'build', 'service', 'Dockerfile'), 'utf8');
@@ -104,7 +108,8 @@ test('every feature the go kit cannot carry is named', () => {
   const base = { contract: [], sagas: [], roles: [], uses: [] };
   const named = (svc: object, mod: object = { uis: [] }): string[] =>
     goUnsupported(mod as never, { ...base, ...svc } as never);
-  assert.deepEqual(named({ uses: [{ alias: 'store', capability: 'arcod.std.kv', params: {}, loc }] }), ['store: kv']);
+  // kv is carried by the arcodio facade, so it is not a refusal any more.
+  assert.deepEqual(named({ uses: [{ alias: 'store', capability: 'arcod.std.kv', params: {}, loc }] }), []);
   assert.deepEqual(named({ uses: [{ alias: 'store', capability: 'arcod.std.sql', params: {}, loc }] }), ['store: sql']);
   assert.deepEqual(named({ uses: [{ alias: 'live', capability: 'arcod.std.stream', params: {}, loc }] }), ['stream']);
   assert.deepEqual(named({ uses: [{ alias: 'events', capability: 'arcod.std.queue', params: {}, loc }] }), ['queue']);
@@ -119,15 +124,43 @@ test('every feature the go kit cannot carry is named', () => {
   assert.deepEqual(named({ contract: [{ kind: 'op', auth: true, loc }] }), ['auth']);
 });
 
-test('the go kit refuses a store it cannot serve, by name', async () => {
-  const source = spec().replace('  language: go', '  language: go\n  uses store: kv');
+test('the go kit refuses the stores it cannot serve, by name', async () => {
+  const source = 'module gosql @0.1.0 {}\n\nservice Catalog : http {\n  language: go\n  uses store: sql\n\n  contract {\n    public op list() -> string {\n      route: "GET /v1/items"\n    }\n  }\n}\n\nenvironment dev {}\n';
   const dir = await mkdtemp(join(tmpdir(), 'arcod-go-'));
   try {
     const mod = parse(source, 'main.arc');
     await assert.rejects(
       buildExample(mod, dir, { reference: true, implDir: null }),
-      /service Catalog is language: go, but the Go kit does not carry store: kv/,
+      /service Catalog is language: go, but the Go kit does not carry store: sql/,
     );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a kv store comes with the arcodio facade, its env and its Dockerfile copy', async () => {
+  const source = 'module gokv @0.1.0 {}\n\ntype Id = uuid\n\nservice Cache : http {\n  language: go\n  uses store: kv(ttl: 60s)\n\n  contract {\n    public op read(id: Id) -> string {\n      route: "GET /v1/items/:id"\n    }\n  }\n}\n\nenvironment dev {\n  bind store -> redis(host: "kv", port: 6379)\n}\n';
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-go-'));
+  try {
+    const mod = parse(source, 'main.arc');
+    const result = await buildExample(mod, dir, { reference: true, implDir: null });
+    const io = await readFile(join(dir, '.arcod', 'build', 'service', 'arcodio', 'arcodio.go'), 'utf8');
+    assert.match(io, /^package arcodio$/m);
+    // The four kv verbs of the contract, not a general redis client.
+    for (const command of ['GET', 'DEL', 'EXISTS']) {
+      assert.match(io, new RegExp('kv\\.call\\("' + command + '", key\\)'));
+    }
+    assert.match(io, /args := \[\]string\{"SET", key, value\}/);
+    assert.match(io, /args = append\(args, "PX", strconv\.FormatInt\(ttl\.Milliseconds\(\), 10\)\)/);
+    // RESP framing: a bulk array, one bulk string per argument.
+    assert.match(io, /strconv\.Itoa\(len\(args\)\)/);
+    assert.match(io, /for _, arg := range args/);
+    assert.match(io, /KV_HOST/);
+    const main = await readFile(join(dir, '.arcod', 'build', 'service', 'main.go'), 'utf8');
+    assert.match(main, /arcodio "arcod\/cache\/arcodio"/);
+    const dockerfile = await readFile(join(dir, '.arcod', 'build', 'service', 'Dockerfile'), 'utf8');
+    assert.match(dockerfile, /^COPY arcodio \.\/arcodio$/m);
+    assert.equal(result.files.some((file) => file.endsWith(join('arcodio', 'arcodio.go'))), true);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -152,15 +185,17 @@ test('a go body is spliced into ops.go, and the op without one stays a stub', as
   try {
     const implDir = join(dir, 'impl');
     await mkdir(implDir, { recursive: true });
-    const body = 'func opRead(in map[string]any) (any, error) {\n\treturn map[string]any{"name": "from body"}, nil\n}\n';
+    const body = 'func opRead(io *arcodio.IO, in map[string]any) (any, error) {\n\treturn map[string]any{"name": "from body"}, nil\n}\n';
     await writeFile(join(implDir, 'read.go'), body, 'utf8');
     const mod = parse(spec(), 'main.arc');
     await buildExample(mod, dir, { implDir });
     const ops = await readFile(join(dir, '.arcod', 'build', 'service', 'ops.go'), 'utf8');
     assert.match(ops, /from body/);
-    assert.match(ops, /func opCreate\(in map\[string\]any\) \(any, error\) \{\n\treturn nil, &OpError\{Name: "NotImplemented"/);
+    assert.match(ops, /func opCreate\(io \*arcodio\.IO, in map\[string\]any\) \(any, error\) \{\n\treturn nil, &OpError\{Name: "NotImplemented"/);
     // The body is not wrapped in a second package clause.
     assert.equal(ops.match(/^package main$/gm)?.length, 1);
+    // A body shares the ops.go imports (arcodio) and cannot add its own.
+    assert.match(ops, /import arcodio "arcod\/catalog\/arcodio"/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

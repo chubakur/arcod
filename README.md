@@ -385,12 +385,21 @@ full emitter. `language: go` builds a port-kit service: `main.go` with the
 routes, the input-kind coercion and the success statuses read from the same
 contract IR as Node, `/healthz`, one `ops.go` stub per operation, a `go.mod`
 and a multi-stage `Dockerfile`; the route pattern uses Go 1.22's `{id}` form.
-The kit is deliberately narrow: a service that uses a store, `stream`,
+The kit is deliberately narrow: `store: kv` comes with the generated
+`arcodio` package; a service that uses another store (`sql`), `stream`,
 `queue`, `graphql`, `olap`, `mail`, `files`, a ui page, roles, a saga, a job
 or `auth` is refused by name at build time. A Go body at `impl/<op>.go` (or
 `impl/<service>/<op>.go` beside other services) is spliced into `ops.go`
-verbatim; an operation without one keeps a 501 stub. A body cannot add its own
-`import` line — it shares the imports of the generated `main.go`
+verbatim; an operation without one keeps a 501 stub. Every body has the shape
+`func op<Name>(io *arcodio.IO, in map[string]any) (any, error)`: `in` holds the
+path captures, the query string and the JSON body after coercion, `io.KV` is
+the declared kv store. `arcodio` (`arcodio/arcodio.go` in the build context,
+copied by the `Dockerfile`) opens one RESP connection lazily to
+`KV_HOST`/`KV_PORT` (or `REDIS_URL`) and carries `Get`, `Set` (with a
+`time.Duration` TTL), `Del` and `Has` — the four verbs of the kv contract, not
+a general redis client. A service without a store gets `IO{}` and a store call
+returns `arcodio.ErrNoStore`. A body cannot add its own `import` line — it
+shares the imports of the generated `ops.go` (`arcodio`) and `main.go`
 (`encoding/json`, `errors`, `io`, `log`, `net/http`, `os`, `strconv`). `language: python` passes
 `check` and is reported by `build --json`, but `build` and `impl` refuse it
 until B108. Silently generating the wrong runtime is worse
