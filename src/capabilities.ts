@@ -64,11 +64,17 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
     effects: {
       put: 'blobPut(id: string, value: string, type: string?) -> void',
       get: 'blobGet(id: string) -> string | null',
+      // Binary payloads travel byte-for-byte (B79): a base64 string cost 33%
+      // and every consumer decoded it again. The string pair stays for text.
+      putBytes: 'blobPutBytes(id: string, value: bytes, type: string?) -> void',
+      getBytes: 'blobGetBytes(id: string) -> bytes | null',
       del: 'blobDelete(id: string) -> void',
     },
     short: {
       put: 'blobPut(id, value)',
       get: 'blobGet(id) -> string|null',
+      putBytes: 'blobPutBytes(id, bytes)',
+      getBytes: 'blobGetBytes(id) -> bytes|null',
       del: 'blobDelete(id)',
     },
     notes: 'Objects, not rows. The adapter owns bucket and naming.',

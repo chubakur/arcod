@@ -85,7 +85,7 @@ function pluginCapabilityName(capability: string): string {
 const RESERVED_IO_METHODS = new Set([
   'load', 'save', 'get', 'set', 'scan', 'del', 'seen', 'takeIf', 'new', 'actor', 'users', 'chat', 'model',
   'updateWhere', 'call',
-  'publish', 'queuePublish', 'queuePublishLater', 'queueDead', 'queueDeadDrop', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify', 'count', 'aggregate', 'embed',
+  'publish', 'queuePublish', 'queuePublishLater', 'queueDead', 'queueDeadDrop', 'remote', 'blobPut', 'blobGet', 'blobPutBytes', 'blobGetBytes', 'blobDelete', 'hash', 'verify', 'count', 'aggregate', 'embed',
 ]);
 
 export function pluginBindings(mod: ModuleNode, registry?: ProviderRegistry): PluginBinding[] {
@@ -3236,6 +3236,8 @@ function implHandlers(
     parts.push(
       "    async blobPut(id, value, type) { return blobPut('objects/' + id, value, type); },",
       "    async blobGet(id) { return blobGet('objects/' + id); },",
+      "    async blobPutBytes(id, value, type) { return blobPutBytes('objects/' + id, value, type); },",
+      "    async blobGetBytes(id) { return blobGetBytes('objects/' + id); },",
       "    async blobDelete(id) { return blobDelete('objects/' + id); },",
     );
   }

@@ -912,7 +912,10 @@ environment dev {
 
 `io.actor()` verifies the JWT against the provider JWKS and returns
 `{ id, name, admin }`; `io.users()` reads the user list from the admin API;
-`io.blobPut/blobGet` store and read objects. The provider is still chosen in the
+`io.blobPut/blobGet` store and read text objects; `io.blobPutBytes/io.blobGetBytes`
+(`files.putBytes`/`files.getBytes`) move binary payloads byte-for-byte — no
+base64 or UTF-8 in between, and the S3 driver signs the same bytes it sends.
+The provider is still chosen in the
 environment: neither Keycloak nor MinIO is named in the model.
 
 Effects are declared explicitly: `effects: store.get, files.get`.

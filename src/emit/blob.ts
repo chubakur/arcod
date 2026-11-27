@@ -8,6 +8,9 @@ const S3_SECRET = process.env.S3_SECRET_KEY || 'minio123';
 const S3_REGION = process.env.S3_REGION || 'us-east-1';
 const BLOB_MEMORY = process.env.BLOB_DRIVER === 'memory';
 const blobMemory = new Map();
+// Bytes and text are separate maps: a caller that asked for a string must not
+// receive a Buffer, and a byte round-trip must not pass through UTF-8.
+const blobMemoryBytes = new Map();
 let bucketReady = false;
 
 function hmac(key, value) {
@@ -18,6 +21,13 @@ function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function payloadBytes(body) {
+  if (body == null) return Buffer.alloc(0);
+  if (Buffer.isBuffer(body)) return body;
+  if (body instanceof Uint8Array) return Buffer.from(body);
+  return Buffer.from(String(body), 'utf8');
+}
+
 function amzStamp() {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/[.][0-9]{3}/, '');
 }
@@ -25,7 +35,9 @@ function amzStamp() {
 async function s3Request(method, key, body, type) {
   const url = new URL(S3_ENDPOINT);
   const path = '/' + S3_BUCKET + (key ? '/' + key : '');
-  const payload = body == null ? '' : String(body);
+  // SigV4 covers the bytes that travel: String(body) turned Uint8Array
+  // [0x00, 0xFF] into '0,255' and signed that instead (B79).
+  const payload = payloadBytes(body);
   const stamp = amzStamp();
   const date = stamp.slice(0, 8);
   const payloadHash = sha256(payload);
@@ -69,6 +81,18 @@ async function blobPut(key, value, type) {
   if (!response.ok) throw new Error('blob: put ' + response.status);
 }
 
+// bytes in, bytes out (B79): no String(), no .text().
+async function blobPutBytes(key, value, type) {
+  const bytes = payloadBytes(value);
+  if (BLOB_MEMORY) {
+    blobMemoryBytes.set(key, { value: Buffer.from(bytes), type: type || 'application/octet-stream' });
+    return;
+  }
+  await ensureBucket();
+  const response = await s3Request('PUT', key, bytes, type || 'application/octet-stream');
+  if (!response.ok) throw new Error('blob: put ' + response.status);
+}
+
 async function blobGet(key) {
   if (BLOB_MEMORY) {
     const item = blobMemory.get(key);
@@ -80,9 +104,21 @@ async function blobGet(key) {
   return response.text();
 }
 
+async function blobGetBytes(key) {
+  if (BLOB_MEMORY) {
+    const item = blobMemoryBytes.get(key);
+    return item ? Buffer.from(item.value) : null;
+  }
+  const response = await s3Request('GET', key, null, '');
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error('blob: get ' + response.status);
+  return Buffer.from(await response.arrayBuffer());
+}
+
 async function blobDelete(key) {
   if (BLOB_MEMORY) {
     blobMemory.delete(key);
+    blobMemoryBytes.delete(key);
     return;
   }
   await s3Request('DELETE', key, null, '');
