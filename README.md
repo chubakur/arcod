@@ -400,7 +400,12 @@ copied by the `Dockerfile`) opens one RESP connection lazily to
 a general redis client. A service without a store gets `IO{}` and a store call
 returns `arcodio.ErrNoStore`. A body cannot add its own `import` line — it
 shares the imports of the generated `ops.go` (`arcodio`) and `main.go`
-(`encoding/json`, `errors`, `io`, `log`, `net/http`, `os`, `strconv`). `language: python` passes
+(`encoding/json`, `errors`, `io`, `log`, `net/http`, `os`, `strconv`);
+because the body owns the signature, a parameter named `io` hides the
+standard package there. A rule such as `atomic read { get; del }` is not
+carried by the emitter for Go — no generated body exists to obey it — so the
+author's body keeps that promise and `arcod test` is what checks it.
+`language: python` passes
 `check` and is reported by `build --json`, but `build` and `impl` refuse it
 until B108. Silently generating the wrong runtime is worse
 than stopping. `language:` on an `external` service is an error.
