@@ -1832,6 +1832,7 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
   checkEntityLiterals(mod, diags, options.impl);
   checkWhereOperators(mod, diags, options.impl);
   checkEndpointCalls(mod, diags, options.impl, env);
+  checkOlapRawSql(mod, diags, options.impl);
   checkImplCollisions(mod, diags, options.impl, options.implLib);
   checkImplSignatures(mod, diags, options.impl);
   checkOrphanImplBodies(mod, diags, options.impl);
@@ -2226,6 +2227,29 @@ export function checkEndpointCalls(
           'write /v1/hook; the bound base URL supplies scheme and host'));
       }
     }
+  }
+}
+
+// W054 — raw SQL is the honest escape hatch, but it is spelled in ClickHouse's
+// dialect and the query leaves the model: the DDL, the typed calls and the
+// record fields can no longer be kept in step with it. The typed append/select
+// keep that guarantee, so the trade is named at check time instead of at the
+// first 500 (B95.4 left this warning for B95.5).
+const OLAP_SQL_CALL = /\bio\.olapSql\s*\(/;
+
+export function checkOlapRawSql(mod: ModuleNode, diags: Diagnostic[], impl: Record<string, string> | undefined): void {
+  if (!impl) return;
+  const servesOlap = mod.services.some((svc) =>
+    svc.uses.some((use) => use.capability === 'olap' || use.capability.endsWith('.olap')));
+  if (!servesOlap) return;
+  for (const op of Object.keys(impl).sort()) {
+    const text = impl[op];
+    const match = OLAP_SQL_CALL.exec(text);
+    if (!match) continue;
+    const line = text.slice(0, match.index).split('\n').length;
+    diags.push(diag('W054', 'warning', 'impl/' + op + '.mjs', { ...mod.loc, line, endLine: line }, 'impl.' + op,
+      'io.olapSql sends raw SQL, which ties this body to ClickHouse',
+      'use io.olapAppend/io.olapSelect for model-checked shapes; io.olapSql is for read-only ClickHouse-specific queries'));
   }
 }
 

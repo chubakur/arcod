@@ -2209,6 +2209,10 @@ Warnings:
   the environment (answered `503 Unavailable`), or the method is outside
   GET/POST/PUT/PATCH/DELETE/HEAD (answered `400 Invalid`). The runtime keeps the guarantee for
   a computed path; the check reads the literal while the body is in hand.
+- `W054` a body calls `io.olapSql`: the query is ClickHouse's, not the model's,
+  so the DDL and the typed calls can no longer be kept in step with it. The
+  warning names the body once; `io.olapAppend`/`io.olapSelect` keep the shape
+  model-checked, and raw SQL stays the read-only escape hatch.
 - `W049` an `impl/*.mjs` body is named after no operation: only the bodies the
   service contract declares are bundled, so `impl/total.mjs` (a typo of
   `totals`) was loaded and then dropped — `totals` answered `501
