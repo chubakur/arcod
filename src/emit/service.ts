@@ -10,7 +10,7 @@ import { BLOB_SOURCE } from './blob.ts';
 import { LLM_SOURCE } from './llm.ts';
 import { endpointSource } from './endpoint.ts';
 import { olapRuntime } from './olap-runtime.ts';
-import { olapTablesFromTypes, olapUseOptions } from './olap.ts';
+import { olapTableNamesFromBodies, olapTablesFromTypes, olapUseOptions } from './olap.ts';
 import { STREAM_SOURCE } from './stream.ts';
 import { TX_GATE_SOURCE } from './tx-gate.ts';
 import { QUEUE_SOURCE, QUEUE_SHUTDOWN, OUTBOX_SHUTDOWN, OUTBOX_SOURCE, outboxSource, consumerSource } from './queue.ts';
@@ -3112,7 +3112,9 @@ function implHandlers(
   // module's record types, so the adapter refuses a column the compiler never
   // saw, and every part that names the capability gets the same map (B95.3).
   const olapUses = svc.uses.filter((use) => use.capability === 'olap' || use.capability.endsWith('.olap'));
-  const olapTables = olapUses.length > 0 ? olapTablesFromTypes(mod.types, olapUseOptions(olapUses[0].params)) : null;
+  const olapNames = mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name);
+  const olapOnly = olapTableNamesFromBodies(impl, olapNames);
+  const olapTables = olapUses.length > 0 ? olapTablesFromTypes(mod.types, olapUseOptions(olapUses[0].params), olapOnly) : null;
   const usesQueue = hasQueue(svc);
 
   if (hasIdentity) parts.push(IDENTITY_SOURCE);

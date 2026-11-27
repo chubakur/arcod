@@ -18,7 +18,7 @@ import { emitOpenapi } from './emit/openapi.ts';
 import { graphqlSchema } from './emit/graphql.ts';
 import { grpcProto } from './emit/grpc.ts';
 import { pickService } from './emit/service.ts';
-import { clickhouseSchemaSql, olapTablesFromTypes, olapUseOptions } from './emit/olap.ts';
+import { clickhouseSchemaSql, olapTableNamesFromBodies, olapTablesFromTypes, olapUseOptions } from './emit/olap.ts';
 import { applyClickhouseSchema, olapTarget } from './olap-apply.ts';
 import { serviceEndpoints } from './emit/compose.ts';
 import { entitiesFromBodies, migrationPlan, formatMigrations } from './migrate.ts';
@@ -952,10 +952,15 @@ async function runMigrate(flags: Flags): Promise<void> {
   // OLAP_URL in the environment), creates the tables over the HTTP interface.
   // No target means no network: a module without a reachable ClickHouse still
   // migrates offline.
+  // The bodies decide which record types are ClickHouse tables (a DTO next to
+  // the facts must not become one), and the relational plan below reads the
+  // same files: read them once so both plans see one set of bodies.
+  const implBodies = await implBodiesFor(loaded.dir, loaded.mod.services.filter((item) => !item.external).map((item) => item.name));
+  const declaredRecords = loaded.mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name);
   const olapUse = svc.uses.find((use) => use.capability === 'olap' || use.capability.endsWith('.olap'));
   let olap: { artifact: string; tables: string[]; applied: boolean; url?: string } | null = null;
   if (olapUse) {
-    const { tables, problems } = olapTablesFromTypes(loaded.mod.types, olapUseOptions(olapUse.params));
+    const { tables, problems } = olapTablesFromTypes(loaded.mod.types, olapUseOptions(olapUse.params), olapTableNamesFromBodies(implBodies, declaredRecords));
     // A column the builder cannot spell is reported by name instead of being
     // guessed: the table map the adapter carries comes from the same call, so
     // the schema and the runtime stay one shape even when a field is refused.
@@ -989,10 +994,7 @@ async function runMigrate(flags: Flags): Promise<void> {
   // an explicit --dialect that disagrees is refused with the bind named.
   // Tables come from the bodies, so a DTO (an ack, a receipt) never becomes one
   // even when a store effect sits on the operation returning it.
-  const entities = entitiesFromBodies(
-    await implBodiesFor(loaded.dir, loaded.mod.services.filter((svc) => !svc.external).map((svc) => svc.name)),
-    loaded.mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name),
-  );
+  const entities = entitiesFromBodies(implBodies, declaredRecords);
   const plan = migrationPlan(loaded.mod, svc, { dialect: dialectNamed(resolveDialect(loaded.mod, dialectFlag(flags))), entities });
   if (plan.migrations.length === 0) {
     // A model that lost its last table must not leave the previous plan on

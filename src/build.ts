@@ -11,7 +11,7 @@ import { deployManifest, deployProvider, literalMap } from './deploy.ts';
 import { entitiesFromBodies, migrationPlan } from './migrate.ts';
 import { dialectNamed } from './dialects.ts';
 import { kebab } from './plan.ts';
-import { clickhouseSchemaSql, olapTablesFromTypes, olapUseOptions } from './emit/olap.ts';
+import { clickhouseSchemaSql, olapTableNamesFromBodies, olapTablesFromTypes, olapUseOptions } from './emit/olap.ts';
 import { helmChart, k8sManifests, type K8sOptions } from './emit/k8s.ts';
 import { implCollisions, implSignatureProblems, sandboxViolation, topLevelDeclarations } from './impl.ts';
 
@@ -625,7 +625,7 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
   for (const [index, svcNode] of mod.services.filter((svc) => !svc.external).entries()) {
     const olapUse = svcNode.uses.find((use) => use.capability === 'olap' || use.capability.endsWith('.olap'));
     if (!olapUse) continue;
-    const { tables } = olapTablesFromTypes(mod.types, olapUseOptions(olapUse.params));
+    const { tables } = olapTablesFromTypes(mod.types, olapUseOptions(olapUse.params), olapTableNamesFromBodies(impl, declaredRecords));
     if (tables.length === 0) continue;
     const olapDir = join(dir, (index === 0 ? 'clickhouse' : 'clickhouse-service-' + kebab(svcNode.name)));
     await mkdir(olapDir, { recursive: true });

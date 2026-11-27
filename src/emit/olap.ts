@@ -221,7 +221,41 @@ export function readOnlySql(sql: string): boolean {
   return /^(select|with)\b/i.test(trimmed);
 }
 
-// B95.3: the tables a service with the olap capability carries. Every record
+// Which record types the bodies actually read or write. A module can declare
+// request/response records next to the facts it appends, and every record type
+// used to become a ClickHouse table. The bodies are the evidence:
+// io.olapAppend("DeliveryEvent", ...) and io.olapSelect("DeliveryEvent", ...)
+// name the table, so only those types need DDL. Anything the scan cannot read
+// keeps the old, safe answer — every record type: a computed name, or a raw
+// io.olapSql whose SQL names its own tables, means the compiler cannot know,
+// and a table missing from the schema would turn a write into a 500.
+const OLAP_READ_CALL = /io\.olap(Append|Select)\s*\(/g;
+const OLAP_RAW_CALL = /io\.olapSql\s*\(/;
+const STRING_LITERAL = /^(['"])([A-Za-z_$][\w$]*)\1$/;
+
+export function olapTableNamesFromBodies(
+  bodies: Record<string, string> | undefined,
+  declared: string[],
+): string[] | null {
+  if (!bodies) return null;
+  const names = new Set<string>();
+  for (const body of Object.values(bodies)) {
+    if (OLAP_RAW_CALL.test(body)) return null;
+    for (const match of body.matchAll(OLAP_READ_CALL)) {
+      const rest = body.slice(match.index + match[0].length);
+      const end = rest.search(/[,)]/);
+      const literal = STRING_LITERAL.exec((end === -1 ? rest : rest.slice(0, end)).trim());
+      if (!literal) return null;
+      if (declared.includes(literal[2])) names.add(literal[2]);
+    }
+  }
+  // A literal that names no declared record is a typo, not evidence: it must
+  // not shrink the schema to nothing and hide the list a 500 would need.
+  return names.size > 0 ? [...names].sort() : null;
+}
+// B95.3: the tables a service with the olap capability carries. `only` narrows
+// them to the record types the bodies name; null/undefined keeps every record
+// type, the answer when the bodies cannot be read. Every record
 // type of the module is a candidate table — the adapter keeps the map and
 // refuses an entity it does not find, so a body cannot write into a shape the
 // compiler never saw. orderBy and ttl come from the capability clause: the key
@@ -230,12 +264,14 @@ export function readOnlySql(sql: string): boolean {
 export function olapTablesFromTypes(
   types: TypeDecl[],
   options: { orderBy?: string[]; ttl?: boolean } = {},
+  only?: string[] | null,
 ): { tables: OlapTable[]; problems: string[] } {
   const named = new Map(types.map((decl) => [decl.name, decl.type]));
   const tables: OlapTable[] = [];
   const problems: string[] = [];
   for (const decl of types) {
     if (decl.type.kind !== 'record') continue;
+    if (only && !only.includes(decl.name)) continue;
     const { columns, problems: columnProblems } = olapColumns(decl.type.fields, named);
     for (const problem of columnProblems) problems.push(decl.name + ': ' + problem);
     if (columns.length === 0) continue;
