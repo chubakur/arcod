@@ -1316,6 +1316,54 @@ namespace. `sum` пустого — `0`, `avg`/`min`/`max` пустого — `n
 памяти) — это честно для тысяч строк, но не для миллионов. Осознанные SQL-таблицы,
 объявленные индексы и pushdown запроса — следующий шаг.
 
+### Аналитическое хранилище: ClickHouse
+
+`olap` — второе хранилище: append-only строки и агрегаты по ним.
+
+```arcod
+uses events: olap(orderBy: "day", ttl: 30d)
+
+effects {
+  allow events.append, events.select, events.sql
+}
+
+public op record(id: string, day: string, bytes: int) -> { ok: bool } {
+  route: "POST /v1/record"
+  effects: events.append
+}
+```
+
+Каждый record-тип модуля становится таблицей, и адаптер носит ту же карту: тело
+не может записать форму, которой компилятор не видел. `orderBy` называет ключ
+сортировки; `ttl: <duration>` истекает строки по `datetime`-колонке записи, а
+запись без такой колонки — problem, не догадка.
+
+- `io.olapAppend(entity, record)` — `INSERT … FORMAT JSONEachRow`. Append
+  at-least-once: повторный job пишет строку дважды, поэтому метрика, которая не
+  должна раздуваться, просит `distinct`.
+- `io.olapSelect(entity, { where, groupBy, metrics, order, limit })` —
+  типизированный путь: `sum`/`count`/`avg`/`min`/`max` (с `distinct`), те же
+  операторы `where`, что у `find`, значения — параметры `{pN:Type}`, без
+  интерполяции. Неизвестная сущность/колонка/метрика/оператор — `Invalid`
+  (400) до сети.
+- `io.olapSql(sql, params)` — один read-only `SELECT`/`WITH`, значения через
+  `params`, с `readonly=1`, `max_execution_time=30` и `max_result_rows`
+  (10k, `OLAP_MAX_RESULT_ROWS`); write-ключевое слово отклоняется до сети.
+  Это лазейка, и `W054` так и говорит: запрос принадлежит ClickHouse, не
+  модели.
+
+`arcod build` и `arcod migrate` пишут `.arcod/build/clickhouse/schema.sql`
+(`CREATE TABLE IF NOT EXISTS`, `ENGINE = MergeTree`, `ORDER BY` из `uses`).
+`arcod migrate --olap-url http://host:8123` (или `CLICKHOUSE_URL`) создаёт
+таблицы, по одному стейтменту на запрос; `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`
+едут заголовками `x-clickhouse-user`/`x-clickhouse-key`. Compose поднимает
+clickhouse с healthcheck `/ping` и отдаёт сервису того же пользователя;
+`/healthz` отвечает `olap: up|down` (503, когда down). Типы колонок: int →
+`Int64`, number/float → `Float64`, decimal → `Decimal(30,6)`, datetime →
+`DateTime64(3)`, bool → `UInt8`, string/uuid/json → `String`, list → `Array(T)`,
+optional → `Nullable(T)`; именованный тип раскрывается до базы, а тип вне
+таблицы сообщается, а не становится `String`.
+
 ### Одна модель — разные провайдеры
 
 `kv` и `sql` — одна и та же запись по id, разные провайдеры. Тела операций не

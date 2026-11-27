@@ -1510,6 +1510,54 @@ one entity namespace (`scan` plus in-memory match), which is honest for
 thousands of rows, not millions. Schema-aware SQL tables and declared indexes
 are in place; query pushdown is the next step.
 
+### An analytical store: ClickHouse
+
+`olap` is the second store: append-only rows and aggregates over them.
+
+```arcod
+uses events: olap(orderBy: "day", ttl: 30d)
+
+effects {
+  allow events.append, events.select, events.sql
+}
+
+public op record(id: string, day: string, bytes: int) -> { ok: bool } {
+  route: "POST /v1/record"
+  effects: events.append
+}
+```
+
+Every record type of the module becomes a table, and the adapter carries the
+same map: a body cannot write a shape the compiler never saw. `orderBy` names
+the sorting key; `ttl: <duration>` expires rows by the record's `datetime`
+column, and a record without one is reported as a problem instead of guessed.
+
+- `io.olapAppend(entity, record)` is `INSERT … FORMAT JSONEachRow`. Append is
+  at-least-once: a retried job writes the row twice, so a metric that must not
+  inflate asks for `distinct`.
+- `io.olapSelect(entity, { where, groupBy, metrics, order, limit })` is the
+  typed path: `sum`/`count`/`avg`/`min`/`max` (with `distinct`), the same
+  `where` operators as `find`, values sent as `{pN:Type}` parameters and never
+  interpolated. An unknown entity, column, metric or operator is `Invalid`
+  (400) before a byte leaves the service.
+- `io.olapSql(sql, params)` is one read-only `SELECT`/`WITH`, values through
+  `params`, with `readonly=1`, `max_execution_time=30` and `max_result_rows`
+  (10k, `OLAP_MAX_RESULT_ROWS`); a write keyword is refused before the network.
+  This is the escape hatch, and `W054` says so: the query is ClickHouse's, not
+  the model's.
+
+`arcod build` and `arcod migrate` write `.arcod/build/clickhouse/schema.sql`
+(`CREATE TABLE IF NOT EXISTS`, `ENGINE = MergeTree`, `ORDER BY` from the use
+clause). `arcod migrate --olap-url http://host:8123` (or `CLICKHOUSE_URL`)
+creates the tables, one statement per request; `CLICKHOUSE_USER` and
+`CLICKHOUSE_PASSWORD` travel as `x-clickhouse-user`/`x-clickhouse-key`.
+Compose runs clickhouse with a `/ping` healthcheck and hands the service the
+same user; `/healthz` answers `olap: up|down` (503 when down). The column
+types: int → `Int64`, number/float → `Float64`, decimal → `Decimal(30,6)`,
+datetime → `DateTime64(3)`, bool → `UInt8`, string/uuid/json → `String`,
+list → `Array(T)`, optional → `Nullable(T)`; a named type expands to its base,
+and a type outside this table is reported instead of becoming `String`.
+
 ### One model, different providers
 
 `kv` and `sql` are the same record by id over different providers. Operation
