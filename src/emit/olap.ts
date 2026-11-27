@@ -2,7 +2,7 @@
 // shape: a body appends a record of a declared type and never writes DDL, so a
 // column that does not exist in the model cannot appear in the store. These
 // builders are pure — the adapter (B95.3) sends their output over HTTP 8123.
-import type { TypeExpr } from '../ast.ts';
+import type { TypeDecl, TypeExpr } from '../ast.ts';
 
 export interface OlapColumn {
   name: string;
@@ -41,6 +41,15 @@ export function clickhouseType(type: TypeExpr, named: Map<string, TypeExpr>): st
   }
   if (type.kind !== 'named') return null;
   const base = type.name;
+  // optional<T> parses as a named type with the inner type as its argument,
+  // not as the `optional` kind: without this branch the field was reported as
+  // having no ClickHouse type and the record lost its nullable column (B95.3).
+  if (base === 'optional') {
+    const arg = type.args.find((item) => item.isType);
+    if (!arg) return null;
+    const inner = clickhouseType(arg.value as TypeExpr, named);
+    return inner === null ? null : 'Nullable(' + inner + ')';
+  }
   if (base === 'list') {
     const arg = type.args.find((item) => item.isType);
     if (!arg) return null;
@@ -203,4 +212,41 @@ export function readOnlySql(sql: string): boolean {
   const trimmed = sql.trim().replace(/;+$/, '');
   if (trimmed.includes(';')) return false;
   return /^(select|with)\b/i.test(trimmed);
+}
+
+// B95.3: the tables a service with the olap capability carries. Every record
+// type of the module is a candidate table — the adapter keeps the map and
+// refuses an entity it does not find, so a body cannot write into a shape the
+// compiler never saw. orderBy and ttl come from the capability clause: the key
+// is shared by the tables (a column name that one record lacks is reported,
+// not silently dropped), and the TTL column is the record's datetime field.
+export function olapTablesFromTypes(
+  types: TypeDecl[],
+  options: { orderBy?: string[]; ttl?: boolean } = {},
+): { tables: OlapTable[]; problems: string[] } {
+  const named = new Map(types.map((decl) => [decl.name, decl.type]));
+  const tables: OlapTable[] = [];
+  const problems: string[] = [];
+  for (const decl of types) {
+    if (decl.type.kind !== 'record') continue;
+    const { columns, problems: columnProblems } = olapColumns(decl.type.fields, named);
+    for (const problem of columnProblems) problems.push(decl.name + ': ' + problem);
+    if (columns.length === 0) continue;
+    const orderBy: string[] = [];
+    for (const name of options.orderBy ?? []) {
+      if (!columns.some((column) => column.name === name)) {
+        problems.push(decl.name + ': orderBy names ' + name + ', which the record does not have');
+        continue;
+      }
+      orderBy.push(name);
+    }
+    const table: OlapTable = { name: decl.name, columns, orderBy };
+    if (options.ttl) {
+      const dated = columns.find((column) => column.type.startsWith('DateTime64'));
+      if (!dated) problems.push(decl.name + ': ttl needs a datetime column and the record has none');
+      else table.ttl = dated.name;
+    }
+    tables.push(table);
+  }
+  return { tables, problems };
 }
