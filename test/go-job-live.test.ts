@@ -40,11 +40,12 @@ service Orders : http {
       status: 201
     }
 
-    // retry: 0 keeps the dead-letter case fast: one failure is the whole
-    // budget, so the test does not wait out a backoff.
+    // retry: 1 gives the failing message exactly one retry, so the test also
+    // walks the requeue path and the first (250ms) backoff, not just the
+    // dead-letter write.
     job fulfil(id: OrderId) {
       on: events.orders
-      retry: 0
+      retry: 1
     }
   }
 }
@@ -297,7 +298,9 @@ test(
       assert.equal(dead.length, 1, 'exactly one dead letter: ' + JSON.stringify(dead));
       const entry = JSON.parse(dead[0]!) as { payload?: { id?: string }; attempts?: number; lastError?: string };
       assert.equal(entry.payload?.id, 'bad');
-      assert.equal(entry.attempts, 1);
+      // One retry means two attempts: the message was requeued once with the
+      // attempt count carried in the envelope, as the Node runtime does.
+      assert.equal(entry.attempts, 2);
       assert.ok((entry.lastError ?? '').length > 0, 'the dead letter names the failure: ' + dead[0]);
       assert.equal((store.lists.get('arcod:q:orders') ?? []).length, 0, 'the failed message left the topic');
     } finally {
