@@ -669,6 +669,16 @@ way also sets `dns.setDefaultResultOrder('ipv4first')`: Docker Desktop answers
 AAAA record while the host listener is IPv4-only. An external service never
 appears in the manifest's `services` and gets no scheduler tasks.
 
+When the other side is not an arcod service, the `endpoint` capability is the
+door: `bind api -> endpoint(url: \"https://api.example.com\")` puts `API_URL`
+into the service, and the body asks for a path -
+`io.call('api', 'POST', '/v1/hook', { label })` - and gets `{ status, body }`
+back, where `body` is the response text and a non-2xx answer is a value, not an
+exception. The binding is the allow-list: the body chooses the path, headers and
+body, never the host, and an absolute URL, a `//host` path or a scheme prefix
+answers `403 Forbidden` before a request leaves the service. A bare `fetch(` in
+a body stays a sandbox violation - the effect is the only way out.
+
 The method decides where a parameter goes: a name that matches a `:path`
 capture fills the path (percent-encoded), `GET`, `HEAD` and `DELETE` put the
 rest in the query string, every other method sends a JSON body with

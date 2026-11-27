@@ -89,6 +89,18 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
     },
     notes: 'messages are {role: user|assistant|system, content}. tools is the allow-list the model may ask for (name, description, JSON-schema parameters); a reply that asks carries toolCalls [{id, name, arguments}] and content is "" when the model sent no prose. embed turns texts into vectors through the same endpoint (LLM_EMBED_MODEL or LLM_MODEL). The adapter owns the wire format; the body never sees a vendor.',
   },
+  // Outbound HTTP to one declared host. The binding names the base URL, the
+  // effect names the path: a body can ask for /v1/send, never for another host,
+  // so an allow-list is the environment, not a string the body carries.
+  endpoint: {
+    effects: {
+      call: 'call(alias: string, method: string, path: string, body: string | null, headers: any) -> { status: int, body: string }',
+    },
+    short: {
+      call: 'call(alias, method, path, body?, headers?) -> {status, body}',
+    },
+    notes: 'Outbound HTTP through the bound endpoint provider. The bind carries the base URL (endpoint(url: "https://api.example.com")), so the body chooses only the path and headers; a non-2xx answer is a value { status, body }, not an exception. An absolute URL or a //host path is Forbidden before the request leaves.',
+  },
   // Same record contract as kv, different provider: the body cannot tell
   // whether the row lives in Redis or MySQL.
   sql: {

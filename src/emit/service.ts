@@ -7,6 +7,7 @@ import { PG_STORE_SOURCE, PG_SQL_STORE_SOURCE } from './pg-store.ts';
 import { IDENTITY_SOURCE } from './identity.ts';
 import { BLOB_SOURCE } from './blob.ts';
 import { LLM_SOURCE } from './llm.ts';
+import { endpointSource } from './endpoint.ts';
 import { STREAM_SOURCE } from './stream.ts';
 import { TX_GATE_SOURCE } from './tx-gate.ts';
 import { QUEUE_SOURCE, QUEUE_SHUTDOWN, OUTBOX_SHUTDOWN, OUTBOX_SOURCE, outboxSource, consumerSource } from './queue.ts';
@@ -82,7 +83,7 @@ function pluginCapabilityName(capability: string): string {
 // build refuses it instead of emitting an object with a duplicate key.
 const RESERVED_IO_METHODS = new Set([
   'load', 'save', 'get', 'set', 'scan', 'del', 'seen', 'takeIf', 'new', 'actor', 'users', 'chat', 'model',
-  'updateWhere',
+  'updateWhere', 'call',
   'publish', 'queuePublish', 'queuePublishLater', 'queueDead', 'queueDeadDrop', 'remote', 'blobPut', 'blobGet', 'blobDelete', 'hash', 'verify', 'count', 'aggregate', 'embed',
 ]);
 
@@ -3056,11 +3057,17 @@ function implHandlers(
   const hasIdentity = svc.uses.some((use) => use.capability === 'identity' || use.capability.endsWith('.identity'));
   const hasBlob = svc.uses.some((use) => use.capability === 'blob' || use.capability.endsWith('.blob'));
   const hasLlm = svc.uses.some((use) => use.capability === 'llm' || use.capability.endsWith('.llm'));
+  const endpointUses = svc.uses.filter((use) => use.capability === 'endpoint' || use.capability.endsWith('.endpoint'));
   const usesQueue = hasQueue(svc);
 
   if (hasIdentity) parts.push(IDENTITY_SOURCE);
   if (hasBlob) parts.push(BLOB_SOURCE);
   if (hasLlm) parts.push(LLM_SOURCE);
+  // One base URL per alias: the binding names the host, the body only picks the
+  // path, so a body cannot reach a host the environment never declared.
+  if (endpointUses.length > 0) {
+    parts.push(endpointSource(Object.fromEntries(endpointUses.map((use) => [use.alias, endpointEnv(use.alias)]))));
+  }
   if (externals.length > 0) parts.push(remoteSource(externals));
 
   parts.push(
@@ -3134,6 +3141,10 @@ function implHandlers(
       '    },',
       '    async users() { return listUsers(); },',
     );
+  }
+
+  if (endpointUses.length > 0) {
+    parts.push('    async call(alias, method, path, body, headers) { return endpointCall(alias, method, path, body, headers); },');
   }
 
   if (hasLlm) {
