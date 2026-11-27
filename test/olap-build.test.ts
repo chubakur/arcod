@@ -39,7 +39,7 @@ const SPEC = [
 
 test('the build writes a ClickHouse schema from the declared records', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'arcod-olap-build-'));
-  await buildExample(parse(SPEC, 'main.arc'), dir, { impl: {} });
+  await buildExample(parse(SPEC, 'main.arc'), dir);
   const sql = await readFile(join(dir, '.arcod', 'build', 'clickhouse', 'schema.sql'), 'utf8');
   assert.match(sql, /CREATE TABLE IF NOT EXISTS "DeliveryEvent" \(/);
   assert.match(sql, /"bytes" Int64/);
@@ -57,6 +57,6 @@ test('a service without the capability writes no ClickHouse schema', async () =>
     .replace('allow events.append', 'allow store.get, store.set')
     .replace('effects: events.append', 'effects: store.get, store.set')
     .replace('bind events -> clickhouse', 'bind store -> redis');
-  await buildExample(parse(spec, 'main.arc'), dir, { impl: {} });
+  await buildExample(parse(spec, 'main.arc'), dir);
   await assert.rejects(() => readFile(join(dir, '.arcod', 'build', 'clickhouse', 'schema.sql'), 'utf8'), /ENOENT/);
 });
