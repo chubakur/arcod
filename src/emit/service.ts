@@ -3138,7 +3138,7 @@ function implHandlers(
 
   if (hasLlm) {
     parts.push(
-      '    async chat(messages, system) { return llmChat(messages, system); },',
+      '    async chat(messages, system, tools) { return llmChat(messages, system, tools); },',
       '    model() { return llmModel(); },',
       '    async embed(texts) { return llmEmbed(texts); },',
     );

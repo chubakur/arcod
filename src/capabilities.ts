@@ -78,16 +78,16 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
   // the same contract, so a body never names a vendor.
   llm: {
     effects: {
-      chat: 'chat(messages: list<{ role: string, content: string }>, system: string | null) -> { content: string, model: string, usage: { prompt: int, completion: int, total: int } }',
+      chat: 'chat(messages: list<{ role: string, content: string }>, system: string | null, tools: list<{ name: string, description: string?, parameters: any }>?) -> { content: string, model: string, usage: { prompt: int, completion: int, total: int }, toolCalls: list<{ id: string, name: string, arguments: any }> }',
       model: 'model() -> string',
       embed: 'embed(texts: list<string>) -> list<list<float>>',
     },
     short: {
-      chat: 'chat(messages, system) -> {content,model,usage}',
+      chat: 'chat(messages, system, tools?) -> {content,model,usage,toolCalls}',
       model: 'model() -> string',
       embed: 'embed(texts) -> list<list<float>>',
     },
-    notes: 'messages are {role: user|assistant|system, content}. embed turns texts into vectors through the same endpoint (LLM_EMBED_MODEL or LLM_MODEL). The adapter owns the wire format; the body never sees a vendor.',
+    notes: 'messages are {role: user|assistant|system, content}. tools is the allow-list the model may ask for (name, description, JSON-schema parameters); a reply that asks carries toolCalls [{id, name, arguments}] and content is "" when the model sent no prose. embed turns texts into vectors through the same endpoint (LLM_EMBED_MODEL or LLM_MODEL). The adapter owns the wire format; the body never sees a vendor.',
   },
   // Same record contract as kv, different provider: the body cannot tell
   // whether the row lives in Redis or MySQL.

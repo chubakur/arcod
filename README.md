@@ -487,7 +487,7 @@ Both providers speak the OpenAI-compatible `/chat/completions`, so the body is
 the same: `io.chat(messages, system)`. It answers
 `{ content, model, usage: { prompt, completion, total } }`; `usage` is what the
 provider reported, and an endpoint that sends none answers zeros, so a budget
-body adds real tokens instead of estimating from string length. Naming a vendor
+body adds real tokens instead of estimating from string length. An agent that must choose an action passes its allow-list as the third argument: `io.chat(messages, system, tools)`, where a tool is `{ name, description, parameters }` (the provider's `{ type: \"function\", function: {...} }` envelope is accepted too). The reply then carries `toolCalls: [{ id, name, arguments }]` next to `content`: `arguments` is the parsed object when the model wrote JSON and the original text when it did not, so a broken argument is a value the body can log or retry instead of a 500. A model that answers with a call only sends no prose, so `content` is `''` there - branch on `toolCalls.length`, not on empty text. Without `tools` the request is the old one byte for byte (no `tools` field) and `toolCalls` is `[]`. Naming a vendor
 in the model is forbidden (`A003`). The same endpoint answers embeddings: `io.embed(texts)` returns one vector
 per input, in request order, using `LLM_EMBED_MODEL` (or `LLM_MODEL`) — so a
 vector store asks for vectors instead of hashing text inside the body. The
