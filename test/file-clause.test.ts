@@ -7,6 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parse, ParseError } from '../src/parser.ts';
 import { emitOpenapi } from '../src/emit/openapi.ts';
+import { formatSource } from '../src/fmt.ts';
 import { startService } from './harness.ts';
 
 const spec = [
@@ -156,4 +157,10 @@ test('the file clause needs a media type and a name', () => {
   assert.throws(() => parse(withoutName, 'main.arc'), (error: unknown) => error instanceof ParseError && /names the download file/.test(error.message));
   const badType = base.map((line) => (line.trim() === 'file: "text/csv", "report.csv"' ? '      file: "csv", "report.csv"' : line)).join('\n');
   assert.throws(() => parse(badType, 'main.arc'), (error: unknown) => error instanceof ParseError && /media type must look like/.test(error.message));
+});
+
+test('fmt prints the file clause back and stays idempotent', () => {
+  const once = formatSource(spec, 'main.arc');
+  assert.match(once, /file: "text\/csv", "report\.csv"/);
+  assert.equal(formatSource(once, 'main.arc'), once);
 });

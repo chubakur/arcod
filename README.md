@@ -920,6 +920,22 @@ environment dev {
 base64 or UTF-8 in between, and the S3 driver signs the same bytes it sends.
 A body that returns bytes (a Buffer or Uint8Array) answers them as the
 response body with `application/octet-stream`, not as JSON of a Buffer.
+An operation that *is* a download says so in the contract, so the client never
+parses a JSON wrapper and never invents the file name:
+
+```arcod
+public op exportCsv(id: uuid) -> bytes {
+  route: "GET /v1/exports/:id"
+  file: "text/csv", "report.csv"
+  errors: NotFound
+}
+```
+
+`file:` takes the media type and the download name; the runtime answers the
+body's bytes (or its string as UTF-8) with that `content-type`, a
+`content-disposition: attachment; filename=...` and the exact byte length, and
+OpenAPI publishes the type with `format: binary`. An operation without the
+clause keeps its JSON/text answer.
 The provider is still chosen in the
 environment: neither Keycloak nor MinIO is named in the model.
 

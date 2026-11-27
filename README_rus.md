@@ -819,6 +819,22 @@ environment dev {
 base64 и UTF-8 посередине, а S3-драйвер подписывает те же байты, что отправляет.
 Тело, вернувшее байты (Buffer или Uint8Array), отдаётся телом ответа с
 `application/octet-stream`, а не JSON-описанием Buffer.
+Операция, которая и есть скачивание, объявляет это в контракте — клиенту не
+приходится разбирать JSON-обёртку и выдумывать имя файла:
+
+```arcod
+public op exportCsv(id: uuid) -> bytes {
+  route: "GET /v1/exports/:id"
+  file: "text/csv", "report.csv"
+  errors: NotFound
+}
+```
+
+`file:` принимает медиатип и имя файла: рантайм отдаёт байты тела (или его
+строку как UTF-8) с этим `content-type`, заголовком
+`content-disposition: attachment; filename=...` и точной длиной, а OpenAPI
+публикует тип со схемой `format: binary`. Операция без клаузы сохраняет
+прежний JSON/text-ответ.
 Провайдер по-прежнему выбирается в окружении: в модели нет ни Keycloak, ни
 MinIO.
 
