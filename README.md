@@ -399,9 +399,10 @@ routes, the input-kind coercion and the success statuses read from the same
 contract IR as Node, `/healthz`, one `ops.go` stub per operation, a `go.mod`
 and a multi-stage `Dockerfile`; the route pattern uses Go 1.22's `{id}` form.
 The kit is deliberately narrow: `store: kv` comes with the generated
-`arcodio` package, and a bound `queue` comes with its publish half; a service
+`arcodio` package, and a bound `queue` comes with both halves; a service
 that uses another store (`sql`), `stream`, `graphql`, `olap`, `mail`, `files`,
-a ui page, roles, a saga, a job or `auth` is refused by name at build time. A Go body at `impl/<op>.go` (or
+a ui page, roles, a saga, a job that drives a saga, or `auth` is refused by
+name at build time. A Go body at `impl/<op>.go` (or
 `impl/<service>/<op>.go` beside other services) is spliced into `ops.go`
 verbatim; an operation without one keeps a 501 stub. Every body has the shape
 `func op<Name>(io *arcodio.IO, in map[string]any) (any, error)`: `in` holds the
@@ -414,9 +415,19 @@ a general redis client. A service that binds a queue also gets
 `arcodio/queue.go`: `io.QueuePublish(topic, message)` appends to
 `arcod:q:<topic>` in the Node runtime's envelope (`{"payload":…,"attempts":0}`),
 so a Go publisher and a Node consumer share one broker — the address comes
-from `QUEUE_REDIS_URL` and falls back to the kv one. The consumer side of a
-queue is a job operation, which this kit refuses, so a queue here is
-publish-only; a service without one carries no queue code and a call says
+from `QUEUE_REDIS_URL` and falls back to the kv one. The consumer side is a
+job operation: a job with `on: events.<topic>` and a body gets a
+`consume<Name>` goroutine started before the http server. It drains
+`arcod:q:<topic>` with `LPOP`, parses the Node envelope
+(`{"payload":…,"attempts":n}`), maps the payload onto the declared
+parameters — one parameter takes the field of that name, or the whole payload
+when the payload has no such key — and runs the body. A failed attempt is
+requeued with the Node backoff (250ms doubling, capped at 30s) and, once
+`retry` is spent, written to `arcod:q:<topic>:dead` with the payload, the
+attempt count and the last error: the same three places the Node runtime
+writes, so either language drains a topic the other filled. An empty topic is
+polled every 100ms rather than blocked on, because one socket serves the whole
+service. A service without a queue carries no queue code and a call says
 `arcodio.ErrNoQueue`. A service without a store gets `IO{}` and a store call
 returns `arcodio.ErrNoStore`. A body cannot add its own `import` line —
 Go imports are per file, and `main.go`'s imports are invisible in `ops.go`.
@@ -431,7 +442,9 @@ signature, a parameter named `io` hides the standard package there.
 Go bodies; `arcod test test/fixtures/go-project1 --url <service>` answers 5/5
 against the running binary, and `test/go-live.test.ts` does exactly that
 with the real toolchain (it compiles the service and points it at a fake
-RESP store, since the VM has no docker). A rule such as `atomic read { get; del }` is not
+RESP store, since the VM has no docker). `test/go-job-live.test.ts` pushes
+the Node envelope at a generated job service and requires two things: the
+body's kv write, and the failing message in `<topic>:dead`. A rule such as `atomic read { get; del }` is not
 carried by the emitter for Go — no generated body exists to obey it — so the
 author's body keeps that promise and `arcod test` is what checks it.
 `language: python` passes

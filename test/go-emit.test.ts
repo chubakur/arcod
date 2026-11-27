@@ -135,7 +135,7 @@ test('every feature the go kit cannot carry is named', () => {
   assert.deepEqual(named({ contract: [{ kind: 'op', auth: true, loc }] }), ['auth']);
 });
 
-// The queue is carried as publish-only (B107.5b): the message has to land in
+// The queue's publish half (B107.5b): the message has to land in
 // the format the Node consumer already reads — RPUSH on 'arcod:q:<topic>' with
 // {"payload":…,"attempts":0} — because the two languages may share one broker.
 test('a queue-bound go service publishes in the node wire format', async () => {
