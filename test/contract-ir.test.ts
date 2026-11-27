@@ -123,7 +123,10 @@ test('the runtime and OpenAPI answer a DELETE with the same status', async () =>
     const mod = parse(DELETE_SPEC, 'del.arc');
     const result = await buildExample(mod, dir, { port: 8080 });
     const emitted = await readFile(join(result.dir, 'service', 'index.mjs'), 'utf8');
-    assert.match(emitted, /callImpl\(req, res, params, implRemove, \['id'\], 201, 'remove'\)/);
+    // The success answer travels as the outcome list the body may choose from
+    // (B94), and a delete still defaults to 201 — the runtime and the document
+    // read the same IR.
+    assert.match(emitted, /callImpl\(req, res, params, implRemove, \['id'\], \[\{"name":null,"code":201\}\], 'remove'\)/);
     const openapi = emitOpenapi(mod) as { paths: Record<string, { delete: { responses: Record<string, unknown> } }> };
     assert.deepEqual(Object.keys(openapi.paths['/v1/items/{id}'].delete.responses), ['201']);
   } finally {
