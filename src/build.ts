@@ -3,7 +3,7 @@ import { dirname, join, relative, sep } from 'node:path';
 import type { EnvironmentNode, ModuleNode } from './ast.ts';
 import { emitService, maxBodyBytes, pickService } from './emit/service.ts';
 import { emitWeb, ssrFirstScreenOp } from './emit/web.ts';
-import { goDockerfile, goMain, goMod, goOps, goUnsupported } from './emit/go.ts';
+import { goDockerfile, goMain, goMod, goOps, goPatternCollisions, goUnsupported } from './emit/go.ts';
 import { composeYaml, localEnvironment, localImage, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
 import { buildPrompts, promptManifest, promptPath } from './prompts.ts';
 import { deployManifest, deployProvider, literalMap } from './deploy.ts';
@@ -509,6 +509,13 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
         throw new BuildError(
           'service ' + svc.name + ' is language: go, but the Go kit does not carry ' + missing.join(', ') +
           ' yet; keep the service in node or wait for the next Go slice',
+        );
+      }
+      const collisions = goPatternCollisions(mod, svc);
+      if (collisions.length > 0) {
+        throw new BuildError(
+          'Go ServeMux would panic on ' + collisions.join('; ') +
+          ' — the capture names differ but the patterns are the same; rename one route',
         );
       }
       const { bodies } = await readGoBodies(implDir, [svc.name], ownServices.length === 1);

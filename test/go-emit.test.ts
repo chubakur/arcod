@@ -142,6 +142,20 @@ test('a go body is spliced into ops.go, and the op without one stays a stub', as
   }
 });
 
+test('routes that differ only by capture name are refused, not left for ServeMux to panic on', async () => {
+  const source = 'module clash @0.1.0 {}\n\ntype ItemId = uuid\n\nservice Catalog : http {\n  language: go\n\n  contract {\n    public op read(id: ItemId) -> string {\n      route: "GET /v1/items/:id"\n    }\n\n    public op show(key: ItemId) -> string {\n      route: "GET /v1/items/:key"\n    }\n  }\n}\n\nenvironment dev {}\n';
+  const dir = await mkdtemp(join(tmpdir(), 'arcod-go-'));
+  try {
+    const mod = parse(source, 'main.arc');
+    await assert.rejects(
+      buildExample(mod, dir, { reference: true, implDir: null }),
+      /Go ServeMux would panic on GET \/v1\/items\/\{id\} is read and show/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('a go body that repeats the package clause is refused with its file', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'arcod-go-'));
   try {

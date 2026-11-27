@@ -48,6 +48,26 @@ function handlerName(name: string): string {
   return 'handle' + pascal(name);
 }
 
+// Two routes that differ only in the name of their capture — '/v1/items/:id'
+// and '/v1/items/:key' — are distinct to check but one Go 1.22 pattern, and
+// ServeMux panics on the duplicate at startup. The build names them instead.
+export function goPatternCollisions(mod: ModuleNode, svc: ServiceNode): string[] {
+  const seen = new Map<string, { display: string; names: string[] }>();
+  for (const op of contractOps(mod, svc.contract)) {
+    if (!op.route) continue;
+    const display = op.route.method + ' ' + goPattern(op.route.path);
+    // The wildcard name does not affect matching, so '{id}' and '{key}' are the
+    // same pattern to ServeMux even though the text differs.
+    const shape = display.replace(/\{[^}]*\}/g, '{}');
+    const entry = seen.get(shape) ?? { display, names: [] };
+    entry.names.push(op.name);
+    seen.set(shape, entry);
+  }
+  return [...seen.values()]
+    .filter((entry) => entry.names.length > 1)
+    .map((entry) => entry.display + ' is ' + entry.names.join(' and '));
+}
+
 // ':id' is Go 1.22's '{id}'; a literal segment keeps its text.
 function goPattern(path: string): string {
   return path
