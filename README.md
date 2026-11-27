@@ -1105,8 +1105,11 @@ Semantics, enforced by the generated runtime rather than written in bodies:
   `io.queueDead` is the same method under the spelling the runtime grew first;
   `io.drop(topic, payload)` (`io.queueDeadDrop` likewise) takes the first
   entry carrying that payload out of the list (`false` when there is
-  none), so a replayed message does not sit there forever; a running job can be
-  cancelled from an operation: the publisher stamps an id on every message
+  none), so a replayed message does not sit there forever; the cancel effect is
+  named `cancel` (`effects: events.cancel`), while `cancelJob` is the method the
+  body calls, and `io.messageId` / `io.signal` exist only inside a job — an
+  operation sees `null` for each; a running job can be cancelled from an
+  operation: the publisher stamps an id on every message
   (`io.messageId` inside the body), `io.cancelJob(topic, id)` raises the flag,
   the consumer polls it while the body runs and aborts `io.signal`, which a body
   hands to `io.remote(..., { signal: io.signal })`; a cancelled message is acked
