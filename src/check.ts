@@ -589,22 +589,10 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
             spec.noRuntime + (usable.length > 0 ? '; bind one of: ' + usable.join(', ') : '')));
           continue;
         }
-        // A094 -- the runtime has one store. A kv alias next to a sql store
-        // lives in that store's arcod_kv table, so a redis binding for it
-        // starts a container and exports REDIS_URL that no emitted line reads:
-        // the cache stays empty while the table fills. Rejecting is honest
-        // until the runtime can run a second store.
-        const kvAlias = capability === 'kv';
-        const sqlUser = kvAlias
-          ? mod.services.find((item) => !item.external && storageKind(item) === 'sql'
-            && item.uses.some((use) => use.alias === bind.alias && (use.capability === 'kv' || use.capability.endsWith('.kv'))))
-          : undefined;
-        if (kvAlias && bind.provider === 'redis' && sqlUser) {
-          diags.push(diag('A094', 'error', mod.file, bind.loc, subject,
-            `alias ${bind.alias} is kv in ${sqlUser.name}, but that service stores in sql: the alias would live in the sql store's arcod_kv table, not in ${bind.provider}`,
-            `drop this bind (kv still works, through the sql store), or move ${sqlUser.name} to store: kv`));
-          continue;
-        }
+        // B117: a kv alias bound to redis next to a sql store used to be
+        // A094 ("the runtime has one store"); the emitter now splits the two
+        // (entity work on sql, the message/TTL pair on redis), so the bind is
+        // the way to ask for a TTL cache and no longer an error.
         if (!providerImplements(spec, capability)) {
           const alternatives = registry.forCapability(capability);
           diags.push(diag('A024', 'error', mod.file, bind.loc, subject,
@@ -875,10 +863,11 @@ export function check(mod: ModuleNode, options: CheckOptions = {}): Diagnostic[]
 
     // A002 — capability is not bound. The exception is a kv alias inside a
     // service that stores in sql: that store serves the alias through its
-    // arcod_kv table, and A094 refuses the only kv provider (redis) there, so
-    // demanding a bind left the alias unexpressible — the author either bound
-    // redis and was told to drop it, or bound memory and silently lost the
-    // shared store (013-billing-dunning hit exactly this).
+    // arcod_kv table, and demanding a bind for it would force the author to
+    // choose between a redis container nobody read (before B117) and a memory
+    // driver that quietly lost the shared store (013-billing-dunning hit
+    // exactly this). A bind is optional; with redis the alias gets its own
+    // TTL store, without one the sql table carries it.
     const servedByStore = (use: { capability: string }) =>
       use.capability === 'kv' && storageKind(svc) === 'sql';
     for (const use of svc.uses) {

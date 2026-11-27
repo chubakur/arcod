@@ -1484,6 +1484,27 @@ The `io` adapter is what changes: the MySQL client parameterises queries so a
 value from a request never concatenates into SQL; `take` runs as a transaction
 with `SELECT … FOR UPDATE`.
 
+A service can keep both stores at once: a sql store for entities and a kv alias
+on redis for a TTL cache, a dedupe window or a rate limit. List the sql store
+first (that is the service's `store`), then the kv alias, and bind the alias to
+redis:
+
+```arcod
+uses store: sql(ttl: 31536000s)   // entities, no row expiry
+uses cache: kv(ttl: 900s)         // dedupe window and response cache
+
+environment dev {
+  bind store -> mysql
+  bind cache -> redis
+}
+```
+
+The emitter then runs two adapters: `io.insert/fetch/update/…` use the sql
+tables, while `io.get/set/load/save/del/has/seen/takeIf/scan` use the alias, so
+`arcod_kv` in the database stays empty and the alias's `ttl` (900 s above) is
+the one the cache honours. Without a redis bind the alias keeps its old
+behaviour: the sql store's `arcod_kv` table serves it, with the store's ttl.
+
 Live examples: `examples/project1` (Redis) and `examples/project1-mysql`
 (MySQL) — the same spec, two lines differ.
 
@@ -2031,10 +2052,11 @@ Errors:
   `impl/api/totals.mjs`): bodies are keyed by operation name, so one of the two
   would never run. The error names the operation and both files, and the build
   refuses the pair before emitting anything.
-- `A094` a `kv` alias is bound to `redis` in a service that stores in sql:
-  the runtime has one store, so the alias lives in the sql store's `arcod_kv`
-  table. The bind started a container and exported `REDIS_URL` that no
-  emitted line read — the cache stayed empty while the table filled.
+- `A094` is retired: a `kv` alias bound to `redis` next to a sql store used
+  to be an error because the runtime had one store. The emitter now runs both
+  (entities on sql, the message/TTL pair on the alias; see "One model,
+  different providers"), so the bind is the documented way to ask for a TTL
+  cache and the code is no longer raised.
 - `A089` a type or enum is declared with a builtin name (`type int = string`):
   OpenAPI listed the declaration under components while every use site resolved
   the builtin, so one module stated two contracts at once and the runtime, the

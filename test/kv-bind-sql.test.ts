@@ -1,8 +1,6 @@
-// A service has one store at runtime. When it stores in sql, every kv alias is
-// served by that store's arcod_kv table; a redis binding for such an alias
-// started a container and exported REDIS_URL that no emitted line read, so the
-// cache stayed empty while the table filled. check rejected nothing and the
-// user read the provider table as support.
+// B117: a sql-storing service may keep a kv alias on redis (the emitter splits
+// the stores) or let the sql table serve it when unbound. The check must accept
+// both; only the kv-store service needs its own binding to exist.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { check } from '../src/check.ts';
@@ -50,14 +48,14 @@ function spec(store: string, cache: string, bind: string): string {
   ].join('\n');
 }
 
-test('a kv alias next to a sql store refuses a redis bind with the alias name', () => {
+test('a kv alias next to a sql store accepts a redis bind', () => {
   const diags = check(parse(spec('sql', 'kv', 'redis'), 'main.arc'), {});
-  const found = diags.filter((item) => item.code === 'A094');
-  assert.equal(found.length, 1, diags.map((item) => item.code + ':' + item.message).join(' | '));
-  assert.equal(found[0].severity, 'error');
-  assert.match(found[0].message, /alias cache is kv in Items/);
-  assert.match(found[0].message, /arcod_kv/);
-  assert.match(found[0].hint ?? '', /store: kv/);
+  assert.deepEqual(diags.filter((item) => item.code === 'A094'), [], 'A094 is retired by B117');
+  assert.deepEqual(
+    diags.filter((item) => item.severity === 'error'),
+    [],
+    diags.map((item) => item.code + ':' + item.message).join(' | '),
+  );
 });
 
 test('a kv-store service keeps its redis binding', () => {
@@ -65,8 +63,7 @@ test('a kv-store service keeps its redis binding', () => {
   assert.deepEqual(diags.filter((item) => item.code === 'A094'), [], 'the kv store is the redis adapter');
 });
 
-// A094 sends the author of a sql-storing service away from a redis bind for a
-// kv alias, so the alias must be expressible without one: the store serves it.
+// Unbound, the sql store serves the alias through its arcod_kv table.
 test('a kv alias next to a sql store needs no bind', () => {
   const source = spec('sql', 'kv', 'memory').replace('  bind cache -> memory\n', '');
   assert.equal(source.includes('bind cache'), false, 'the bind is gone');
@@ -88,5 +85,5 @@ test('a kv-store service still needs its bind', () => {
 
 test('a memory-backed kv alias next to sql is legal', () => {
   const diags = check(parse(spec('sql', 'kv', 'memory'), 'main.arc'), {});
-  assert.deepEqual(diags.filter((item) => item.code === 'A094'), [], 'no container is promised, so nothing is dead');
+  assert.deepEqual(diags.filter((item) => item.code === 'A094'), [], 'the store serves the alias');
 });

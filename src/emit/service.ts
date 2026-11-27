@@ -1,4 +1,4 @@
-import type { ModuleNode, OpNode, ServiceNode, TypeDecl, TypeExpr } from '../ast.ts';
+import type { CapUse, ModuleNode, OpNode, ServiceNode, TypeDecl, TypeExpr } from '../ast.ts';
 import { dialectNamed } from '../dialects.ts';
 import { asOnce } from '../check.ts';
 import { HANDLER_TEMPLATES, templateFor } from '../templates.ts';
@@ -11,6 +11,7 @@ import { STREAM_SOURCE } from './stream.ts';
 import { TX_GATE_SOURCE } from './tx-gate.ts';
 import { QUEUE_SOURCE, QUEUE_SHUTDOWN, OUTBOX_SHUTDOWN, OUTBOX_SOURCE, outboxSource, consumerSource } from './queue.ts';
 import { storageKind, storageUse } from '../capabilities.ts';
+import { localEnvironment } from './compose.ts';
 import { endpointEnv } from '../providers.ts';
 import { baseType, entitiesFromBodies, fieldDefault, migrationPlan, recordColumns, type Column, type DefaultValue } from '../migrate.ts';
 import { boundsOf, constraintTable, lengthBoundsOf } from '../constraints.ts';
@@ -2029,9 +2030,18 @@ function ipv4FirstPreamble(mod: ModuleNode): string {
 
 // The model names a capability; the generated adapter is whatever the
 // environment can provision. kv gets a Redis client, sql a MySQL client.
-function serviceTemplate(svc: ServiceNode, dialect: 'mysql' | 'postgres' = 'mysql'): string {
+// kvAlias means a kv alias is bound to redis next to the sql store (B117): the
+// sql client keeps entities, and the same alias answers the message/TTL pair.
+function serviceTemplate(svc: ServiceNode, dialect: 'mysql' | 'postgres' = 'mysql', kvAlias = false): string {
   if (storageKind(svc) === 'sql') {
-    return streamSource(dropRedis(SERVICE_TEMPLATE), svc)
+    const sqlLine = (name: string) => [
+      'const ' + name + " = spannedStore(process.env.SQL_DRIVER === 'memory'",
+      '  ? new MemoryStore()',
+      dialect === 'postgres'
+        ? "  : new PgStore(assertDialectUrl(process.env.DATABASE_URL || 'postgres://arcod:arcod@postgres:5432/arcod', 'postgres')), 'sql');"
+        : "  : new SqlStore(assertDialectUrl(process.env.DATABASE_URL || 'mysql://arcod:arcod@mysql:3306/arcod', 'mysql')), 'sql');",
+    ];
+    return streamSource(kvAlias ? SERVICE_TEMPLATE : dropRedis(SERVICE_TEMPLATE), svc)
       .replace('__SQL_STORE__', () => (dialect === 'postgres' ? postgresSources() : SQL_STORE_SOURCE))
       .replace('__STORE_SELECT__', () => [
         // A build speaks one dialect: a mismatched DATABASE_URL is a config
@@ -2043,11 +2053,28 @@ function serviceTemplate(svc: ServiceNode, dialect: 'mysql' | 'postgres' = 'mysq
         '  return url;',
         '}',
         '',
-        "const store = spannedStore(process.env.SQL_DRIVER === 'memory'",
-        '  ? new MemoryStore()',
-        dialect === 'postgres'
-          ? "  : new PgStore(assertDialectUrl(process.env.DATABASE_URL || 'postgres://arcod:arcod@postgres:5432/arcod', 'postgres')), 'sql');"
-          : "  : new SqlStore(assertDialectUrl(process.env.DATABASE_URL || 'mysql://arcod:arcod@mysql:3306/arcod', 'mysql')), 'sql');",
+        ...(kvAlias
+          ? [
+            ...sqlLine('entityStore'),
+            "const kvStore = spannedStore(process.env.KV_DRIVER === 'memory'",
+            '  ? new MemoryStore()',
+            "  : new RedisStore(process.env.KV_HOST || 'kv', Number(process.env.KV_PORT || 6379)), 'kv');",
+            // Entity work stays on the sql store; the message/TTL pair
+            // ('msg:', 'gone:') goes to the kv alias. The body and the
+            // generated handlers call one store, so the split is a proxy.
+            'function kvOver(store, kvStore) {',
+            "  const kvOnly = new Set(['get', 'set', 'del', 'exists', 'seen', 'scan', 'take', 'takeIf', 'markGone']);",
+            '  return new Proxy(store, {',
+            '    get(target, prop, receiver) {',
+            '      const source = kvOnly.has(String(prop)) ? kvStore : target;',
+            '      const value = Reflect.get(source, prop, receiver);',
+            '      return typeof value === \'function\' ? value.bind(source) : value;',
+            '    },',
+            '  });',
+            '}',
+            'const store = kvOver(entityStore, kvStore);',
+          ]
+          : sqlLine('store')),
       ].join('\n'));
   }
   return streamSource(SERVICE_TEMPLATE, svc)
@@ -2263,7 +2290,10 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
     throw new Error('emitter v0 has templates only for ' + Object.keys(HANDLER_TEMPLATES).join(', ') + '; got: ' + opNames.join(', '));
   }
 
-  const ttlMs = storageTtlMs(svc);
+  // A split store (sql + redis kv alias) writes the message/TTL pair to the
+  // alias, so its ttl — not the sql store's — is the one the cache honours.
+  const kvAlias = redisKvAlias(mod, svc);
+  const ttlMs = kvAlias ? useTtlMs(kvAlias) : storageTtlMs(svc);
   // The request-size ceiling comes from the operation that accepts a body:
   // create in the message examples, upload in the file service.
   const bodyOp = svc.contract.find((op) => op.name === 'create')
@@ -2322,7 +2352,7 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
 
   const externals = mod.services.filter((item) => item.external);
   const plugins = pluginBindings(mod, options.registry);
-  const template = withHandlers(serviceTemplate(svc, options.dialect), reference, svc, options.impl, externals, mod, plugins, options.implLib)
+  const template = withHandlers(serviceTemplate(svc, options.dialect, Boolean(kvAlias)), reference, svc, options.impl, externals, mod, plugins, options.implLib)
     .replace(CRYPTO_IMPORT, () => cryptoImportFor(svc, reference || Boolean(options.impl), options.dialect))
     .replace('const CONFIG = __CONFIG__;', () => ipv4FirstPreamble(mod) + 'const CONFIG = __CONFIG__;')
     .replace('__QUEUE_SOURCE__\n', () => queueSourceFor(svc, options.impl) + (outboxActive(svc) && options.impl ? outboxSource(options.dialect) + '\n' : ''))
@@ -3680,13 +3710,30 @@ export function routeOf(op: OpNode): string | null {
   return clause && clause.kind === 'route' ? clause.value : null;
 }
 
-function storageTtlMs(svc: ServiceNode): number {
-  const kv = storageUse(svc);
-  const ttl = kv?.params.ttl;
+// B117: a kv alias bound to redis in a sql-storing service is a second store.
+// The local environment (the one compose and `arcod run` use) decides, the
+// same rule resolveDialect follows; a build for another environment must add
+// its own redis bind to get the split.
+function redisKvAlias(mod: ModuleNode, svc: ServiceNode): CapUse | null {
+  if (storageKind(svc) !== 'sql') return null;
+  const binds = localEnvironment(mod)?.binds ?? [];
+  for (const use of svc.uses) {
+    if (!(use.capability === 'kv' || use.capability.endsWith('.kv'))) continue;
+    if (binds.some((bind) => bind.alias === use.alias && bind.provider === 'redis')) return use;
+  }
+  return null;
+}
+
+function useTtlMs(use: CapUse | null): number {
+  const ttl = use?.params.ttl;
   if (!ttl) return 999000;
   if (ttl.kind === 'duration') return durationMs(ttl.value, ttl.unit);
   if (ttl.kind === 'literal' && typeof ttl.value === 'number') return ttl.value * 1000;
   return 999000;
+}
+
+function storageTtlMs(svc: ServiceNode): number {
+  return useTtlMs(storageUse(svc));
 }
 
 export function durationMs(value: number, unit: string): number {
