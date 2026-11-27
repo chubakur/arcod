@@ -62,6 +62,9 @@ export interface GoJob {
   topic: string;
   params: string[];
   retry: number;
+  // A job that declares `-> Type` promises a result; a bare job's nil is
+  // success (B114), exactly as in the Node runtime.
+  declaresResult: boolean;
 }
 
 export function goJobs(svc: ServiceNode): GoJob[] {
@@ -78,6 +81,7 @@ export function goJobs(svc: ServiceNode): GoJob[] {
       topic: consume.source.split('.').slice(1).join('.'),
       params: op.params.map((param) => param.name),
       retry: retry && retry.kind === 'retry' ? retry.value : 3,
+      declaresResult: op.returns !== null,
     });
   }
   return jobs;
@@ -279,10 +283,13 @@ export function goMain(mod: ModuleNode, svc: ServiceNode): string {
     lines.push('\t\t\t}');
     lines.push('\t\t\tcontinue');
     lines.push('\t\t}');
-    lines.push('\t\tout, err := op' + name + '(arc, jobInput(' + paramsLiteral(job.params) + ', envelope.Payload))');
-    if (job.params.length > 0) {
-      // A job with input that returns nothing did nothing: the body fell
-      // through. Acking it would lose the work, so it counts as a failure.
+    // A bare job has no result to inspect, and Go refuses an unused variable:
+    // bind the first value to _ unless the guard below reads it.
+    lines.push('\t\t' + (job.declaresResult ? 'out, err :=' : '_, err =') + ' op' + name + '(arc, jobInput(' + paramsLiteral(job.params) + ', envelope.Payload))');
+    if (job.declaresResult) {
+      // A job that declares a result promises one: nil means the body fell
+      // through. A bare job has no result to promise, so nil is success and
+      // its effects must not repeat on retry (B114).
       lines.push('\t\tif err == nil && out == nil {');
       lines.push('\t\t\terr = errors.New("consumer returned no result for its input")');
       lines.push('\t\t}');

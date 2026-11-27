@@ -45,7 +45,7 @@ test('a queue-backed job is carried, not refused', () => {
   const svc = mod.services[0]!;
   assert.deepEqual(goUnsupported(mod, svc), []);
   assert.equal(goQueueBound(svc), true);
-  assert.deepEqual(goJobs(svc), [{ name: 'fulfil', topic: 'orders', params: ['id'], retry: 2 }]);
+  assert.deepEqual(goJobs(svc), [{ name: 'fulfil', topic: 'orders', params: ['id'], retry: 2, declaresResult: false }]);
 });
 
 test('a job that drives a saga is still refused by name', () => {
@@ -81,10 +81,18 @@ test('the queue file is emitted for a job-only service, and the loop starts with
   // The job input is mapped the way the Node runtime maps it: one parameter
   // takes the field of that name, or the payload when it has no such key.
   assert.match(main, /jobInput\(\[\]string\{"id"\}, envelope\.Payload\)/);
-  assert.match(main, /"consumer returned no result for its input"/);
+  assert.doesNotMatch(main, /consumer returned no result for its input/, 'a bare job has no result to promise');
   // A time import the loop uses; without it the generated service would not
   // compile, and an unused import would not compile either.
   assert.match(main, /\t"time"\n/);
+});
+
+test('a job that declares a result keeps the no-result guard', () => {
+  const declared = withJob.replace('    job fulfil(id: OrderId) {', '    job fulfil(id: OrderId) -> bool {');
+  const mod = parse(module(declared), 'main.arc');
+  const svc = mod.services[0]!;
+  assert.equal(goJobs(svc)[0]!.declaresResult, true);
+  assert.match(goMain(mod, svc), /"consumer returned no result for its input"/);
 });
 
 test('a job body is spliced into ops.go under a job comment', async () => {

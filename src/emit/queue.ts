@@ -315,7 +315,7 @@ const queueDriver = QUEUE_REDIS_URL ? createRedisQueueDriver(QUEUE_REDIS_URL) : 
 // handler names refer to the bodies emitted next to the http handlers; they
 // are module-scope functions, so the table binds them directly (globalThis
 // does not see module declarations).
-export function consumerSource(consumers: Array<{ topic: string; handler: string; params: string[]; retry: number }>): string {
+export function consumerSource(consumers: Array<{ topic: string; handler: string; params: string[]; retry: number; declaresResult?: boolean }>): string {
   if (consumers.length === 0) {
     // No queue-backed jobs, but a service may still use queue for publishing
     // (the outbox). Emit the lifecycle scaffolding so startConsumers and the
@@ -333,6 +333,7 @@ function startConsumers() {}
       '    fn: ' + item.handler + ',',
       '    params: ' + JSON.stringify(item.params) + ',',
       '    retry: ' + item.retry + ',',
+      '    declaresResult: ' + (item.declaresResult ? 'true' : 'false') + ',',
       '  }',
     ].join('\n'))
     .join(',\n');
@@ -420,10 +421,12 @@ async function runConsumer(spec) {
     try {
       const out = await spec.fn(consumerInput(spec, envelope.payload), makeIo({ headers: {} }));
       if (out && out.error) throw new Error('consumer returned error: ' + out.error);
-      // A job with input that returns nothing did nothing: io.fetch returned
-      // null, the body fell through, and the message would be acked with the
-      // work lost. Treat it as a failed attempt so retry/DLQ sees it.
-      if (spec.params.length > 0 && (out === null || out === undefined)) {
+      // A job that declares a result type promises one: returning nothing
+      // means the body fell through (io.fetch returned null) and the message
+      // would be acked with the work lost, so retry/DLQ must see it. A bare
+      // job has no result to promise: finishing is the success signal, and a
+      // side effect followed by a bare return must not repeat on retry (B114).
+      if (spec.declaresResult && (out === null || out === undefined)) {
         throw new Error('consumer returned no result for its input');
       }
     } catch (error) {

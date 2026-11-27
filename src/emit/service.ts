@@ -2242,6 +2242,7 @@ function queueSourceFor(svc: ServiceNode, impl?: Record<string, string>): string
           : 'impl' + op.name.charAt(0).toUpperCase() + op.name.slice(1),
         params: op.params.map((param) => param.name),
         retry: retry && retry.kind === 'retry' ? retry.value : 3,
+        declaresResult: op.returns !== null,
       }];
     });
   return sagaSource(svc, impl) + QUEUE_SOURCE + '\n' + consumerSource(consumers);

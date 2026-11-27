@@ -84,11 +84,12 @@ test('two parameters still spread the payload by name', () => {
   assert.deepEqual(input({ label: 'x' }), { label: 'x', count: null });
 });
 
-// The consumer loop acks a message when the body returns. A body that
-// looked up an id, got null and fell through used to ack: the work vanished
-// while the report stayed queued forever.
-function consumerRun(params: string[], retry: number, fn: (input: unknown) => Promise<unknown>) {
-  const src = consumerSource([{ topic: 'jobs', handler: 'process', params, retry }]);
+// The consumer loop acks a message when the body returns. A job that declares
+// `-> Type` promises a result: a body that looked up an id, got null and fell
+// through must retry, not ack. A bare job has no result to promise, so
+// `return;` after its effects is success (B114).
+function consumerRun(params: string[], retry: number, fn: (input: unknown) => Promise<unknown>, declaresResult = false) {
+  const src = consumerSource([{ topic: 'jobs', handler: 'process', params, retry, declaresResult }]);
   const calls: Array<[string, string]> = [];
   let delivered = false;
   const queueDriver = {
@@ -106,7 +107,7 @@ function consumerRun(params: string[], retry: number, fn: (input: unknown) => Pr
     runConsumer: (spec: unknown) => Promise<void>;
     stop: () => void;
   };
-  const run = loaded.runConsumer({ topic: 'jobs', fn, params, retry });
+  const run = loaded.runConsumer({ topic: 'jobs', fn, params, retry, declaresResult });
   return { calls, run, stop: loaded.stop };
 }
 
@@ -134,8 +135,14 @@ test('retry backoff is 250ms doubling to a 30s cap', () => {
   assert.deepEqual([1, 2, 3, 4, 9].map(loaded.retryDelayMs), [250, 500, 1000, 2000, 30000]);
 });
 
-test('a job that returns nothing for its input goes to dead letter', async () => {
-  const job = consumerRun(['reportId'], 0, async () => null);
+test('a bare job that returns nothing is acked, not dead-lettered', async () => {
+  const job = consumerRun(['reportId'], 0, async () => undefined);
+  await settle(job);
+  assert.deepEqual(job.calls, [], 'finishing is the success signal when no result is declared');
+});
+
+test('a job that declares a result and returns nothing goes to dead letter', async () => {
+  const job = consumerRun(['reportId'], 0, async () => null, true);
   await settle(job);
   assert.equal(job.calls.length, 1);
   assert.equal(job.calls[0][0], 'dead');

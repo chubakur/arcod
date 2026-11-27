@@ -1089,9 +1089,12 @@ Semantics, enforced by the generated runtime rather than written in bodies:
   retries instead of blocking forever;
 - the body receives named parameters: one parameter is the value of that field
   (a bare scalar is the value itself), several are the fields by name;
-- a body that returns nothing while the job declares input is a failed attempt
-  too (`consumer returned no result for its input`): a lookup that returned
-  `null` must not ack the message and hide the work;
+- a job that declares a result (`job audit(entry: string) -> Report`)
+  promises one: a body that returns nothing is a failed attempt
+  (`consumer returned no result for its input`), so a lookup that returned
+  `null` retries instead of acking and hiding the work. A bare job has no
+  result to promise: its `return;` after the effects is success, and the work
+  is not repeated by a retry; a `{ error: ... }` or an exception still fails.
 - delivery is at-least-once; a consumer body should be idempotent;
 - without a redis binding the queue is in-process (memory driver); with
   `bind events -> redis(...)` messages live in the broker and any replica may
