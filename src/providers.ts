@@ -13,6 +13,14 @@ export function endpointEnv(alias: string): string {
   return alias.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[^A-Za-z0-9]+/g, '_').toUpperCase() + '_URL';
 }
 
+// A loopback URL written on the developer machine points at the container's
+// own loopback inside the compose network, where nothing listens. endpoint has
+// rewritten it to the host gateway since #42; any OpenAI-compatible baseUrl
+// takes the same rule, or a proxy on the host answers ECONNREFUSED (issue #67).
+export function hostGatewayUrl(url: string): string {
+  return url.split('localhost').join('host.docker.internal').split('127.0.0.1').join('host.docker.internal');
+}
+
 export interface ProviderSpec {
   name: string;
   capability: string;
@@ -157,11 +165,9 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
     external: true,
     appEnv: ({ alias, args }) => {
       const name = typeof alias === 'string' && alias.length > 0 ? alias : 'external';
-      let url = String(args.url ?? '');
       // A service on the host is reachable from a container only through the
       // host gateway; the alias keeps the URL stable inside the network.
-      url = url.split('localhost').join('host.docker.internal');
-      url = url.split('127.0.0.1').join('host.docker.internal');
+      const url = hostGatewayUrl(String(args.url ?? ''));
       return { [endpointEnv(name)]: url };
     },
   },
@@ -191,7 +197,7 @@ export const PROVIDERS: Record<string, ProviderSpec> = {
     external: true,
     port: 443,
     appEnv: ({ args }) => ({
-      LLM_BASE_URL: String(args.baseUrl ?? 'https://api.openai.com/v1'),
+      LLM_BASE_URL: hostGatewayUrl(String(args.baseUrl ?? 'https://api.openai.com/v1')),
       LLM_MODEL: String(args.model ?? 'gpt-4o-mini'),
       // Filled from the host environment at compose time; the spec never
       // carries the key.

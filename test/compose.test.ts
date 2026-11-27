@@ -144,3 +144,46 @@ test('the queue URL follows the queue alias when the binds point at different ho
   const yaml = composeYaml(parse(twoBinds.replace('bind events -> redis(host: "kv", port: 6379)', 'bind events -> redis(host: "bus", port: 6379)'), 'main.arc'), 8080, false);
   assert.match(yaml, /QUEUE_REDIS_URL: "redis:\/\/bus:6379"/);
 });
+
+// issue #67: an OpenAI-compatible baseUrl that points at the developer machine
+// is the same host-local address endpoint has rewritten since #42. Without the
+// rewrite the container calls its own loopback and gets ECONNREFUSED; without
+// extra_hosts the rewritten name does not resolve on a Linux engine.
+const llmBind = (baseUrl: string) => [
+  'module proxy @0.1.0 {}',
+  '',
+  'use capability arcod.std.llm @1',
+  '',
+  'service Proxy : http {',
+  '  uses model: llm',
+  '',
+  '  effects {',
+  '    allow model.chat',
+  '  }',
+  '',
+  '  contract {',
+  '    public op ask(q: string) -> { answer: string } {',
+  '      route: "POST /v1/ask"',
+  '      effects: model.chat',
+  '    }',
+  '  }',
+  '}',
+  '',
+  'environment dev {',
+  '  bind model -> openai(baseUrl: "' + baseUrl + '")',
+  '  deploy docker',
+  '}',
+  '',
+].join(String.fromCharCode(10));
+
+test('an openai baseUrl on loopback is rewritten to the host gateway', () => {
+  const yaml = composeYaml(parse(llmBind('http://localhost:9099/v1'), 'main.arc'), 8080, false);
+  assert.match(yaml, /LLM_BASE_URL: "http:\/\/host\.docker\.internal:9099\/v1"/);
+  assert.ok(yaml.includes('    extra_hosts:\n      - "host.docker.internal:host-gateway"'), yaml);
+});
+
+test('an external openai baseUrl is left alone and asks for no gateway', () => {
+  const yaml = composeYaml(parse(llmBind('https://api.openai.com/v1'), 'main.arc'), 8080, false);
+  assert.match(yaml, /LLM_BASE_URL: "https:\/\/api\.openai\.com\/v1"/);
+  assert.equal(/extra_hosts/.test(yaml), false, 'nothing points at the host');
+});

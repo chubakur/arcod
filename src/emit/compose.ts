@@ -405,10 +405,15 @@ export function composeYaml(mod: ModuleNode, port: number, hasUi = true, registr
   // declaration. A host-local URL therefore implies extra_hosts: the line is
   // harmless where the name already resolves and required where it does not.
   const endpoints = bound.filter((item) => item.spec.capability === 'endpoint');
-  const gateway = endpoints.some((item) => {
-    const url = String(item.args.url ?? '');
+  // A host-local address is reached through the gateway whichever bind carries
+  // it: an endpoint's url and an OpenAI-compatible baseUrl are the same kind of
+  // promise, and the rewrite to host.docker.internal is worthless without the
+  // declaration (issue #67).
+  const hostLocal = (value: unknown) => {
+    const url = String(value ?? '');
     return url.includes('host.docker.internal') || url.includes('localhost') || url.includes('127.0.0.1');
-  });
+  };
+  const gateway = bound.some((item) => hostLocal(item.args.url) || hostLocal(item.args.baseUrl));
   // An external docker network is how a separately deployed service is joined.
   const networks = Array.from(new Set(
     endpoints.map((item) => item.args.network).filter((value): value is string => typeof value === 'string' && value.length > 0),
