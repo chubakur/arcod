@@ -10,7 +10,7 @@ import { BLOB_SOURCE } from './blob.ts';
 import { LLM_SOURCE } from './llm.ts';
 import { endpointSource } from './endpoint.ts';
 import { olapRuntime } from './olap-runtime.ts';
-import { olapTablesFromTypes } from './olap.ts';
+import { olapTablesFromTypes, olapUseOptions } from './olap.ts';
 import { STREAM_SOURCE } from './stream.ts';
 import { TX_GATE_SOURCE } from './tx-gate.ts';
 import { QUEUE_SOURCE, QUEUE_SHUTDOWN, OUTBOX_SHUTDOWN, OUTBOX_SOURCE, outboxSource, consumerSource } from './queue.ts';
@@ -3112,7 +3112,7 @@ function implHandlers(
   // module's record types, so the adapter refuses a column the compiler never
   // saw, and every part that names the capability gets the same map (B95.3).
   const olapUses = svc.uses.filter((use) => use.capability === 'olap' || use.capability.endsWith('.olap'));
-  const olapTables = olapUses.length > 0 ? olapTablesFromTypes(mod.types, olapUseOptions(olapUses[0])) : null;
+  const olapTables = olapUses.length > 0 ? olapTablesFromTypes(mod.types, olapUseOptions(olapUses[0].params)) : null;
   const usesQueue = hasQueue(svc);
 
   if (hasIdentity) parts.push(IDENTITY_SOURCE);
@@ -3867,16 +3867,6 @@ function redisKvAlias(mod: ModuleNode, svc: ServiceNode): CapUse | null {
     if (binds.some((bind) => bind.alias === use.alias && bind.provider === 'redis')) return use;
   }
   return null;
-}
-
-// orderBy names the sorting key of every table, ttl asks for the record's
-// datetime column to expire by. Both are read from the use clause, and a
-// column the record lacks is reported by olapTablesFromTypes, not guessed.
-function olapUseOptions(use: CapUse | undefined): { orderBy?: string[]; ttl?: boolean } {
-  if (!use) return {};
-  const orderBy = use.params.orderBy;
-  const order = orderBy && orderBy.kind === 'literal' && typeof orderBy.value === 'string' ? [orderBy.value] : undefined;
-  return { orderBy: order, ttl: Boolean(use.params.ttl) };
 }
 
 function useTtlMs(use: CapUse | null): number {

@@ -2,7 +2,7 @@
 // shape: a body appends a record of a declared type and never writes DDL, so a
 // column that does not exist in the model cannot appear in the store. These
 // builders are pure — the adapter (B95.3) sends their output over HTTP 8123.
-import type { TypeDecl, TypeExpr } from '../ast.ts';
+import type { Expr, TypeDecl, TypeExpr } from '../ast.ts';
 
 export interface OlapColumn {
   name: string;
@@ -249,4 +249,13 @@ export function olapTablesFromTypes(
     tables.push(table);
   }
   return { tables, problems };
+}
+
+// The use clause carries the physical shape: orderBy names the sorting key,
+// ttl asks for expiry by the record's datetime column. One reader for emitService
+// and the build, so the DDL and the adapter cannot disagree about a table.
+export function olapUseOptions(params: Record<string, Expr>): { orderBy?: string[]; ttl?: boolean } {
+  const orderBy = params.orderBy;
+  const order = orderBy && orderBy.kind === 'literal' && typeof orderBy.value === 'string' ? [orderBy.value] : undefined;
+  return { orderBy: order, ttl: Boolean(params.ttl) };
 }

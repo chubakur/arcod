@@ -11,6 +11,7 @@ import { deployManifest, deployProvider, literalMap } from './deploy.ts';
 import { entitiesFromBodies, migrationPlan } from './migrate.ts';
 import { dialectNamed } from './dialects.ts';
 import { kebab } from './plan.ts';
+import { createTableSql, olapTablesFromTypes, olapUseOptions } from './emit/olap.ts';
 import { helmChart, k8sManifests, type K8sOptions } from './emit/k8s.ts';
 import { implCollisions, implSignatureProblems, sandboxViolation, topLevelDeclarations } from './impl.ts';
 
@@ -615,6 +616,20 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
       files.push([join(migrationDir, migration.version + '_' + migration.name + '.up.sql'), migration.up]);
       files.push([join(migrationDir, migration.version + '_' + migration.name + '.down.sql'), migration.down]);
     }
+  }
+
+  // B95.2: the analytical store has its own shape and its own DDL. Every
+  // record type of the module is a candidate table (the adapter's map is the
+  // same list), so the schema written here is exactly what olapAppend can
+  // reach. A service bound to ClickHouse with no record type gets no file.
+  for (const [index, svcNode] of mod.services.filter((svc) => !svc.external).entries()) {
+    const olapUse = svcNode.uses.find((use) => use.capability === 'olap' || use.capability.endsWith('.olap'));
+    if (!olapUse) continue;
+    const { tables } = olapTablesFromTypes(mod.types, olapUseOptions(olapUse.params));
+    if (tables.length === 0) continue;
+    const olapDir = join(dir, (index === 0 ? 'clickhouse' : 'clickhouse-service-' + kebab(svcNode.name)));
+    await mkdir(olapDir, { recursive: true });
+    files.push([join(olapDir, 'schema.sql'), tables.map((table) => createTableSql(table) + ';').join('\n\n') + '\n']);
   }
 
   // Body provenance: which ops have impl bodies, their hashes, and the emit
