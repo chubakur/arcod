@@ -244,6 +244,10 @@ export type Clause =
   // usually creates something, but an idempotent action (cancel, replay)
   // creates nothing and has to say 200. Only a 2xx code belongs here.
   | { kind: 'status'; value: number; loc: Loc }
+  // The response is the file itself: `file: "text/csv", "report.csv"` sends
+  // the body's bytes with this content type and a content-disposition name
+  // instead of wrapping them in a JSON record (B92.2).
+  | { kind: 'file'; contentType: string; filename: string; loc: Loc }
   | { kind: 'schedule'; value: string; loc: Loc }
   // A job consumes a queue topic: the runtime starts a consumer before the
   // http server and routes each message to the job body. Retry counts the

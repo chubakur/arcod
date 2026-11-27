@@ -345,7 +345,19 @@ function operationFor(mod: ModuleNode, svc: ServiceNode, op: OpNode): Record<str
   // declared status wins, a read/delete is 200 and a write is 201.
   const successStatus = String(contractSuccessStatus(op));
   const success: Record<string, unknown> = { description: 'ok' };
-  if (op.returns && !(op.returns.kind === 'named' && (op.returns.name === 'void' || op.returns.name === 'null'))) {
+  // B92.2: a file answer publishes the declared media type and a binary schema,
+  // so a generated client reads bytes and the download name from the contract
+  // instead of guessing a JSON shape.
+  const file = op.clauses.find((clause) => clause.kind === 'file');
+  if (file && file.kind === 'file') {
+    success.content = { [file.contentType]: { schema: { type: 'string', format: 'binary' } } };
+    success.headers = {
+      'content-disposition': {
+        description: 'attachment; filename="' + file.filename + '"',
+        schema: { type: 'string' },
+      },
+    };
+  } else if (op.returns && !(op.returns.kind === 'named' && (op.returns.name === 'void' || op.returns.name === 'null'))) {
     const schema = schemaFor(mod, op.returns);
     const isString = schema.type === 'string' && schema.$ref === undefined;
     success.content = isString

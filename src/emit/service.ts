@@ -1700,13 +1700,33 @@ __STREAM_SOURCE__
 
 // ---------- http ----------
 
-function send(res, status, body, type) {
-  res.writeHead(status, {
+function send(res, status, body, type, filename) {
+  const headers = {
     'content-type': type || 'application/json; charset=utf-8',
     'cache-control': 'no-store',
     'x-content-type-options': 'nosniff',
-  });
+  };
+  if (filename) headers['content-disposition'] = 'attachment; filename="' + filename + '"';
+  res.writeHead(status, headers);
   res.end(body);
+}
+
+// B92.2: a file clause on an operation promises the
+// response body is the file. Bytes (a Buffer or a Uint8Array) go out as they
+// are; a string body goes out as UTF-8; the content type and the download name
+// are the contract's, never the body's. A name carries the header, so a
+// character the header cannot hold is replaced instead of splitting it.
+function sendFile(res, status, body, type, name) {
+  const bytes = body instanceof Uint8Array ? Buffer.from(body) : Buffer.from(body === undefined || body === null ? '' : String(body), 'utf8');
+  const safe = String(name).replace(/[^\x20-\x7e]/g, '_').replace(/["]/g, '');
+  res.writeHead(status, {
+    'content-type': type,
+    'content-length': bytes.length,
+    'content-disposition': 'attachment; filename="' + safe + '"',
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+  });
+  res.end(bytes);
 }
 
 // The runtime raises a few errors itself, not from a body: authorize answers
@@ -3369,6 +3389,13 @@ function implHandlers(
       .filter((op) => op.clauses.some((clause) => clause.kind === 'errors' && clause.names.includes('Gone')))
       .map((op) => "'" + op.name + "'")
       .join(', ') + ']);',
+    // B92.2: the operations whose answer is a file. A Map, not an object: an
+    // operation named `constructor` must not answer a prototype member.
+    'const FILE_OPS = new Map([' + ops
+      .map((op) => ({ op, file: op.clauses.find((clause) => clause.kind === 'file') }))
+      .filter((item) => item.file)
+      .map((item) => '[' + JSON.stringify(item.op.name) + ', { type: ' + JSON.stringify((item.file as { contentType: string }).contentType) + ', name: ' + JSON.stringify((item.file as { filename: string }).filename) + ' }]')
+      .join(', ') + ']);',
     'async function callImpl(req, res, params, implFn, names, status, opName) {',
     '  const read = await readInput(req, params, names);',
     '  if (read.error) return sendError(res, read.error);',
@@ -3411,6 +3438,10 @@ function implHandlers(
     '  if (out && out.error) return sendError(res, out.error, out);',
     "  if (!out) return sendError(res, 'Internal');",
     '  const result = out.result;',
+    // A file answer is the bytes with the contract's headers (B92.2); a plain
+    // byte result keeps the octet-stream fallback (B92.1).
+    '  const file = FILE_OPS.get(opName);',
+    '  if (file) return sendFile(res, status, result, file.type, file.name);',
     // A byte result is the file itself (B92.1): JSON.stringify turned a Buffer
     // into {"type":"Buffer","data":[...]}, which no downloader expects.
     '  if (result instanceof Uint8Array) {',

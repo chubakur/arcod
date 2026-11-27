@@ -46,7 +46,7 @@ export function parse(source: string, file = '<input>'): ModuleNode {
 }
 
 const CLAUSE_START = new Set([
-  'pre', 'post', 'on', 'errors', 'route', 'schedule', 'idempotent', 'since', 'side', 'timeout',
+  'pre', 'post', 'on', 'errors', 'route', 'file', 'schedule', 'idempotent', 'since', 'side', 'timeout',
 ]);
 
 class Parser {
@@ -471,6 +471,22 @@ class Parser {
         this.expect(':');
         const tok = this.next();
         clauses.push({ kind: key, value: tok.value, loc: locOf(tok) });
+        continue;
+      }
+      if (key === 'file') {
+        this.expect(':');
+        const typeTok = this.next();
+        if (typeTok.kind !== 'string') this.error('file expects a quoted media type, e.g. file: "text/csv", "report.csv"');
+        const contentType = String(typeTok.value);
+        if (!/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(contentType)) {
+          this.error('file: media type must look like text/csv or application/octet-stream');
+        }
+        if (!this.accept(',')) this.error('file also names the download file, e.g. file: "text/csv", "report.csv"');
+        const nameTok = this.next();
+        if (nameTok.kind !== 'string' || String(nameTok.value).trim() === '') {
+          this.error('file: filename must be a quoted non-empty string');
+        }
+        clauses.push({ kind: 'file', contentType, filename: String(nameTok.value), loc: locOf(typeTok) });
         continue;
       }
       if (key === 'status') {
