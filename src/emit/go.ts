@@ -3,7 +3,7 @@
 // status — are read from the contract IR, so a fix there reaches both languages
 // and the two emitters cannot drift into two contracts.
 import type { ModuleNode, ServiceNode } from '../ast.ts';
-import { contractOps, successStatus, type ContractOp } from './contract.ts';
+import { contractOps, successOutcomes, successStatus, type ContractOp } from './contract.ts';
 import { messageForError, statusForError } from './service.ts';
 import { goModulePath } from './arcodio.ts';
 
@@ -375,6 +375,46 @@ export function goMain(mod: ModuleNode, svc: ServiceNode): string {
     lines.push('\treturn err.Error()');
     lines.push('}');
   }
+  // A named outcome (B94) is chosen by the body at runtime, so such an
+  // operation gets the table of its answers and the helper that reads the
+  // marker. Operations without names keep the constant status they had, and
+  // their generated code stays byte-identical to the golden files.
+  const outcomesByOp = new Map<string, { table: string; fallback: number; declared: string }>();
+  for (const op of ops) {
+    const outcomes = successOutcomes(opOf(svc, op));
+    if (!outcomes.some((item) => item.name !== null)) continue;
+    outcomesByOp.set(op.name, {
+      table: 'map[string]int{' + outcomes.filter((item) => item.name).map((item) => goString(item.name as string) + ': ' + item.code).join(', ') + '}',
+      fallback: outcomes[0].code,
+      declared: outcomes.map((item) => (item.name ? item.name + ' ' : '') + item.code).join(', '),
+    });
+  }
+  if (outcomesByOp.size > 0) {
+    lines.push('');
+    lines.push('// successOutcome reads the successful answer a body named (B94). The');
+    lines.push('// marker leaves the body so the answer is the result, not the marker; an');
+    lines.push('// unknown name is reported to the handler, which answers 500.');
+    lines.push('func successOutcome(out any, fallback int, outcomes map[string]int) (int, any, string) {');
+    lines.push('\tfields, isMap := out.(map[string]any)');
+    lines.push('\tif !isMap {');
+    lines.push('\t\treturn fallback, out, ""');
+    lines.push('\t}');
+    lines.push('\traw, present := fields["status"]');
+    lines.push('\tif !present {');
+    lines.push('\t\treturn fallback, out, ""');
+    lines.push('\t}');
+    lines.push('\tname, isName := raw.(string)');
+    lines.push('\tif !isName || name == "" {');
+    lines.push('\t\treturn fallback, out, ""');
+    lines.push('\t}');
+    lines.push('\tcode, known := outcomes[name]');
+    lines.push('\tif !known {');
+    lines.push('\t\treturn 0, out, name');
+    lines.push('\t}');
+    lines.push('\tdelete(fields, "status")');
+    lines.push('\treturn code, out, ""');
+    lines.push('}');
+  }
   for (const op of ops) {
     lines.push('');
     lines.push('func ' + handlerName(op.name) + '(w http.ResponseWriter, r *http.Request) {');
@@ -388,7 +428,17 @@ export function goMain(mod: ModuleNode, svc: ServiceNode): string {
     lines.push('\t\tfail(w, err)');
     lines.push('\t\treturn');
     lines.push('\t}');
-    lines.push('\twriteJSON(w, ' + statusLiteral(op, svc) + ', out)');
+    const named = outcomesByOp.get(op.name);
+    if (named) {
+      lines.push('\tcode, body, unknown := successOutcome(out, ' + named.fallback + ', ' + named.table + ')');
+      lines.push('\tif unknown != "" {');
+      lines.push('\t\tfail(w, errors.New("operation ' + op.name + ' answered outcome " + unknown + ", but the contract declares ' + named.declared + '"))');
+      lines.push('\t\treturn');
+      lines.push('\t}');
+      lines.push('\twriteJSON(w, code, body)');
+    } else {
+      lines.push('\twriteJSON(w, ' + statusLiteral(op, svc) + ', out)');
+    }
     lines.push('}');
   }
   lines.push('');

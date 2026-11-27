@@ -9,6 +9,8 @@ import { parse } from '../src/parser.ts';
 import { check } from '../src/check.ts';
 import { formatSource } from '../src/fmt.ts';
 import { emitOpenapi } from '../src/emit/openapi.ts';
+import { goMain } from '../src/emit/go.ts';
+import { spawnSync } from 'node:child_process';
 import { startService } from './harness.ts';
 
 const source = [
@@ -146,6 +148,26 @@ test('A097 rejects two unnamed outcomes', () => {
   const anonymous = source.replace('created 201, existed 200', '201, 200');
   const diags = check(parse(anonymous, 'main.arc'));
   assert.ok(diags.some((item) => item.code === 'A097' && /unnamed/.test(item.message)));
+});
+
+test('the Go emitter selects the named outcome, drops the marker and compiles as syntax', () => {
+  const mod = parse(source, 'main.arc');
+  const generated = goMain(mod, mod.services[0]);
+  assert.match(generated, /code, body, unknown := successOutcome\(out, 201, map\[string\]int\{"created": 201, "existed": 200\}\)/);
+  assert.match(generated, /func successOutcome\(out any, fallback int, outcomes map\[string\]int\) \(int, any, string\)/);
+  assert.match(generated, /delete\(fields, "status"\)/);
+  assert.match(generated, /the contract declares created 201, existed 200/);
+  const gofmt = spawnSync('gofmt', ['-e'], { input: generated, encoding: 'utf8' });
+  if (gofmt.error) return; // no Go toolchain on this host
+  assert.equal(gofmt.status, 0, gofmt.stderr);
+});
+
+test('the Go emitter keeps the constant status for an operation without names', () => {
+  const plain = source.replace('      status: created 201, existed 200\n', '');
+  const mod = parse(plain, 'main.arc');
+  const generated = goMain(mod, mod.services[0]);
+  assert.doesNotMatch(generated, /successOutcome/);
+  assert.match(generated, /writeJSON\(w, 201, out\)/);
 });
 
 test('the old single-code status still answers that code', async () => {
