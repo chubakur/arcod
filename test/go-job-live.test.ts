@@ -81,6 +81,7 @@ type FakeStore = {
   port: number;
   data: Map<string, string>;
   lists: Map<string, string[]>;
+  zsets: Map<string, Map<string, number>>;
   close: () => Promise<void>;
 };
 
@@ -89,6 +90,17 @@ type FakeStore = {
 function fakeStore(): Promise<FakeStore> {
   const data = new Map<string, string>();
   const lists = new Map<string, string[]>();
+  // publishLater parks a message in a sorted set scored by its due moment
+  // (B25); the consumer promotes what is due before each LPOP.
+  const zsets = new Map<string, Map<string, number>>();
+  const zset = (key: string): Map<string, number> => {
+    const found = zsets.get(key);
+    if (found) return found;
+    const created = new Map<string, number>();
+    zsets.set(key, created);
+    return created;
+  };
+  const crlf = String.fromCharCode(13, 10);
   const list = (key: string): string[] => {
     const found = lists.get(key);
     if (found) return found;
@@ -148,6 +160,27 @@ function fakeStore(): Promise<FakeStore> {
           const target = lists.get(args[0]!);
           const value = target && target.length > 0 ? target.shift()! : undefined;
           socket.write(value === undefined ? '$-1\r\n' : bulk(value));
+        } else if (name === 'ZADD') {
+          const target = zset(args[0]!);
+          const added = target.has(args[2]!) ? 0 : 1;
+          target.set(args[2]!, Number(args[1]));
+          socket.write(':' + added + crlf);
+        } else if (name === 'ZRANGEBYSCORE') {
+          const target = zset(args[0]!);
+          const min = args[1] === '-inf' ? -Infinity : Number(args[1]);
+          const max = args[2] === '+inf' ? Infinity : Number(args[2]);
+          let members = [...target.entries()]
+            .filter(([, score]) => score >= min && score <= max)
+            .sort((a, b) => a[1] - b[1])
+            .map(([member]) => member);
+          if ((args[3] ?? '').toUpperCase() === 'LIMIT') {
+            const offset = Number(args[4] ?? 0);
+            const count = Number(args[5] ?? 0);
+            members = members.slice(offset, count > 0 ? offset + count : undefined);
+          }
+          socket.write('*' + members.length + crlf + members.map(bulk).join(''));
+        } else if (name === 'ZREM') {
+          socket.write(':' + (zset(args[0]!).delete(args[1]!) ? 1 : 0) + crlf);
         } else if (name === 'LLEN') {
           socket.write(':' + (lists.get(args[0]!) ?? []).length + '\r\n');
         } else if (name === 'LRANGE') {
@@ -172,6 +205,7 @@ function fakeStore(): Promise<FakeStore> {
         port,
         data,
         lists,
+        zsets,
         close: () =>
           new Promise((done) => {
             server.close(() => done());
@@ -323,6 +357,18 @@ test(
         JSON.stringify({ payload: { id: 'a2' }, attempts: 0 }),
       ]);
       await waitFor('the job to keep consuming after an unreadable message', async () => store.data.get('fulfilled:a2') === 'yes');
+
+      // A message parked in the due set is publishLater's wire (B25): envelope
+      // behind a nonce, score = due moment. The consumer promotes it before its
+      // LPOP, claims it with ZREM and pushes the envelope back into the topic.
+      await respCommand(store.port, [
+        'ZADD',
+        'arcod:q:orders:later',
+        String(Date.now() - 1000),
+        'n1 ' + JSON.stringify({ payload: { id: 'z1' }, attempts: 0 }),
+      ]);
+      await waitFor('the due message to be promoted and consumed', async () => store.data.get('fulfilled:z1') === 'yes');
+      assert.equal((store.zsets.get('arcod:q:orders:later') ?? new Map()).size, 0, 'the due member left the set');
     } finally {
       service?.kill('SIGKILL');
       await store.close();

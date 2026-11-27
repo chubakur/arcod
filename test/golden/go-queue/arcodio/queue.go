@@ -11,8 +11,11 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // queuePrefix is the namespace the Node queue runtime writes under.
@@ -81,6 +84,71 @@ func (io *IO) QueuePublish(topic string, message any) (bool, error) {
 	return true, nil
 }
 
+// queueLaterSeq keeps sorted-set members apart: a set holds a member once,
+// so two identical payloads would collapse into one. The nonce is stripped
+// when the member is promoted.
+var queueLaterSeq int64
+
+// QueueLater parks a message until its due moment. The wire is the Node
+// runtime one (B25): the member waits in "arcod:q:<topic>:later" scored by
+// the moment, and QueueReceive promotes what is due.
+func (io *IO) QueueLater(topic string, message any, delay time.Duration) (bool, error) {
+	client := queueConnection()
+	if client == nil {
+		return false, ErrNoQueue
+	}
+	if delay < 0 {
+		return false, errors.New("arcodio: QueueLater needs a non-negative delay")
+	}
+	text, err := json.Marshal(map[string]any{"payload": message, "attempts": 0})
+	if err != nil {
+		return false, err
+	}
+	now := time.Now()
+	nonce := strconv.FormatInt(now.UnixNano(), 36) + "-" + strconv.FormatInt(atomic.AddInt64(&queueLaterSeq, 1), 36)
+	due := strconv.FormatInt(now.Add(delay).UnixMilli(), 10)
+	if _, err := client.call("ZADD", queuePrefix+topic+":later", due, nonce+" "+string(text)); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// queuePromote moves the due members of a topic into its list. ZREM is the
+// claim: two replicas polling one topic race here and only the one that
+// removed the member pushes it, so a delayed message is delivered once.
+func queuePromote(topic string) error {
+	client := queueConnection()
+	reply, err := client.call("ZRANGEBYSCORE", queuePrefix+topic+":later", "-inf", strconv.FormatInt(time.Now().UnixMilli(), 10), "LIMIT", "0", "100")
+	if err != nil {
+		return err
+	}
+	items, ok := reply.([]any)
+	if !ok {
+		return nil
+	}
+	for _, item := range items {
+		member, ok := item.(string)
+		if !ok {
+			continue
+		}
+		claimed, err := client.call("ZREM", queuePrefix+topic+":later", member)
+		if err != nil {
+			return err
+		}
+		if count, ok := claimed.(int64); !ok || count <= 0 {
+			continue
+		}
+		text := member
+		if index := strings.Index(member, " "); index >= 0 {
+			text = member[index+1:]
+		}
+		if _, err := client.call("RPUSH", queuePrefix+topic, text); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // QueueReceive takes the oldest message of a topic. The bool says the topic
 // was not empty: an idle poll is not an error, and the caller sleeps
 // instead of spinning. The Node runtime drains the same key with LPOP, so
@@ -89,6 +157,9 @@ func (io *IO) QueueReceive(topic string) (string, bool, error) {
 	client := queueConnection()
 	if client == nil {
 		return "", false, ErrNoQueue
+	}
+	if err := queuePromote(topic); err != nil {
+		return "", false, err
 	}
 	reply, err := client.call("LPOP", queuePrefix+topic)
 	if err != nil {
