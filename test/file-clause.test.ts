@@ -9,6 +9,7 @@ import { parse, ParseError } from '../src/parser.ts';
 import { emitOpenapi } from '../src/emit/openapi.ts';
 import { formatSource } from '../src/fmt.ts';
 import { check } from '../src/check.ts';
+import { buildPrompts } from '../src/prompts.ts';
 import { startService } from './harness.ts';
 
 const spec = [
@@ -198,4 +199,15 @@ test('A108: a file clause on a record answer or on a job is an error', () => {
   const jobDiags = check(parse(jobAnswer, 'main.arc')).filter((item) => item.code === 'A108');
   assert.equal(jobDiags.length, 1, 'a job answers no http call');
   assert.match(jobDiags[0]!.message, /answers no HTTP call/);
+});
+
+test('the implementation prompt says the body is the download', () => {
+  const mod = parse(spec, 'main.arc');
+  const set = buildPrompts(mod);
+  const report = set.tasks.find((task) => task.op === 'report');
+  assert.ok(report);
+  assert.match(report.prompt, /file: the body is the download, served as text\/csv with filename "report\.csv"/);
+  const plain = set.tasks.find((task) => task.op === 'plain');
+  assert.ok(plain);
+  assert.doesNotMatch(plain.prompt, /the body is the download/);
 });

@@ -441,6 +441,14 @@ function compactTask(mod: ModuleNode, svc: ServiceNode, op: OpNode, guarded: boo
     )
     .filter((item): item is string => Boolean(item));
   if (io.length > 0) lines.push('io (all methods are async: await them): ' + io.join('; '));
+  // B92.2: the response of a file operation is the body, so the model must
+  // return bytes or one string and never wrap them in { id, content }.
+  const fileClause = op.clauses.find((clause) => clause.kind === 'file');
+  if (fileClause && fileClause.kind === 'file') {
+    lines.push('file: the body is the download, served as ' + fileClause.contentType
+      + ' with filename ' + JSON.stringify(fileClause.filename)
+      + ' — return bytes (Uint8Array) or one string, never a record and never JSON.stringify');
+  }
 
   if (usesKv) {
     const stored = payloadOf(mod, op);
