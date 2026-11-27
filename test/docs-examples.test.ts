@@ -81,8 +81,15 @@ test('the Store column starts with the kind the service uses', async () => {
     const kinds = mod.services.flatMap((service) => service.uses
       .filter((use) => use.alias === 'store')
       .map((use) => use.capability));
-    assert.ok(kinds.length > 0, `${row.name} declares no store`);
     const documented = row.store.split(/ \+ | \(/)[0];
+    if (kinds.length === 0) {
+      // Not every demo is about storage: relay demonstrates outbound HTTP and
+      // declares no `store`. The cell then names the capability the demo is
+      // for, and the spec has to declare exactly that.
+      const declared = mod.services.flatMap((service) => service.uses.map((use) => use.capability));
+      assert.ok(declared.includes(documented), `docs/examples.md says ${row.name} demonstrates "${row.store}"`);
+      continue;
+    }
     assert.equal(documented, kinds[0], `docs/examples.md says ${row.name} stores in "${row.store}"`);
   }
 });

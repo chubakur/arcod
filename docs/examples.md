@@ -27,6 +27,7 @@ and a renamed operation cannot leave the row behind.
 | `kanban` | create, list, move, remove, image | sql + identity + blob | A per-caller board: `owner:` guards, images read back by the owner, `auth` ops. |
 | `signup` | create, find | kv | Constrained types: `email`, `url`, a closed `Plan` enum and a schema default, checked at the boundary. |
 | `notes-ssr` | list, create | kv | Server-rendered pages instead of a SPA: the same contract, a different `ui` kind. |
+| `relay` | notify | endpoint | Outbound HTTP: the bind owns the host and the body names only the path (`io.call`); W053 rejects a literal absolute URL at check time. |
 | `nightly` | prepare, render, send | kv | A `workflow`: three steps with typed ports and explicit `needs` edges, triggered on a cron. The graph is declarative in v0.1 (W022) — it lands in `deploy.<env>.json`, and the ops it calls still run over HTTP. |
 
 Run one:
