@@ -218,7 +218,7 @@ test('run explains the missing demo body and offers the scaffold', async () => {
   await writeFile(join(dir, 'main.arc'), createOnly, 'utf8');
   const result = await run(['run', dir]);
   assert.equal(result.code, 1, result.out + result.err);
-  assert.match(result.err, /demo handlers cover create and read only/);
+  assert.match(result.err, /does not imply a CRUD body/);
   assert.match(result.err, /--scaffold/, 'the flag that would start is named');
   assert.equal(/templates only for/.test(result.err), false, 'the emitter wording stays out: ' + result.err);
 });

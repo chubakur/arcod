@@ -193,7 +193,7 @@ drivers. Full example: `examples/signup`.
 | `arcod build --env prod` | same build for a named environment: the dialect follows that environment's `bind .. -> postgres`, so dev can stay MySQL; an unknown name is refused with the declared environments |
 | `arcod build [dir]` | scaffold: routes, adapters, tests, infrastructure in `.arcod/build`; bodies are TODO; `--json` reports mode, dir, dialect, files, images and bodies as one object (a reference run that stops for a missing body answers `{error, missing, advice}`; a spec that does not check answers `{error: "check failed", diagnostics}`, and a project mistake such as two bodies declaring one name answers `{error}` with exit 2) |
 | `arcod build --impl` | bodies from `impl/*.mjs`, the `io` adapter, nothing invented |
-| `arcod build --reference` | the same plus built-in demo bodies for `create`/`read` |
+| `arcod build --reference` | the same plus bodies derived from the contract for the CRUD forms (`create`/`read`/`update`/`delete`/`list` over a record or the value store); any other operation is a named gap |
 | `arcod test [dir]` | boots every internal service that declares examples and runs the model's `examples` (a multi-service report prefixes each name with its service); `--json` prints the report (`{examples, rules}`, plus `diagnostics` when the spec does not pass check, `{error, missing, advice}` when a body is missing) and never prose; `--url <base>` skips build and spawn and runs the same examples against a running service (one `/healthz` probe, exit 2 when it does not answer; `--impl`/`--reference` cannot be combined, a module with several services needs `--service`) |
 | `arcod make [dir]` | the whole cycle in one command: check → prompts → bodies → build → test |
 | `arcod run [dir]` | build + `docker compose up --build`; the `docker info` probe gives up after 15 s and says the daemon is not answering instead of hanging |
@@ -1536,7 +1536,7 @@ container.
 
 ```bash
 arcod build              # scaffold: handlers return 501, bodies marked TODO
-arcod build --reference  # reference: built-in create/read bodies over kv
+arcod build --reference  # reference: CRUD bodies derived from the contract
 arcod build --impl       # bodies from impl/*.mjs through the io adapter
 arcod run                # reference, so the demo works
 arcod run --impl         # run the service with the model's own bodies
@@ -2214,9 +2214,15 @@ Warnings:
 `examples` in the model are not documentation but executable scenarios:
 `arcod test` boots the service and runs them. Bodies come from `impl/` when it
 has any (`--impl` forces that); an empty `impl/` falls back to the built-in
-reference bodies, which cover only `create`/`read`. For any other operation
-`arcod test` says the bodies are missing (and how to generate them) rather than
-building a service that cannot answer. A statement becomes a real request: a
+reference bodies derived from the contract. Reference covers the CRUD forms
+over a record: `create` (the parameters, or one record parameter), `read` (a
+lookup by the path id; it consumes only when the contract declares
+`once(op, ...)`), `update`, `delete` and `list` (query parameters as equality
+filters). A declared record type gives the entity-backed store
+(`io.insert`/`fetch`/`update`/`remove`/`find`); an inline or anonymous record uses
+the value pair (`io.set`/`load`/`takeIf`). Any other operation is a named gap:
+`arcod test` says no body can be derived for it and how to generate one, rather
+than building a service that cannot answer. A statement becomes a real request: a
 `:path` capture fills the path, `GET`, `HEAD` and `DELETE` put the rest in the
 query string, every other method sends a JSON body. A `HEAD` answer has no body,
 so the statement evaluates to `null`. `page.hits[0].title` reads a list
@@ -2335,7 +2341,7 @@ src/
   test.ts         runs `examples` against the generated service
   build.ts        builds into `.arcod/build`
   deploy.ts       deployment providers and manifest
-  templates.ts    built-in reference bodies
+  templates.ts    built-in guarded reference bodies
   cli.ts          commands and flags
   lsp.ts          language features (completion, symbols, navigation, fmt)
   lsp-server.ts   zero-dependency LSP server over stdio

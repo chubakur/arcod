@@ -1208,7 +1208,7 @@ test('build --reference explains the demo gap instead of quoting the emitter', a
 
   const r = await run(['build', spec, '--reference']);
   assert.equal(r.code, 1);
-  assert.match(r.err, /no operation bodies to build: --reference covers only create and read/);
+  assert.match(r.err, /no operation bodies to build/);
   assert.match(r.err, /arcod impl/);
   assert.doesNotMatch(r.out + r.err, /templates only for/, 'the internal wording stays internal');
   // The emitter throws before it writes: an empty .arcod skeleton may exist,
@@ -1374,12 +1374,12 @@ test('--reference names the operations it has no demo body for', async () => {
 
   const build = await run(['build', '--reference', dir]);
   assert.equal(build.code, 1);
-  assert.match(build.err, /no demo body for ping, echo/);
+  assert.match(build.err, /no body can be derived for ping, echo/);
   assert.match(build.err, /impl\/ping\.mjs, impl\/echo\.mjs/);
 
   const test = await run(['test', '--reference', dir]);
   assert.equal(test.code, 1);
-  assert.match(test.err, /no demo body for ping, echo/);
+  assert.match(test.err, /no body can be derived for ping, echo/);
 });
 
 test('ast --check gates on semantic errors, also under --json', async () => {

@@ -27,7 +27,7 @@ service Shop : http {
 }
 `;
 
-// Reference mode has templates only for create/read, so this spec cannot be
+// Reference mode has no body for a non-CRUD operation, so this spec cannot be
 // emitted in reference mode: the failure happens after the tree is created.
 const bad = `
 module shop @0.1.0 {}
@@ -62,7 +62,7 @@ test('a failed rebuild keeps the previous tree and adds nothing', async () => {
     await writeFile(join(root, 'main.arc'), good);
     const first = await buildExample(parse(good, 'main.arc'), root, { port: 8080, reference: true });
     const before = await readFile(join(first.dir, 'docker-compose.yml'), 'utf8');
-    await assert.rejects(buildExample(parse(bad, 'main.arc'), root, { port: 8080, reference: true }), /templates only for/);
+    await assert.rejects(buildExample(parse(bad, 'main.arc'), root, { port: 8080, reference: true }), /cannot derive reference bodies/);
     const after = await readFile(join(root, '.arcod', 'build', 'docker-compose.yml'), 'utf8');
     assert.equal(after, before);
     const entries = await readdir(join(root, '.arcod'));
@@ -106,7 +106,7 @@ test('a build that fails after writing files keeps the previous tree', async () 
 test('a failed first build leaves no .arcod/build at all', async () => {
   const root = await mkdtemp(join(tmpdir(), 'arcod-atomic-'));
   try {
-    await assert.rejects(buildExample(parse(bad, 'main.arc'), root, { port: 8080, reference: true }), /templates only for/);
+    await assert.rejects(buildExample(parse(bad, 'main.arc'), root, { port: 8080, reference: true }), /cannot derive reference bodies/);
     assert.equal(existsSync(join(root, '.arcod', 'build')), false);
     const entries = existsSync(join(root, '.arcod')) ? await readdir(join(root, '.arcod')) : [];
     assert.deepEqual(entries, []);

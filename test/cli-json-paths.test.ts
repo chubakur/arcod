@@ -90,7 +90,7 @@ test('impl refuses a broken spec before it spends a model call', async () => {
   assert.match(result.out, /A048/, 'the role that was never declared is named');
 });
 
-// The reference gap — no demo body for an operation the create/read templates
+// The reference gap — no derivable body for an operation the CRUD forms
 // do not cover — used to answer --json with two prose lines and an empty stdout.
 // Every other failure above is data, so this one is too.
 async function bareExample(): Promise<string> {
@@ -105,7 +105,7 @@ test('build --json reports the reference gap as data', async () => {
   assert.equal(result.code, 1);
   assert.equal(result.err, '', 'a parser reads stdout; the failure is not prose');
   const parsed = JSON.parse(result.out) as { error?: string; missing?: string[]; advice?: string };
-  assert.match(parsed.error ?? '', /^no operation bodies to build: --reference covers only create and read\.$/);
+  assert.match(parsed.error ?? '', /^no operation bodies to build: the contract does not imply a CRUD body for every operation\.$/);
   assert.deepEqual(parsed.missing, ['list', 'move'], 'the operations without a body are named');
   assert.match(parsed.advice ?? '', /impl\/list\.mjs/);
 });

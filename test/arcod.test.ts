@@ -137,7 +137,7 @@ test('scaffold emits TODO stubs for any operations; only reference mode needs te
 
   // Reference mode splices in the built-in create/read body, so it still
   // refuses operations the templates do not cover.
-  assert.throws(() => emitService(mod, { reference: true }), /templates only for create, read/);
+  assert.throws(() => emitService(mod, { reference: true }), /cannot derive reference bodies/);
 });
 
 test('once else must be a declared error', () => {

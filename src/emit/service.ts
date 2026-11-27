@@ -2,6 +2,7 @@ import type { CapUse, ModuleNode, OpNode, ServiceNode, TypeDecl, TypeExpr } from
 import { dialectNamed } from '../dialects.ts';
 import { asOnce } from '../check.ts';
 import { HANDLER_TEMPLATES, templateFor } from '../templates.ts';
+import { referenceBodies } from '../reference.ts';
 import { SQL_STORE_SOURCE } from './sql-store.ts';
 import { PG_STORE_SOURCE, PG_SQL_STORE_SOURCE } from './pg-store.ts';
 import { IDENTITY_SOURCE } from './identity.ts';
@@ -2287,10 +2288,21 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
   // only in reference mode. Impl bodies come from the caller and the scaffold
   // emits TODO stubs, so neither mode needs a template.
   const reference = options.reference === true && !options.impl;
-  const missing = opNames.filter((name) => !templateFor(name, isGuarded(svc)));
-  if (reference && (!opNames.includes('create') || !opNames.includes('read') || missing.length > 0)) {
-    throw new Error('emitter v0 has templates only for ' + Object.keys(HANDLER_TEMPLATES).join(', ') + '; got: ' + opNames.join(', '));
+  // B53: the reference bodies are read from the declaration. A guarded service
+  // keeps the built-in template: its bodies store a hashed envelope and a
+  // generated CRUD body would silently drop the password check.
+  const derived = reference && !isGuarded(svc) && !usesHashCapability(svc) ? referenceBodies(mod, svc) : null;
+  const derivedMode = Boolean(derived && derived.gaps.length === 0);
+  const templateMissing = opNames.filter((name) => !templateFor(name, isGuarded(svc)));
+  if (reference && !derivedMode && (!opNames.includes('create') || !opNames.includes('read') || templateMissing.length > 0)) {
+    const gaps = derived ? derived.gaps.map((gap) => gap.op + ' (' + gap.reason + ')').join('; ') : '';
+    throw new Error(
+      'emitter v0 cannot derive reference bodies from the contract' + (gaps ? ': ' + gaps : '') + '; got: ' + opNames.join(', '),
+    );
   }
+  // A derived body is an impl body: it runs through the io adapter exactly as
+  // a hand-written one does, so both modes share one runtime and one check.
+  const bodies = options.impl ?? (derivedMode ? derived!.bodies : undefined);
 
   // A split store (sql + redis kv alias) writes the message/TTL pair to the
   // alias, so its ttl — not the sql store's — is the one the cache honours.
@@ -2354,8 +2366,8 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
 
   const externals = mod.services.filter((item) => item.external);
   const plugins = pluginBindings(mod, options.registry);
-  const template = withHandlers(serviceTemplate(svc, options.dialect, Boolean(kvAlias)), reference, svc, options.impl, externals, mod, plugins, options.implLib)
-    .replace(CRYPTO_IMPORT, () => cryptoImportFor(svc, reference || Boolean(options.impl), options.dialect))
+  const template = withHandlers(serviceTemplate(svc, options.dialect, Boolean(kvAlias)), reference && !derivedMode, svc, bodies, externals, mod, plugins, options.implLib)
+    .replace(CRYPTO_IMPORT, () => cryptoImportFor(svc, reference || Boolean(bodies), options.dialect))
     .replace('const CONFIG = __CONFIG__;', () => ipv4FirstPreamble(mod) + 'const CONFIG = __CONFIG__;')
     .replace('__QUEUE_SOURCE__\n', () => queueSourceFor(svc, options.impl) + (outboxActive(svc) && options.impl ? outboxSource(options.dialect) + '\n' : ''))
     .replace('__QUEUE_WIRE__', () => (hasQueue(svc) && options.impl ? (outboxActive(svc) ? 'startOutboxDispatcher();\n' : '') + 'startConsumers();\n' : ''))
@@ -2365,16 +2377,18 @@ export function emitService(mod: ModuleNode, options: EmitOptions = {}): string 
     '// Routes, limits, errors and rules come from the model.',
     options.impl
       ? '// Mode: impl. Operation bodies come from impl/ and are called through the io adapter.'
-      : reference
-        ? '// Mode: reference implementation. Operation bodies are built-in templates (' + opNames.map((name) => name + '=' + templateFor(name, isGuarded(svc))).join(', ') + '), not derived from the model.'
-        : '// Mode: scaffold. Operation bodies are TODO; implement them according to the contract.',
+      : derivedMode
+        ? '// Mode: reference implementation. Operation bodies are derived from the contract (' + opNames.join(', ') + ') and run through the io adapter.'
+        : reference
+          ? '// Mode: reference implementation. Operation bodies are built-in templates (' + opNames.map((name) => name + '=' + templateFor(name, isGuarded(svc))).join(', ') + '), not derived from the model.'
+          : '// Mode: scaffold. Operation bodies are TODO; implement them according to the contract.',
     '',
   ].join('\n');
 
   // Same entity set as the migrations: a DTO the bodies never store has no
   // table and no store entry, so the schema and the runtime cannot disagree.
   const declaredRecords = mod.types.filter((decl) => decl.type.kind === 'record').map((decl) => decl.name);
-  const entities = entitiesFromBodies(options.impl, declaredRecords);
+  const entities = entitiesFromBodies(bodies, declaredRecords);
   const stores = storageKind(svc) === 'sql' ? sqlEntityStores(mod, svc, entities) : entityStores(mod, svc, entities);
 
   return header + template
@@ -3044,11 +3058,16 @@ function implHandlers(
     const source = Object.hasOwn(impl, name) ? impl[name] : undefined;
     if (!source) continue;
     const fn = 'impl' + name.charAt(0).toUpperCase() + name.slice(1);
+    // The declared name need not be the identifier: `delete` is not one in
+    // JavaScript, so a generated body spells it delete_ and is still the body
+    // of the delete operation. The first declaration is renamed, not matched
+    // by name.
     const renamed = source
       .trim()
-      .replace('export async function ' + name, 'async function ' + fn)
-      .replace('export function ' + name, 'async function ' + fn)
-      .replace(/^export\\s+/gm, '');
+      .replace(/export\s+async\s+function\s+[A-Za-z_$][\w$]*\s*\(/, 'async function ' + fn + '(')
+      .replace(/export\s+function\s+[A-Za-z_$][\w$]*\s*\(/, 'async function ' + fn + '(')
+      .replace(/^export\s+/gm, '');
+
     parts.push('// impl/' + name + '.mjs');
     parts.push(renamed);
     parts.push('');

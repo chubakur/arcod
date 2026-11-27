@@ -1272,9 +1272,10 @@ function dialectFlag(flags: Flags): 'mysql' | 'postgres' | undefined {
   throw new UsageError('unknown dialect ' + flags.dialect + ' (mysql, postgres)');
 }
 
-// The demo handlers cover create/read only. Without a translation the emitter's
-// internal wording ("got: ping") is what the user sees, naming neither the fix
-// nor the flag that asked for it. build and test share the sentence, the verb.
+// Reference bodies are derived from the contract; an operation the derivation
+// does not cover (a charge, a ping) has no demo body. Without a translation the
+// emitter's internal wording is what the user sees, naming neither the fix nor
+// the flag that asked for it. build and test share the sentence, the verb.
 interface ReferenceGap {
   line: string;
   missing: string[];
@@ -1287,17 +1288,27 @@ interface ReferenceGap {
 // the surface.
 function referenceGap(error: unknown, firstLine: string): ReferenceGap | null {
   const message = error instanceof Error ? error.message : String(error);
-  if (!/templates only for/.test(message)) return null;
-  // The emitter names every operation it was given ("got: create, read, ping").
-  // Naming the ones without a demo body is the difference between "write some
-  // impl file" and "write impl/ping.mjs".
-  const got = message.includes('got: ') ? message.slice(message.lastIndexOf('got: ') + 5) : '';
-  const missing = got
-    .split(',')
-    .map((name) => name.trim())
-    .filter((name) => name.length > 0 && name !== 'create' && name !== 'read');
+  if (!/templates only for|cannot derive reference bodies/.test(message)) return null;
+  // The emitter names every operation it was given and, for a derived body,
+  // the reason the declaration does not imply one. Naming the operation is the
+  // difference between "write some impl file" and "write impl/charge.mjs".
+  let missing: string[] = [];
+  if (/cannot derive reference bodies/.test(message)) {
+    const tail = message.slice(message.indexOf('contract') + 'contract'.length).replace(/^: /, '');
+    const head = tail.split('; got: ')[0] || '';
+    missing = head
+      .split('; ')
+      .map((part) => part.split(' (')[0]!.trim())
+      .filter((name) => name.length > 0);
+  } else {
+    const got = message.includes('got: ') ? message.slice(message.lastIndexOf('got: ') + 5) : '';
+    missing = got
+      .split(',')
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0 && name !== 'create' && name !== 'read');
+  }
   const advice = missing.length > 0
-    ? 'no demo body for ' + missing.join(', ') + ': run `arcod impl` (or `arcod make`) first, or add ' + missing.map((name) => 'impl/' + name + '.mjs').join(', ') + ' by hand.'
+    ? 'no body can be derived for ' + missing.join(', ') + ': run `arcod impl` (or `arcod make`) first, or add ' + missing.map((name) => 'impl/' + name + '.mjs').join(', ') + ' by hand.'
     : 'run `arcod impl` (or `arcod make`) first, or add impl/<op>.mjs by hand.';
   return { line: firstLine, missing, advice };
 }
@@ -1345,7 +1356,7 @@ async function runBuild(flags: Flags): Promise<void> {
     }
     for (const file of result.files) console.log('  ' + file);
   } catch (error) {
-    const gap = referenceGap(error, 'no operation bodies to build: --reference covers only create and read.');
+    const gap = referenceGap(error, 'no operation bodies to build: the contract does not imply a CRUD body for every operation.');
     if (gap) {
       if (flags.json) {
         console.log(JSON.stringify({ error: gap.line, missing: gap.missing, advice: gap.advice }, null, 2));
@@ -1412,7 +1423,7 @@ async function runTest(flags: Flags): Promise<void> {
       dialect: dialectFlag(flags),
     });
   } catch (error) {
-    const gap = referenceGap(error, 'no operation bodies to test: impl/ is empty and the demo handlers cover only create/read.');
+    const gap = referenceGap(error, 'no operation bodies to test: impl/ is empty and the contract does not imply a CRUD body for every operation.');
     if (gap) {
       // A report is still a report: the arrays stay, the gap sits beside them.
       if (flags.json) {
@@ -1555,7 +1566,7 @@ async function runRun(flags: Flags): Promise<void> {
       dialect: dialectFlag(flags),
     });
   } catch (error) {
-    const gap = referenceGap(error, 'arcod run: the demo handlers cover create and read only, and this service does not declare both.');
+    const gap = referenceGap(error, 'arcod run: the contract does not imply a CRUD body for every operation.');
     if (gap) {
       if (flags.json) {
         console.log(JSON.stringify({ error: gap.line, missing: gap.missing, advice: gap.advice }, null, 2));
