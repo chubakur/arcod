@@ -2157,10 +2157,11 @@ Warnings:
   no operation to name. One warning per service names it, so "forgot the
   bodies" and "has not started" stop looking the same. A project with some
   bodies keeps the per-operation `W050`.
-- `W053` a literal `io.call` path would fail every request: it carries a scheme
-  or a leading `//` (a host the binding does not own, answered `403 Forbidden`),
-  it does not start with `/`, or its alias names no `endpoint` bind in the
-  environment (answered `503 Unavailable`). The runtime keeps the guarantee for
+- `W053` a literal `io.call` would fail every request: the path carries a
+  scheme or a leading `//` (a host the binding does not own, answered `403
+  Forbidden`), it does not start with `/`, its alias names no `endpoint` bind in
+  the environment (answered `503 Unavailable`), or the method is outside
+  GET/POST/PUT/PATCH/DELETE/HEAD (answered `400 Invalid`). The runtime keeps the guarantee for
   a computed path; the check reads the literal while the body is in hand.
 - `W049` an `impl/*.mjs` body is named after no operation: only the bodies the
   service contract declares are bundled, so `impl/total.mjs` (a typo of

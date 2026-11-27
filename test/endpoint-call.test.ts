@@ -146,3 +146,16 @@ test('W053 reads escaped quotes a generated body carries', () => {
   assert.equal(found.length, 1);
   assert.match(found[0], /leaves the bound host/);
 });
+
+test('W053 names a path without a leading slash', () => {
+  const found = endpointDiags('send', 'export async function send(input, io) {\n  return { result: await io.call("api", "GET", "v1/hook", null) };\n}');
+  assert.equal(found.length, 1);
+  assert.match(found[0], /must start with \//);
+});
+
+test('W053 names a literal method the adapter does not support', () => {
+  const found = endpointDiags('send', 'export async function send(input, io) {\n  return { result: await io.call("api", "FETCH", "/v1/hook", null) };\n}');
+  assert.equal(found.length, 1);
+  assert.match(found[0], /FETCH/);
+  assert.match(found[0], /not supported/);
+});

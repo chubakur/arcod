@@ -2093,9 +2093,11 @@ export function checkWhereOperators(mod: ModuleNode, diags: Diagnostic[], impl: 
 // service, so the request fails on every call. The literal is visible while the
 // body is in hand, so name it at check time; a computed path stays a runtime
 // guarantee. An alias the environment does not bind is the same story one step
-// earlier: it answers Unavailable and no host exists to reach.
+// earlier: it answers Unavailable and no host exists to reach, and a literal
+// method outside the adapter's set answers Invalid on every call.
 const ENDPOINT_CALL = /\bio\.call\(\s*(['\"])([A-Za-z_$][A-Za-z0-9_$-]*)\1\s*,\s*(['\"])([A-Za-z]+)\3\s*,\s*(['\"])([^'\"\n]*)\5/g;
 const URL_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+const ENDPOINT_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']);
 
 export function checkEndpointCalls(
   mod: ModuleNode,
@@ -2121,6 +2123,12 @@ export function checkEndpointCalls(
           'io.call names endpoint "' + alias + '", which environment ' + env.name + ' does not bind' +
             (endpoints.size > 0 ? '; bound: ' + [...endpoints].sort().join(', ') : ''),
           'bind ' + alias + ' -> endpoint(url: "https://...") in environment ' + env.name));
+        continue;
+      }
+      if (!ENDPOINT_METHODS.has(String(match[4]).toUpperCase())) {
+        diags.push(diag('W053', 'warning', where, loc, 'impl.' + op,
+          'io.call method "' + match[4] + '" is not supported; the adapter answers Invalid',
+          'use GET, POST, PUT, PATCH, DELETE or HEAD'));
         continue;
       }
       if (path.startsWith('//') || URL_SCHEME.test(path)) {
