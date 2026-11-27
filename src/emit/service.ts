@@ -8,6 +8,7 @@ import { IDENTITY_SOURCE } from './identity.ts';
 import { BLOB_SOURCE } from './blob.ts';
 import { LLM_SOURCE } from './llm.ts';
 import { STREAM_SOURCE } from './stream.ts';
+import { TX_GATE_SOURCE } from './tx-gate.ts';
 import { QUEUE_SOURCE, QUEUE_SHUTDOWN, OUTBOX_SHUTDOWN, OUTBOX_SOURCE, outboxSource, consumerSource } from './queue.ts';
 import { storageKind, storageUse } from '../capabilities.ts';
 import { endpointEnv } from '../providers.ts';
@@ -2943,6 +2944,7 @@ function implHandlers(
     'const AUTHZ = ' + JSON.stringify(authzTable, null, 2) + ';',
     '',
     'const OUTBOX_OPS = new Set(' + JSON.stringify([...outboxOps(svc)]) + ');',
+    'const STORE_GATE = createTxGate();',
     '',
     'async function authorize(spec, io, input) {',
     '  if (!spec || (!spec.auth && spec.roles.length === 0 && !spec.owner)) return null;',
@@ -2958,6 +2960,7 @@ function implHandlers(
     '}',
     '',
   );
+  parts.push(TX_GATE_SOURCE);
 
   parts.push(
     'async function readInput(req, params, names) {',
@@ -3003,12 +3006,26 @@ function implHandlers(
     '  if (denied) return sendError(res, denied);',
     '  const tx = OUTBOX_OPS.has(opName);',
     '  let out;',
-    '  if (tx) await store.begin();',
     '  try {',
-    '    out = await implFn(input, io);',
-    '    if (tx) await store.commit();',
+    '    if (tx) {',
+    "      // One connection serves the whole service, so a transaction is the",
+    "      // store's exclusive state: every other request waits, and a second",
+    "      // BEGIN can never land inside the first (that lost the winner's row).",
+    '      out = await STORE_GATE.hold(async () => {',
+    '        await store.begin();',
+    '        try {',
+    '          const body = await implFn(input, io);',
+    '          await store.commit();',
+    '          return body;',
+    '        } catch (error) {',
+    '          await store.rollback();',
+    '          throw error;',
+    '        }',
+    '      });',
+    '    } else {',
+    '      out = await STORE_GATE.share(() => implFn(input, io));',
+    '    }',
     '  } catch (error) {',
-    '    if (tx) await store.rollback();',
     '    // The adapter raises named errors (Conflict from a unique index,',
     '    // Invalid from a missing key); they travel as the declared error.',
     '    if (error && error.error) return sendError(res, String(error.error), error.fields || error);',

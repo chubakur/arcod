@@ -592,9 +592,10 @@ test('the outbox makes publish and fact write atomic on sql', async () => {
   assert.ok(code.includes('store.outboxAppend('), 'publish routes through the outbox table');
   assert.ok(code.includes('startOutboxDispatcher()'), 'the dispatcher is wired');
   assert.ok(code.includes('async outboxPending('), 'the store polls pending rows');
-  assert.ok(code.includes('if (tx) await store.begin()'), 'the body runs in a transaction');
-  assert.ok(code.includes('if (tx) await store.commit()'), 'the transaction commits on success');
-  assert.ok(code.includes('if (tx) await store.rollback()'), 'the transaction rolls back on error');
+  assert.ok(code.includes('out = await STORE_GATE.hold(async () => {'), 'the body holds the store exclusively');
+  assert.ok(code.includes('await store.begin()'), 'the body runs in a transaction');
+  assert.ok(code.includes('await store.commit()'), 'the transaction commits on success');
+  assert.ok(code.includes('await store.rollback()'), 'the transaction rolls back on error');
 
   const plan = migrationPlan(ordersAst, ordersAst.services.find((svc) => !svc.external)!);
   assert.ok(plan.migrations.some((m) => m.name === 'arcod_outbox'), 'the outbox table is migrated');

@@ -93,6 +93,12 @@ aborted") until `ROLLBACK`. Both errors are ordinary statement errors, so the
 socket stays usable and a rollback puts the connection back in service — that
 is how `PgStore.take()`/`takeIf()` recover in their `catch`.
 
+The service runtime never lets two transactions share that connection (B110):
+a transactional operation takes the store exclusively for its whole body and
+every other request waits its turn. A duplicate key in the second request
+therefore answers `409 Conflict` after the first commit, instead of opening a
+second `BEGIN` inside the first transaction and rolling the winner's row away.
+
 Only transport failures and startup/auth errors end the connection. A dropped
 socket rejects everything in flight and queued, and the store reconnects before
 the next query without re-running migrations; if the server is still away, that

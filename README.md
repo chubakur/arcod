@@ -1021,6 +1021,11 @@ request) are serialized on the wire, so two operations cannot read each
 other's rows. `Promise.all` answers the same numbers as a sequential run; the
 price is throughput — one statement at a time per replica.
 
+A transactional operation (one that writes a fact and publishes through the
+outbox) holds the whole store for its body: other requests wait until it
+commits or rolls back, so a second `BEGIN` never lands inside the open
+transaction and a loser's rollback cannot discard the winner's row.
+
 When a service uses `queue` on the `sql` driver, a publish in an operation that
 also writes a fact goes through the **outbox**: the body runs in a transaction,
 the event is appended to `arcod_outbox` in the same transaction, and a
