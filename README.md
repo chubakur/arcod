@@ -1105,7 +1105,12 @@ Semantics, enforced by the generated runtime rather than written in bodies:
   `io.queueDead` is the same method under the spelling the runtime grew first;
   `io.drop(topic, payload)` (`io.queueDeadDrop` likewise) takes the first
   entry carrying that payload out of the list (`false` when there is
-  none), so a replayed message does not sit there forever; every requeue and
+  none), so a replayed message does not sit there forever; a running job can be
+  cancelled from an operation: the publisher stamps an id on every message
+  (`io.messageId` inside the body), `io.cancelJob(topic, id)` raises the flag,
+  the consumer polls it while the body runs and aborts `io.signal`, which a body
+  hands to `io.remote(..., { signal: io.signal })`; a cancelled message is acked
+  — no retry, no dead letter, one log line with the topic and no payload; every requeue and
   every dead letter writes one line to the service log — topic, attempt number,
   `lastError` — and never the payload; a failing `receive` (a broker restart)
   is retried instead of ending the consumer loop, with one line at the start of

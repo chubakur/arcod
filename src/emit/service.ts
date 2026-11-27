@@ -85,7 +85,7 @@ function pluginCapabilityName(capability: string): string {
 const RESERVED_IO_METHODS = new Set([
   'load', 'save', 'get', 'set', 'scan', 'del', 'seen', 'takeIf', 'new', 'actor', 'users', 'chat', 'model',
   'updateWhere', 'call',
-  'publish', 'queuePublish', 'queuePublishLater', 'queueDead', 'queueDeadDrop', 'remote', 'blobPut', 'blobGet', 'blobPutBytes', 'blobGetBytes', 'blobDelete', 'hash', 'verify', 'count', 'aggregate', 'embed',
+  'publish', 'queuePublish', 'queuePublishLater', 'queueDead', 'queueDeadDrop', 'cancelJob', 'remote', 'blobPut', 'blobGet', 'blobPutBytes', 'blobGetBytes', 'blobDelete', 'hash', 'verify', 'count', 'aggregate', 'embed',
 ]);
 
 export function pluginBindings(mod: ModuleNode, registry?: ProviderRegistry): PluginBinding[] {
@@ -3093,6 +3093,11 @@ function implHandlers(
     'function makeIo(req) {',
     '  let actorPromise = null;',
     '  return {',
+    // B80.2: a queue message carries a cancel signal and its own id; an http
+    // request carries neither, so a body that hands io.signal to io.remote
+    // gets null and remote falls back to the service ceiling.
+    '    signal: req && req.signal ? req.signal : null,',
+    '    messageId: req && req.messageId ? String(req.messageId) : null,',
     // io.get/io.set are the pair a body should reach for (B91): the record
     // envelope { b, h } and the 'msg:' prefix stay inside. io.load/io.save
     // remain for the bodies that already speak the envelope.
@@ -3183,20 +3188,24 @@ function implHandlers(
     // runs in a transaction), so the event survives a crash between the fact
     // write and the broker hand-off. kv publishes straight to the broker.
     const outboxPublish = storageKind(svc) === 'sql'
-      ? '    async queuePublish(topic, message) { return store.outboxAppend(randomUUID(), String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0 })); },'
-      : '    async queuePublish(topic, message) { return queuePublishDriver(String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0 })); },';
+      ? '    async queuePublish(topic, message) { return store.outboxAppend(randomUUID(), String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0, id: randomUUID() })); },'
+      : '    async queuePublish(topic, message) { return queuePublishDriver(String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0, id: randomUUID() })); },';
     // A delayed publish is the same message with a due moment. On the outbox
     // the row is due-aware, so the relay hands it to the broker when its time
     // comes; without a store the broker's set holds it. The delay is the
     // body's, so it is checked here rather than at the http boundary.
     const publishLaterGuard = ' const seconds = Number(delaySeconds); if (!Number.isFinite(seconds) || seconds < 0) throw new Error("queuePublishLater: delaySeconds must be a non-negative number");';
     const outboxPublishLater = storageKind(svc) === 'sql'
-      ? '    async queuePublishLater(topic, message, delaySeconds) {' + publishLaterGuard + ' return store.outboxAppend(randomUUID(), String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0 }), Date.now() + Math.round(seconds * 1000)); },'
-      : '    async queuePublishLater(topic, message, delaySeconds) {' + publishLaterGuard + ' return queuePublishLaterDriver(String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0 }), Math.round(seconds * 1000)); },';
+      ? '    async queuePublishLater(topic, message, delaySeconds) {' + publishLaterGuard + ' return store.outboxAppend(randomUUID(), String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0, id: randomUUID() }), Date.now() + Math.round(seconds * 1000)); },'
+      : '    async queuePublishLater(topic, message, delaySeconds) {' + publishLaterGuard + ' return queuePublishLaterDriver(String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0, id: randomUUID() }), Math.round(seconds * 1000)); },';
+    // B80.2: an operation asks the broker to cancel one in-flight job by the
+    // id that job published itself (io.messageId). The consumer polls the
+    // flag and aborts its controller; the message is acked, not retried.
     // B115: drop is the capability name for queueDeadDrop; one implementation,
     // two spellings, so a body that follows the signature is not a TypeError.
     const dropAlias = '    async drop(topic, payload) { const wanted = JSON.stringify(payload === undefined ? null : payload); const items = await queueDeadDriver(String(topic)); for (const item of items) { let envelope; try { envelope = JSON.parse(item); } catch { envelope = undefined; } const carried = envelope && typeof envelope === "object" && envelope !== null && Object.prototype.hasOwnProperty.call(envelope, "payload") ? envelope.payload : envelope; if (JSON.stringify(carried) === wanted) return queueDeadDropDriver(String(topic), item); } return false; },';
     parts.push(
+      '    async cancelJob(topic, id) { return queueDriver.cancel(String(topic), String(id)); },',
       outboxPublish,
       outboxPublishLater,
       '    async queueDead(topic) { const items = await queueDeadDriver(String(topic)); return items.map((item) => { try { return JSON.parse(item); } catch { return item; } }); },',

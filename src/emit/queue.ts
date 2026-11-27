@@ -40,6 +40,9 @@ const MEM_DEAD = new Map();
 // Delayed messages wait here until their due moment; the next receive on the
 // topic moves them into MEM_QUEUES.
 const MEM_LATER = new Map();
+// B80.2: cancel requests in flight, keyed by the message id the publisher
+// stamped. A set per topic, dropped when the consumer acks the message.
+const MEM_CANCEL = new Map();
 
 function promoteMemoryLater(topic) {
   const waiting = MEM_LATER.get(topic);
@@ -87,6 +90,21 @@ const memoryQueueDriver = {
     const index = list.indexOf(text);
     if (index < 0) return false;
     list.splice(index, 1);
+    return true;
+  },
+  async cancel(topic, id) {
+    const set = MEM_CANCEL.get(topic) || new Set();
+    set.add(String(id));
+    MEM_CANCEL.set(topic, set);
+    return true;
+  },
+  async isCancelled(topic, id) {
+    const set = MEM_CANCEL.get(topic);
+    return !!(set && set.has(String(id)));
+  },
+  async forgetCancel(topic, id) {
+    const set = MEM_CANCEL.get(topic);
+    if (set) set.delete(String(id));
     return true;
   },
   async toDead(topic, text) {
@@ -295,6 +313,19 @@ function createRedisQueueDriver(url) {
       const values = await command('LRANGE', key, '0', String(length - 1));
       return Array.isArray(values) ? values.map(String) : [];
     },
+    async cancel(topic, id) {
+      // A flag with a ttl, not state: a cancel for a message another replica
+      // already finished expires instead of growing the keyspace.
+      await command('SET', QUEUE_PREFIX + topic + ':cancel:' + id, '1', 'EX', '300');
+      return true;
+    },
+    async isCancelled(topic, id) {
+      return Number(await command('EXISTS', QUEUE_PREFIX + topic + ':cancel:' + id)) === 1;
+    },
+    async forgetCancel(topic, id) {
+      await command('DEL', QUEUE_PREFIX + topic + ':cancel:' + id);
+      return true;
+    },
     async toDead(topic, text) {
       await command('RPUSH', QUEUE_PREFIX + topic + ':dead', text);
       return true;
@@ -355,6 +386,28 @@ const RETRY_CAP_MS = 30000;
 
 function retryDelayMs(attempts) {
   return Math.min(RETRY_CAP_MS, RETRY_BASE_MS * Math.pow(2, Math.max(0, attempts - 1)));
+}
+
+// B80.2: a cancel request travels through the broker, keyed by the id the
+// publisher stamped on the message, so it reaches a job running in another
+// replica and a body already inside a remote call. The watch is one flag read
+// per poll while the body runs, and stops with it.
+const CANCEL_POLL_MS = 100;
+
+function watchCancellation(spec, id, controller) {
+  let stopped = false;
+  const tick = () => {
+    if (stopped || controller.signal.aborted) return;
+    queueDriver.isCancelled(spec.topic, id).then((flagged) => {
+      if (flagged) { if (!stopped) controller.abort(); return; }
+      if (!stopped) setTimeout(tick, CANCEL_POLL_MS);
+    }).catch(() => {
+      // A broker hiccup is not a cancel request: the job keeps running.
+      if (!stopped) setTimeout(tick, CANCEL_POLL_MS);
+    });
+  };
+  setTimeout(tick, CANCEL_POLL_MS);
+  return () => { stopped = true; };
 }
 
 let consumersStopped = false;
@@ -418,8 +471,16 @@ async function runConsumer(spec) {
       }
       continue;
     }
+    // B80.2: the job owns a controller. The broker flag is polled while the
+    // body runs, so a cancel request reaches a body that is already inside an
+    // external call; io.signal is what the body hands to io.remote.
+    const controller = new AbortController();
+    const messageId = envelope.id == null ? null : String(envelope.id);
+    const stopWatch = messageId && typeof queueDriver.isCancelled === 'function'
+      ? watchCancellation(spec, messageId, controller)
+      : null;
     try {
-      const out = await spec.fn(consumerInput(spec, envelope.payload), makeIo({ headers: {} }));
+      const out = await spec.fn(consumerInput(spec, envelope.payload), makeIo({ headers: {}, signal: controller.signal, messageId }));
       if (out && out.error) throw new Error('consumer returned error: ' + out.error);
       // A job that declares a result type promises one: returning nothing
       // means the body fell through (io.fetch returned null) and the message
@@ -430,6 +491,13 @@ async function runConsumer(spec) {
         throw new Error('consumer returned no result for its input');
       }
     } catch (error) {
+      // A cancelled job is finished, not failed: the message stays acked
+      // (it was popped by receive), no retry and no dead letter follow, and
+      // one line records the reason without the payload (B80.2).
+      if (error && error.kind === 'cancelled') {
+        console.warn('[arcod] queue ' + spec.topic + ': job cancelled, message acknowledged');
+        continue;
+      }
       const attempts = Number(envelope.attempts || 0) + 1;
       const maxAttempts = spec.retry + 1;
       const lastError = String((error && error.message) || error);
@@ -446,12 +514,19 @@ async function runConsumer(spec) {
           const delay = retryDelayMs(attempts);
           console.warn('[arcod] queue ' + spec.topic + ': attempt ' + attempts + '/' + maxAttempts + ' failed: ' + lastError + ', requeued in ' + delay + 'ms');
           await new Promise((resolve) => setTimeout(resolve, delay));
-          await queueDriver.requeue(spec.topic, JSON.stringify({ payload: envelope.payload, attempts }));
+          await queueDriver.requeue(spec.topic, JSON.stringify({ payload: envelope.payload, attempts, id: envelope.id }));
         }
       } catch (storeError) {
         // The broker is down at the worst moment: the attempt could not be
         // recorded, but the service must keep consuming once it is back.
         console.error('[arcod] queue ' + spec.topic + ': could not record a failed attempt: ' + String((storeError && storeError.message) || storeError));
+      }
+    } finally {
+      if (stopWatch) stopWatch();
+      // The id is spent: a cancel flag left behind would abort a future
+      // message only if the broker reused the id, and no driver does.
+      if (messageId && typeof queueDriver.forgetCancel === 'function') {
+        queueDriver.forgetCancel(spec.topic, messageId).catch(() => {});
       }
     }
   }
