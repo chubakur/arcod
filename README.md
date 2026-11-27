@@ -2052,11 +2052,6 @@ Errors:
   `impl/api/totals.mjs`): bodies are keyed by operation name, so one of the two
   would never run. The error names the operation and both files, and the build
   refuses the pair before emitting anything.
-- `A094` is retired: a `kv` alias bound to `redis` next to a sql store used
-  to be an error because the runtime had one store. The emitter now runs both
-  (entities on sql, the message/TTL pair on the alias; see "One model,
-  different providers"), so the bind is the documented way to ask for a TTL
-  cache and the code is no longer raised.
 - `A089` a type or enum is declared with a builtin name (`type int = string`):
   OpenAPI listed the declaration under components while every use site resolved
   the builtin, so one module stated two contracts at once and the runtime, the
