@@ -1362,8 +1362,10 @@ winner, because the loser re-reads the winner's row under the lock and no
 longer matches; parallel `{ inc: 1 }` steps are serialized per record, so none
 is lost. The lock is a lease: a writer that dies mid-write holds a record for
 5 s, not forever, and a caller that waits longer than 10 s gets `Conflict`.
-Reading it needs `store.updateWhere` in `effects`. Today the effect exists on
-`kv` only — a `sql` service is refused by `check` until its facade lands.
+A `sql` service takes the same call: the rows come from the same `where` as a
+`find`, each one is re-read under its lease, and the write goes through the
+typed table (`UPDATE`), so the unique keys stay the table's business. Reading it
+needs `store.updateWhere` in `effects` on either store.
 
 A total is a separate call, not a page you fold yourself:
 

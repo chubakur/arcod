@@ -833,6 +833,20 @@ class PgStore {
     return result.affected === 1;
   }
 
+  // Same lease as the mysql store: clear an expired row, then insert-if-absent.
+  async lock(key, token, ttlMs) {
+    await this.query('DELETE FROM arcod_kv WHERE k = ' + pgLiteral('string', key) + ' AND expires_at <= ' + Date.now());
+    const result = await this.query(
+      'INSERT INTO arcod_kv (k, v, expires_at) VALUES (' + pgLiteral('string', key) + ', ' + pgBytes(String(token)) + ', ' + (Date.now() + Number(ttlMs || 0)) + ') ON CONFLICT (k) DO NOTHING'
+    );
+    return result.affected === 1;
+  }
+
+  async unlock(key, token) {
+    const result = await this.query('DELETE FROM arcod_kv WHERE k = ' + pgLiteral('string', key) + ' AND v = ' + pgBytes(String(token)));
+    return result.affected > 0;
+  }
+
   async exists(key) {
     const found = await this.query(
       'SELECT 1 FROM arcod_kv WHERE k = ' + pgLiteral('string', key) + ' AND expires_at > ' + Date.now() + ' LIMIT 1'

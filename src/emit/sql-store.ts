@@ -710,6 +710,22 @@ class SqlStore {
     return result.affected === 1;
   }
 
+  // updateWhere's lease. The row already exists when a writer dies, so the
+  // insert first clears an expired lease: INSERT IGNORE would otherwise keep
+  // the row forever and the record would never be writable again.
+  async lock(key, token, ttlMs) {
+    await this.query("DELETE FROM arcod_kv WHERE k = " + literal(hexOf(key)) + " AND expires_at <= " + Date.now());
+    const result = await this.query(
+      "INSERT IGNORE INTO arcod_kv (k, v, expires_at) VALUES (" + literal(hexOf(key)) + ", " + literal(hexOf(String(token))) + ", " + (Date.now() + Number(ttlMs || 0)) + ")"
+    );
+    return result.affected === 1;
+  }
+
+  async unlock(key, token) {
+    const result = await this.query("DELETE FROM arcod_kv WHERE k = " + literal(hexOf(key)) + " AND v = " + literal(hexOf(String(token))));
+    return result.affected > 0;
+  }
+
   async exists(key) {
     const found = await this.query(
       "SELECT 1 FROM arcod_kv WHERE k = " + literal(hexOf(key)) + " AND expires_at > " + Date.now() + " LIMIT 1"

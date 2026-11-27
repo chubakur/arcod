@@ -157,3 +157,45 @@ test('kv: an inc that is not a number is a 400 and names the field', async () =>
     await svc.stop();
   }
 });
+
+// The sql facade is a different code path (typed tables, entityFind/
+// entityUpdate) even under the memory driver, so the same acceptance runs
+// there too: a shared primitive whose two halves disagree is the bug.
+const sqlSpec = spec
+  .split('use capability arcod.std.kv @1').join('use capability arcod.std.sql @1')
+  .split('uses store: kv').join('uses store: sql');
+
+test('sql: 100 parallel increments all land, none is lost', async () => {
+  const svc = await startService(sqlSpec, { impl });
+  try {
+    const seeded = await post(svc.base, '/v1/seed');
+    assert.equal(seeded.status, 201, await seeded.text());
+    const answers = await Promise.all(Array.from({ length: 100 }, () => post(svc.base, '/v1/bump')));
+    const bodies = await Promise.all(answers.map((item) => item.json()));
+    for (const answer of answers) assert.equal(answer.status, 201);
+    assert.equal(bodies.reduce((sum, item) => sum + Number(item.updated), 0), 100);
+    const final = await (await post(svc.base, '/v1/bump')).json();
+    assert.ok(final.seq >= 101, 'the counter kept every step, saw ' + final.seq);
+  } finally {
+    await svc.stop();
+  }
+});
+
+test('sql: two racing conditional writes have exactly one winner', async () => {
+  const svc = await startService(sqlSpec, { impl });
+  try {
+    await post(svc.base, '/v1/seed');
+    const [left, right] = await Promise.all([
+      post(svc.base, '/v1/claim', { worker: 'a' }),
+      post(svc.base, '/v1/claim', { worker: 'b' }),
+    ]);
+    assert.equal(left.status, 201);
+    assert.equal(right.status, 201);
+    const a = await left.json();
+    const b = await right.json();
+    assert.equal(Number(a.updated) + Number(b.updated), 1, 'one claim wins, the other finds nothing to change');
+  } finally {
+    await svc.stop();
+  }
+});
+
