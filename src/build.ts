@@ -3,6 +3,7 @@ import { dirname, join, relative, sep } from 'node:path';
 import type { EnvironmentNode, ModuleNode } from './ast.ts';
 import { emitService, maxBodyBytes, pickService } from './emit/service.ts';
 import { emitWeb, ssrFirstScreenOp } from './emit/web.ts';
+import { goDockerfile, goMain, goMod, goOps, goUnsupported } from './emit/go.ts';
 import { composeYaml, localEnvironment, localImage, nginxConf, serviceDockerfile, webDockerfile } from './emit/compose.ts';
 import { buildPrompts, promptManifest, promptPath } from './prompts.ts';
 import { deployManifest, deployProvider, literalMap } from './deploy.ts';
@@ -118,6 +119,22 @@ export async function scanImplFiles(dir: string, serviceNames: string[] = []): P
     }
   }
   return files;
+}
+
+// Go bodies would live at impl/<op>.go or impl/<service>/<op>.go (B109); the
+// build scans for them only to say it cannot read them yet.
+async function goBodyFiles(dir: string, serviceNames: string[]): Promise<string[]> {
+  const found: string[] = [];
+  const visit = async (base: string, prefix: string): Promise<void> => {
+    const entries = await readdir(base, { withFileTypes: true }).catch(() => null);
+    if (!entries) return;
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith('.go')) found.push('impl/' + prefix + entry.name);
+    }
+  };
+  await visit(dir, '');
+  for (const name of serviceNames) await visit(join(dir, name), name + '/');
+  return found.sort();
 }
 
 function duplicatesIn(files: ImplFile[]): ImplDuplicate[] {
@@ -304,14 +321,14 @@ function checkImplDeclarations(impl: Record<string, string>, lib?: string): void
 // not destroy the last good one. Everything is emitted into a sibling staging
 // directory and swapped in only after the last file is written.
 export async function buildExample(mod: ModuleNode, exampleDir: string, options: BuildOptions = {}): Promise<BuildResult> {
-  // `language:` picks the emitter. Until the Go and Python kits exist (B107,
-  // B108), generating Node for a service that asked for Go would be exactly
-  // the silent wrong-runtime bug the clause is meant to prevent.
-  const unsupported = mod.services.find((svc) => !svc.external && svc.language && svc.language !== 'node');
+  // `language:` picks the emitter. Node and Go have one; Python (B108) does
+  // not, and generating Node for a service that asked for Python would be
+  // exactly the silent wrong-runtime bug the clause is meant to prevent.
+  const unsupported = mod.services.find((svc) => !svc.external && svc.language && svc.language !== 'node' && svc.language !== 'go');
   if (unsupported) {
     throw new BuildError(
       'service ' + unsupported.name + ' asks for language: ' + unsupported.language +
-      ', but this build emits node only; drop the clause or wait for the ' + unsupported.language + ' emitter',
+      ', but this build emits node and go only; drop the clause or wait for the ' + unsupported.language + ' emitter',
     );
   }
   const dir = join(exampleDir, '.arcod', 'build');
@@ -458,9 +475,39 @@ async function buildInto(mod: ModuleNode, exampleDir: string, dir: string, optio
   const pages = webHtml && firstUi && firstUi.render === 'ssr'
     ? [{ route: firstUi.route, html: webHtml, dataOp: ssrFirstScreenOp(mod) }]
     : [];
+  // A body under impl/<service>/<op>.go is a body the author wrote, but the Go
+  // kit still writes its own ops.go stubs and does not read them. Building a
+  // service that ignores the file would look like a working build and answer
+  // NotImplemented at request time, so the build refuses instead.
+  if (serviceBuilds.some((item) => (item.service?.language ?? 'node') === 'go')) {
+    const goBodies = await goBodyFiles(implDir, bodyServices);
+    if (goBodies.length > 0) {
+      throw new BuildError(
+        'Go bodies are not wired yet: ' + goBodies.join(', ') +
+        '; the Go kit writes ops.go stubs, so these bodies would be ignored',
+      );
+    }
+  }
   const files: Array<[string, string]> = [];
   for (const [index, build] of serviceBuilds.entries()) {
     const serviceDir = serviceDirs[index]!;
+    if ((build.service?.language ?? 'node') === 'go') {
+      const svc = build.service!;
+      const missing = goUnsupported(mod, svc);
+      if (missing.length > 0) {
+        throw new BuildError(
+          'service ' + svc.name + ' is language: go, but the Go kit does not carry ' + missing.join(', ') +
+          ' yet; keep the service in node or wait for the next Go slice',
+        );
+      }
+      files.push(
+        [join(serviceDir, 'main.go'), goMain(mod, svc)],
+        [join(serviceDir, 'ops.go'), goOps(mod, svc)],
+        [join(serviceDir, 'go.mod'), goMod(svc)],
+        [join(serviceDir, 'Dockerfile'), goDockerfile()],
+      );
+      continue;
+    }
     const service = emitService(mod, {
       reference,
       impl,

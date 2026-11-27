@@ -104,10 +104,19 @@ test('build --json names the language per service, and refuses a non-node one', 
       { name: 'Worker', language: 'node' },
     ]);
 
+    // B107: go has an emitter now; the same module builds a Go front and a
+    // Node worker, each in its own context.
     const go = parse(spec('  language: go'), 'main.arc');
+    const mixed = await buildExample(go, dir, { implDir: null });
+    assert.equal(mixed.files.some((file) => file.endsWith(join('service', 'main.go'))), true);
+    assert.equal(mixed.files.some((file) => file.endsWith(join('service', 'index.mjs'))), false);
+    assert.equal(mixed.files.some((file) => file.endsWith(join('service-worker', 'index.mjs'))), true);
+
+    // Python is B108: still refused, never generated as Node.
+    const py = parse(spec('  language: python'), 'main.arc');
     await assert.rejects(
-      buildExample(go, dir, { reference: true, implDir: null }),
-      /service Front asks for language: go, but this build emits node only/,
+      buildExample(py, dir, { reference: true, implDir: null }),
+      /asks for language: python, but this build emits node and go only/,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });

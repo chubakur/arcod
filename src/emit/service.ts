@@ -3447,6 +3447,12 @@ export function statusForError(name: string): number {
   return errorInfo(name).status;
 }
 
+// The Go kit answers a declared error with the same message the Node runtime
+// sends, so a client cannot tell which language generated the service.
+export function messageForError(name: string): string {
+  return errorInfo(name).message;
+}
+
 // What `auth`, `roles:` and `owner:` mean to a caller. OpenAPI has no keyword
 // for the last two and GraphQL has none for any, so both emitters publish these
 // sentences; the wording lives here once, next to the status table they read.

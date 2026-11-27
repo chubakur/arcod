@@ -380,11 +380,18 @@ own service; a one-service module keeps its historical `service.yaml`. The
 chart carries the same split: every later service reads its image from its own
 `services.<name>` values entry.
 
-The service block may name its language: `language: node` (the default) is the
-only emitter today; `language: go` and `language: python` pass `check` and are
-reported by `build --json` under `services`, but `build` and `impl` refuse
-them until those port kits exist — silently generating the wrong runtime is
-worse than stopping. `language:` on an `external` service is an error.
+The service block may name its language. `language: node` (the default) is the
+full emitter. `language: go` builds a port-kit service: `main.go` with the
+routes, the input-kind coercion and the success statuses read from the same
+contract IR as Node, `/healthz`, one `ops.go` stub per operation, a `go.mod`
+and a multi-stage `Dockerfile`; the route pattern uses Go 1.22's `{id}` form.
+The kit is deliberately narrow: a service that uses a store, `stream`,
+`queue`, `graphql`, `olap`, `mail`, `files`, a ui page, roles, a saga, a job
+or `auth` is refused by name at build time, and so is a Go body on disk
+(`impl/*.go`) — the kit writes stubs and does not read bodies yet. `language:
+python` passes `check` and is reported by `build --json`, but `build` and
+`impl` refuse it until B108. Silently generating the wrong runtime is worse
+than stopping. `language:` on an `external` service is an error.
 
 ### The model as a capability
 
