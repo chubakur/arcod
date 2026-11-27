@@ -132,7 +132,7 @@ test('run --detach --json answers the reference gap as data', async () => {
   }
   assert.equal(r.code, 1, r.err);
   const report = JSON.parse(r.out);
-  assert.match(report.error, /demo handlers cover create and read only/);
+  assert.match(report.error, /does not imply a CRUD body/);
   assert.deepEqual(report.missing, ['ping'], 'the operation without a demo body is named');
   assert.match(report.advice, /impl\/ping\.mjs/);
 });
