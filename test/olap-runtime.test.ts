@@ -147,7 +147,12 @@ test('raw sql accepts one read-only statement and refuses a write before the net
     assert.equal(clickhouse.requests.length, 0);
     const rows = await adapter.olapSql('SELECT 1 AS one FORMAT JSON', {});
     assert.deepEqual(rows, [{ one: 1 }]);
-    assert.equal(new URL(clickhouse.requests[0].url, 'http://localhost').searchParams.get('query'), 'SELECT 1 AS one FORMAT JSON');
+    const sent = new URL(clickhouse.requests[0].url, 'http://localhost').searchParams;
+    assert.equal(sent.get('query'), 'SELECT 1 AS one FORMAT JSON');
+    // The escape hatch runs read-only under a time and row bound (B95.4).
+    assert.equal(sent.get('readonly'), '1');
+    assert.equal(sent.get('max_execution_time'), '30');
+    assert.equal(sent.get('max_result_rows'), '10000');
   } finally {
     await clickhouse.stop();
   }
