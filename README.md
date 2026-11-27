@@ -444,7 +444,11 @@ against the running binary, and `test/go-live.test.ts` does exactly that
 with the real toolchain (it compiles the service and points it at a fake
 RESP store, since the VM has no docker). `test/go-job-live.test.ts` pushes
 the Node envelope at a generated job service and requires two things: the
-body's kv write, and the failing message in `<topic>:dead`. A rule such as `atomic read { get; del }` is not
+body's kv write, and the failing message in `<topic>:dead`. Pairing both
+languages is `test/mixed-queue-live.test.ts`: a generated Node service
+publishes through its own body, the generated Go service consumes it, and the
+assertion is the Go body's kv write — the two emitters have to agree on the
+envelope, or the test fails. A rule such as `atomic read { get; del }` is not
 carried by the emitter for Go — no generated body exists to obey it — so the
 author's body keeps that promise and `arcod test` is what checks it.
 `language: python` passes
