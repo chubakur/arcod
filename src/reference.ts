@@ -158,7 +158,18 @@ function shapeFor(mod: ModuleNode, op: OpNode): Shape | { gap: string } {
   return { form, entity: chooseEntity(mod, op, fields, op.returns), pathParam, fields };
 }
 
-function generatedCreate(mod: ModuleNode, shape: Shape, op: OpNode): string {
+// A value-store record has no schema, so the id has to travel with it when the
+// contract's record shape names an id: otherwise read answers the fields the
+// create body stored, but not the id the same contract declares.
+function needsStoredId(mod: ModuleNode, svc: ServiceNode): boolean {
+  return svc.contract.some((item) => {
+    if (item.kind !== 'op') return false;
+    const shape = namedRecord(mod, item.returns) ?? (inlineRecord(item.returns) ? { fields: inlineRecord(item.returns)! } : null);
+    return Boolean(shape && shape.fields.some((field) => field.name === 'id'));
+  });
+}
+
+function generatedCreate(mod: ModuleNode, svc: ServiceNode, shape: Shape, op: OpNode): string {
   const named = op.params.find((param) => namedRecord(mod, param.type));
   const idParam = op.params.find((param) => param.name === 'id');
   const value = named
@@ -171,8 +182,12 @@ function generatedCreate(mod: ModuleNode, shape: Shape, op: OpNode): string {
     lines.push('  const stored = await io.insert(' + quote(shape.entity) + ', record);');
     lines.push('  return { result: ' + (returnsRecord(mod, op.returns) ? 'stored' : 'stored.id') + ' };');
   } else {
-    lines.push('  const record = ' + value + ';');
+    const idField = needsStoredId(mod, svc) && !shape.fields.includes('id');
+    // One id, not two: the value stored under it and the id answered must be
+    // the same uuid, or a read of the returned id answers NotFound.
     lines.push(idParam ? '  const id = String(input.id);' : '  const id = io.new();');
+    const stored = idField ? '{ id, ...' + value + ' }' : value;
+    lines.push('  const record = ' + stored + ';');
     lines.push('  await io.set(id, record);');
     lines.push('  return { result: ' + (returnsRecord(mod, op.returns) ? 'record' : 'id') + ' };');
   }
@@ -287,7 +302,7 @@ export function referenceBodies(mod: ModuleNode, svc: ServiceNode): ReferenceBod
       continue;
     }
     let source = '';
-    if (shape.form === 'create') source = generatedCreate(mod, shape, op);
+    if (shape.form === 'create') source = generatedCreate(mod, svc, shape, op);
     else if (shape.form === 'read') source = generatedRead(mod, svc, shape, op);
     else if (shape.form === 'update') source = generatedUpdate(shape, op);
     else if (shape.form === 'delete') source = generatedDelete(mod, shape, op);

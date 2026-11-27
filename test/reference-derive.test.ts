@@ -222,3 +222,97 @@ const chargeSpec = [
   '}',
   '',
 ].join('\n');
+
+const noteSpec = [
+  'module notes @0.1.0 {',
+  '  meta {',
+  '    owner: "@me"',
+  '  }',
+  '}',
+  'use capability arcod.std.kv @1',
+  'error NotFound',
+  'error Invalid',
+  'service Notes : http {',
+  '  uses store: kv',
+  '  effects {',
+  '    allow store.insert, store.find, store.update, store.del, store.get, store.set, store.scan',
+  '    deny net, fs, exec',
+  '  }',
+  '  contract {',
+  '    public op create(title: string) -> string {',
+  '      route: "POST /v1/notes"',
+  '      errors: Invalid',
+  '      on error Invalid: title != null',
+  '    }',
+  '    public op read(id: string) -> { id: string, title: string } {',
+  '      route: "GET /v1/notes/:id"',
+  '      errors: NotFound',
+  '      on error NotFound: id != null',
+  '    }',
+  '    public op update(id: string, title: string) -> { id: string, title: string } {',
+  '      route: "PATCH /v1/notes/:id"',
+  '      status: 200',
+  '      errors: NotFound, Invalid',
+  '      on error NotFound: id != null',
+  '      on error Invalid: id != null',
+  '    }',
+  '    public op delete(id: string) -> { id: string, title: string } {',
+  '      route: "DELETE /v1/notes/:id"',
+  '      status: 200',
+  '      errors: NotFound',
+  '      on error NotFound: id != null',
+  '    }',
+  '    public op list() -> list<{ id: string, title: string }> {',
+  '      route: "GET /v1/notes"',
+  '    }',
+  '  }',
+  '}',
+  'environment dev {',
+  '  bind store -> redis(host: "kv", port: 6379)',
+  '  deploy docker',
+  '}',
+  '',
+].join('\n');
+
+test('an inline record gets the value-store CRUD bodies', async () => {
+  const mod = parse(noteSpec, 'main.arc');
+  const derived = referenceBodies(mod, mod.services[0]!);
+  assert.deepEqual(derived.gaps, []);
+  assert.deepEqual(derived.entities, []);
+  assert.match(derived.bodies.create!, /io\.set/);
+  assert.match(derived.bodies.update!, /io\.load/);
+  assert.match(derived.bodies.delete!, /io\.del/);
+  assert.match(derived.bodies.list!, /io\.scan/);
+});
+
+test('an inline record reference round-trips update/delete/list', async () => {
+  const svc = await startService(noteSpec, { reference: true });
+  try {
+    const created = await fetch(svc.base + '/v1/notes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'first' }),
+    });
+    assert.equal(created.status, 201);
+    const id = await created.text();
+
+    const read = await fetch(svc.base + '/v1/notes/' + id);
+    assert.deepEqual(await read.json(), { id, title: 'first' });
+
+    const updated = await fetch(svc.base + '/v1/notes/' + id, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'second' }),
+    });
+    assert.equal((await updated.json()).title, 'second');
+
+    const listed = await fetch(svc.base + '/v1/notes');
+    assert.deepEqual((await listed.json()).map((item: { title: string }) => item.title), ['second']);
+
+    const removed = await fetch(svc.base + '/v1/notes/' + id, { method: 'DELETE' });
+    assert.equal((await removed.json()).title, 'second');
+    assert.equal((await fetch(svc.base + '/v1/notes/' + id)).status, 404);
+  } finally {
+    await svc.stop();
+  }
+});
