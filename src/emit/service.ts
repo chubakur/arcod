@@ -3132,11 +3132,21 @@ function implHandlers(
     const outboxPublishLater = storageKind(svc) === 'sql'
       ? '    async queuePublishLater(topic, message, delaySeconds) {' + publishLaterGuard + ' return store.outboxAppend(randomUUID(), String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0 }), Date.now() + Math.round(seconds * 1000)); },'
       : '    async queuePublishLater(topic, message, delaySeconds) {' + publishLaterGuard + ' return queuePublishLaterDriver(String(topic), JSON.stringify({ payload: message === undefined ? null : message, attempts: 0 }), Math.round(seconds * 1000)); },';
+    // B115: drop is the capability name for queueDeadDrop; one implementation,
+    // two spellings, so a body that follows the signature is not a TypeError.
+    const dropAlias = '    async drop(topic, payload) { const wanted = JSON.stringify(payload === undefined ? null : payload); const items = await queueDeadDriver(String(topic)); for (const item of items) { let envelope; try { envelope = JSON.parse(item); } catch { envelope = undefined; } const carried = envelope && typeof envelope === "object" && envelope !== null && Object.prototype.hasOwnProperty.call(envelope, "payload") ? envelope.payload : envelope; if (JSON.stringify(carried) === wanted) return queueDeadDropDriver(String(topic), item); } return false; },';
     parts.push(
       outboxPublish,
       outboxPublishLater,
       '    async queueDead(topic) { const items = await queueDeadDriver(String(topic)); return items.map((item) => { try { return JSON.parse(item); } catch { return item; } }); },',
       '    async queueDeadDrop(topic, payload) { const wanted = JSON.stringify(payload === undefined ? null : payload); const items = await queueDeadDriver(String(topic)); for (const item of items) { let envelope; try { envelope = JSON.parse(item); } catch { envelope = undefined; } const carried = envelope && typeof envelope === "object" && envelope !== null && Object.prototype.hasOwnProperty.call(envelope, "payload") ? envelope.payload : envelope; if (JSON.stringify(carried) === wanted) return queueDeadDropDriver(String(topic), item); } return false; },',
+      // B115: the capability calls these dead(topic) and drop(topic, payload),
+      // while the runtime owned the queue* spelling. A body that followed the
+      // signature answered TypeError from a method that did not exist. Both
+      // names are emitted, the same implementation behind each, so the old
+      // spelling keeps working and the signature is no longer a lie.
+      '    async dead(topic) { const items = await queueDeadDriver(String(topic)); return items.map((item) => { try { return JSON.parse(item); } catch { return item; } }); },',
+      dropAlias,
     );
   }
 

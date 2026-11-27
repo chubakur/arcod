@@ -1075,8 +1075,10 @@ Semantics, enforced by the generated runtime rather than written in bodies:
 - a failing body — an exception or `{ error: ... }` — is retried up to
   `retry` times (default 3) with an exponential pause before each requeue
   (250ms, then doubling, capped at 30s), then moved to the dead letter queue, readable
-  with `io.queueDead(topic)`; `io.queueDeadDrop(topic, payload)` takes the
-  first entry carrying that payload out of the list (`false` when there is
+  with `io.dead(topic)` — the name the `queue` capability declares — and
+  `io.queueDead` is the same method under the spelling the runtime grew first;
+  `io.drop(topic, payload)` (`io.queueDeadDrop` likewise) takes the first
+  entry carrying that payload out of the list (`false` when there is
   none), so a replayed message does not sit there forever; every requeue and
   every dead letter writes one line to the service log — topic, attempt number,
   `lastError` — and never the payload; a failing `receive` (a broker restart)
