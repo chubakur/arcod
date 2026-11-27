@@ -2256,3 +2256,37 @@ test('a path segment repeated twice in one route is A072', () => {
   assert.deepEqual(code('GET /v1/locks/:name/:fence'), [], 'distinct names are the normal case');
   assert.deepEqual(code('GET /v1/locks'), [], 'no segments, nothing to repeat');
 });
+
+// B95.5: the analytical container is healthy before the service starts, and the
+// service authenticates as the user that container creates. A compose file that
+// misses either starts and then fails every olap call — a service that looks up
+// while the store is still booting, or a request refused as anonymous.
+test('compose waits for clickhouse and hands the service its user', () => {
+  const spec = [
+    'module m @0.1.0 {}',
+    'type Row = { id: string, day: string }',
+    'service S : http {',
+    '  uses events: olap(orderBy: "day")',
+    '  effects {',
+    '    allow events.append',
+    '  }',
+    '  contract {',
+    '    public op add(id: string) -> { ok: bool } {',
+    '      route: "POST /v1/a"',
+    '      effects: events.append',
+    '    }',
+    '  }',
+    '}',
+    'environment dev {',
+    '  bind events -> clickhouse(host: "ch")',
+    '  deploy docker',
+    '}',
+  ].join('\n');
+  const yaml = composeYaml(parse(spec, 'main.arc'), 8080, false);
+  assert.match(yaml, /ch:\n    image: clickhouse\/clickhouse-server:24\.8-alpine/);
+  assert.match(yaml, /healthcheck:\n      test: \["CMD-SHELL", "wget -qO- http:\/\/127\.0\.0\.1:8123\/ping/);
+  assert.match(yaml, /depends_on:\n      ch:\n        condition: service_healthy/);
+  assert.match(yaml, /CLICKHOUSE_URL: "http:\/\/ch:8123"/);
+  assert.match(yaml, /CLICKHOUSE_USER: "arcod"/);
+  assert.match(yaml, /CLICKHOUSE_PASSWORD: "arcod"/);
+});
