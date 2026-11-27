@@ -73,7 +73,8 @@ test('the reference adapter answers a request and writes the file', async () => 
         body: JSON.stringify({ to: 'ops', text: 'disk almost full' }),
       });
       assert.equal(res.status, 201);
-      assert.equal((await res.json()).id, 'queued:ops');
+      // `notify -> string` answers the declared string as text (B60).
+      assert.equal(await res.text(), 'queued:ops');
       assert.equal(await readFile(file, 'utf8'), 'ops\tdisk almost full\n', 'the adapter ran in the service');
     } finally {
       await svc.stop();

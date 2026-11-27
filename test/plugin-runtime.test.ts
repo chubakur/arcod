@@ -146,8 +146,8 @@ test('a plugin capability answers through its copied adapter', async () => {
       body: JSON.stringify({ to: '+123' }),
     });
     assert.equal(res.status, 201);
-    const body = await res.json();
-    assert.equal(body.id, 'sent:+123', 'the adapter answered, not a stub');
+    // The op declares `-> string`, so the answer is that string (B60).
+    assert.equal(await res.text(), 'sent:+123', 'the adapter answered, not a stub');
   } finally {
     await svc.stop();
   }

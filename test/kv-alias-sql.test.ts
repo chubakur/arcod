@@ -201,8 +201,10 @@ test('a live sql service writes the cache to redis, not to the sql kv table', as
     });
     const createdText = await created.text();
     assert.equal(created.status, 201, createdText);
-    const createdBody = JSON.parse(createdText) as string | { id?: string };
-    const id = typeof createdBody === 'string' ? createdBody : String(createdBody.id ?? '');
+    // `create -> string` answers the declared string as text/plain (B60); the
+    // envelope only appears for an op that declares Gone.
+    const createdBody = createdText.trim();
+    const id = createdBody.startsWith('{') ? String((JSON.parse(createdBody) as { id?: string }).id ?? '') : createdBody;
     assert.match(id, /^[0-9a-f-]{36}$/, createdText);
 
     const key = 'msg:cache:' + id;
