@@ -75,7 +75,7 @@ test('the queue capability declares the cancel effect and its signature', () => 
 });
 
 test('the queue notes say io.signal and io.messageId are job-only', () => {
-  const notes = capabilityFor('queue')!.notes;
+  const notes = capabilityFor('queue')!.notes ?? '';
   assert.match(notes, /io\.messageId/);
   assert.match(notes, /io\.signal/);
   assert.match(notes, /only in a job/i);
@@ -95,10 +95,10 @@ test('a phantom effect name is an error and the known list names cancel', () => 
     'allow store.set, events.publish, events.cancelJob, uuid.new');
   const diags = errors(broken).filter((item) => item.code === 'A044');
   assert.equal(diags.length, 1, 'one A044 for the misspelled effect');
-  assert.match(diags[0].message, /events\.cancelJob does not exist in queue/);
-  assert.match(diags[0].hint ?? '', /publish/);
-  assert.match(diags[0].hint ?? '', /cancel/);
-  assert.match(diags[0].hint ?? '', /drop/);
+  assert.match(diags[0]!.message, /events\.cancelJob does not exist in queue/);
+  assert.match(diags[0]!.hint ?? '', /publish/);
+  assert.match(diags[0]!.hint ?? '', /cancel/);
+  assert.match(diags[0]!.hint ?? '', /drop/);
 });
 
 test('an operation may not use the io method name as an effect', () => {
@@ -107,7 +107,7 @@ test('an operation may not use the io method name as an effect', () => {
   const broken = SPEC.replace('effects: events.cancel\n', 'effects: events.cancelJob\n');
   const diags = errors(broken).filter((item) => item.code === 'A004');
   assert.equal(diags.length, 1, 'one A004 for the method spelling');
-  assert.match(diags[0].message, /effect events\.cancelJob is not allowed/);
+  assert.match(diags[0]!.message, /effect events\.cancelJob is not allowed/);
 });
 
 test('the prompt for an operation that cancels shows the signature', () => {
