@@ -657,7 +657,10 @@ if (out.body.accepted) { ... }
 `io.remote` returns `{ status, body }`, never the body alone: `body` is the
 parsed JSON (or the raw text when the answer is not JSON). A non-2xx answer
 throws instead of returning, and the error text carries the status and the
-first 200 characters of the response body.
+first 200 characters of the response body. An optional fourth argument,
+`io.remote(service, op, input, { signal })`, carries an `AbortSignal`; the
+service ceiling still applies, and an aborted call throws an error with
+`kind: 'cancelled'` so a caller can tell it from a timeout.
 
 The emitter takes the method and path from the contract, the base URL from the
 environment (`LEDGER_URL`), so the body never knows an address. In compose,

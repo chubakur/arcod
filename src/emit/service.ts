@@ -3229,7 +3229,7 @@ function implHandlers(
   }
 
   if (externals.length > 0) {
-    parts.push('    async remote(service, op, input) { return remoteCall(service, op, input); },');
+    parts.push('    async remote(service, op, input, options) { return remoteCall(service, op, input, options); },');
   }
 
   if (hasBlob) {
@@ -3457,7 +3457,7 @@ function remoteSource(externals: ServiceNode[]): string {
 
 const REMOTE = ${JSON.stringify(table, null, 2)};
 
-async function remoteCall(service, op, input) {
+async function remoteCall(service, op, input, options) {
   const route = REMOTE[service + '.' + op];
   if (!route) throw new Error('remote: unknown operation ' + service + '.' + op);
   const base = String(process.env[route.env] || '').replace(/\\/+$/, '');
@@ -3484,14 +3484,31 @@ async function remoteCall(service, op, input) {
   const init = { method: route.method, headers: {} };
   const ctx = requestCtx.getStore();
   if (ctx && ctx.id) init.headers['x-request-id'] = ctx.id;
-  if (CONFIG.timeoutMs) init.signal = AbortSignal.timeout(CONFIG.timeoutMs);
+  // B80: a caller may bring its own AbortSignal (a job whose cancel was
+  // requested); the service ceiling still applies, so the two are combined
+  // rather than one replacing the other.
+  const external = options && options.signal ? options.signal : null;
+  const timeout = CONFIG.timeoutMs ? AbortSignal.timeout(CONFIG.timeoutMs) : null;
+  if (external && timeout) init.signal = AbortSignal.any([timeout, external]);
+  else if (external) init.signal = external;
+  else if (timeout) init.signal = timeout;
   if (route.method !== 'GET' && route.method !== 'DELETE' && route.method !== 'HEAD') {
     init.headers['content-type'] = 'application/json';
     init.body = JSON.stringify(body);
   }
 
   metricCapability('remote.' + service + '.' + op);
-  const response = await withSpan('remote.' + service + '.' + op, { method: route.method, path: route.path }, () => fetch(url, init));
+  let response;
+  try {
+    response = await withSpan('remote.' + service + '.' + op, { method: route.method, path: route.path }, () => fetch(url, init));
+  } catch (error) {
+    if (external && external.aborted) {
+      const cancelled = new Error('remote: ' + service + '.' + op + ' cancelled');
+      cancelled.kind = 'cancelled';
+      throw cancelled;
+    }
+    throw error;
+  }
   const raw = await response.text();
   let data = null;
   try { data = raw ? JSON.parse(raw) : null; } catch (error) { data = raw; }

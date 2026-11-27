@@ -1458,7 +1458,7 @@ test('the remote client is emitted only for declared external services', async (
   assert.ok(service.includes('"method": "POST"'));
   assert.ok(service.includes('"path": "/v1/entries"'));
   assert.ok(service.includes('"env": "LEDGER_URL"'));
-  assert.ok(service.includes('async remote(service, op, input)'));
+  assert.ok(service.includes('async remote(service, op, input, options)'));
 });
 
 test('external services report broken or unbound declarations', async () => {
