@@ -121,7 +121,7 @@ async function llmChat(messages, system) {
   if (LLM_DRIVER === 'memory') {
     const last = list.length > 0 ? list[list.length - 1] : null;
     const asked = last && typeof last.content === 'string' ? last.content : '';
-    return { content: 'memory: ' + asked, model: 'memory' };
+    return { content: 'memory: ' + asked, model: 'memory', usage: { prompt: 0, completion: 0, total: 0 } };
   }
   const payload = {
     model: LLM_MODEL,
@@ -154,7 +154,21 @@ async function llmChat(messages, system) {
       ? data.choices[0].message.content
       : null;
     if (typeof content !== 'string') throw llmError('unknown', 'llm: no content in response');
-    return { content, model: data.model || LLM_MODEL };
+    // A provider that bills tokens reports usage; one that does not (a local
+    // runner, a mock) answers zeros, so a budget body never does arithmetic on
+    // undefined (B118).
+    const rawUsage = data && data.usage && typeof data.usage === 'object' ? data.usage : {};
+    const count = (value) => {
+      const number = Math.trunc(Number(value));
+      return Number.isFinite(number) && number > 0 ? number : 0;
+    };
+    const usage = {
+      prompt: count(rawUsage.prompt_tokens),
+      completion: count(rawUsage.completion_tokens),
+      total: count(rawUsage.total_tokens),
+    };
+    if (usage.total === 0) usage.total = usage.prompt + usage.completion;
+    return { content, model: data.model || LLM_MODEL, usage };
   } catch (error) {
     if (error && error.name === 'AbortError') throw llmError('unknown', 'llm: timeout after ' + LLM_TIMEOUT_MS + 'ms');
     if (error && !error.kind) throw llmError('unknown', String(error && error.message ? error.message : error));

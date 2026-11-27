@@ -484,8 +484,11 @@ environment prod {
 ```
 
 Both providers speak the OpenAI-compatible `/chat/completions`, so the body is
-the same: `io.chat(messages, system)`. Naming a vendor in the model is forbidden
-(`A003`). The same endpoint answers embeddings: `io.embed(texts)` returns one vector
+the same: `io.chat(messages, system)`. It answers
+`{ content, model, usage: { prompt, completion, total } }`; `usage` is what the
+provider reported, and an endpoint that sends none answers zeros, so a budget
+body adds real tokens instead of estimating from string length. Naming a vendor
+in the model is forbidden (`A003`). The same endpoint answers embeddings: `io.embed(texts)` returns one vector
 per input, in request order, using `LLM_EMBED_MODEL` (or `LLM_MODEL`) — so a
 vector store asks for vectors instead of hashing text inside the body. The
 binding may promise the width: `bind model -> ollama(model: "nomic-embed-text", dim: 768)`

@@ -78,12 +78,12 @@ export const CAPABILITIES: Record<string, CapabilitySpec> = {
   // the same contract, so a body never names a vendor.
   llm: {
     effects: {
-      chat: 'chat(messages: list<{ role: string, content: string }>, system: string | null) -> { content: string, model: string }',
+      chat: 'chat(messages: list<{ role: string, content: string }>, system: string | null) -> { content: string, model: string, usage: { prompt: int, completion: int, total: int } }',
       model: 'model() -> string',
       embed: 'embed(texts: list<string>) -> list<list<float>>',
     },
     short: {
-      chat: 'chat(messages, system) -> {content,model}',
+      chat: 'chat(messages, system) -> {content,model,usage}',
       model: 'model() -> string',
       embed: 'embed(texts) -> list<list<float>>',
     },
