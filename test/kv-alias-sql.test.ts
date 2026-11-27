@@ -98,6 +98,14 @@ test('a redis bind next to a sql store is legal and splits the emitted store', (
   assert.ok(compose.includes('image: redis:7-alpine'), 'the alias actually starts a redis');
 });
 
+test('the split also works when the sql store speaks postgres', () => {
+  const mod = parse(spec.replace('bind store -> mysql', 'bind store -> postgres'), 'main.arc');
+  const source = emitService(mod, { impl, dialect: 'postgres' });
+  assert.ok(source.includes('class PgStore'), 'the entity store is the postgres client');
+  assert.ok(source.includes('const kvStore = spannedStore('), 'the kv alias still gets its own store');
+  assert.match(source, /"ttlMs": 900000/);
+});
+
 test('without a kv alias a sql service still carries no redis client', () => {
   const plain = parse(
     spec
