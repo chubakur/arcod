@@ -305,7 +305,7 @@
               <span><b style="color:var(--text); font-size:18px">0</b><br>runtime deps</span>
               <span><b style="color:var(--text); font-size:18px">134</b><br>diagnostics</span>
               <span><b style="color:var(--text); font-size:18px">11</b><br>capabilities</span>
-              <span><b style="color:var(--text); font-size:18px">1500+</b><br>tests</span>
+              <span><b style="color:var(--text); font-size:18px">1700+</b><br>tests</span>
             </div>
           </div>
         </div>
@@ -316,45 +316,45 @@
   <section id="news">
     <div class="wrap">
       <div class="kicker">what shipped this week</div>
-      <h2>Three things shipped on 2026-11-26.</h2>
+      <h2>Three things shipped on 2026-11-27.</h2>
       <p class="sub">Each is covered by tests in the repository.</p>
       <div class="grid-3">
         <div class="card">
-          <span class="num">2026-11-26 · SERVICES</span>
-          <h3>One model, more than one service</h3>
-          <p>A module can declare several internal services, and every emitter
-          follows the split. <code>compose</code> writes one container per
-          service, <code>k8s</code> a Deployment, a Service and an ingress path
-          for each, <code>terraform</code> an image per service, <code>openapi</code>
-          the paths of all of them (or one with <code>--service</code>), and
-          <code>build</code>, <code>prompts</code> and <code>test</code> keep a
-          per-service artifact. A body is filed under its own service —
-          <code>impl/&lt;service&gt;/&lt;op&gt;.mjs</code> — and the same operation
-          filed twice is refused by name (<code>A107</code>) instead of one file
-          winning quietly.</p>
+          <span class="num">2026-11-27 · OLAP</span>
+          <h3>A second store, for analytics</h3>
+          <p>A service can declare an analytical store beside its transactional
+          one: <code>uses events: olap(orderBy: "day", ttl: 30d)</code>. The
+          tables come from the bodies — <code>io.olapAppend</code> and
+          <code>io.olapSelect</code> name their record type, and only those get
+          ClickHouse DDL. <code>build</code> and <code>migrate</code> write
+          <code>clickhouse/schema.sql</code>, and <code>migrate --olap-url</code>
+          creates the tables over HTTP 8123. <code>io.olapSelect</code> takes
+          <code>groupBy</code>, <code>metrics</code> and the same
+          <code>where</code> operators as <code>find</code>; the raw
+          <code>io.olapSql</code> is read-only and bounded, and <code>W054</code>
+          says that query is ClickHouse's, not the model's.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-26 · BUILD</span>
-          <h3>dev on MySQL, prod on Postgres, one model</h3>
-          <p><code>arcod build --env prod</code> reads that environment's
-          <code>sql</code> binds and emits the dialect they speak. The examples
-          declare MySQL in <code>dev</code> and Postgres in <code>prod</code>, so
-          the prod build ships the Postgres client and Postgres migrations while
-          the dev build keeps MySQL. An environment that is not declared is
-          refused with the names that are, instead of guessing.
-          <code>--dialect</code> still forces one dialect when you want it.</p>
+          <span class="num">2026-11-27 · CONTRACT</span>
+          <h3>A POST that says what it did</h3>
+          <p><code>status: created 201, existed 200</code> declares several named
+          answers on one operation, and the body picks one:
+          <code>out = { result, status: 'existed' }</code>. An idempotent create
+          answers 201 the first time and 200 on a repeat with the same body, and
+          OpenAPI publishes both codes under their names. A name the contract does
+          not declare is a 500 that names the operation and the name, so a typo
+          cannot pass for success.</p>
         </div>
         <div class="card">
-          <span class="num">2026-11-26 · TEST</span>
-          <h3>Test what you already deployed</h3>
-          <p><code>arcod test --url &lt;base&gt;</code> skips the build and the
-          spawn: one <code>/healthz</code> probe, then the model's
-          <code>examples</code> against the service that is answering. An
-          unreachable address is <code>cannot reach &lt;base&gt;</code> with exit
-          2, and <code>--impl</code> together with <code>--reference</code> is a
-          usage error — so the run cannot quietly test a build you did not
-          deploy. A module with several services names one with
-          <code>--service</code>, and <code>--json</code> reports which.</p>
+          <span class="num">2026-11-27 · EXAMPLES</span>
+          <h3>Outbound calls, still typed</h3>
+          <p>A service can call another one through the <code>endpoint</code>
+          capability: <code>io.call('hook', 'POST', '/v1/notify', body)</code>.
+          The binding owns the host, so a body cannot spell an absolute URL, and
+          <code>W053</code> refuses a literal path that cannot reach the bound
+          host. <code>examples/relay</code> is the whole demo, including a test
+          that binds no URL and answers the declared <code>Unavailable</code>
+          instead of a generic 500.</p>
         </div>
       </div>
     </div>
@@ -526,6 +526,19 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           same <code>where</code> operators as <code>find</code>. On SQL each is one statement,
           on <code>kv</code> one fold of the filtered namespace; the effect is declared as
           <code>store.count</code> or <code>store.aggregate</code>.</p>
+        </div>
+        <div class="card">
+          <h3>Rows appended, aggregates typed</h3>
+          <p><code>uses events: olap(orderBy: "day", ttl: 30d)</code> adds an
+          analytical store: <code>io.olapAppend</code> writes one row as
+          <code>JSONEachRow</code>, and <code>io.olapSelect</code> answers
+          <code>groupBy</code> and <code>metrics</code> with the values sent as
+          parameters, never interpolated. The ClickHouse DDL is derived from the
+          record types the bodies name, <code>arcod migrate --olap-url</code>
+          creates the tables, compose runs a <code>/ping</code> healthcheck and
+          <code>/healthz</code> reports <code>olap: up|down</code>. The raw
+          <code>io.olapSql</code> escape hatch is read-only, bounded by time and
+          rows, and flagged by <code>W054</code>.</p>
         </div>
         <div class="card">
           <h3>One row, one shape on every driver</h3>
@@ -703,8 +716,8 @@ deploy.dev.json          deploy manifest per environment</code></pre>
   <section id="examples">
     <div class="wrap">
       <div class="kicker">examples that run</div>
-      <h2>Seventeen services, all in the repository.</h2>
-      <p class="sub">Each one is a single <code>.arc</code> file with its bodies in <code>impl/</code>; <code>arcod check 'examples/**'</code> reads all seventeen.</p>
+      <h2>Eighteen services, all in the repository.</h2>
+      <p class="sub">Each one is a single <code>.arc</code> file with its bodies in <code>impl/</code>; <code>arcod check 'examples/**'</code> reads all eighteen.</p>
       <div class="examples">
         <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/onetimemessage">
           <span class="path">examples/onetimemessage</span>
@@ -741,6 +754,12 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <h3>Calling a foreign service</h3>
           <p>A ledger that exists already: contract and address only.</p>
           <div class="tags"><span class="tag">external</span><span class="tag">endpoint</span></div>
+        </a>
+        <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/relay">
+          <span class="path">examples/relay</span>
+          <h3>Relay to another service</h3>
+          <p>One outbound call per request: the body names the path, the binding owns the host.</p>
+          <div class="tags"><span class="tag">endpoint</span><span class="tag">effects</span></div>
         </a>
         <a class="example" href="https://github.com/chubakur/arcod/tree/main/examples/quiz">
           <span class="path">examples/quiz</span>
@@ -822,10 +841,11 @@ deploy.dev.json          deploy manifest per environment</code></pre>
           <h3>What does not work yet</h3>
           <ul>
             <li><b>Scaffold without bodies</b> answers <code>501 NotImplemented</code> for every operation; a build is contracts, routes and adapters until bodies come from <code>--impl</code> or your own code.</li>
-            <li><b>No demo in <code>examples/</code> declares more than one internal service yet.</b> The split is covered by the CLI test suite; the seventeen demos are single-service, so a multi-service module has tests but no example to copy.</li>
+            <li><b>No demo in <code>examples/</code> declares more than one internal service yet.</b> The split is covered by the CLI test suite; the eighteen demos are single-service, so a multi-service module has tests but no example to copy.</li>
             <li><b>A body is <code>impl/&lt;op&gt;.mjs</code>, or <code>impl/&lt;service&gt;/&lt;op&gt;.mjs</code> in a module with several services.</b> A body written in a <code>.js</code> or <code>.ts</code> file next to the <code>.mjs</code> ones is not read: <code>W051</code> names that file, so it is not mistaken for a silent <code>W050</code>.</li>
             <li><b>The Postgres runtime is proven against a fake wire backend and an end-to-end example</b>, not yet against a live managed server in CI. MySQL remains the default build.</li>
-            <li><b>OLAP, metrics, secrets</b> and friends are provisioned in compose but have no effect signatures; <b>Kafka and RabbitMQ</b> provision a queue the adapter cannot speak — bind <code>queue</code> to Redis.</li>
+            <li><b>The ClickHouse store is append-and-read.</b> <code>io.olapAppend</code> is at-least-once — a retried job writes the row twice, so a metric that must not inflate asks for <code>distinct</code> — and there is no update or delete: a correction is another row. No demo binds <code>olap</code> yet; the store is covered by tests, not by an example to copy.</li>
+            <li><b>Metrics and secrets</b> are provisioned in compose but have no effect signatures; <b>Kafka and RabbitMQ</b> provision a queue the adapter cannot speak — bind <code>queue</code> to Redis.</li>
             <li><b><code>find</code> on <code>kv</code> is a scan with a filter</b>, not a query planner: one entity namespace matched in memory. On <code>sql</code> the same <code>find</code> is pushed into <code>WHERE</code>/<code>ORDER BY</code>/<code>LIMIT</code>. Indexes are single-field (<code>index Task.dueAt</code>); composite and partial indexes are not generated.</li>
             <li><b>Vector search is a scan.</b> <code>examples/vector</code> reads the notes it can find and ranks them in the body: there is no ANN index and no distance <code>order by</code> in the store. Cosine scores stay between -1 and 1, so a caller can pick a threshold; a large corpus needs an index this example does not have.</li>
             <li><b>SSR embeds one first screen.</b> A page whose operations all need input cannot fill it and gets <code>W030</code>; later changes still come from the generated form, not from streamed updates.</li>
